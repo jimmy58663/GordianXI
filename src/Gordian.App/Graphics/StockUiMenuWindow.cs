@@ -127,6 +127,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
+            else if (font != null && menu.IsSynthesisGrid)
+            {
+                StockUiSynthesisWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.IsEquipment)
             {
                 StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
@@ -232,7 +236,7 @@ namespace Gordian.App.Graphics
                 // A prompt's message, centred at y 24. One wider than the window wraps at spaces onto more lines, each centred,
                 // kept between the frame's top and the buttons (round 3: the equipment set Paste prompt, "Performing this
                 // action will overwrite the current set with a new one. Proceed?", ran out of the 252 px comyn window).
-                var lines = StockUiTreasureWindow.Wrap(t => font.MeasureWidth(t), message, frame.Width - 2 * MessageMargin, MessageMaxLines);
+                var lines = StockUiTextLayout.Wrap(message, t => font.MeasureWidth(t), frame.Width - 2 * MessageMargin, MessageMaxLines);
                 float pitch = font.LineHeight;
                 float buttonsTop = frame.Height;
                 foreach (var b in definition.Buttons)
@@ -348,7 +352,7 @@ namespace Gordian.App.Graphics
                 if (menu.EmptyText is { } empty)
                 {
                     Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-                    var lines = StockUiTreasureWindow.Wrap(measure, empty, ActionEmptyWidth, 4);
+                    var lines = StockUiTextLayout.Wrap(empty, measure, ActionEmptyWidth, 4);
                     for (int i = 0; i < lines.Count; i++)
                     {
                         float x = placement.X + ActionEmptyTextX * s, y = placement.Y + (ActionEmptyTextY + i * ActionEmptyPitch) * s;
@@ -642,47 +646,21 @@ namespace Gordian.App.Graphics
             StockUiPlacement at, ushort itemId, string fallbackName)
         {
             float s = at.Scale;
+            if (itemId == 0)
+            {
+                // No item (the guild Sell list's "Select from your inventory."): the empty window with its slot box (image-5).
+                renderer.DrawMenu(info, at, includeButtons: true, opaqueBody: true);
+                return;
+            }
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
             var record = menu.ItemLookup?.Invoke(itemId);
-            float x = at.X + InfoTextX * s, y = at.Y + InfoTextY * s;
-            renderer.DrawText(font, record != null ? StockUiShop.LongName(record) : fallbackName, x, y, s);
-            int width = (int)(info.Frame.Width - InfoTextX - InfoRightInset);
-            int maxLines = (int)((info.Frame.Height - InfoTextY - InfoLinePitch) / InfoLinePitch);
-            string? description = record?.Description;
-            if (string.IsNullOrWhiteSpace(description) || maxLines <= 0) return;
-            foreach (string wrapped in Wrap(font, description, width, maxLines))
-            {
-                y += InfoLinePitch * s;
-                renderer.DrawText(font, wrapped, x, y, s);
-            }
-        }
-
-        /// <summary>Word-wraps text to a layout width (unscaled), keeping the DAT's own line breaks; at most <paramref name="maxLines"/> lines.</summary>
-        internal static List<string> Wrap(UiFont font, string text, int width, int maxLines)
-        {
-            var lines = new List<string>();
-            foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
-            {
-                string current = string.Empty;
-                foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string candidate = current.Length == 0 ? word : current + " " + word;
-                    if (current.Length > 0 && font.MeasureWidth(candidate) > width)
-                    {
-                        lines.Add(current);
-                        if (lines.Count >= maxLines) return lines;
-                        current = word;
-                    }
-                    else
-                    {
-                        current = candidate;
-                    }
-                }
-                if (current.Length > 0) lines.Add(current);
-                if (lines.Count >= maxLines) return lines;
-            }
-            return lines;
+            // The name on the first line, the description under it, all in the window's text box (shared layout and clip).
+            float width = info.Frame.Width - InfoTextX - InfoRightInset, height = info.Frame.Height - InfoTextY;
+            var lines = new List<string> { record != null ? StockUiShop.LongName(record) : fallbackName };
+            int maxLines = StockUiTextLayout.LinesIn(height, InfoLinePitch);
+            lines.AddRange(StockUiTextLayout.Wrap(record?.Description, t => font.MeasureWidth(t), width, Math.Max(0, maxLines - 1)));
+            StockUiTextBoxes.DrawLines(renderer, font, null, lines, at.X + InfoTextX * s, at.Y + InfoTextY * s, width, height, s, linePitch: InfoLinePitch);
         }
 
         /// <summary>

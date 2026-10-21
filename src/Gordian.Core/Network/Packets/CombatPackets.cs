@@ -316,13 +316,17 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
-    /// Synthesis outcome LSB sends in S2C 0x030 <c>Type</c> with a synthesis effect.
-    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/utils/synthutils.h, SYNTHESIS_RESULT).
+    /// Synthesis outcome LSB sends in S2C 0x030 <c>Type</c> with a synthesis effect: its <c>RESULT_*</c> values
+    /// (<c>synthutils::handleSynthResult</c> maps <c>SYNTHESIS_FAIL</c> to <c>RESULT_FAIL</c> 1, <c>SYNTHESIS_SUCCESS</c> to
+    /// <c>RESULT_SUCCESS</c> 0 and every high quality tier to <c>RESULT_HQ</c> 2), not the <c>SYNTHESIS_RESULT</c> enum (fail 0,
+    /// success 1), which this enum followed until the maintainer's round 3 (2026-10-18) showed the effect's endings swapped.
+    /// <c>RESULT_HQ2</c> / <c>RESULT_HQ3</c> (3, 4) are defined but LSB does not send them.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/utils/synthutils.cpp, RESULT_*).
     /// </summary>
     public enum SynthesisResult : byte
     {
-        Fail = 0,
-        Success = 1,
+        Success = 0,
+        Fail = 1,
         HighQuality1 = 2,
         HighQuality2 = 3,
         HighQuality3 = 4

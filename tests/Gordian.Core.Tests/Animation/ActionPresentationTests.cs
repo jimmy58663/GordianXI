@@ -28,6 +28,9 @@ namespace Gordian.Core.Tests.Animation
     {
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
         private const float Tick = 1f / 60f;
+        private readonly ITestOutputHelper _output;
+
+        public ActionPresentationTests(ITestOutputHelper output) => _output = output;
 
         private sealed class CountingSink : IActionHitSink
         {
@@ -536,6 +539,34 @@ namespace Gordian.Core.Tests.Animation
         }
 
         // --- Retail data -----------------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// #328: most spells and job abilities sound through audio generators. Fire (spell 144, file 2944) starts
+        /// <c>gs00</c> (sound 3032) and Berserk (job ability 0, file 4412) <c>g00s</c> (7001); Cure (spell 1, file 2801) has
+        /// no generator and plays its pointer <c>0303</c> (3037) as a sound command. The merged cues on the actor hold both
+        /// kinds in tick order.
+        /// </summary>
+        [Fact]
+        public void Retail_SpellsAndAbilities_SoundThroughTheirGeneratorsOrCommands()
+        {
+            if (Retail() is not { } rm || HumeMale(rm) is not { } model) return;
+            var library = new ActionMotionLibrary(rm.LoadDatBytesByFileId);
+            foreach (var (category, animation, sound, generator) in new[]
+            {
+                (ActionCategory.MagicFinish, 144, 3032, true), (ActionCategory.AbilityFinish, 0, 7001, true), (ActionCategory.MagicFinish, 1, 3037, false)
+            })
+            {
+                var asset = library.Resolve(category, animation, CharacterRace.HumeMale)!;
+                var all = asset.GetSoundsOnModel(model);
+                _output.WriteLine($"{asset}: generators [{string.Join(", ", asset.GeneratorSounds.Select(c => $"{c.Tick}:{c.Choices[0]}"))}], " +
+                    $"all [{string.Join(", ", all.Where(c => !c.IsTargetLink).Select(c => $"{c.Tick}:{string.Join("/", c.Choices)}"))}]");
+                Assert.Equal(generator, asset.GeneratorSounds.Any(c => c.Choices.Contains(sound)));
+                // Once: Cure's 0x53 and 0x0B on the same pointer at the same tick are one target sound (D8).
+                Assert.Single(all, c => c.Choices.Contains(sound));
+                Assert.Equal(all.OrderBy(c => c.Tick).Select(c => c.Tick), all.Select(c => c.Tick));
+            }
+        }
+
 
         private static ResourceManager? Retail()
         {

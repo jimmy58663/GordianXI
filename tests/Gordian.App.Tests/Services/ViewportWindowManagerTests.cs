@@ -71,6 +71,8 @@ namespace Gordian.App.Tests.Services
             var netManager = new SessionNetworkManager("127.0.0.1", 54230);
             var session = new CharacterSession("Sylphie", 2, "user_sylph", netManager);
 
+            // A second character for the main window to move on to: tearing off the only one keeps it here (D23, #307).
+            _viewModel.AddSession(new CharacterSession("Cybin", 1, "user_cybin", new SessionNetworkManager("127.0.0.1", 54230)));
             var tab = _viewModel.AddSession(session);
             Assert.False(tab.IsPoppedOut);
 

@@ -36,7 +36,7 @@ namespace Gordian.App.Graphics
     /// joint-palette skeletal skinning, authentic FFXI orientation, lighting, and distance fog.
     /// Clean-room implementation referencing FFXI entity rendering conventions and xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
-    public sealed class EntityRenderer : IDisposable
+    public sealed partial class EntityRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
         // Layouts, texture cache and GPU models shared by every window on the device (#300).
@@ -193,6 +193,9 @@ namespace Gordian.App.Graphics
 
             /// <summary>The weapon slot of the mesh (<see cref="AnimatedMeshGroup.WeaponSlot"/>), or -1.</summary>
             public int WeaponSlot { get; init; } = -1;
+
+            /// <summary>The mesh piece's ambient multiplier (<see cref="AnimatedMeshGroup.AmbientMultiplier"/>).</summary>
+            public float AmbientMultiplier { get; init; } = 1.0f;
 
             public void Dispose()
             {
@@ -393,6 +396,7 @@ namespace Gordian.App.Graphics
             IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null,
             string localPlayerRidingPlatformId = "")
         {
+            _shadowDraws.Clear(); // drawn later by DrawQueuedShadows; a frame that never drew them must not pile up
             if (_disposed || cl == null || entities == null) return;
 
             if (resourceManager != null && resourceManager.CacheGeneration != _shared.EntityModelGeneration)
@@ -595,8 +599,11 @@ namespace Gordian.App.Graphics
 
                 // Actors take the 0x2F model lights of the environment they stand in: a floor linked to a
                 // sub-environment (a cave or interior) uses that environment's, anywhere else the zone's weather.
+                // Models with a blur aura (0x5E: the avatars and Prime avatars) keep the zone's lights indoors: in retail
+                // they stay bright in Dynamis-Jeuno's dark palace while the goblins beside them darken (image-15.png,
+                // TESTING-2026-10-18 round 2; estimated from that one capture, #7).
                 var lights = outdoorLights;
-                if (zone != null && subEnvironments != null && subEnvironments.Count > 0
+                if (entityModel?.BlurAura == null && zone != null && subEnvironments != null && subEnvironments.Count > 0
                     && GetEntityEnvironment(entity.ServerId, pos, zone) is { } environmentId
                     && subEnvironments.TryGetValue(environmentId, out var indoorLights))
                 {
@@ -620,7 +627,8 @@ namespace Gordian.App.Graphics
                     bool engaged = isLocalPlayer ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
                     var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
 
-                    if (!isLocalPlayer && category != entity.Animation.Current)
+                    // A frozen entity's state does not follow its category: logging it would repeat every frame.
+                    if (!isLocalPlayer && category != entity.Animation.Current && !entity.IsMotionStopped)
                     {
                         double elapsedSincePacketMs = entity.LastPositionChangeUtc != DateTime.MinValue
                             ? (DateTime.UtcNow - entity.LastPositionChangeUtc).TotalMilliseconds
@@ -636,7 +644,13 @@ namespace Gordian.App.Graphics
                     // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion.
                     if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
                     {
-                        entity.Animation.Advance(deltaSeconds, category, entity.AnimationSub, skinnedModel);
+                        // Once per frame in wall time, however many viewports draw this world (#307).
+                        entity.Animation.Advance(entity.Animation.ClaimFrameTime(deltaSeconds), category, entity.AnimationSub, skinnedModel);
+                    }
+                    else
+                    {
+                        // Frozen, it still takes its hits: their sounds play (#328, D29: the Macro Test dummies).
+                        entity.Animation.TakeReactionsWhileStopped();
                     }
 
                     // Weapons sit in the hands while engaged; the draw and sheathe move them partway through.
@@ -659,17 +673,21 @@ namespace Gordian.App.Graphics
 
                 if (HideLocalPlayer && entity.ServerId == localPlayerServerId) continue;
 
-                draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
+                draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
+                if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
+                if (!faded && !isFallback && !entity.HidesShadow)
+                    QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.
                     cl.SetPipeline(isSkinned ? _skinnedFadePipeline : _fadePipeline);
                     cl.SetGraphicsResourceSet(0, _entityResourceSet);
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
-                    draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons);
+                    draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 }
             }
 
+            draws += DrawBlurAuras(cl, deltaSeconds);
             DrawCalls = draws;
             VisibleEntities = visible;
             CulledEntities = culled;
@@ -679,13 +697,36 @@ namespace Gordian.App.Graphics
         /// Draws every submesh of a model with the bound pipeline, except the weapon slots in <paramref name="hiddenWeapons"/>;
         /// returns the draw calls made.
         /// </summary>
-        private int DrawSubmeshes(CommandList cl, GpuEntityModel gpuModel, int hiddenWeapons)
+        /// <summary>An actor's scene uniform with its sun, moon and ambient light and its light cap scaled by a mesh piece's multiplier.</summary>
+        internal static ZoneSceneUniform ScaledActorLight(in ZoneSceneUniform uniform, float multiplier)
+        {
+            var scaled = uniform;
+            static Vector4 Scale(Vector4 c, float m) => new(c.X * m, c.Y * m, c.Z * m, c.W);
+            scaled.SunColor = Scale(uniform.SunColor, multiplier);
+            scaled.MoonColor = Scale(uniform.MoonColor, multiplier);
+            scaled.AmbientColor = Scale(uniform.AmbientColor, multiplier);
+            if (uniform.WeatherParams.Z > 0.0f) scaled.WeatherParams.Z = uniform.WeatherParams.Z * multiplier;
+            return scaled;
+        }
+
+        private int DrawSubmeshes(CommandList cl, GpuEntityModel gpuModel, int hiddenWeapons, ZoneSceneUniform? lighting = null)
         {
             int draws = 0;
+            float currentAmbient = 1.0f;
             for (int m = 0; m < gpuModel.Submeshes.Count; m++)
             {
                 var submesh = gpuModel.Submeshes[m];
                 if (EntityModel.IsWeaponSlotHidden(hiddenWeapons, submesh.WeaponSlot)) continue;
+                // The body's own draw (lighting given): each mesh piece scales its light, and the actor light cap, by its
+                // authored multiplier (0x8010 +16; avatars 1.0-2.0, most monsters 1.0), so avatars stand out from a dark
+                // interior as in retail (#7 round 2, image-15.png). Whether the client scales only the ambient term is not
+                // known; ambient alone left Ifrit at under half retail's brightness in Dynamis-Jeuno's palace.
+                if (lighting is { } lit && submesh.AmbientMultiplier != currentAmbient)
+                {
+                    currentAmbient = submesh.AmbientMultiplier;
+                    var pieceUniform = ScaledActorLight(lit, currentAmbient);
+                    cl.UpdateBuffer(_entityUniformBuffer, 0, ref pieceUniform);
+                }
                 // The model's own texture of that name, uploaded by its source (never by name: #163).
                 var texSet = _textureCache.GetOrCreateResourceSet(submesh.TextureName, gpuModel.Textures);
 
@@ -993,7 +1034,8 @@ namespace Gordian.App.Graphics
                     VertexBuffer = vb,
                     IndexBuffer = ib,
                     IndexCount = (uint)ushortIndices.Length,
-                    WeaponSlot = mg.WeaponSlot
+                    WeaponSlot = mg.WeaponSlot,
+                    AmbientMultiplier = mg.AmbientMultiplier
                 });
             }
 
@@ -1134,6 +1176,8 @@ namespace Gordian.App.Graphics
             _skinnedDepthPipeline?.Dispose();
             _fadePipeline?.Dispose();
             _skinnedFadePipeline?.Dispose();
+            DisposeBlurAura();
+            DisposeShadows();
             // GPU models, textures and layouts are the shared resources'.
             if (_ownsShared) _shared.Dispose();
         }

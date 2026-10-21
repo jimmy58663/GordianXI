@@ -65,14 +65,47 @@ namespace Gordian.App.Audio
         private readonly HashSet<uint> _seen = new();
         private readonly Func<int, int> _random;
         private readonly Func<EntityModel, string, bool, IReadOnlyList<RoutineSoundCue>> _sounds;
+        private readonly Func<HitReaction, IReadOnlyList<int>>? _sharedHitSounds;
+        private readonly Func<double> _clock;
+        private readonly Dictionary<uint, Tail> _tails = new();
+
+        /// <summary>
+        /// A presentation whose body motion ended before its routine (#328): Cure's <c>main</c> runs 245 ticks, the body
+        /// only 121, and the late sounds still play, on wall time from the last routine tick seen.
+        /// </summary>
+        private sealed class Tail
+        {
+            public required IReadOnlyList<RoutineSoundCue> Cues { get; init; }
+            public int Serial { get; set; }
+            public float Ticks { get; set; }
+            public double Seconds { get; set; }
+        }
 
         /// <param name="random">Picks an index below its argument (a random choice); <see cref="Random.Shared"/> by default.</param>
         /// <param name="sounds">A model's sounds for a routine and hand; <see cref="EntityModel.GetRoutineSounds"/> by default.</param>
-        public ActionSoundTracker(Func<int, int>? random = null, Func<EntityModel, string, bool, IReadOnlyList<RoutineSoundCue>>? sounds = null)
+        /// <param name="sharedHitSounds">
+        /// The sounds the shared <c>ROM/0/0</c> hit routines play for a melee hit (#328, <see cref="Gordian.Core.Resources.Graphics.SharedHitRoutines.MeleeHitSounds"/>:
+        /// additional effect, critical hit, spikes), or null for none.
+        /// </param>
+        public ActionSoundTracker(Func<int, int>? random = null, Func<EntityModel, string, bool, IReadOnlyList<RoutineSoundCue>>? sounds = null,
+            Func<HitReaction, IReadOnlyList<int>>? sharedHitSounds = null, Func<double>? clock = null)
         {
+            _clock = clock ?? (() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
             _random = random ?? Random.Shared.Next;
             _sounds = sounds ?? ((model, name, offHand) => model.GetRoutineSounds(name, offHand));
+            _sharedHitSounds = sharedHitSounds;
         }
+
+        /// <summary>
+        /// Whether a result of this action category runs the target's reaction routine (<c>damg</c>, <c>gurd</c>...) and the
+        /// attacker's <c>chit</c>. Only the physical hit routines do: a melee swing's <c>dada</c> (through <c>dam0</c>) and a
+        /// ranged attack's <c>ldad</c> (through <c>daml</c>) pick them by the result's <c>miss</c>; the magic hit routine
+        /// <c>mdam</c>, which spells, job abilities and weapon skills link at their result, runs none (retail <c>ROM/0/0</c>,
+        /// read 2026-10-18: its only commands are 0x01 and 0x2B). Round 1 played <c>damg</c> and the caster's hit sound when a
+        /// Cure landed (#328, in-game test D8). An unknown category (0) keeps the reaction.
+        /// </summary>
+        public static bool PlaysReactionRoutine(ActionCategory category) =>
+            category is ActionCategory.None or ActionCategory.BasicAttack or ActionCategory.RangedFinish;
 
         /// <summary>The routine whose sounds a hit reaction plays, by its resolution.</summary>
         public static string? ReactionRoutine(ActionResolution resolution) => resolution switch
@@ -97,10 +130,11 @@ namespace Gordian.App.Audio
             ActionRequest? request = a.ActiveRequest;
             // A presentation's main (#132) is not the model's: its sounds come through the presentation's own routines.
             IReadOnlyList<RoutineSoundCue>? cues = null;
-            if (routine == null && active is not null && a.Model is { } actorModel && request?.Asset?.Motion is { } bank
+            if (routine == null && active is not null && a.Model is { } actorModel && request?.Asset is { Motion: { } bank } asset
                 && ReferenceEquals(bank.BuildOnModel(actorModel, ActionAsset.MainRoutine), active))
             {
-                cues = bank.GetSoundsOnModel(actorModel, ActionAsset.MainRoutine);
+                // Its sound commands and its audio generators (#328: most spells and job abilities sound through these).
+                cues = asset.GetSoundsOnModel(actorModel);
             }
             bool attack = cues == null && request is { Motion: ActionMotion.Swing or ActionMotion.Counter };
             return new ActorSoundState(entity.ServerId, entity.Position, a.Model, routine, a.ActionSerial, a.ActionTicks,
@@ -134,10 +168,37 @@ namespace Gordian.App.Audio
             }
 
             EntityModel? model = actor.Model;
+            double now = _clock();
+            if (actor.Cues is null && _tails.TryGetValue(actor.Id, out Tail? tail))
+            {
+                float ticks = tail.Ticks + (float)((now - tail.Seconds) * EntityAnimationState.RoutineTicksPerSecond);
+                Play(tail.Cues, tail.Ticks, ticks, actor.Position, into);
+                tail.Ticks = ticks;
+                tail.Seconds = now;
+                if (tail.Cues.Count == 0 || ticks >= tail.Cues[^1].Tick)
+                {
+                    _tails.Remove(actor.Id);
+                }
+            }
+
             if (actor.Cues is { } presentation)
             {
                 bool started = actor.ActionSerial != last.ActionSerial;
                 Play(presentation, started ? -1f : last.ActionTicks, actor.ActionTicks, actor.Position, into);
+                if (presentation.Count > 0 && actor.ActionTicks < presentation[^1].Tick)
+                {
+                    if (!_tails.TryGetValue(actor.Id, out Tail? running) || running.Serial != actor.ActionSerial || !ReferenceEquals(running.Cues, presentation))
+                    {
+                        _tails[actor.Id] = running = new Tail { Cues = presentation };
+                    }
+                    running.Serial = actor.ActionSerial;
+                    running.Ticks = actor.ActionTicks;
+                    running.Seconds = now;
+                }
+                else
+                {
+                    _tails.Remove(actor.Id);
+                }
             }
             else if (model is not null && actor.Routine is { Length: > 0 } routine)
             {
@@ -150,7 +211,8 @@ namespace Gordian.App.Audio
                 }
             }
 
-            if (model is not null && actor.ReactionSerial != last.ReactionSerial && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
+            if (model is not null && actor.ReactionSerial != last.ReactionSerial && PlaysReactionRoutine(actor.LastReaction.Category)
+                && ReactionRoutine(actor.LastReaction.Resolution) is { } reaction)
             {
                 foreach (RoutineSoundCue cue in _sounds(model, reaction, false))
                 {
@@ -172,6 +234,13 @@ namespace Gordian.App.Audio
                 }
             }
 
+            if (actor.ReactionSerial != last.ReactionSerial && actor.LastReaction.Category == ActionCategory.BasicAttack
+                && _sharedHitSounds?.Invoke(actor.LastReaction) is { Count: > 0 } shared)
+            {
+                // A melee swing's dada: the shared routines' additional effect, critical and spike sounds, at the target.
+                foreach (int id in shared) into.Add(new ActionSoundEvent(id, actor.Position));
+            }
+
             if (model is not null && actor.IsDead && !last.IsDead)
             {
                 Play(_sounds(model, "dead", false), float.NegativeInfinity, float.PositiveInfinity, actor.Position, into);
@@ -188,6 +257,7 @@ namespace Gordian.App.Audio
         public void Clear()
         {
             _actors.Clear();
+            _tails.Clear();
             _seen.Clear();
         }
 
@@ -208,6 +278,7 @@ namespace Gordian.App.Audio
                 foreach (uint id in stale)
                 {
                     _actors.Remove(id);
+                    _tails.Remove(id);
                 }
             }
 

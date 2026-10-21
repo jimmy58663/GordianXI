@@ -363,6 +363,54 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// Per race, the dual-wield motion packs (#308): the weapon types of that race that can be dual wielded, in
+        /// ascending order, and the first body pack of each hand. A weapon's pack is the first one plus the rank of its
+        /// type in the list, for each hand (the main weapon in the main-hand window, the sub weapon in the off-hand one).
+        /// <para>
+        /// The windows are from xi-tools (mv/lists/characters.json "Dual Wield (Main)" / "Dual Wield (Sub)", the
+        /// client's <c>dwMain</c> / <c>dwOff</c> motion categories in src/xi/entity/anim/xi_motion_tables.py); xi-tools
+        /// lists them without an index rule. The rule and the type lists were read from the retail data (2026-10-18,
+        /// <c>DualWieldPackRealDataTests</c>): every race's dual-wieldable sub weapons fall into as many types as it has
+        /// packs per hand, and each pack's draw carries exactly the mounts (weapon Info byte 6) of the weapons of its type
+        /// (Hume male: club 0 at 0x72 / 0x7A, sword 1 at 0x71 / 0x79, dagger 3 at 0x74 / 0x7B, katana 7 at 0x75 / 0x7C).
+        /// The main-hand pack holds <c>ati*</c>, the moving and counter swings, the engaged stance and the per-hand
+        /// draw / sheathe <c>in1N</c> / <c>ot1N</c>; the off-hand pack holds <c>bti*</c>, <c>btf0</c> / <c>btb0</c> /
+        /// <c>btl0</c> / <c>btr0</c> and <c>in2N</c> / <c>ot2N</c>, N the weapon's sub-type (Info byte 4). Each pack is
+        /// followed by its waist parts (not loaded, as for the single-weapon packs). <b>Differs from xi-tools:</b> its
+        /// Mithra labels are swapped (<c>ROM/115/61</c>-<c>64</c> hold <c>bti*</c>, <c>ROM/115/73</c>-<c>76</c> <c>ati*</c>).
+        /// </para>
+        /// </summary>
+        private static readonly (int[] Types, (int Folder, int File) Main, (int Folder, int File) Sub)[] DualWieldPacks =
+        {
+            ([0, 1, 3, 7], (108, 112), (108, 100)), // HumeMale
+            ([0, 1, 2, 6], (110, 31), (110, 19)),   // HumeFemale
+            ([1, 2, 3, 9], (111, 78), (111, 66)),   // ElvaanMale
+            ([0, 5], (112, 119), (112, 113)),       // ElvaanFemale
+            ([1, 3, 4], (114, 29), (114, 20)),      // TaruMale
+            ([1, 3, 4], (114, 29), (114, 20)),      // TaruFemale (shares the Tarutaru tables)
+            ([0, 2, 3, 8], (115, 73), (115, 61)),   // Mithra
+            ([1, 2, 4], (116, 117), (116, 108)),    // Galka
+        };
+
+        /// <summary>
+        /// The dual-wield motion packs for a main and a sub weapon of the given animation types (Info byte 3), or false
+        /// when either type has no dual-wield pack on this race (the single-weapon battle pack applies). See
+        /// <see cref="DualWieldPacks"/>.
+        /// </summary>
+        public static bool TryGetDualWieldPackPaths(CharacterRace race, int mainType, int subType, out string mainPath, out string subPath)
+        {
+            mainPath = subPath = string.Empty;
+            int raceIdx = GetRetailRaceIndex(race);
+            if (raceIdx < 0 || raceIdx >= DualWieldPacks.Length) return false;
+            var (types, main, sub) = DualWieldPacks[raceIdx];
+            int mainRank = Array.IndexOf(types, mainType), subRank = Array.IndexOf(types, subType);
+            if (mainRank < 0 || subRank < 0) return false;
+            mainPath = OffsetDatPath(main, mainRank);
+            subPath = OffsetDatPath(sub, subRank);
+            return true;
+        }
+
+        /// <summary>
         /// Converts an FFXI legacy motion FileNumber (folder * 1000 + file, e.g. 32013 -> ROM/32/13.DAT)
         /// to its relative ROM path, applying the 128-files-per-folder carry rule.
         /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js motFileNoToPath.

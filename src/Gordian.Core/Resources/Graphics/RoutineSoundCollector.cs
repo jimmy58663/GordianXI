@@ -124,7 +124,7 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             cues.Sort((a, b) => a.Tick.CompareTo(b.Tick));
-            return cues;
+            return DropTargetSoundVariants(cues);
 
             RawMotionRoutine? Resolve(string link)
             {
@@ -190,6 +190,42 @@ namespace Gordian.Core.Resources.Graphics
                         cues.Add(new RoutineSoundCue(group.Tick, group.Choices.ToArray(), group.Op));
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Keeps one of the target sound commands that play the same sound at the same tick: 0x0B at the target, 0x4A
+        /// (PS2 <c>IdlePlayerTargetSound</c>) and 0x53 (<c>IdleNearTargetSound</c>) are variants of it for different viewers
+        /// (op names from xi-tools docs/reference/ps2_beta_2001.md). Which one retail picks for which viewer is not known, so
+        /// one plays. Cure's <c>main</c> carries 0x53 and 0x0B on its pointer <c>0303</c> at tick 2, which round 1 played twice
+        /// (#328, in-game test D8).
+        /// </summary>
+        internal static List<RoutineSoundCue> DropTargetSoundVariants(List<RoutineSoundCue> cues)
+        {
+            for (int i = cues.Count - 1; i > 0; i--)
+            {
+                var cue = cues[i];
+                if (!IsTargetSoundOp(cue.Op)) continue;
+                for (int j = i - 1; j >= 0 && cues[j].Tick == cue.Tick; j--)
+                {
+                    if (IsTargetSoundOp(cues[j].Op) && SameChoices(cues[j].Choices, cue.Choices))
+                    {
+                        cues.RemoveAt(i);
+                        break;
+                    }
+                }
+            }
+            return cues;
+
+            static bool IsTargetSoundOp(byte op) => op is 0x0B or 0x4A or 0x53;
+            static bool SameChoices(IReadOnlyList<int> a, IReadOnlyList<int> b)
+            {
+                if (a.Count != b.Count) return false;
+                for (int k = 0; k < a.Count; k++)
+                {
+                    if (a[k] != b[k]) return false;
+                }
+                return true;
             }
         }
 
