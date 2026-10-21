@@ -889,7 +889,7 @@ namespace Gordian.Core.Tests.Input
         }
 
         [Fact]
-        public void Update_WhenCancelTriggeredWhileLockedOn_ClearsTheTarget_NotJustTheLockOn()
+        public void Update_WhenCancelTriggeredWhileLockedOn_DoesNothing()
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
 
@@ -903,12 +903,19 @@ namespace Gordian.Core.Tests.Input
             actionService.SetTarget(target);
             actionService.SetLockOn(true);
 
-            // Cancel never releases lock-on on its own (retail; the lock-on key does that): it clears the target, which
-            // ends the lock with it.
+            // While locked on, Cancel leaves both the target and the lock alone (retail; the lock-on key releases it).
+            input.SetKeyDown(GordianKey.Escape);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Same(target, actionService.CurrentTarget);
+            Assert.True(actionService.IsLockedOn);
+
+            // Released, Cancel clears the target as usual.
+            actionService.SetLockOn(false);
+            input.SetKeyUp(GordianKey.Escape);
+            controller.Update(TimeSpan.FromMilliseconds(16));
             input.SetKeyDown(GordianKey.Escape);
             controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.Null(actionService.CurrentTarget);
-            Assert.False(actionService.IsLockedOn);
         }
 
         [Fact]

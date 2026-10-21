@@ -1564,8 +1564,9 @@ namespace Gordian.Core.Input
                 else _actionService.OpenTargetCommandMenu();
             }
 
-            // Cancel / Clear Target. Cancel never releases lock-on in retail (its own key toggles it; maintainer, 2026-10-19).
-            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            // Cancel / Clear Target. While locked on, Cancel does nothing at all (retail; the lock-on key toggles it;
+            // maintainer, 2026-10-20).
+            if (_inputState.WasActionTriggered(InputAction.Cancel) && !_actionService.IsLockedOn)
             {
                 if (_actionService.CurrentTarget != null)
                 {
