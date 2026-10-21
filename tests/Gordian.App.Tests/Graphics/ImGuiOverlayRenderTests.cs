@@ -12,6 +12,7 @@ namespace Gordian.App.Tests.Graphics
     /// green clear, and the D3D11 GPU pass timer. Skipped off Windows or without a device; set GORDIAN_UI_DUMP to a
     /// folder to save the frames as PNG.
     /// </summary>
+    [Collection("ImGuiOverlayRegistry")]
     public class ImGuiOverlayRenderTests
     {
         internal const uint Width = 800, Height = 600;
