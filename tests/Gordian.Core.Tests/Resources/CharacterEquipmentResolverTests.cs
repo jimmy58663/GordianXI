@@ -82,7 +82,10 @@ namespace Gordian.Core.Tests.Resources
         [InlineData(2247u, 52542)]   // Expansion / WotG (Lycopodium)
         [InlineData(3000u, 99907)]   // Late Expansion
         [InlineData(3128u, 100035)]  // Late Expansion
-        [InlineData(3193u, 101739)]  // Adoulin / RoV
+        [InlineData(3192u, 100099)]  // Last registered model before the gap
+        [InlineData(3193u, -1)]      // Unregistered: retail draws nothing (capture 2026-10-17, #83)
+        [InlineData(3499u, -1)]      // Unregistered
+        [InlineData(3500u, 101739)]  // Adoulin / RoV: first real file after the gap
         public void CharacterEquipmentResolver_ResolvesMonsterFileIds(uint modelId, int expectedFileId)
         {
             int fileId = CharacterEquipmentResolver.GetMonsterFileId(modelId);

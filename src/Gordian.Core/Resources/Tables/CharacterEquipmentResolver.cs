@@ -449,6 +449,11 @@ namespace Gordian.Core.Resources.Tables
         /// Calculates the canonical FFXI ROM File ID for an NPC, Monster, or Trust entity model
         /// using a piecewise model-to-file mapping.
         /// Protocol specification referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer).
+        /// <para>
+        /// <b>Differs from xi-model-viewer:</b> model ids 3193-3499 are unregistered in retail (a costumed player is
+        /// invisible; capture 2026-10-17, issue #83), and the run of real files starts at 3500 with model + 98239
+        /// (xi-tools numbering). Returns <see cref="NoModelFileId"/> for the unregistered range.
+        /// </para>
         /// </summary>
         public static int GetMonsterFileId(uint modelId)
         {
@@ -464,7 +469,14 @@ namespace Gordian.Core.Resources.Tables
             {
                 return (int)modelId + 96907;
             }
-            return (int)modelId + 98546;
+            if (modelId < 3500)
+            {
+                return NoModelFileId;
+            }
+            return (int)modelId + 98239;
         }
+
+        /// <summary>Returned by <see cref="GetMonsterFileId"/> for an unregistered model id (nothing is drawn).</summary>
+        public const int NoModelFileId = -1;
     }
 }

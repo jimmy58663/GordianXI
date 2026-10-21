@@ -37,10 +37,11 @@ namespace Gordian.App.Graphics
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;
-            // Config pages with sliders: the frame art of some pages bakes in a sample fill (conf5w1's first bar
-            // shows about 20%); it is left out so the fill drawn for the value is the only one.
+            // conf5w1 / conf5w2 bake an orange block (gauge texels 48,16; x 88-126 of the 192-px Maximum lines bar, y 93-111)
+            // into their frame: it is retail's marker for the lowest Maximum lines value, 4 of 20 (retail capture 2026-10-18,
+            // image-2). It stays drawn, under the fill, as in retail.
             renderer.DrawMenu(definition, placement, includeButtons: false,
-                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage,
+                opaqueBody: true, frameImage: menu.FrameImage,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
@@ -85,7 +86,7 @@ namespace Gordian.App.Graphics
                 {
                     // Client text beside a label (the chat-mode list: the tell partner after Tell's red arrow, "No
                     // Linkshell" / "No Unity" beside greyed modes), centred on the row.
-                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f, s);
+                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f + side.Y * s, s);
                 }
 
                 if (menu.SliderFractions.TryGetValue(button.ButtonId, out float fraction) && fraction > 0)
@@ -749,14 +750,6 @@ namespace Gordian.App.Graphics
                 _ => new UiColor(0x08, 0x08, 0x38, 0x80),
             };
         }
-
-        /// <summary>
-        /// A frame part that is an authored sample of a slider fill (the orange block, gauge texels 48,16, that
-        /// "conf5w1"/"conf5w2" bake into their first bar).
-        /// </summary>
-        private static bool IsSliderFill(UiSpritePart part) =>
-            part.SourceX == 48 && part.SourceY == 16 && part.SourceWidth == 16
-            && UiResourceLibrary.TrimResourceName(part.TextureName).Equals(SliderTexture, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Retail's list scrollbar (captures, 2026-09-26): a 6 px track straddling the window's right edge from the

@@ -867,17 +867,17 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(menus.Open(StockUiConfigPages.Window1SettingsPage));
             Place(menus, (0, 0));
 
-            // Button 3 ("Maximum lines displayed", 1-8) spans x 16..104 at scale 2 = 32..208 on screen.
+            // Button 3 ("Maximum lines displayed", 1-20) spans x 16..104 at scale 2 = 32..208 on screen.
             float y = Row(0, 0, 2).Y;
             Assert.True(menus.OnMouseDown(MouseButton.Left, 33, y));
-            Assert.Equal(1, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
-            menus.OnMouseMove(120, y); // halfway: 1 + 3.5 steps rounds to 5
-            Assert.Equal(5, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(4, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines)); // the bar spans 0-20 but Maximum lines floors at 4
+            menus.OnMouseMove(120, y); // halfway of 0-20
+            Assert.Equal(10, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
             menus.OnMouseMove(400, y); // past the end: clamped
-            Assert.Equal(8, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(20, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
             menus.OnMouseUp(MouseButton.Left, 400, y);
             menus.OnMouseMove(33, y); // released: the value stays
-            Assert.Equal(8, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(20, menus.Settings.GetValue(StockUiSettingKey.Window1MaxLines));
             Assert.Equal(3, menus.Top!.SelectedButtonId);
         }
 

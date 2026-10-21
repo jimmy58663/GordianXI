@@ -1564,16 +1564,18 @@ namespace Gordian.Core.Input
                 else _actionService.OpenTargetCommandMenu();
             }
 
-            // Cancel / Clear Target (releases lock-on first if active, then clears target on subsequent cancel)
-            if (_inputState.WasActionTriggered(InputAction.Cancel))
+            // Cancel / Clear Target. While locked on, Cancel does nothing at all (retail; the lock-on key toggles it;
+            // maintainer, 2026-10-20).
+            if (_inputState.WasActionTriggered(InputAction.Cancel) && !_actionService.IsLockedOn)
             {
-                if (_actionService.IsLockedOn)
-                {
-                    _actionService.SetLockOn(false);
-                }
-                else if (_actionService.CurrentTarget != null)
+                if (_actionService.CurrentTarget != null)
                 {
                     _actionService.ClearTarget();
+                }
+                else
+                {
+                    // Nothing targeted: Cancel gives back a line of the log windows.
+                    Chat?.RequestLogShrink();
                 }
             }
         }

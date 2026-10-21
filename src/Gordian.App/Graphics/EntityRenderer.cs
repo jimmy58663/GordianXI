@@ -1046,7 +1046,13 @@ namespace Gordian.App.Graphics
         private static bool HasOwnModelReference(WorldEntity entity)
         {
             if (entity.Type is EntityType.Door or EntityType.Elevator or EntityType.Ship) return false;
-            return entity.Appearance.ModelId != 0 || entity.Appearance.GrapIdTable is { Length: > 0 };
+            if (entity.Appearance.ModelId != 0)
+            {
+                // An unregistered model id (3193-3499) draws nothing, not a placeholder.
+                return Gordian.Core.Resources.Tables.CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId)
+                    != Gordian.Core.Resources.Tables.CharacterEquipmentResolver.NoModelFileId;
+            }
+            return entity.Appearance.GrapIdTable is { Length: > 0 };
         }
 
         private void BuildFallbackProxies()

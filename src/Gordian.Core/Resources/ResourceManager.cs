@@ -694,6 +694,13 @@ namespace Gordian.Core.Resources
             // 1. Monster / NPC with numeric ModelId
             if (entity.Appearance.ModelId > 0)
             {
+                // Unregistered ids (3193-3499) draw nothing in retail, a costumed player included (#83).
+                if (CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId) == CharacterEquipmentResolver.NoModelFileId)
+                {
+                    model = null;
+                    return false;
+                }
+
                 string cacheKey = $"Monster_{entity.Appearance.ModelId}";
                 if (_entityModelCache.TryGetValue(cacheKey, out model))
                 {
