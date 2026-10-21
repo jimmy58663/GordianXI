@@ -132,6 +132,35 @@ namespace Gordian.Core.Resources.Graphics
             return result;
         }
 
+        /// <summary>
+        /// The records of every Section 0x36 table that holds no lift record (<c>@</c>), in file order: where the zone's
+        /// doors come from. The lift tables also hold the shaft doors (Metalworks' <c>even/e237</c> beside <c>_6ls</c>-<c>_6lv</c>),
+        /// which <c>EntersEmptyShaft</c> covers. Round 4 E2 (2026-10-20): the first table alone left 101 zones without door
+        /// blockers (1,448 doors, Alzadaal Undersea Ruins' 33 among them), since their first table has no door record.
+        /// </summary>
+        public static List<ZoneInteraction> DecodeDoorTablesFromDat(ReadOnlySpan<byte> datBytes)
+        {
+            var result = new List<ZoneInteraction>();
+            foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
+            {
+                if (header.TypeCode != DatSectionType.ZoneInteractions || header.DataOffset + header.DataSizeBytes > datBytes.Length) continue;
+                AddDoorTable(result, Decode(datBytes.Slice(header.DataOffset, header.DataSizeBytes)));
+            }
+            return result;
+        }
+
+        /// <summary>Adds one Section 0x36 table's records to the door records unless it is a lift table (see <see cref="DecodeDoorTablesFromDat"/>).</summary>
+        public static void AddDoorTable(List<ZoneInteraction> doorRecords, List<ZoneInteraction> table)
+        {
+            ArgumentNullException.ThrowIfNull(doorRecords);
+            ArgumentNullException.ThrowIfNull(table);
+            foreach (var record in table)
+            {
+                if (record.IsLift) return;
+            }
+            doorRecords.AddRange(table);
+        }
+
         private static float Single(ReadOnlySpan<byte> entry, int offset) => BinaryPrimitives.ReadSingleLittleEndian(entry.Slice(offset));
 
         private static string ReadId(ReadOnlySpan<byte> span)

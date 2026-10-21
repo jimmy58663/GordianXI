@@ -89,6 +89,7 @@ namespace Gordian.Core.World
                         _eventZoneId = 0;
                         _mapSchedulers.Clear();
                         _actorEffects.Clear();
+                        _zoneSounds.Clear();
                         changed = true;
                     }
                 }
@@ -174,6 +175,35 @@ namespace Gordian.Core.World
 
         private readonly List<MapSchedulerRequest> _mapSchedulers = new();
         private readonly List<ActorEffectRequest> _actorEffects = new();
+        private readonly List<ZoneSoundRequest> _zoneSounds = new();
+
+        /// <summary>
+        /// Queues a sound generator a zone routine started (round 4 E2) for the audio side of the current zone. Bounded like
+        /// the map schedulers; a zone change drops them.
+        /// </summary>
+        public void PostZoneSound(ZoneSoundRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            lock (_syncRoot)
+            {
+                if (_zoneSounds.Count >= MaxPendingMapSchedulers) _zoneSounds.RemoveAt(0);
+                _zoneSounds.Add(request with { ZoneId = _currentZoneId });
+            }
+        }
+
+        /// <summary>Moves the queued zone sounds of <paramref name="zoneId"/> into <paramref name="into"/> and drops the rest.</summary>
+        public void TakeZoneSounds(ushort zoneId, List<ZoneSoundRequest> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_syncRoot)
+            {
+                foreach (var request in _zoneSounds)
+                {
+                    if (request.ZoneId == zoneId) into.Add(request);
+                }
+                _zoneSounds.Clear();
+            }
+        }
 
         /// <summary>
         /// Queues an effect for the viewport to play on an actor (S2C 0x038 / 0x03A, #311): a routine's model and shared
@@ -710,6 +740,16 @@ namespace Gordian.Core.World
     /// generators and the shared <c>ROM/0/0</c> routine of that name), or of the presentation file
     /// <paramref name="Asset"/> (an S2C 0x03A magic scheduler).
     /// </summary>
+    /// <summary>
+    /// A sound generator <paramref name="Generator"/> that a zone routine of <paramref name="Directory"/> started on
+    /// <paramref name="CasterServerId"/> / <paramref name="TargetServerId"/> (0 = none), for the audio side.
+    /// </summary>
+    public sealed record ZoneSoundRequest(string Directory, string Generator, uint CasterServerId, uint TargetServerId)
+    {
+        /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostZoneSound"/>).</summary>
+        public ushort ZoneId { get; init; }
+    }
+
     public sealed record ActorEffectRequest(uint ActorServerId, uint TargetServerId, string Routine, Animation.ActionAsset? Asset = null)
     {
         /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostActorEffect"/>).</summary>

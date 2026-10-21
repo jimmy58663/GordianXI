@@ -38,6 +38,14 @@ namespace Gordian.Core.World.Collision
         /// <summary>Entity status: the door is closed (LandSandBoat <c>Animation::CloseDoor</c>, event opcode 0x4D).</summary>
         public const byte StatusClosed = 9;
 
+        /// <summary>
+        /// The height given a door box authored flat (height 0) so it still blocks while closed: the height of the zone's other
+        /// doors (Alzadaal Undersea Ruins' doorways are 4 x 4.225 x 0.5; its four stone doors _20t-_20w, whose halves are
+        /// effect meshes, have boxes of 1.73 x 0 x 1.5). *Inference* (round 4 E2, 2026-10-20): that retail blocks there is the
+        /// maintainer's test (one walks through a closed _20t), the height and the footing on the box are GordianXI's.
+        /// </summary>
+        public const float FlatDoorHeight = 4.225f;
+
         /// <summary>The door blockers of a zone's Section 0x36 records.</summary>
         public static List<DoorBlocker> CreateBlockers(IEnumerable<ZoneInteraction> interactions)
         {
@@ -45,7 +53,15 @@ namespace Gordian.Core.World.Collision
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var record in interactions)
             {
-                if (!record.IsDoor || record.Size.X <= 0.0f || record.Size.Y <= 0.0f || !seen.Add(record.Id)) continue;
+                if (!record.IsDoor || record.Size.X <= 0.0f || record.Size.Y < 0.0f || !seen.Add(record.Id)) continue;
+                if (record.Size.Y <= 0.0f)
+                {
+                    // A flat door box (Alzadaal's stone doors _20t-_20w: 1.73 x 0 x 1.5): a doorway of the usual height
+                    // standing on it (internal +Y is down).
+                    blockers.Add(new DoorBlocker(record.Id, record.Center with { Y = record.Center.Y - FlatDoorHeight * 0.5f }, record.RotationY,
+                        record.Size with { Y = FlatDoorHeight }));
+                    continue;
+                }
                 blockers.Add(new DoorBlocker(record.Id, record.Center, record.RotationY, record.Size));
             }
             return blockers;

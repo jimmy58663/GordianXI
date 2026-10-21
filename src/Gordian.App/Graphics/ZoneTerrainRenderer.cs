@@ -819,6 +819,7 @@ namespace Gordian.App.Graphics
             }
             runtime.WeatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
             runtime.MapRoutines = zone.MapRoutines.RoutineCount > 0 ? new ZoneRoutinePlayer(zone.MapRoutines) : null;
+            if (runtime.MapRoutines != null) runtime.MapRoutines.GeneratorWithoutEmitterStarted += PostRoutineSound;
             runtime.MapRoutineZoneId = (ushort)zone.ZoneId;
             runtime.DoorEffects = zone.DoorDirectories.Count > 0 ? new DoorEffectTrigger(zone.DoorDirectories) : null;
             foreach (var (layer, emitter) in runtime.Emitters)

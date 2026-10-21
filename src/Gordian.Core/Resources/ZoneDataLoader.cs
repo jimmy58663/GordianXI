@@ -670,9 +670,10 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.ZoneInteractions:
                     {
-                        // Doors keep to the first table; lifts are read from every table (their records have their own).
+                        // Doors come from every table without a lift record (ZoneInteractionDecoder.DecodeDoorTablesFromDat);
+                        // lifts and zone lines are read from every table.
                         var decoded = ZoneInteractionDecoder.Decode(payload);
-                        if (interactions.Count == 0) interactions.AddRange(decoded);
+                        ZoneInteractionDecoder.AddDoorTable(interactions, decoded);
                         allInteractions.AddRange(decoded);
                         break;
                     }

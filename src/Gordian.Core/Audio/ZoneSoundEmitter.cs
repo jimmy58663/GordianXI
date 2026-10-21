@@ -22,9 +22,26 @@ namespace Gordian.Core.Audio
     /// <param name="TimeVolume">Volume by time of day (init op 0x68 → a 0x19 curve over the day fraction, applied by update op 0x43), or null.</param>
     /// <param name="AutoRun">Whether it starts on zone load (otherwise a routine spawns it).</param>
     /// <param name="FramesPerEmission">The generator's emission period (60 Hz frames), used to repeat one-shot sounds.</param>
+    /// <param name="Directory">The generator's directory path (<c>d_at/door/_20t/door</c>), for a routine's start by name.</param>
+    /// <param name="AttachType">The generator's attach type: one that rides an actor sounds at the routine's entity.</param>
     public sealed record ZoneSoundEmitter(string Name, int SoundId, Vector3 Position, float Near, float Far,
-        IReadOnlyList<Vector3> Path, KeyFrameCurve? TimeVolume, bool AutoRun, int FramesPerEmission)
+        IReadOnlyList<Vector3> Path, KeyFrameCurve? TimeVolume, bool AutoRun, int FramesPerEmission,
+        string Directory = "", ParticleAttachType AttachType = ParticleAttachType.None)
     {
+        /// <summary>
+        /// Whether a routine started in <paramref name="routineDirectory"/> reaches this generator by name: it sits in that
+        /// directory, one of its parents, or (a door's routines) its <c>door</c> sub-directory, as
+        /// <see cref="Graphics.ZoneRoutineLibrary.TryResolveRoutine"/> resolves.
+        /// </summary>
+        public bool IsReachedFrom(string routineDirectory)
+        {
+            routineDirectory ??= string.Empty;
+            if (string.Equals(Directory, routineDirectory + "/door", StringComparison.OrdinalIgnoreCase)) return true;
+            return Directory.Length == 0 || string.Equals(Directory, routineDirectory, StringComparison.OrdinalIgnoreCase) ||
+                   (routineDirectory.Length > Directory.Length && routineDirectory[Directory.Length] == '/' &&
+                    routineDirectory.StartsWith(Directory, StringComparison.OrdinalIgnoreCase));
+        }
+
         /// <summary>
         /// Where the sound is heard from for a listener: the base position, or for a path sound the nearest point on the
         /// path (provisional reading of retail's path sound).
@@ -149,10 +166,19 @@ namespace Gordian.Core.Audio
 
                 near = float.IsFinite(near) ? Math.Clamp(near, 0f, far) : 0f;
                 result.Add(new ZoneSoundEmitter(entry.DatId, soundId, setup.BasePosition, near, far, path, timeVolume,
-                    def.AutoRun, def.FramesPerEmission));
+                    def.AutoRun, def.FramesPerEmission, PathOf(dir), def.AttachType));
             }
 
             return result;
+        }
+
+        /// <summary>A directory's path from the outermost (the tree's unnamed root left out).</summary>
+        private static string PathOf(DatDirectoryNode? dir)
+        {
+            var names = new List<string>();
+            for (var node = dir; node != null && node.Parent != null; node = node.Parent) names.Add(node.DatId);
+            names.Reverse();
+            return string.Join("/", names);
         }
 
         /// <summary>

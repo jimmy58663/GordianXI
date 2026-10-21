@@ -169,6 +169,13 @@ namespace Gordian.Core.Graphics
         private Func<ZoneEmitterTemplate, ZoneParticleEmitter?>? _resolve;
         private Action<ZoneParticleEmitter, ZoneRoutineActors>? _bind;
 
+        /// <summary>
+        /// Raised when a command starts a generator the library has no emitter for, with the routine's directory and actors:
+        /// a sound generator (linked data 0x3D), which the audio side plays (round 4 E2: Alzadaal's door <c>_20t</c>'s
+        /// <c>stat</c> starts its sound <c>se01</c>).
+        /// </summary>
+        public event Action<string, string, ZoneRoutineActors>? GeneratorWithoutEmitterStarted;
+
         /// <summary>Routine nesting limit, so routines that start each other cannot grow without end.</summary>
         public const int MaxRunning = 64;
 
@@ -304,7 +311,11 @@ namespace Gordian.Core.Graphics
         /// <summary>Starts a generator's emitter, binding it to the routine's actors first.</summary>
         private void Start(Running run, string generator, int duration)
         {
-            if (Emitter(run, generator) is not { } emitter) return;
+            if (Emitter(run, generator) is not { } emitter)
+            {
+                if (generator.Length > 0) GeneratorWithoutEmitterStarted?.Invoke(run.Directory, generator, run.Actors);
+                return;
+            }
             _bind?.Invoke(emitter, run.Actors);
             emitter.Trigger(0, duration);
         }

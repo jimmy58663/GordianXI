@@ -148,6 +148,10 @@ namespace Gordian.App.Graphics
             return false;
         }
 
+        /// <summary>A routine started a generator with no emitter (a sound): the audio side plays it (round 4 E2).</summary>
+        private void PostRoutineSound(string directory, string generator, ZoneRoutineActors actors) =>
+            World?.PostZoneSound(new ZoneSoundRequest(directory, generator, actors.CasterServerId, actors.TargetServerId));
+
         /// <summary>Queues the live particles of the actor-attached zone emitters, each at its entity's joint reference.</summary>
         private void AddAttachedEffectDraws(ViewportCamera camera)
         {
