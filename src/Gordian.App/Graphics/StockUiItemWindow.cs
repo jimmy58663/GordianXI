@@ -389,10 +389,9 @@ namespace Gordian.App.Graphics
             float s = at.Scale;
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             StockUiMenuWindow.DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            for (int i = 0; i < page.Lines.Count; i++)
-            {
-                DrawLine(renderer, font, logFont, page.Lines[i], at.X + InfoTextX * s, at.Y + (InfoTextY + i * StockUiLogFont.CellHeight) * s, s);
-            }
+            // The text box: from (48,4) to 8 px before the right edge, the window's height (StockUiTextBoxes clips to it).
+            StockUiTextBoxes.DrawLines(renderer, font, logFont, page.Lines, at.X + InfoTextX * s, at.Y + InfoTextY * s,
+                info.Frame.Width - InfoTextX - InfoRightInset, info.Frame.Height - InfoTextY, s);
             if (page.Footer.Length == 0 && !page.HasMore) return;
             float footerY = at.Y + (InfoTextY + page.Lines.Count * StockUiLogFont.CellHeight) * s;
             float right = at.X + (info.Frame.Width - InfoRightInset) * s;

@@ -163,31 +163,7 @@ namespace Gordian.Core.Ui
         /// Text wrapped to <paramref name="width"/> by <paramref name="measure"/>, at spaces, keeping the text's own line
         /// breaks; at most <paramref name="maxLines"/> lines.
         /// </summary>
-        public static List<string> Wrap(string text, Func<string, float> measure, float width, int maxLines = 12)
-        {
-            var lines = new List<string>();
-            foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
-            {
-                string line = string.Empty;
-                foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string candidate = line.Length == 0 ? word : line + " " + word;
-                    if (line.Length > 0 && measure(candidate) > width)
-                    {
-                        lines.Add(line);
-                        line = word;
-                    }
-                    else
-                    {
-                        line = candidate;
-                    }
-                }
-                lines.Add(line);
-                if (lines.Count >= maxLines) break;
-            }
-            while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
-            while (lines.Count > 0 && lines[0].Length == 0) lines.RemoveAt(0);
-            return lines.Count > maxLines ? lines.GetRange(0, maxLines) : lines;
-        }
+        public static List<string> Wrap(string text, Func<string, float> measure, float width, int maxLines = 12) =>
+            StockUiTextLayout.Wrap(text, measure, width, maxLines, keepBlankLines: true);
     }
 }
