@@ -14,7 +14,8 @@ namespace Gordian.Core.Animation
     /// the face mesh is bound to (Hume male 52, Hume female 30, Elvaan male 30, Elvaan female 57, Tarutaru 7, Mithra and
     /// Galka 40), with reference 3 the neck below it. The head also tilts toward the target's head: the maintainer's retail
     /// recording of the Windurst Waters intro as a Galka shows Ajido-Marujido and Apururu looking up at the player
-    /// (2026-10-02). How far and how fast retail turns and tilts the head is not measured. 0x79 sub 2 holds the head on a
+    /// (2026-10-02). A target outside about 45 degrees of the body's heading is not followed (#402, maintainer's estimate).
+    /// How fast retail turns and tilts the head is not measured. 0x79 sub 2 holds the head on a
     /// fixed axis instead (<see cref="AxisAngles"/>, #188).
     /// </summary>
     public static class HeadLook
@@ -22,8 +23,11 @@ namespace Gordian.Core.Animation
         /// <summary>The skeleton reference whose joint is the head.</summary>
         public const int HeadReference = 5;
 
-        /// <summary>The largest turn of the head from the body's heading (60 degrees; retail's limit is not measured).</summary>
-        public const float MaxYaw = MathF.PI / 3f;
+        /// <summary>
+        /// The largest turn of the head from the body's heading: 45 degrees, the maintainer's estimate of retail (#402, not
+        /// measured). A target further round than this is not followed: the head looks straight ahead instead.
+        /// </summary>
+        public const float MaxYaw = MathF.PI / 4f;
 
         /// <summary>
         /// The largest tilt of the head up or down toward the target's head (45 degrees; not measured). The maintainer's
@@ -43,16 +47,21 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// The head's turn (radians, in the heading convention of <see cref="World.WorldEntity.HeadingOf"/>) for an entity
-        /// at <paramref name="from"/> with body heading <paramref name="heading"/> looking at <paramref name="to"/>,
-        /// clamped to <see cref="MaxYaw"/>. Positions use the internal axes (X, Y = height, Z).
+        /// at <paramref name="from"/> with body heading <paramref name="heading"/> looking at <paramref name="to"/>. False
+        /// when the target is more than <see cref="MaxYaw"/> round from the body's heading (#402): the head then looks
+        /// straight ahead, turning back at the usual ease rather than snapping. Positions use the internal axes (X, Y =
+        /// height, Z).
         /// </summary>
-        public static float TargetYaw(float heading, Vector3 from, Vector3 to)
+        public static bool TryTargetYaw(float heading, Vector3 from, Vector3 to, out float yaw)
         {
+            yaw = 0f;
             float dx = to.X - from.X, dz = to.Z - from.Z;
-            if (dx * dx + dz * dz < 1e-6f) return 0f;
+            if (dx * dx + dz * dz < 1e-6f) return true;
             float delta = World.WorldEntity.HeadingOf(dx, dz) - heading;
             delta -= MathF.Tau * MathF.Round(delta / MathF.Tau);
-            return Math.Clamp(delta, -MaxYaw, MaxYaw);
+            if (MathF.Abs(delta) > MaxYaw) return false;
+            yaw = delta;
+            return true;
         }
 
         /// <summary>

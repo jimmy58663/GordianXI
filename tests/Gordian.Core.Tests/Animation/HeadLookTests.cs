@@ -56,16 +56,44 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void TargetYaw_IsTheBearingLessTheHeading_ClampedAndWrapped()
+        public void TargetYaw_IsTheBearingLessTheHeading_Wrapped()
         {
             var from = Vector3.Zero;
             var east = new Vector3(5, 0, 0);
-            Assert.Equal(0f, HeadLook.TargetYaw(0f, from, east), 4);
-            float north = WorldEntity.HeadingOf(0, 1);
-            Assert.Equal(HeadLook.MaxYaw, HeadLook.TargetYaw(north, from, east), 4); // a quarter turn, clamped
-            Assert.Equal(-0.2f, HeadLook.TargetYaw(0.2f, from, east), 4);
-            Assert.Equal(0.1f, HeadLook.TargetYaw(MathF.Tau - 0.1f, from, east), 4); // across the wrap
-            Assert.Equal(0f, HeadLook.TargetYaw(1f, from, from));
+            Assert.True(HeadLook.TryTargetYaw(0f, from, east, out float yaw));
+            Assert.Equal(0f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(0.2f, from, east, out yaw));
+            Assert.Equal(-0.2f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(MathF.Tau - 0.1f, from, east, out yaw)); // across the wrap
+            Assert.Equal(0.1f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(1f, from, from, out yaw));
+            Assert.Equal(0f, yaw);
+        }
+
+        [Fact]
+        public void TargetYaw_BeyondFortyFiveDegrees_LooksAhead()
+        {
+            // #402: a target past about 45 degrees of the body's heading is not followed, not clamped to the limit.
+            Assert.Equal(MathF.PI / 4f, HeadLook.MaxYaw, 4);
+            var from = Vector3.Zero;
+            var east = new Vector3(5, 0, 0);
+            Assert.True(HeadLook.TryTargetYaw(0.7f, from, east, out float yaw)); // 40 degrees: followed
+            Assert.Equal(-0.7f, yaw, 4);
+            Assert.False(HeadLook.TryTargetYaw(0.9f, from, east, out yaw)); // 52 degrees: straight ahead
+            Assert.Equal(0f, yaw);
+            Assert.False(HeadLook.TryTargetYaw(WorldEntity.HeadingOf(0, 1), from, east, out _)); // a quarter turn
+            Assert.False(HeadLook.TryTargetYaw(MathF.PI, from, east, out _)); // behind
+        }
+
+        [Fact]
+        public void LookingAway_EasesBackToAhead_NotASnap()
+        {
+            // The head was turned 40 degrees; the target moves behind, so the target turn becomes 0 and the head eases there.
+            float turn = 0.7f;
+            float afterOneFrame = HeadLook.Ease(turn, 0f, 1f / 60f);
+            Assert.InRange(afterOneFrame, 0.55f, 0.69f);
+            for (int i = 0; i < 60; i++) turn = HeadLook.Ease(turn, 0f, 1f / 60f);
+            Assert.InRange(turn, 0f, 0.01f);
         }
 
         [Fact]
