@@ -1447,7 +1447,7 @@ namespace Gordian.Core.Events
         {
             if (_world == null || string.IsNullOrEmpty(routine)) return 0;
             _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false, sceneZone: true);
-            // A door's open / clos is the door's own routine, not one of the zone's by name (#233: Mamook's doors).
+            // A door's open / clos is the door's own routine, not one of the zone's by name (#233).
             int frames = Gordian.Core.Graphics.DoorEffectTrigger.IsDoorRoutine(routine) && _world.TryGetByServerId(casterServerId, out var door) &&
                          door.Type == EntityType.Door && door.TransportId.Length > 0
                 ? DoorRoutineFrames?.Invoke(_world.SceneZoneId, door.TransportId, routine) ?? 0
