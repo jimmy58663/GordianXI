@@ -1,5 +1,6 @@
 using System.Numerics;
 using Gordian.Core.Input;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 
@@ -91,21 +92,52 @@ namespace Gordian.Core.Tests.World.Collision
         }
 
         [Fact]
-        public void Bump_StopsBrieflyThenPassesThroughWithGrace()
+        public void Bump_StopsBrieflyThenPassesThroughThatCharacterUntilItLeaves()
         {
             var (world, self) = Crowd(new Vector3(1.0f, 0, 0), new Vector3(2.4f, 0, 0));
             var bump = new EntityBumpCollision();
             const float Tick = 1.0f / 60.0f;
             var from = new Vector3(0.2f, 0, 0);
-            var to = new Vector3(0.35f, 0, 0); // enters the first NPC's 0.7-yalm contact
+            var to = new Vector3(0.35f, 0, 0); // enters the first NPC's ~0.7-yalm contact
 
             int blockedTicks = 0;
             while (!bump.TryMove(world, self, from, to, Tick)) blockedTicks++;
             Assert.InRange(blockedTicks * Tick, EntityBumpCollision.HoldSeconds - 0.05f, EntityBumpCollision.HoldSeconds + 0.02f);
-            Assert.True(bump.GraceRemaining > 1.0f);
+            Assert.Equal(1, bump.PassedThroughCount);
 
-            // During the grace the next NPC in the crowd does not block.
-            Assert.True(bump.TryMove(world, self, new Vector3(1.6f, 0, 0), new Vector3(1.75f, 0, 0), Tick));
+            // #16: the character passed through never blocks again, however long after; the next one in the crowd does.
+            Assert.True(bump.TryMove(world, self, from, to, 30.0f));
+            Assert.False(bump.TryMove(world, self, new Vector3(1.6f, 0, 0), new Vector3(1.75f, 0, 0), Tick));
+
+            // Once it has left (despawned, out of range) and comes back, it blocks again.
+            world.TryGetByServerId(100, out var first);
+            world.RemoveEntity(100);
+            world.UpsertEntity(new WorldEntity(100, 100, EntityType.Npc) { Position = first!.Position, IsSpawned = true, Hpp = 100 });
+            Assert.False(bump.TryMove(world, self, from, to, Tick));
+            Assert.Equal(0, bump.PassedThroughCount);
+        }
+
+        [Fact]
+        public void Bump_StopDistanceAndHoldGrowWithSize()
+        {
+            static WorldEntity Pc(CharacterRace race) => new PlayerEntity(5, 5)
+            {
+                GraphSize = 1,
+                Appearance = { GrapIdTable = { [0] = (ushort)((int)race << 8) } },
+            };
+
+            // Elvaan player against a Galka PC: about 1 yalm between centres (Collision_Bump.mp4).
+            float galka = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka));
+            Assert.InRange(galka, 0.95f, 1.05f);
+            // Against a Hume-size NPC: about 0.6-0.8.
+            float hume = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(new WorldEntity(6, 6, EntityType.Npc));
+            Assert.InRange(hume, 0.6f, 0.8f);
+            Assert.True(EntityBumpCollision.RadiusOf(Pc(CharacterRace.TaruFemale)) < EntityBumpCollision.PlayerRadius);
+
+            Assert.Equal(EntityBumpCollision.HoldSeconds, EntityBumpCollision.HoldFor(hume), 3);
+            Assert.True(EntityBumpCollision.HoldFor(galka) > EntityBumpCollision.HoldSeconds);
+            Assert.InRange(EntityBumpCollision.HoldFor(0.35f + EntityBumpCollision.RadiusOf(2)), 1.5f, EntityBumpCollision.MaxHoldSeconds);
+            Assert.Equal(EntityBumpCollision.MaxHoldSeconds, EntityBumpCollision.HoldFor(4.0f), 3);
         }
 
         [Fact]
