@@ -741,7 +741,8 @@ void main()
         /// pole star, sun glow/disc/corona, lens flares).
         /// Uses WeatherParams:
         ///   xy: continuous UV scrolling offset (lens flares: sprite centre in NDC, consumed by the vertex shader)
-        ///   z: blend output (0 = straight alpha, 1 = premultiplied for additive / reverse subtract, 2 = darken by alpha)
+        ///   z: blend output (0 = straight alpha, 1 = premultiplied for additive / reverse subtract, 2 = darken by alpha,
+        ///      3 = ground-coloured decal, 4 = ground-coloured additive lift: op 0x8F world effects, #40)
         ///   w: layer type (4.0 = screen-space lens flare, 3.0 = sky generator; consumed by the vertex shader)
         /// Celestial generators reproduce the client's two modulate-2x texture stages, with the generator
         /// color (day-of-week, moon-phase and time-of-day modulated) as the texture factor.
@@ -790,7 +791,29 @@ void main()
     float alpha = clamp(4.0 * stage0.a * SkyTextureFactor.a, 0.0, 1.0);
     rgb = mix(SkyLayerParams.y > 0.5 ? vec3(0.0) : FogColor.rgb, rgb, fsin_Fog);
 
-    if (WeatherParams.z > 1.5)
+    if (WeatherParams.z > 3.5)
+    {
+        // Op 0x8F on an additive generator (the foot puffs, #40): the ground brightens by its own colour times the
+        // generator's, (DST_COLOR, ONE) = dst x (1 + src).
+        vec3 lift = rgb * alpha * fsin_Fog;
+        if (max(lift.r, max(lift.g, lift.b)) < 0.002)
+        {
+            discard;
+        }
+        fsout_Color = vec4(lift, 0.0);
+    }
+    else if (WeatherParams.z > 2.5)
+    {
+        // Op 0x8F on an alpha-blended generator (the footprint fmrk, #40): a modulate-2x decal over the ground,
+        // (DST_COLOR, SRC_COLOR) = 2 x src x dst, so the ground keeps its hue: fmrk's dark 0x14 colour darkens it in the
+        // shape of its texture's soft alpha, and alpha (with its fade) eases the decal toward neutral 0.5.
+        if (alpha < 0.004)
+        {
+            discard;
+        }
+        fsout_Color = vec4(mix(vec3(0.5), rgb, alpha * fsin_Fog), 0.0);
+    }
+    else if (WeatherParams.z > 1.5)
     {
         // Zero_InvSrc_Add (ZERO, ONE_MINUS_SRC_ALPHA): darken the destination by alpha.
         if (alpha < 0.004)
