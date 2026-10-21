@@ -796,7 +796,9 @@ namespace Gordian.Core.Animation
             ElapsedSeconds = Math.Max(0f, clipSeconds);
             AdvanceBlend(dt);
 
-            if (!_holdsLastClip && _actionTicks >= (_isPresentation ? BodyEndTick(routine) : RoutineEndTick(routine)))
+            float endTick = !_isPresentation ? RoutineEndTick(routine)
+                : _actionRequest?.Asset is { HoldsBodyToEnd: true } ? Math.Max(routine.TotalTicks, BodyEndTick(routine)) : BodyEndTick(routine);
+            if (!_holdsLastClip && _actionTicks >= endTick)
             {
                 EndAction(model, blend: true);
             }

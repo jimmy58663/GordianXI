@@ -431,6 +431,16 @@ namespace Gordian.Core.Resources.Events
 
         public bool TryGetRoutine(string name, out SceneRoutine routine) => _routines.TryGetValue(name, out routine!);
 
+        /// <summary>
+        /// Adds (or replaces) a routine built by the client rather than read from the file: the synthesis effect's <c>main</c>,
+        /// which chains the file's <c>frst</c>, the result's ending and <c>stcr</c> (#315).
+        /// </summary>
+        public void AddRoutine(SceneRoutine routine)
+        {
+            ArgumentNullException.ThrowIfNull(routine);
+            _routines[routine.Name] = routine;
+        }
+
         public bool TryGetRoute(string name, out CameraRoute route) => _routes.TryGetValue(name, out route!);
 
         /// <summary>Reads the routes and routines of a scene resource DAT (sections of other kinds are skipped).</summary>

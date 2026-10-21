@@ -89,6 +89,8 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     _libraryGeneration = generation;
                     _library = library;
                 }
@@ -119,6 +121,8 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
@@ -545,6 +549,13 @@ namespace Gordian.App.Graphics
                     // The Items window's options ("+ : Sort") stand at the top right while the list takes input; + / Y puts the cursor on them.
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory && i == open.Count - 1 && library.TryGetMenu(StockUiSynthesis.OptionsMenu, out var synthesisOptions))
+                {
+                    // "+ : Synthesis Options" (Favorite / Unfavorite) stands at the top right while the History list takes input
+                    // (capture Synthesis_History.png); + / Y puts the cursor on it.
+                    var f = synthesisOptions.Frame;
+                    renderer.DrawMenu(synthesisOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
                 }
                 if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
                     && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
