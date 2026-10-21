@@ -225,6 +225,7 @@ namespace Gordian.App.Audio
                 StopAmbient(0.5f);
                 _emitters.SetEmitters(Array.Empty<ZoneSoundEmitter>());
                 _zoneSoundSources = Array.Empty<ZoneSoundEmitter>();
+                _doorStatuses.Clear();
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);
@@ -238,6 +239,7 @@ namespace Gordian.App.Audio
                 _zoneSoundSources = loaded;
             }
             PlayZoneRoutineSounds(world, zone);
+            PlayDoorSounds(world);
 
             _emitters.Update(_listenerPosition, hour / 24f);
         }
@@ -451,6 +453,30 @@ namespace Gordian.App.Audio
         /// silent, in-game round 3). A generator whose file loops keeps playing until the generator is killed (0x1E / 0x3F),
         /// its spawn duration runs out, or the event ends.
         /// </summary>
+        private readonly Dictionary<uint, bool> _doorStatuses = new();
+
+        /// <summary>
+        /// Plays a door's own open / close sound when its entity's status turns to open (8) or leaves it, at the door, as
+        /// its <c>open</c> / <c>clos</c> routine does (<see cref="ZoneSoundTable.DoorRoutineSounds"/>; round 5 E2: no door made a
+        /// sound). A door first seen plays nothing.
+        /// </summary>
+        private void PlayDoorSounds(WorldState world)
+        {
+            var sounds = _zoneSounds.DoorRoutineSounds;
+            if (sounds.Count == 0) return;
+            foreach (var (doorId, door) in Gordian.Core.World.Collision.ZoneDoors.DoorEntities(world))
+            {
+                bool open = Gordian.Core.World.Collision.ZoneDoors.StatusOf(door) == Gordian.Core.World.Collision.ZoneDoors.StatusOpen;
+                bool seen = _doorStatuses.TryGetValue(door.ServerId, out bool wasOpen);
+                _doorStatuses[door.ServerId] = open;
+                if (!seen || wasOpen == open || !sounds.TryGetValue(doorId, out var doorSounds)) continue;
+                int soundId = open ? doorSounds.OpenSound : doorSounds.CloseSound;
+                if (soundId == 0) continue;
+                float far = doorSounds.Far > 0f ? doorSounds.Far : 30f;
+                PlayEffect(soundId, AudioCategory.Zone, 1f, new AudioEmitter(door.Position, doorSounds.Near, far));
+            }
+        }
+
         private IReadOnlyList<ZoneSoundEmitter> _zoneSoundSources = Array.Empty<ZoneSoundEmitter>();
         private readonly List<ZoneSoundRequest> _zoneSoundRequests = new();
 

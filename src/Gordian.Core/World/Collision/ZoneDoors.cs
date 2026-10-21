@@ -121,17 +121,26 @@ namespace Gordian.Core.World.Collision
 
                 var s = new Vector2(Vector2.Dot(from - center, widthAxis), Vector2.Dot(from - center, depthAxis));
                 var t = new Vector2(Vector2.Dot(target - center, widthAxis), Vector2.Dot(target - center, depthAxis));
-                bool startInside = MathF.Abs(s.X) < halfWidth && MathF.Abs(s.Y) < halfDepth;
+                // A body counts as inside only clearly inside: one this method stopped at a face, taken back through the
+                // door's axes, can land a hair inside it (a door turned 180 degrees), and was then let out freely.
+                bool startInside = MathF.Abs(s.X) < halfWidth - FaceTolerance && MathF.Abs(s.Y) < halfDepth - FaceTolerance;
                 if (startInside || !SegmentHitsBox(s, t, halfWidth, halfDepth)) continue;
 
-                // Stop at the face the body comes from and keep the motion along it.
-                if (MathF.Abs(s.Y) >= halfDepth) t.Y = MathF.CopySign(halfDepth, s.Y);
-                else t.X = MathF.CopySign(halfWidth, s.X);
+                // Stop just outside the face the body comes from and keep the motion along it.
+                if (MathF.Abs(s.Y) >= halfDepth - FaceTolerance) t.Y = MathF.CopySign(halfDepth + FaceTolerance, s.Y);
+                else t.X = MathF.CopySign(halfWidth + FaceTolerance, s.X);
                 target = center + (widthAxis * t.X) + (depthAxis * t.Y);
             }
 
             return new Vector3(target.X, end.Y, target.Y);
         }
+
+        /// <summary>
+        /// How far outside a door face a stopped body is put, and how far inside one a body must be to count as standing
+        /// in the doorway (yalms). Round 5 E2 (2026-10-20): Alzadaal's gates, turned 180 degrees, put a stopped body a
+        /// rounding error inside the face, so the next step let it through.
+        /// </summary>
+        public const float FaceTolerance = 0.002f;
 
         /// <summary>Whether the segment from <paramref name="a"/> to <paramref name="b"/> enters the centred box.</summary>
         private static bool SegmentHitsBox(Vector2 a, Vector2 b, float halfX, float halfY)

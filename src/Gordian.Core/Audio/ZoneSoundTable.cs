@@ -12,6 +12,15 @@ namespace Gordian.Core.Audio
     public readonly record struct AmbientLoopEntry(int StartMinute, int SoundId);
 
     /// <summary>
+    /// A door's open and close sounds, as its <c>open</c> / <c>clos</c> routines play them (op 0x0B: a 0x3D section name
+    /// at +8, the audible range at +0x14 and the full-volume radius at +0x18), 0 for none. Read from the retail zone DATs
+    /// (round 5 E2, 2026-10-20): Alzadaal's gate <c>_20d</c> plays <c>9229</c> opening and <c>9230</c> closing, heard to 30
+    /// yalms, full within 3; Metalworks' <c>_6l0</c> <c>9021</c> / <c>9022</c>, 10 / 3. Op 0x0B referenced from xi-tools
+    /// (docs/fx/effect_system.md: the sound at the target); the two floats are read as 0x4C's far / near (*inference*).
+    /// </summary>
+    public readonly record struct DoorSounds(int OpenSound, int CloseSound, float Far, float Near);
+
+    /// <summary>
     /// The sound effect pointers (<c>0x3D</c>) a zone model DAT carries, grouped by what they are for:
     /// <list type="bullet">
     /// <item><c>weat/&lt;weather&gt;</c>: ambient loops keyed by the Vana'diel time they start, named <c>HHMM</c>
@@ -35,6 +44,10 @@ namespace Gordian.Core.Audio
         private readonly Dictionary<string, int> _walkSteps = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _runSteps = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int[]> _doors = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DoorSounds> _doorSounds = new(StringComparer.Ordinal);
+
+        /// <summary>Each door's open and close sounds by door id (<c>_20d</c>), from its own routines.</summary>
+        public IReadOnlyDictionary<string, DoorSounds> DoorRoutineSounds => _doorSounds;
 
         /// <summary>An empty table (no zone sounds).</summary>
         public static ZoneSoundTable Empty { get; } = new();
@@ -52,6 +65,34 @@ namespace Gordian.Core.Audio
         public IReadOnlyDictionary<string, int[]> Doors => _doors;
 
         /// <summary>Reads every sound pointer of a zone model DAT.</summary>
+        /// <summary>The first sound command (op 0x0B) of a routine's timeline: its 0x3D section name and range.</summary>
+        internal static bool TryReadRoutineSound(ReadOnlySpan<byte> payload, out string name, out float far, out float near)
+        {
+            name = string.Empty;
+            far = near = 0f;
+            if (payload.Length < 0x20) return false;
+            int p = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0x14)) - 16;
+            while (p >= 0 && p + 8 <= payload.Length)
+            {
+                byte op = payload[p];
+                if (op == 0) break;
+                int size = Math.Max(1, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 1)) & 0x1F) * 4;
+                if (op == 0x0B && size >= 0x1C && p + 0x1C <= payload.Length)
+                {
+                    var id = payload.Slice(p + 8, 4);
+                    int length = id.IndexOf((byte)0);
+                    if (length < 0) length = 4;
+                    if (length == 0) return false;
+                    name = System.Text.Encoding.ASCII.GetString(id.Slice(0, length));
+                    far = System.Buffers.Binary.BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(p + 0x14));
+                    near = System.Buffers.Binary.BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(p + 0x18));
+                    return true;
+                }
+                p += size;
+            }
+            return false;
+        }
+
         public static ZoneSoundTable Read(DatDirectoryNode root)
         {
             var table = new ZoneSoundTable();
@@ -86,6 +127,25 @@ namespace Gordian.Core.Audio
                 {
                     table._doors[dirName] = table._doors.TryGetValue(dirName, out int[]? ids) ? [.. ids, soundId] : [soundId];
                 }
+            }
+
+            foreach (DatResourceEntry routine in root.CollectByTypeRecursive(DatSectionType.EffectRoutine))
+            {
+                DatDirectoryNode door = routine.Parent;
+                bool open = routine.DatId == "open", close = routine.DatId == "clos";
+                if (!(open || close) || door.DatId.Length == 0 || door.DatId[0] != '_' ||
+                    !string.Equals(door.Parent?.DatId, "door", StringComparison.OrdinalIgnoreCase) ||
+                    !TryReadRoutineSound(routine.Payload.Span, out string name, out float far, out float near) ||
+                    door.SearchLocalAndParents(name, DatSectionType.SoundEffectPointer) is not { } pointer ||
+                    !SoundEffectPointer.TryDecode(pointer.Payload.Span, out int id))
+                {
+                    continue;
+                }
+
+                table._doorSounds.TryGetValue(door.DatId, out DoorSounds sounds);
+                sounds = open ? sounds with { OpenSound = id } : sounds with { CloseSound = id };
+                if (float.IsFinite(far) && far > 0f) sounds = sounds with { Far = far, Near = float.IsFinite(near) ? Math.Clamp(near, 0f, far) : 0f };
+                table._doorSounds[door.DatId] = sounds;
             }
 
             foreach (List<AmbientLoopEntry> list in table._ambient.Values)

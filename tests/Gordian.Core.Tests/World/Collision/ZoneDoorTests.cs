@@ -155,6 +155,32 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.True(Vector3.Distance(end, floor + depth) > 1f, $"walked through to {end}");
         }
 
+        /// <summary>
+        /// Round 5 E2: the player ran through Alzadaal's closed gate _20d (turned 180 degrees). Stopped at the face, the body
+        /// came back a rounding error inside it and the next step let it out freely. Through the locomotion controller it now
+        /// stops at the face from either side.
+        /// </summary>
+        [Theory]
+        [InlineData(90f, -34f, -39.3f)]
+        [InlineData(270f, -46f, -40.7f)]
+        public void Alzadaal_ClosedGate_StopsTheRunningPlayer(float cameraYaw, float startZ, float stopZ)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var world = new WorldState { CurrentZoneId = 72 };
+            world.Collision = rm.TryLoadZoneCollision(72);
+            var player = new Gordian.Core.World.LocalPlayerState { ServerId = 0x12345678 };
+            var me = new PlayerEntity(player.ServerId, 1) { Name = "T", Position = new Vector3(180f, 0f, startZ), IsSpawned = true };
+            world.UpsertEntity(me);
+            world.UpsertEntity(new WorldEntity(0x010480BB, 187, EntityType.Door) { TransportId = "_20d", AnimationState = ZoneDoors.StatusClosed, Position = new Vector3(180, -2, -40), IsSpawned = true });
+            var input = new Gordian.Core.Input.InputState();
+            var controller = new Gordian.Core.Input.PlayerLocomotionController(input, Gordian.Core.Input.InputProfile.CreateCompact(), world, player) { CameraYaw = cameraYaw };
+            input.SetKeyDown(Gordian.Core.Input.GordianKey.W);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromSeconds(0.05));
+            Assert.InRange(me.Position.Z, MathF.Min(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f), MathF.Max(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f));
+        }
+
         [Fact]
         public void DoorRoutineDecoder_ReadsRotateAndSlideMoves()
         {
