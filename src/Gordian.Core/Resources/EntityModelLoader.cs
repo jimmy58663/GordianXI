@@ -155,6 +155,7 @@ namespace Gordian.Core.Resources
 
             var primary = ParseDatContainer(primaryDat, name, primarySource);
             model.Skeleton = primary.Skeleton;
+            model.BlurAura = BlurAura.Find(primaryDat);
             model.ParentOverrides = parentOverrides;
 
             foreach (var kvp in primary.Textures)

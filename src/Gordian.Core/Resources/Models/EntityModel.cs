@@ -56,6 +56,9 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public bool IsCharacter { get; set; }
 
+        /// <summary>The model's blur aura (Section 0x5E: avatars, Prime avatars), or null when it has none (#82).</summary>
+        public BlurAura? BlurAura { get; set; }
+
         /// <summary>Rebuilds <see cref="MotionRoutines"/> from <see cref="RawMotionRoutines"/> against the current clips.</summary>
         internal void RebuildMotionRoutines()
         {

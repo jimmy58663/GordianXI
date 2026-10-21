@@ -215,6 +215,7 @@ namespace Gordian.Core.Resources.Graphics
                 int insPos = instructionOffset;
                 string currentTexture = string.Empty;
                 byte currentDisplayType = 0;
+                float currentAmbient = 1.0f;
 
                 while (insPos + 2 <= payload.Length)
                 {
@@ -242,6 +243,10 @@ namespace Gordian.Core.Resources.Graphics
                                 // Byte 13 (the second flag byte) is the displayType of the pieces that follow, until the
                                 // next 0x8010. Layout referenced from xi-tools (docs/gear/pose.md, "Hidden pieces").
                                 currentDisplayType = payload[insPos + 13];
+                                // +16 f32: the ambient multiplier of the pieces that follow (layout referenced from
+                                // xi-model-viewer ui/js/dat.js readRenderProps). Avatars author 1.0-2.0 (#7 round 2).
+                                float ambient = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(insPos + 16, 4));
+                                currentAmbient = float.IsFinite(ambient) && ambient > 0.0f && ambient <= 8.0f ? ambient : 1.0f;
                                 insPos += 44;
                             }
                             break;
@@ -289,7 +294,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Corners = corners,
                                         TextureName = currentTexture,
                                         Mirrored = false,
-                                        DisplayType = currentDisplayType
+                                        DisplayType = currentDisplayType,
+                                        AmbientMultiplier = currentAmbient
                                     });
 
                                     if (symmetric)
@@ -300,7 +306,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Corners = corners,
                                             TextureName = currentTexture,
                                             Mirrored = true,
-                                            DisplayType = currentDisplayType
+                                            DisplayType = currentDisplayType,
+                                            AmbientMultiplier = currentAmbient
                                         });
                                     }
                                 }
@@ -344,7 +351,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Corners = corners,
                                         TextureName = currentTexture,
                                         Mirrored = false,
-                                        DisplayType = currentDisplayType
+                                        DisplayType = currentDisplayType,
+                                        AmbientMultiplier = currentAmbient
                                     });
 
                                     if (symmetric)
@@ -355,7 +363,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Corners = corners,
                                             TextureName = currentTexture,
                                             Mirrored = true,
-                                            DisplayType = currentDisplayType
+                                            DisplayType = currentDisplayType,
+                                            AmbientMultiplier = currentAmbient
                                         });
                                     }
                                 }
@@ -392,7 +401,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Corners = corners,
                                         TextureName = string.Empty,
                                         Mirrored = false,
-                                        DisplayType = currentDisplayType
+                                        DisplayType = currentDisplayType,
+                                        AmbientMultiplier = currentAmbient
                                     });
 
                                     if (symmetric)
@@ -403,7 +413,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Corners = corners,
                                             TextureName = string.Empty,
                                             Mirrored = true,
-                                            DisplayType = currentDisplayType
+                                            DisplayType = currentDisplayType,
+                                            AmbientMultiplier = currentAmbient
                                         });
                                     }
                                 }
@@ -444,7 +455,8 @@ namespace Gordian.Core.Resources.Graphics
                                         Corners = corners,
                                         TextureName = string.Empty,
                                         Mirrored = false,
-                                        DisplayType = currentDisplayType
+                                        DisplayType = currentDisplayType,
+                                        AmbientMultiplier = currentAmbient
                                     });
 
                                     if (symmetric)
@@ -455,7 +467,8 @@ namespace Gordian.Core.Resources.Graphics
                                             Corners = corners,
                                             TextureName = string.Empty,
                                             Mirrored = true,
-                                            DisplayType = currentDisplayType
+                                            DisplayType = currentDisplayType,
+                                            AmbientMultiplier = currentAmbient
                                         });
                                     }
                                 }

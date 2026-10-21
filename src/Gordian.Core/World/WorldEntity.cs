@@ -691,7 +691,7 @@ namespace Gordian.Core.World
         /// <summary>The 0x00E model hitbox size (Flags2.g x 0.1 yalms); 0 when not sent. Nothing reads it yet.</summary>
         public float ModelHitboxRadius { get; set; }
 
-        /// <summary>The server's ShadowFlag (Flags2 bit 25): the shadow is hidden. GordianXI draws no entity shadows yet.</summary>
+        /// <summary>The server's ShadowFlag (Flags2 bit 25): the shadow is hidden (<c>EntityRenderer</c> draws none for it).</summary>
         public bool HidesShadow { get; set; }
 
         /// <summary>The server's NamedFlag (0x00E Flags2 bit 29): a proper name, which takes no "The" (XiPackets).</summary>
