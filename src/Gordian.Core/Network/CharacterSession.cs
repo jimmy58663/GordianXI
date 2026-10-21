@@ -325,6 +325,9 @@ namespace Gordian.Core.Network
             // The gamepad key-assignment list edits the user's shared profile, so every character gets the change (#21, #314).
             ActionService.Menus.GamepadProfile = () => _inputProfiles.Profile;
             ActionService.Menus.GamepadProfileEdited = edit => _inputProfiles.Edit(edit, ActionService.Menus);
+            // The windows' "+ : Sort" style hints name the key or button in use (#360).
+            ActionService.Menus.HintLabel = () => Ui.StockUiButtonHints.Hint(Locomotion.Profile, Ui.StockUiButtonHints.OptionsAction,
+                InputState.UsingGamepad, Ui.StockUiButtonHints.IsPlayStation(InputState.CurrentGamepad.DeviceName));
             ActionService.Menus.Inventory = Inventory;
             ActionService.Menus.ShopBuy = (count, shopNo, index) => InventoryModule.BuyShopItemAsync(count, shopNo, index, 0);
             ActionService.Menus.ShopAppraise = (count, itemId, slot) => InventoryModule.AppraiseShopItemAsync(count, itemId, slot);
@@ -389,8 +392,8 @@ namespace Gordian.Core.Network
             {
                 foreach (string line in Ui.CraftingLog.FormatOther(outcome, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
             };
-            // The synthesis animation (S2C 0x030) plays on the crafters, and the guild shop answers print to the log
-            // until a guild shop window exists.
+            // The synthesis animation (S2C 0x030) plays on the crafters. The guild shop's purchases and sales print to the log;
+            // its lists and the open status print only for /guild while the guild shop window (#330) is not up.
             SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
             Inventory.GuildTransactionReceived += t =>
             {
@@ -398,9 +401,13 @@ namespace Gordian.Core.Network
             };
             Inventory.GuildListCompleted += (sells, items) =>
             {
+                if (ActionService.Menus.IsGuildShopOpen) return;
                 foreach (string line in Ui.GuildShopLog.FormatList(sells, items, id => ActionService.Menus.ItemLookup?.Invoke(id))) Chat.Log.Add(Ui.ChatLogChannel.System, line);
             };
-            Inventory.GuildStatusReceived += (status, hours) => Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
+            Inventory.GuildStatusReceived += (status, hours) =>
+            {
+                if (status != Packets.ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
+            };
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
@@ -433,6 +440,7 @@ namespace Gordian.Core.Network
                 if (open) InputState.Reset();
             };
             AttachKeyItemsAndEquipmentSets();
+            AttachSynthesisAndGuildShop();
         }
 
         /// <summary>

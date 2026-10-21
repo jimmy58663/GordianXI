@@ -20,6 +20,7 @@ namespace Gordian.App.Graphics
         private static volatile int s_zoneCacheBudgetMb = DefaultZoneCacheBudgetMb;
         private static volatile bool s_vsync = true;
         private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
+        private static volatile bool s_retailTerrainBrightness;
 
         /// <summary>
         /// What the performance overlay shows in every viewport window (#30); hidden by default. Setting a new value raises
@@ -62,6 +63,16 @@ namespace Gordian.App.Graphics
             set => s_vsync = value;
         }
 
+        /// <summary>
+        /// Opt-in: draw terrain with the retail client's plain clamp, so noon sand clips to white (#7). Off by default:
+        /// terrain highlights roll off softly (<see cref="ZoneTerrainRenderer.TerrainHighlightKnee"/>).
+        /// </summary>
+        public static bool RetailTerrainBrightness
+        {
+            get => s_retailTerrainBrightness;
+            set => s_retailTerrainBrightness = value;
+        }
+
         public static int ClampFrameRate(int value) => Math.Clamp(value, 1, 240);
 
         /// <summary>Copies a loaded or changed settings file.</summary>
@@ -72,6 +83,7 @@ namespace Gordian.App.Graphics
             ZoneCacheBudgetMb = settings.ZoneCacheBudgetMb;
             VsyncEnabled = settings.IsVsyncEnabled;
             PerformanceOverlay = settings.PerformanceOverlay;
+            RetailTerrainBrightness = settings.RetailTerrainBrightness;
         }
     }
 }

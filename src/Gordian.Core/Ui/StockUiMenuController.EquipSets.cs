@@ -10,8 +10,11 @@ using Gordian.Core.World;
 
 namespace Gordian.Core.Ui
 {
-    /// <summary>A set name being typed with Change Name: the set and the text so far.</summary>
-    public sealed record StockUiNameEdit(int Number, string Text);
+    /// <summary>A set name being typed with Change Name: the set and the shared text field holding the text and the caret.</summary>
+    public sealed record StockUiNameEdit(int Number, StockUiTextField Field)
+    {
+        public string Text => Field.Text;
+    }
 
     public sealed partial class StockUiOpenMenu
     {
@@ -283,65 +286,44 @@ namespace Gordian.Core.Ui
         }
 
         private volatile StockUiNameEdit? _nameEdit;
+        private volatile bool _namingSet;
 
         /// <summary>The set name being typed (Change Name), or null.</summary>
         public StockUiNameEdit? NameEdit => _nameEdit;
 
-        /// <summary>Whether Change Name is taking typed text: the window routes the keyboard here (Enter, Escape, Backspace, text).</summary>
-        public bool IsEditingName => _nameEdit != null && Array.Exists(_open, m => m.IsEquipSetList);
+        /// <summary>Whether Change Name is taking typed text: the viewport feeds the shared <see cref="MacroField"/> the keyboard.</summary>
+        public bool IsEditingName => _nameEdit != null && MacroField.IsOpen && Array.Exists(_open, m => m.IsEquipSetList);
 
         /// <summary>
         /// Change Name (maintainer retail capture 2026-10-13, image-16): the options close and the set's own capsule in the list
-        /// becomes the text field, starting with the set's name; typed text goes to its end (at most
-        /// <see cref="EquipmentSet.MaxNameLength"/> printable ASCII characters, what the retail file can hold).
+        /// becomes the text field, starting with the set's name (at most <see cref="EquipmentSet.MaxNameLength"/> printable
+        /// ASCII characters, what the retail file can hold). It is the shared <see cref="StockUiTextField"/> (#400): caret,
+        /// Left / Right / Home / End / Delete and paste; Enter keeps the name (its default when left empty), Escape and the
+        /// gamepad's cancel leave it as it was (in-game B33), and Up / Down do nothing.
         /// </summary>
         private void BeginNameEdit(StockUiOpenMenu options, int number, EquipmentSet set)
         {
             CloseMenu(options);
-            _nameEdit = new StockUiNameEdit(number, set.Name);
-            Changed?.Invoke();
-        }
-
-        /// <summary>Typed text for the name being changed.</summary>
-        public void NameEditInsert(string text)
-        {
-            if (_nameEdit is not { } edit || string.IsNullOrEmpty(text)) return;
-            var name = new System.Text.StringBuilder(edit.Text);
-            foreach (char c in text)
+            if (MacroField.IsOpen) MacroField.Commit();
+            _nameEdit = new StockUiNameEdit(number, MacroField);
+            _namingSet = true;
+            MacroField.Open(set.Name, EquipmentSet.MaxNameLength, (typed, _) =>
             {
-                if (c < 0x20 || c > 0x7E || name.Length >= EquipmentSet.MaxNameLength) continue;
-                name.Append(c);
-            }
-            _nameEdit = edit with { Text = name.ToString() };
-            Changed?.Invoke();
-        }
-
-        /// <summary>Backspace: the name's last character goes.</summary>
-        public void NameEditBackspace()
-        {
-            if (_nameEdit is not { Text.Length: > 0 } edit) return;
-            _nameEdit = edit with { Text = edit.Text[..^1] };
-            Changed?.Invoke();
-        }
-
-        /// <summary>Enter: the set takes the typed name (its default name when left empty); the list keeps the cursor on it.</summary>
-        public void NameEditCommit()
-        {
-            if (_nameEdit is not { } edit) return;
-            _nameEdit = null;
-            if (EquipSets?.Invoke() is { } book && EquipmentSetBook.IsValidNumber(edit.Number))
+                if (EquipSets?.Invoke() is { } book && EquipmentSetBook.IsValidNumber(number))
+                {
+                    string name = typed.Trim();
+                    book.Set(number, book.Get(number).WithName(name.Length > 0 ? name : EquipmentSet.DefaultName(number)));
+                }
+            }, escapeKeepsText: false, verticalMoves: false);
+            MacroField.OpenChanged += ClearOnClose;
+            void ClearOnClose(bool open)
             {
-                string name = edit.Text.Trim();
-                book.Set(edit.Number, book.Get(edit.Number).WithName(name.Length > 0 ? name : EquipmentSet.DefaultName(edit.Number)));
+                if (open) return;
+                MacroField.OpenChanged -= ClearOnClose;
+                _nameEdit = null;
+                _namingSet = false;
+                Changed?.Invoke();
             }
-            Changed?.Invoke();
-        }
-
-        /// <summary>Escape: the name stays as it was.</summary>
-        public void NameEditCancel()
-        {
-            if (_nameEdit == null) return;
-            _nameEdit = null;
             Changed?.Invoke();
         }
 

@@ -39,15 +39,13 @@ namespace Gordian.App.Graphics
         /// <summary>What the viewport performance overlay shows (#30): hidden by default, like the retail client.</summary>
         public PerformanceOverlayMode PerformanceOverlay { get; set; } = PerformanceOverlayMode.Hidden;
 
-        public static string GetDefaultSettingsPath()
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrWhiteSpace(localAppData))
-            {
-                return Path.Combine(localAppData, "GordianXI", "viewport_settings.json");
-            }
-            return Path.Combine(GordianStorage.RootDataDirectory, "viewport_settings.json");
-        }
+        /// <summary>
+        /// Draw terrain as bright as the retail client, whose noon sand clips to white (#7). Off by default: GordianXI
+        /// tones terrain highlights down (see <see cref="ZoneTerrainRenderer.TerrainHighlightKnee"/>).
+        /// </summary>
+        public bool RetailTerrainBrightness { get; set; }
+
+        public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "viewport_settings.json");
 
         public void SaveToFile(string filePath)
         {

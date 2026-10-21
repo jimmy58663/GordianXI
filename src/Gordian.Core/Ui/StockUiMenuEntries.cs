@@ -41,6 +41,9 @@ namespace Gordian.Core.Ui
         /// <summary>The command menu's Disengage.</summary>
         Disengage,
 
+        /// <summary>The engaged command menu's Call for Help (Disengage's alternate on Right).</summary>
+        CallForHelp,
+
         /// <summary>The command menu's Invite: a party invite to the targeted player.</summary>
         Invite,
 
@@ -130,6 +133,18 @@ namespace Gordian.Core.Ui
 
         /// <summary>The Macros menu's Edit Macro: opens the macro book list (<see cref="StockUiMacroMenus"/>, #339).</summary>
         MacroBooks,
+
+        /// <summary>Synthesis's Crystal Synthesis: the inventory's crystals, then the synthesis grid (<see cref="StockUiSynthesis"/>, #330).</summary>
+        SynthesisCrystals,
+
+        /// <summary>Synthesis's History: the recipes done, shown in the synthesis grid (<see cref="StockUiSynthesis"/>, #330).</summary>
+        SynthesisHistory,
+
+        /// <summary>The guild shop window's Buy: the guild's stock list (<see cref="StockUiGuildShop"/>, #330).</summary>
+        GuildBuy,
+
+        /// <summary>The guild shop window's Sell: the inventory items the guild buys (<see cref="StockUiGuildShop"/>, #330).</summary>
+        GuildSell,
     }
 
     /// <summary>
@@ -182,7 +197,7 @@ namespace Gordian.Core.Ui
             [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.Equipment),
             [(MainMenu, 3)] = new("Magic", Opens: StockUiActionMenu.MagicCategoryMenu),
             [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.Items),
-            [(MainMenu, 10)] = new("Synthesis", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 10)] = new("Synthesis", Opens: StockUiSynthesis.Menu),
             [(MainMenu, 5)] = new("Abilities", Opens: StockUiActionMenu.AbilityMenu),
             [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.NotAvailable),
@@ -208,6 +223,14 @@ namespace Gordian.Core.Ui
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),
+
+            // Synthesis ("cmbmenu", title 170): Crystal Synthesis (help 819) and History (help 820), #330.
+            [(StockUiSynthesis.Menu, StockUiSynthesis.CrystalSynthesisButton)] = new("Crystal Synthesis", Command: StockUiMenuCommand.SynthesisCrystals),
+            [(StockUiSynthesis.Menu, StockUiSynthesis.HistoryButton)] = new("History", Command: StockUiMenuCommand.SynthesisHistory),
+
+            // The guild shop window ("guildsho", opened by S2C 0x086; Buy windowps #149, Sell #150), #330.
+            [(StockUiGuildShop.MenuName, StockUiGuildShop.BuyButton)] = new("Buy", Command: StockUiMenuCommand.GuildBuy),
+            [(StockUiGuildShop.MenuName, StockUiGuildShop.SellButton)] = new("Sell", Command: StockUiMenuCommand.GuildSell),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).

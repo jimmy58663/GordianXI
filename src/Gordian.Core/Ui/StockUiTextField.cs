@@ -6,10 +6,11 @@ using Gordian.Core.Input;
 namespace Gordian.Core.Ui
 {
     /// <summary>
-    /// A one-line text field a stock window edits in place (the macro editor's title and lines, a macro book's name; #339).
-    /// While open it owns the keyboard as the chat input line does (the viewport feeds it keys and text): Enter and Escape
-    /// keep the text (retail keeps a line on Escape: maintainer's retail check 2026-10-13), Up / Down keep it and ask to move
-    /// to the field above / below. Printable ASCII only, cut at
+    /// A one-line text field a stock window edits in place (the macro editor's title and lines, a macro book's name; #339;
+    /// an equipment set's Change Name, #400). While open it owns the keyboard as the chat input line does (the viewport
+    /// feeds it keys and text): Enter keeps the text; Escape keeps it too for a macro line (retail keeps a line on Escape:
+    /// maintainer's retail check 2026-10-13) but drops it for Change Name (<see cref="EscapeKeepsText"/>, in-game B33);
+    /// Up / Down keep the text and ask to move to the field above / below (<see cref="VerticalMoves"/>). Printable ASCII only, cut at
     /// <see cref="MaxLength"/>. Accessed from the UI thread (keys, text) and the render thread (drawing), so state changes
     /// take a lock.
     /// </summary>
@@ -22,6 +23,12 @@ namespace Gordian.Core.Ui
 
         /// <summary>True while the field is being edited.</summary>
         public bool IsOpen { get; private set; }
+
+        /// <summary>What Escape (and the gamepad's cancel) does: keep the typed text (a macro line) or drop it and keep the old text (Change Name).</summary>
+        public bool EscapeKeepsText { get; private set; } = true;
+
+        /// <summary>Whether Up / Down keep the text and ask to move to the neighbouring field (the macro editor); off, they do nothing.</summary>
+        public bool VerticalMoves { get; private set; } = true;
 
         /// <summary>Longest text the field takes.</summary>
         public int MaxLength { get; private set; }
@@ -43,11 +50,13 @@ namespace Gordian.Core.Ui
         /// Starts editing <paramref name="text"/> with the caret at its end. <paramref name="commit"/> gets the kept text and
         /// a step: 0 for Enter, -1 / +1 for Up / Down.
         /// </summary>
-        public void Open(string text, int maxLength, Action<string, int> commit)
+        public void Open(string text, int maxLength, Action<string, int> commit, bool escapeKeepsText = true, bool verticalMoves = true)
         {
             ArgumentNullException.ThrowIfNull(commit);
             lock (_sync)
             {
+                EscapeKeepsText = escapeKeepsText;
+                VerticalMoves = verticalMoves;
                 MaxLength = Math.Max(1, maxLength);
                 _text.Clear();
                 foreach (char c in text ?? string.Empty)
@@ -62,7 +71,14 @@ namespace Gordian.Core.Ui
             OpenChanged?.Invoke(true);
         }
 
-        /// <summary>Drops the edit (Escape, or the gamepad's cancel).</summary>
+        /// <summary>Escape / the gamepad's cancel: keeps or drops the text as <see cref="EscapeKeepsText"/> says.</summary>
+        public void Escape()
+        {
+            if (EscapeKeepsText) Commit();
+            else Cancel();
+        }
+
+        /// <summary>Drops the edit.</summary>
         public void Cancel()
         {
             lock (_sync)
@@ -110,15 +126,16 @@ namespace Gordian.Core.Ui
         public bool HandleKey(GordianKey key, InputModifiers modifiers)
         {
             int commitStep = int.MinValue;
+            bool escape = false;
             lock (_sync)
             {
                 if (!IsOpen) return false;
                 switch (key)
                 {
                     case GordianKey.Enter or GordianKey.NumPadEnter: commitStep = 0; break;
-                    case GordianKey.Up: commitStep = -1; break;
-                    case GordianKey.Down: commitStep = 1; break;
-                    case GordianKey.Escape: commitStep = 0; break;
+                    case GordianKey.Up when VerticalMoves: commitStep = -1; break;
+                    case GordianKey.Down when VerticalMoves: commitStep = 1; break;
+                    case GordianKey.Escape: escape = true; break;
                     case GordianKey.Backspace:
                         if (_caret > 0) _text.Remove(--_caret, 1);
                         break;
@@ -139,7 +156,8 @@ namespace Gordian.Core.Ui
                         break;
                 }
             }
-            if (commitStep != int.MinValue) Commit(commitStep);
+            if (escape) Escape();
+            else if (commitStep != int.MinValue) Commit(commitStep);
             return true;
         }
     }

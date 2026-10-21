@@ -92,6 +92,26 @@ namespace Gordian.App.Tests.Audio
             Assert.Equal(new[] { 18051 }, Step(tracker, Actor(1, Fighter, serial: 1, ticks: 61) with { Cues = cues }));
         }
 
+        /// <summary>
+        /// #328: a presentation whose body ends before its routine (a spell's release ends long before its heal sound)
+        /// keeps its clock on wall time, so the late cue still plays, once.
+        /// </summary>
+        [Fact]
+        public void Presentation_LateCuesPlayAfterTheBodyEnds()
+        {
+            double now = 0;
+            var tracker = new ActionSoundTracker(_ => 0, (_, _, _) => System.Array.Empty<RoutineSoundCue>(), clock: () => now);
+            var cues = new[] { new RoutineSoundCue(0, new[] { 18050 }, 0x02), new RoutineSoundCue(200, new[] { 18052 }, 0x02) };
+            Step(tracker, Actor(1, Fighter));
+            Assert.Equal(new[] { 18050 }, Step(tracker, Actor(1, Fighter, serial: 1, ticks: 100) with { Cues = cues }));
+            now = 1.0; // 60 ticks later, the body has ended
+            Assert.Empty(Step(tracker, Actor(1, Fighter, serial: 1)));
+            now = 1.8; // tick 208
+            Assert.Equal(new[] { 18052 }, Step(tracker, Actor(1, Fighter, serial: 1)));
+            now = 3.0;
+            Assert.Empty(Step(tracker, Actor(1, Fighter, serial: 1)));
+        }
+
         [Fact]
         public void AttackRound_AddsTheAttackCry()
         {
@@ -150,6 +170,27 @@ namespace Gordian.App.Tests.Audio
             var tracker = NewTracker(pick: 0);
             Step(tracker, Actor(1, Monster));
             Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 1, reaction: HitFrom(99)))); // attacker unknown, cry pick silent
+        }
+
+        /// <summary>
+        /// #328: a melee hit also plays what the shared <c>ROM/0/0</c> hit routines pick for its result (here a critical
+        /// hit), once per reaction and only for basic attacks.
+        /// </summary>
+        [Fact]
+        public void MeleeHit_AddsTheSharedHitRoutineSounds()
+        {
+            var tracker = new ActionSoundTracker(_ => 2,
+                (model, name, offHand) => Sounds.TryGetValue((model, name, offHand), out var cues) ? cues : System.Array.Empty<RoutineSoundCue>(),
+                reaction => reaction.Result.IsCriticalInfo ? new[] { 5031 } : System.Array.Empty<int>());
+            var attacker = Actor(7, Fighter);
+            var critical = HitFrom(7) with { Result = new CombatActionResult { Info = 2 }, Category = ActionCategory.BasicAttack };
+            Step(tracker, Actor(1, Monster), attacker);
+            Assert.Equal(new[] { 6031, 7001, 5031 }, Step(tracker, Actor(1, Monster, reactions: 1, reaction: critical), attacker));
+            Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 1, reaction: critical), attacker));
+
+            // A spell's result runs mdam, which plays no reaction (D8: Cure landing sounded like a hit).
+            var spell = critical with { Category = ActionCategory.MagicFinish };
+            Assert.Empty(Step(tracker, Actor(1, Monster, reactions: 2, reaction: spell), attacker));
         }
 
         [Fact]

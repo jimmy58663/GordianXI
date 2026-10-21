@@ -42,6 +42,9 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public int WeaponSlot { get; set; } = -1;
 
+        /// <summary>The piece's ambient multiplier (<see cref="SkeletonMeshPiece.AmbientMultiplier"/>).</summary>
+        public float AmbientMultiplier { get; set; } = 1.0f;
+
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"AnimatedSubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";

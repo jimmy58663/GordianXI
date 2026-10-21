@@ -33,7 +33,7 @@ jobs:
 
       # scorecard-action has no floating major tag; Dependabot bumps the release tag.
       - name: Run analysis
-        uses: ossf/scorecard-action@v2.4.4
+        uses: ossf/scorecard-action@v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif

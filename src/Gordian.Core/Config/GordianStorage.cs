@@ -109,6 +109,25 @@ namespace Gordian.Core.Config
             }
         }
 
+        private static string? _customUserSettingsDirectory;
+
+        /// <summary>
+        /// The per-user folder the desktop shell keeps its own settings in (input profile, viewport, sound and window
+        /// placements): <c>%LOCALAPPDATA%/GordianXI</c> (the platform's equivalent elsewhere), or <see cref="RootDataDirectory"/>
+        /// when the platform has none. A test assembly sets it to a scratch folder so no test reads or writes the
+        /// player's real settings (#383).
+        /// </summary>
+        public static string UserSettingsDirectory
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(_customUserSettingsDirectory)) return _customUserSettingsDirectory;
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                return !string.IsNullOrWhiteSpace(localAppData) ? Path.Combine(localAppData, AppFolderName) : RootDataDirectory;
+            }
+            set => _customUserSettingsDirectory = value;
+        }
+
         /// <summary>
         /// Gets the dedicated directory storing character and account profile JSON files.
         /// Can be overridden for testing or specific configurations.

@@ -37,10 +37,11 @@ namespace Gordian.App.Graphics
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;
-            // Config pages with sliders: the frame art of some pages bakes in a sample fill (conf5w1's first bar
-            // shows about 20%); it is left out so the fill drawn for the value is the only one.
+            // conf5w1 / conf5w2 bake an orange block (gauge texels 48,16; x 88-126 of the 192-px Maximum lines bar, y 93-111)
+            // into their frame: it is retail's marker for the lowest Maximum lines value, 4 of 20 (retail capture 2026-10-18,
+            // image-2). It stays drawn, under the fill, as in retail.
             renderer.DrawMenu(definition, placement, includeButtons: false,
-                excludeFramePart: menu.SliderFractions.Count > 0 ? IsSliderFill : null, opaqueBody: true, frameImage: menu.FrameImage,
+                opaqueBody: true, frameImage: menu.FrameImage,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
@@ -85,7 +86,7 @@ namespace Gordian.App.Graphics
                 {
                     // Client text beside a label (the chat-mode list: the tell partner after Tell's red arrow, "No
                     // Linkshell" / "No Unity" beside greyed modes), centred on the row.
-                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f, s);
+                    renderer.DrawText(font, side.Text, placement.X + side.X * s, by + (button.Height * s - font.LineHeight * s) * 0.5f + side.Y * s, s);
                 }
 
                 if (menu.SliderFractions.TryGetValue(button.ButtonId, out float fraction) && fraction > 0)
@@ -125,6 +126,10 @@ namespace Gordian.App.Graphics
             else if (font != null && menu.IsItemList)
             {
                 StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
+            else if (font != null && menu.IsSynthesisGrid)
+            {
+                StockUiSynthesisWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
             else if (font != null && menu.IsEquipment)
             {
@@ -231,7 +236,7 @@ namespace Gordian.App.Graphics
                 // A prompt's message, centred at y 24. One wider than the window wraps at spaces onto more lines, each centred,
                 // kept between the frame's top and the buttons (round 3: the equipment set Paste prompt, "Performing this
                 // action will overwrite the current set with a new one. Proceed?", ran out of the 252 px comyn window).
-                var lines = StockUiTreasureWindow.Wrap(t => font.MeasureWidth(t), message, frame.Width - 2 * MessageMargin, MessageMaxLines);
+                var lines = StockUiTextLayout.Wrap(message, t => font.MeasureWidth(t), frame.Width - 2 * MessageMargin, MessageMaxLines);
                 float pitch = font.LineHeight;
                 float buttonsTop = frame.Height;
                 foreach (var b in definition.Buttons)
@@ -347,7 +352,7 @@ namespace Gordian.App.Graphics
                 if (menu.EmptyText is { } empty)
                 {
                     Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-                    var lines = StockUiTreasureWindow.Wrap(measure, empty, ActionEmptyWidth, 4);
+                    var lines = StockUiTextLayout.Wrap(empty, measure, ActionEmptyWidth, 4);
                     for (int i = 0; i < lines.Count; i++)
                     {
                         float x = placement.X + ActionEmptyTextX * s, y = placement.Y + (ActionEmptyTextY + i * ActionEmptyPitch) * s;
@@ -641,47 +646,21 @@ namespace Gordian.App.Graphics
             StockUiPlacement at, ushort itemId, string fallbackName)
         {
             float s = at.Scale;
+            if (itemId == 0)
+            {
+                // No item (the guild Sell list's "Select from your inventory."): the empty window with its slot box (image-5).
+                renderer.DrawMenu(info, at, includeButtons: true, opaqueBody: true);
+                return;
+            }
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
             var record = menu.ItemLookup?.Invoke(itemId);
-            float x = at.X + InfoTextX * s, y = at.Y + InfoTextY * s;
-            renderer.DrawText(font, record != null ? StockUiShop.LongName(record) : fallbackName, x, y, s);
-            int width = (int)(info.Frame.Width - InfoTextX - InfoRightInset);
-            int maxLines = (int)((info.Frame.Height - InfoTextY - InfoLinePitch) / InfoLinePitch);
-            string? description = record?.Description;
-            if (string.IsNullOrWhiteSpace(description) || maxLines <= 0) return;
-            foreach (string wrapped in Wrap(font, description, width, maxLines))
-            {
-                y += InfoLinePitch * s;
-                renderer.DrawText(font, wrapped, x, y, s);
-            }
-        }
-
-        /// <summary>Word-wraps text to a layout width (unscaled), keeping the DAT's own line breaks; at most <paramref name="maxLines"/> lines.</summary>
-        internal static List<string> Wrap(UiFont font, string text, int width, int maxLines)
-        {
-            var lines = new List<string>();
-            foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
-            {
-                string current = string.Empty;
-                foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string candidate = current.Length == 0 ? word : current + " " + word;
-                    if (current.Length > 0 && font.MeasureWidth(candidate) > width)
-                    {
-                        lines.Add(current);
-                        if (lines.Count >= maxLines) return lines;
-                        current = word;
-                    }
-                    else
-                    {
-                        current = candidate;
-                    }
-                }
-                if (current.Length > 0) lines.Add(current);
-                if (lines.Count >= maxLines) return lines;
-            }
-            return lines;
+            // The name on the first line, the description under it, all in the window's text box (shared layout and clip).
+            float width = info.Frame.Width - InfoTextX - InfoRightInset, height = info.Frame.Height - InfoTextY;
+            var lines = new List<string> { record != null ? StockUiShop.LongName(record) : fallbackName };
+            int maxLines = StockUiTextLayout.LinesIn(height, InfoLinePitch);
+            lines.AddRange(StockUiTextLayout.Wrap(record?.Description, t => font.MeasureWidth(t), width, Math.Max(0, maxLines - 1)));
+            StockUiTextBoxes.DrawLines(renderer, font, null, lines, at.X + InfoTextX * s, at.Y + InfoTextY * s, width, height, s, linePitch: InfoLinePitch);
         }
 
         /// <summary>
@@ -771,14 +750,6 @@ namespace Gordian.App.Graphics
                 _ => new UiColor(0x08, 0x08, 0x38, 0x80),
             };
         }
-
-        /// <summary>
-        /// A frame part that is an authored sample of a slider fill (the orange block, gauge texels 48,16, that
-        /// "conf5w1"/"conf5w2" bake into their first bar).
-        /// </summary>
-        private static bool IsSliderFill(UiSpritePart part) =>
-            part.SourceX == 48 && part.SourceY == 16 && part.SourceWidth == 16
-            && UiResourceLibrary.TrimResourceName(part.TextureName).Equals(SliderTexture, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Retail's list scrollbar (captures, 2026-09-26): a 6 px track straddling the window's right edge from the

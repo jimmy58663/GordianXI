@@ -221,7 +221,7 @@ These are not wire fields. They are the retail client's per-entity `Render.Flags
 | 1 | 0x2 | 0xAB sub 8 sets, sub 7 clears | | kept as `EventRenderFlags.Flags2Bit1` (#198), nothing reads it |
 | 4 | 0x10 | 0xB6 sub 0x13 sets / 0x12 clears (own); 0x15 sets / 0x14 clears (actor) | | not run |
 | 14 | 0x4000 | (no opcode file sets it) | placement floor snap, as Flags0 bit 20 | |
-| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps a face switch (*inference*, #198, #217) |
+| 17 | 0x20000 | 0x7C (actor with a ready model; operand non-zero sets, zero clears) | | stepped over silently. **Beyond XiEvents:** 55% of the events that use 0x81 (blink) also use 0x7C, and short talk events clear both before a facial gesture and set both after it (Cacaroon, Aht Urhgan Whitegate event 3036), so the bit may be another face switch, perhaps a face switch (*inference*, #198, #217). **Retail check (2026-10-17, `Cacaroon.mp4`, event 3036):** across the gesture (~1.4-8 s, 15 fps) the eye stays open, no blink or second face texture shows; the hat hides part of the eye, so a subtle lid change could be missed. Simplest reading: clearing the bit only stops the idle blink during the gesture (*inference*). Stays silent |
 | 24 | 0x1000000 | 0xAB sub 0x12 sets, 0x13 clears | | kept as `EventRenderFlags.Flags2Bit24` (#198), nothing reads it |
 
 ### Render.Flags3

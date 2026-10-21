@@ -262,6 +262,13 @@ PARTICULAR PURPOSE. See the GNU Library General Public License for more details.
 
 The full licence text: https://github.com/kcat/openal-soft/blob/master/COPYING
 ```
+### Xbox Buttons and PS4 Buttons ("UI Elements")
+* **Credit:** UI Elements by Mikkel Julian "Arks" Petersen (Arks @ScissorMarks)
+* **Sources:** [https://arks.itch.io/xbox-buttons](https://arks.itch.io/xbox-buttons) and [https://arks.itch.io/ps4-buttons](https://arks.itch.io/ps4-buttons) (author: [https://arks.itch.io](https://arks.itch.io))
+* **License:** Creative Commons Attribution 4.0 International (CC BY 4.0), [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
+* **Used For:** the controller button pictures in the menu key hints (the options hint of the item, spell and treasure windows). Only the glyphs used are included, under `src/Gordian.App/Assets/`, and the PNGs were resized (the 480 x 480 originals are reduced to the sizes the hints draw at). The `/buttonpreview` picker reads the full packs from a folder given at run time and does not include them.
+* **Trademarks:** PlayStation(R) and the PlayStation logo are registered trademarks of Sony Interactive Entertainment. Xbox is a trademark of Microsoft Corporation. The glyph art is used to show the buttons of those controllers; GordianXI is not affiliated with, endorsed by or sponsored by Sony or Microsoft.
+
 ---
 
 ## 2. Reference Specifications & Clean-Room Interoperability Sources

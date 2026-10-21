@@ -190,22 +190,24 @@ namespace Gordian.Core.Ui
             Toggle(StockUiSettingKey.WindowEffect, true);
 
             Toggle(StockUiSettingKey.Window1ReactiveSizing, true);
-            Slider(StockUiSettingKey.Window1MaxLines, 8, 1, 8, 1);
-            Slider(StockUiSettingKey.Window1MinLines, 0, 0, 8, 1); // retail default 0 (in-game comparison 2026-10-04)
+            // Retail defaults (captures 2026-10-16, #24): Maximum lines 10 (the bar filled 48 %, which fits a 1-20 range;
+            // the top of the range is inferred), Minimum 0, Resize Time near its minimum (14 of 200 px = 7 % of its 0-27 range = 2).
+            Slider(StockUiSettingKey.Window1MaxLines, 10, 0, 20, 1);
+            Slider(StockUiSettingKey.Window1MinLines, 0, 0, 20, 1);
             Slider(StockUiSettingKey.Window1Width, 100);
-            Slider(StockUiSettingKey.Window1ResizeTime, 50);
+            Slider(StockUiSettingKey.Window1ResizeTime, 2, 0, 27, 1); // 3 s + 1 s per step: default 5 s (7 % of the bar)
             Toggle(StockUiSettingKey.Window2ReactiveSizing, true);
-            Slider(StockUiSettingKey.Window2MaxLines, 8, 1, 8, 1); // retail default 8 for both windows
-            Slider(StockUiSettingKey.Window2MinLines, 0, 0, 8, 1);
+            Slider(StockUiSettingKey.Window2MaxLines, 10, 0, 20, 1); // the same defaults for both windows
+            Slider(StockUiSettingKey.Window2MinLines, 0, 0, 20, 1);
             Slider(StockUiSettingKey.Window2Width, 100);
-            Slider(StockUiSettingKey.Window2ResizeTime, 50);
+            Slider(StockUiSettingKey.Window2ResizeTime, 2, 0, 27, 1);
 
             Add(StockUiSettingKey.DamageDisplay, 1, 0, 2);
             Toggle(StockUiSettingKey.CharacterInfoHidden, false, StockUiSettingScope.Server);
             Add(StockUiSettingKey.Shadows, 1, 0, 2);
             Toggle(StockUiSettingKey.WeatherEffects, true);
             Slider(StockUiSettingKey.CharacterModelsDisplayed, 100);
-            Add(StockUiSettingKey.IconType, 1, 1, 2);
+            Add(StockUiSettingKey.IconType, 2, 1, 2); // retail default 2 (capture 2026-10-16, #24)
             Add(StockUiSettingKey.PcArmorDisplay, 0, 0, 1);
 
             Slider(StockUiSettingKey.ClippingPlane, 100);
@@ -321,17 +323,25 @@ namespace Gordian.Core.Ui
             lock (_sync) return _values.ContainsKey(key);
         }
 
+        /// <summary>The lowest "Maximum lines displayed" value.</summary>
+        public const int MinimumMaxLines = 4;
+
         /// <summary>Sets a value (clamped to its range); true when it changed. Raises <see cref="Changed"/>.</summary>
         public bool SetValue(StockUiSettingKey key, int value)
         {
             var definition = Definitions[key];
             value = definition.Clamp(value);
+            // Maximum lines displayed cannot go below 4 although its bar spans 0-20 (retail capture, 2026-10-18).
+            if (key is StockUiSettingKey.Window1MaxLines or StockUiSettingKey.Window2MaxLines) value = Math.Max(MinimumMaxLines, value);
             lock (_sync)
             {
                 if (_values.TryGetValue(key, out int current) && current == value) return false;
                 _values[key] = value;
             }
             Changed?.Invoke(key, value);
+            // Raising a window's Minimum lines past its Maximum pushes the Maximum up with it (retail, 2026-10-18).
+            if (key == StockUiSettingKey.Window1MinLines && value > GetValue(StockUiSettingKey.Window1MaxLines)) SetValue(StockUiSettingKey.Window1MaxLines, value);
+            if (key == StockUiSettingKey.Window2MinLines && value > GetValue(StockUiSettingKey.Window2MaxLines)) SetValue(StockUiSettingKey.Window2MaxLines, value);
             return true;
         }
 

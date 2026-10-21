@@ -214,6 +214,15 @@ namespace Gordian.Core.Ui
         private readonly List<ChatLogLine> _scratch = new();
 
         /// <summary>Releases the selection (log window or status icon); a log window returns to the newest lines.</summary>
+        /// <summary>
+        /// How many times the player has asked the log windows to give back a line at once (Cancel with nothing targeted
+        /// and no menu open; maintainer report, 2026-10-19). <see cref="StockUiLogSizing"/> acts on each new request.
+        /// </summary>
+        public long LogShrinkRequests { get; private set; }
+
+        /// <summary>Asks reactive log windows to drop one line now.</summary>
+        public void RequestLogShrink() => LogShrinkRequests++;
+
         public void ReleaseLogWindow()
         {
             SelectedLogWindow = 0;

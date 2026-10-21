@@ -64,6 +64,9 @@ namespace Gordian.Core.Ui
 
         public int ButtonId { get; }
 
+        /// <summary>True when the row shows its value as a number beside the label (the log windows' line counts).</summary>
+        public bool ShowValue { get; init; }
+
         /// <summary>The bar's fill fraction for a value (0 at Min, 1 at Max).</summary>
         public float Fraction(int value)
         {
@@ -322,15 +325,15 @@ namespace Gordian.Core.Ui
 
             Add(new StockUiConfigPage(Window1SettingsPage, "Window Settings (Window 1)",
                 new StockUiOptionRow("Reactive window sizing", StockUiSettingKey.Window1ReactiveSizing, On(1), Off(2)),
-                new StockUiSliderRow("Maximum lines displayed", StockUiSettingKey.Window1MaxLines, 3),
-                new StockUiSliderRow("Minimum lines displayed", StockUiSettingKey.Window1MinLines, 4),
+                new StockUiSliderRow("Maximum lines displayed", StockUiSettingKey.Window1MaxLines, 3) { ShowValue = true },
+                new StockUiSliderRow("Minimum lines displayed", StockUiSettingKey.Window1MinLines, 4) { ShowValue = true },
                 new StockUiSliderRow("Window Width", StockUiSettingKey.Window1Width, 5),
                 new StockUiSliderRow("Resize Time", StockUiSettingKey.Window1ResizeTime, 6)));
 
             Add(new StockUiConfigPage(Window2SettingsPage, "Window Settings (Window 2)",
                 new StockUiOptionRow("Reactive window sizing", StockUiSettingKey.Window2ReactiveSizing, On(1), Off(2)),
-                new StockUiSliderRow("Maximum lines displayed", StockUiSettingKey.Window2MaxLines, 3),
-                new StockUiSliderRow("Minimum lines displayed", StockUiSettingKey.Window2MinLines, 4),
+                new StockUiSliderRow("Maximum lines displayed", StockUiSettingKey.Window2MaxLines, 3) { ShowValue = true },
+                new StockUiSliderRow("Minimum lines displayed", StockUiSettingKey.Window2MinLines, 4) { ShowValue = true },
                 new StockUiSliderRow("Window Width", StockUiSettingKey.Window2Width, 5),
                 new StockUiSliderRow("Resize Time", StockUiSettingKey.Window2ResizeTime, 6)));
 

@@ -89,6 +89,8 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     _libraryGeneration = generation;
                     _library = library;
                 }
@@ -119,6 +121,8 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
@@ -159,6 +163,8 @@ namespace Gordian.App.Graphics
 
             var menus = session.ActionService.Menus;
             if (!ReferenceEquals(menus.Library, library)) menus.Library = library;
+            renderer.HintLabel = menus.HintLabel;
+            renderer.HintFont = _font;
             if (menus.ConfigRowText == null && _resources is { } strings)
             {
                 // The list pages' row text comes from the config row table (ROM/165/74).
@@ -243,9 +249,11 @@ namespace Gordian.App.Graphics
                 DrawTargetWindow(renderer, library, session, party?.Placement, width, height);
                 DrawStatusIcons(renderer, library, session, width, height);
             }
-            else if (session.Events.EventText is { } eventText)
+            else
             {
-                DrawEventText(renderer, eventText, width, height);
+                // The log stays up while an event line waits for Confirm, even in the event message mode (#369).
+                if (session.Events.IsWaitingForConfirm) DrawLogWindows(renderer, library, session, null, width, height);
+                if (session.Events.EventText is { } eventText) DrawEventText(renderer, eventText, width, height);
             }
             if (!zoning)
             {
@@ -253,6 +261,7 @@ namespace Gordian.App.Graphics
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
             }
+            if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
             if (unlocked)
             {
@@ -546,6 +555,13 @@ namespace Gordian.App.Graphics
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
+                if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory && i == open.Count - 1 && library.TryGetMenu(StockUiSynthesis.OptionsMenu, out var synthesisOptions))
+                {
+                    // "+ : Synthesis Options" (Favorite / Unfavorite) stands at the top right while the History list takes input
+                    // (capture Synthesis_History.png); + / Y puts the cursor on it.
+                    var f = synthesisOptions.Frame;
+                    renderer.DrawMenu(synthesisOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
+                }
                 if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
                     && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
                 {
@@ -710,7 +726,7 @@ namespace Gordian.App.Graphics
             // Reactive sizing picks each window's line count (and so its frame) from the lines arriving; it shows the
             // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
             double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now);
+            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now, DialogFloors(session, chat, _logFont, _logTextWidth));
             // The drawn height follows the line count smoothly: the frame is the next whole line count up, drawn
             // shorter, its rows held against the bottom edge (StockUiChatWindow.DrawLog's riseRows).
             float display1 = _logSizing[0].DisplayLines;
@@ -742,6 +758,7 @@ namespace Gordian.App.Graphics
                 width2 = width1;
             }
             width1 = ApplyWidthSetting(width1, StockUiSettingKey.Window1Width);
+            _logTextWidth[0] = width1 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight;
 
             // The full-screen log (Confirm with the log selected) takes the log's place: Window 1's left edge and width,
             // from near the top of the screen down to the log's bottom edge.
@@ -789,6 +806,7 @@ namespace Gordian.App.Graphics
             {
                 if (!horizontal) width2 = fullWidth;
                 width2 = ApplyWidthSetting(width2, StockUiSettingKey.Window2Width);
+                _logTextWidth[1] = width2 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight;
                 float fullHeight2 = menu2.Frame.Height + StockUiChatWindow.TitleBand;
                 float height2 = Math.Min(fullHeight2, StockUiChatWindow.WindowHeight(display2));
                 float rise2 = (fullHeight2 - height2) / StockUiChatWindow.RowPitch;
@@ -840,6 +858,9 @@ namespace Gordian.App.Graphics
         /// <summary>Whether the session's event dialog waits for Confirm this frame (the log then shows the wait arrow).</summary>
         private bool _dialogWaiting;
 
+        /// <summary>The /buttonpreview picker (#360).</summary>
+        private readonly ButtonGlyphPreview _buttonPreview = new();
+
         /// <summary>The drawn session's log windows' reactive sizing (Window 1, Window 2): one of <see cref="_logSizings"/>.</summary>
         private StockUiLogSizing[] _logSizing = { new(), new() };
 
@@ -875,16 +896,51 @@ namespace Gordian.App.Graphics
         /// Advances a log's reactive sizing (Window 2's only while the log is split); it shows the maximum while the player
         /// reads the window (selected, scrolled back, typing, or placing the UI).
         /// </summary>
-        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now)
+        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now, (int Window1, int Window2) dialogFloor)
         {
-            sizing[0].Update(now, chat.Log.AddedCount(1), settings.IsOn(StockUiSettingKey.Window1ReactiveSizing),
-                settings.GetValue(StockUiSettingKey.Window1MinLines), settings.GetValue(StockUiSettingKey.Window1MaxLines),
-                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window1ResizeTime)),
-                expanded: chat.Input.IsOpen || unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(1) > 0);
-            if (multi != 0) sizing[1].Update(now, chat.Log.AddedCount(2), settings.IsOn(StockUiSettingKey.Window2ReactiveSizing),
-                settings.GetValue(StockUiSettingKey.Window2MinLines), settings.GetValue(StockUiSettingKey.Window2MaxLines),
-                StockUiLogSizing.ResizeSeconds(settings.GetValue(StockUiSettingKey.Window2ResizeTime)),
-                expanded: unlocked || chat.IsLogSelected || chat.Log.ScrollOffset(2) > 0);
+            // Window 2 is a copy of Window 1 with its own settings: one routine, configured per window (#369: an NPC line
+            // waiting for Confirm keeps either window up, whichever the dialog channel is routed to).
+            UpdateWindowSizing(sizing[0], 1, chat, settings, unlocked || chat.Input.IsOpen, now, dialogFloor.Window1,
+                StockUiSettingKey.Window1ReactiveSizing, StockUiSettingKey.Window1MinLines, StockUiSettingKey.Window1MaxLines, StockUiSettingKey.Window1ResizeTime);
+            if (multi != 0)
+            {
+                UpdateWindowSizing(sizing[1], 2, chat, settings, unlocked, now, dialogFloor.Window2,
+                    StockUiSettingKey.Window2ReactiveSizing, StockUiSettingKey.Window2MinLines, StockUiSettingKey.Window2MaxLines, StockUiSettingKey.Window2ResizeTime);
+            }
+        }
+
+        private static void UpdateWindowSizing(StockUiLogSizing sizing, int window, StockUiChat chat, StockUiSettings settings, bool expanded, double now,
+            int dialogFloor, StockUiSettingKey reactive, StockUiSettingKey minLines, StockUiSettingKey maxLines, StockUiSettingKey resizeTime) =>
+            sizing.Update(now, chat.Log.AddedCount(window), settings.IsOn(reactive), settings.GetValue(minLines), settings.GetValue(maxLines),
+                StockUiLogSizing.ResizeSeconds(settings.GetValue(resizeTime)),
+                expanded: expanded || chat.IsLogSelected || chat.Log.ScrollOffset(window) > 0, floor: dialogFloor,
+                shrinkRequests: chat.LogShrinkRequests);
+
+        /// <summary>Each log window's text width as last drawn (authored pixels), for working out how many rows a dialog line takes.</summary>
+        private readonly float[] _logTextWidth = { 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight, 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight };
+
+        /// <summary>
+        /// The rows each log window must keep while an event line waits for Confirm (#369): the wrapped rows of the lines that dialog
+        /// added to that window (<see cref="Gordian.Core.Events.EventDialogController.DialogLogMark"/>), the window still growing and
+        /// shrinking above that. Zero when nothing waits.
+        /// </summary>
+        private static (int Window1, int Window2) DialogFloors(CharacterSession session, StockUiChat chat, StockUiLogFont? logFont, float[] textWidth)
+        {
+            if (!session.Events.IsWaitingForConfirm) return (0, 0);
+            var mark = session.Events.DialogLogMark;
+            int timestamp = session.ActionService.UiSettings.GetValue(StockUiSettingKey.LogTimestamp);
+            int Rows(int window, long marked)
+            {
+                long added = chat.Log.AddedCount(window) - marked;
+                if (added <= 0) return 0;
+                var lines = new List<ChatLogLine>();
+                chat.Log.CopyVisible(window, (int)Math.Min(added, 40), lines);
+                if (logFont == null) return lines.Count;
+                int rows = 0;
+                foreach (var line in lines) rows += StockUiChatLog.GetWrappedRows(line, logFont.GetAdvance, textWidth[window - 1], timestamp).Count;
+                return Math.Max(1, rows);
+            }
+            return (Rows(1, mark.Window1), chat.Log.MultiWindow ? Rows(2, mark.Window2) : 0);
         }
 
         /// <summary>
@@ -899,7 +955,7 @@ namespace Gordian.App.Graphics
             int multi = settings.GetValue(StockUiSettingKey.LogMultiWindow);
             session.Chat.SetMultiWindow(multi != 0);
             UpdateLogSizing(LogSizingFor(session), session.Chat, settings, session.ActionService.UiDrag.Unlocked, multi,
-                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
+                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, DialogFloors(session, session.Chat, _logFont, _logTextWidth));
         }
 
         /// <summary>
@@ -908,10 +964,37 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static bool TryGetLogFrame(UiResourceLibrary library, int lines, out UiMenuDefinition menu, out int rows)
         {
-            rows = Math.Clamp(lines, 1, 8);
+            rows = Math.Clamp(lines, 1, 20);
+            if (rows > 8)
+            {
+                // The UI DAT authors "log1".."log8" only (checked 2026-10-18); retail's way past 8 lines is not known,
+                // so the log8 frame grows 16 px per extra line (the pitch of log1..log8), bottom edge fixed.
+                if (!library.TryGetMenu("log8", out var log8)) { menu = null!; return false; }
+                var cache = TallLogFrames.GetValue(library, _ => new Dictionary<int, UiMenuDefinition>());
+                if (!cache.TryGetValue(rows, out menu!)) cache[rows] = menu = StretchedLogFrame(log8, rows);
+                return true;
+            }
             if (library.TryGetMenu($"log{rows}", out menu)) return true;
             rows = 8;
             return library.TryGetMenu("logwindo", out menu);
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UiResourceLibrary, Dictionary<int, UiMenuDefinition>> TallLogFrames = new();
+
+        private static UiMenuDefinition StretchedLogFrame(UiMenuDefinition log8, int rows)
+        {
+            short extra = (short)((rows - 8) * 16);
+            var f = log8.Frame;
+            return new UiMenuDefinition
+            {
+                DatId = log8.DatId, Category = log8.Category, Name = $"log{rows}", MenuType = log8.MenuType, Buttons = log8.Buttons,
+                Frame = new UiMenuFrame
+                {
+                    X = f.X, Y = (short)(f.Y - extra), CursorOffsetX = f.CursorOffsetX, CursorOffsetY = f.CursorOffsetY,
+                    Width = f.Width, Height = (short)(f.Height + extra), AuthoredHeight = f.Height, DrawOffsetX = f.DrawOffsetX, DrawOffsetY = f.DrawOffsetY,
+                    Anchor = f.Anchor, Shapes = f.Shapes, HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
+                },
+            };
         }
 
         /// <summary>A window's "Window Width" setting (percent of its full width; never narrower than 128 px).</summary>

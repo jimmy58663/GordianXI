@@ -128,10 +128,10 @@ namespace Gordian.App.Tests.Graphics
             sets.Top!.SelectedButtonId = StockUiEquipSets.ChangeNameButton;
             sets.Activate();
             Assert.True(sets.IsEditingName);
-            sets.NameEditInsert("Long");
+            sets.MacroField.InsertText("Long");
             byte[] renameShot = All("gpu_equip_set_rename.png");
             Assert.True(screen.HasLightPixel(renameShot, (int)lp.X + 20, (int)lp.X + 100, (int)lp.Y + 22 + 8), "no name in the edited capsule");
-            sets.NameEditCancel();
+            sets.MacroField.Cancel();
             sets.Top!.SelectedButtonId = 1;
             sets.Activate();
 

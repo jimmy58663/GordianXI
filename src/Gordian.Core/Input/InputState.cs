@@ -121,6 +121,7 @@ namespace Gordian.Core.Input
 
             lock (_lock)
             {
+                UsingGamepad = false;
                 _heldKeys.Add(key);
                 UpdateModifierForKey(key, true);
             }
@@ -182,10 +183,22 @@ namespace Gordian.Core.Input
             }
         }
 
+        /// <summary>
+        /// Whether the gamepad was the last device used (a button pressed or a stick pushed), false once a key is pressed:
+        /// the menus' button hints show the keyboard key or the pad button by it (#360).
+        /// </summary>
+        public bool UsingGamepad { get; private set; }
+
         public void SetGamepadState(GamepadState state)
         {
             lock (_lock)
             {
+                // A button newly down or a stick pushed hard says the pad is the device in use (#360).
+                if ((state.Buttons & ~_gamepadState.Buttons) != GamepadButton.None
+                    || state.LeftThumb.LengthSquared() > 0.25f || state.RightThumb.LengthSquared() > 0.25f)
+                {
+                    UsingGamepad = true;
+                }
                 _gamepadState = state;
             }
         }

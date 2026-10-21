@@ -79,7 +79,7 @@ namespace Gordian.App.Graphics
             string name = StockUiShop.LongName(record);
             if (name.Length > 0 && char.IsLower(name[0])) name = char.ToUpperInvariant(name[0]) + name[1..];
             var lines = new List<string> { name };
-            lines.AddRange(Wrap(measure, record.Description ?? string.Empty, 366 - InfoTextX - InfoRightInset, 11));
+            lines.AddRange(StockUiTextLayout.Wrap(record.Description, measure, 366 - InfoTextX - InfoRightInset, 11));
             int count = Math.Clamp(lines.Count, 3, 12);
             string frameName = count <= 3 ? "iteminfo" : count <= 9 ? $"item{count}inf" : $"item{count}in";
             if (!library.TryGetMenu(frameName, out var info) && !library.TryGetMenu("iteminfo", out info)) return;
@@ -92,40 +92,10 @@ namespace Gordian.App.Graphics
             var at = new StockUiPlacement(x, Math.Max(0, y), s, false);
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
             StockUiMenuWindow.DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            for (int i = 0; i < lines.Count && i < count; i++)
-            {
-                float ly = at.Y + (InfoTextY + i * StockUiLogFont.CellHeight) * s;
-                if (logFont != null) logFont.Draw(renderer, lines[i], at.X + InfoTextX * s, ly, s, White);
-                else renderer.DrawText(font, lines[i], at.X + InfoTextX * s, ly, s);
-            }
+            StockUiTextBoxes.DrawLines(renderer, font, logFont, lines, at.X + InfoTextX * s, at.Y + InfoTextY * s,
+                info.Frame.Width - InfoTextX - InfoRightInset, info.Frame.Height - InfoTextY, s);
         }
 
-        /// <summary>Word-wraps text to a width (unscaled), keeping the DAT's line breaks; at most <paramref name="maxLines"/> lines.</summary>
-        internal static List<string> Wrap(Func<string, float> measure, string text, float width, int maxLines)
-        {
-            var lines = new List<string>();
-            foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
-            {
-                string current = string.Empty;
-                foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string candidate = current.Length == 0 ? word : current + " " + word;
-                    if (current.Length > 0 && measure(candidate) > width)
-                    {
-                        lines.Add(current);
-                        if (lines.Count >= maxLines) return lines;
-                        current = word;
-                    }
-                    else
-                    {
-                        current = candidate;
-                    }
-                }
-                if (current.Length > 0) lines.Add(current);
-                if (lines.Count >= maxLines) return lines;
-            }
-            return lines;
-        }
 
         /// <summary>
         /// The "roll" column (retail screenshots, 2026-10-07, 1:1): while the Treasure Pool list is open, each member's entry

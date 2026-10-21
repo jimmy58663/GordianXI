@@ -34,7 +34,7 @@ namespace Gordian.App.Graphics
     /// The DAT authors only the target window's frame and title; the client adds the target's name and HP gauge.
     /// Measured from Windower captures (2026-09-25): the name at (3, 13) in fontshp at 7/8 size, the HP gauge (the
     /// party window's) at (28, 28) with no number. Name colours: unclaimed monsters pale yellow, monsters claimed by
-    /// you or your party/alliance red (both sampled); monsters claimed by others pink (sampled from an alliance capture).
+    /// you or your party/alliance red (both sampled); monsters claimed by others magenta-purple (255, 128, 255, sampled from a retail capture).
     /// </para>
     /// <para>
     /// Status icons use the "buff" menu grid (frame (142, 48), top-left; 36 slots of 24 x 24 at a 26-pixel pitch,
@@ -46,8 +46,11 @@ namespace Gordian.App.Graphics
         public static readonly UiColor NeutralNameColor = new(0x7F, 0x7F, 0x7F, 0x7F);
         public static readonly UiColor UnclaimedNameColor = new(0x7F, 0x7F, 0x6F, 0x7F);
         public static readonly UiColor ClaimedNameColor = new(0x7F, 0x48, 0x48, 0x7F);
-        /// <summary>Pink (240, 122, 180 in a retail alliance capture of "Tiamat"; half scale 78 3D 5A).</summary>
-        public static readonly UiColor OtherClaimNameColor = new(0x78, 0x3D, 0x5A, 0x7F);
+        /// <summary>
+        /// Magenta-purple (255, 128, 255; half scale 7F 40 7F), the <c>ncol</c> #7 colour the name plates use. Sampled from
+        /// a retail capture of a monster claimed by another player (2026-10-16, issue #18).
+        /// </summary>
+        public static readonly UiColor OtherClaimNameColor = new(0x7F, 0x40, 0x7F, 0x7F);
 
         private static readonly UiColor Neutral = new(0x80, 0x80, 0x80, 0x80);
 

@@ -27,6 +27,11 @@ namespace Gordian.Core.Ui
     /// PROVISIONAL (from two screenshots of one item): the weapon line ("(Hand-to-Hand)All Races"), the race wording
     /// other than "All Races", how retail wraps a long job list, and the Rare / Ex marks (not drawn).
     /// </para>
+    /// <para>
+    /// Every line is wrapped to the window's text width (<see cref="TextWidth"/>) by the font's own measure through
+    /// <see cref="StockUiTextLayout.Wrap"/>, the job list included; until round 4 (2026-10-19) the lines were cut at 42
+    /// characters, and wide capitals (the Leather Bandana's fifteen jobs) ran past the window.
+    /// </para>
     /// </summary>
     public static class StockUiItemDescription
     {
@@ -36,8 +41,20 @@ namespace Gordian.Core.Ui
         /// <summary>Description lines on the first page (it also holds the level line) and on the pages after it.</summary>
         public const int FirstPageBodyLines = 8, NextPageBodyLines = 9;
 
-        /// <summary>Characters a line holds before the job list wraps (the log font's ~7.3 px over the window's ~310 px of text).</summary>
-        private const int WrapColumns = 42;
+        /// <summary>
+        /// The text width of the item info windows (366 wide, the text from x 48 to 8 px before the right edge), in layout px:
+        /// every line is wrapped to it.
+        /// </summary>
+        public const float TextWidth = 366 - 48 - 8;
+
+        /// <summary>The measure used without a font (tests, the Core alone): about 42 characters to a line, the log font's ~7.4 px each.</summary>
+        public static readonly Func<string, float> DefaultMeasure = StockUiTextLayout.FixedAdvance(TextWidth / 42f);
+
+        /// <summary>
+        /// The measure of the font the item info windows draw with (the log font), set by the HUD once it is loaded; every
+        /// window's description pages wrap with it (<see cref="DefaultMeasure"/> until then).
+        /// </summary>
+        public static Func<string, float>? FontMeasure { get; set; }
 
         /// <summary>The item info window for a line count: <c>iteminfo</c> up to three lines, then <c>item4inf</c> ... <c>item12in</c>.</summary>
         public static string FrameFor(int lines)
@@ -113,59 +130,48 @@ namespace Gordian.Core.Ui
             return string.Join(' ', parts);
         }
 
-        /// <summary>The level and jobs line(s): "Lv.99 BRD", "All Jobs" when every job may equip it; wrapped at about 42 columns.</summary>
-        public static List<string> LevelLines(ItemRecord record)
+        /// <summary>
+        /// The level and jobs line(s): "Lv.99 BRD", "All Jobs" when every job may equip it; wrapped to the text width by
+        /// <paramref name="measure"/> (<see cref="DefaultMeasure"/> without one).
+        /// </summary>
+        public static List<string> LevelLines(ItemRecord record, Func<string, float>? measure = null)
         {
-            var lines = new List<string>(2);
-            if (record.Level == 0 || record.Level == ushort.MaxValue || record.JobsMask == 0) return lines;
+            if (record.Level == 0 || record.Level == ushort.MaxValue || record.JobsMask == 0) return new List<string>();
             const uint allJobs = 0x7FFFFE; // jobs 1-22
-            var line = new StringBuilder(string.Create(CultureInfo.InvariantCulture, $"Lv.{record.Level}"));
+            var tokens = new List<string> { string.Create(CultureInfo.InvariantCulture, $"Lv.{record.Level}") };
             if ((record.JobsMask & allJobs) == allJobs)
             {
-                line.Append(" All Jobs");
+                tokens.Add("All Jobs");
             }
             else
             {
                 for (int job = 1; job <= 22; job++)
                 {
-                    if (!record.CanEquipJob(job)) continue;
-                    string abbreviation = StockUiCheck.JobAbbreviation((byte)job);
-                    if (line.Length + 1 + abbreviation.Length > WrapColumns)
-                    {
-                        lines.Add(line.ToString());
-                        line.Clear();
-                        line.Append(abbreviation);
-                        continue;
-                    }
-                    line.Append(' ').Append(abbreviation);
+                    if (record.CanEquipJob(job)) tokens.Add(StockUiCheck.JobAbbreviation((byte)job));
                 }
             }
-            lines.Add(line.ToString());
-            return lines;
+            return StockUiTextLayout.Wrap(StockUiTextLayout.Join(tokens), measure ?? FontMeasure ?? DefaultMeasure, TextWidth);
         }
 
         /// <summary>The footer: "&lt;Item Level:119&gt;" for an item with an item level, else empty.</summary>
         public static string Footer(ItemRecord record) =>
             record.ItemLevel > 0 ? string.Create(CultureInfo.InvariantCulture, $"<Item Level:{record.ItemLevel}>") : string.Empty;
 
-        /// <summary>The description's pages (at least one).</summary>
-        public static List<StockUiItemDescriptionPage> Pages(ItemRecord record)
+        /// <summary>
+        /// The description's pages (at least one), every line wrapped to <see cref="TextWidth"/> by <paramref name="measure"/>
+        /// (the font the window draws with: <see cref="FontMeasure"/>, else <see cref="DefaultMeasure"/>).
+        /// </summary>
+        public static List<StockUiItemDescriptionPage> Pages(ItemRecord record, Func<string, float>? measure = null)
         {
+            measure ??= FontMeasure ?? DefaultMeasure;
             string name = DisplayName(record);
             // Items that are not equipment (the Items window, #351) have no slot and races line nor level line (a Potion's DAT
-            // record carries a level and job bits that are not an equip requirement), and their description
-            // lines are wrapped at the window's width (PROVISIONAL: retail's wrapping of long item text is not captured).
+            // record carries a level and job bits that are not an equip requirement). The description keeps the DAT's line
+            // breaks and wraps a line too wide for the window (retail captures show it broken at spaces).
             bool equipment = StockUiItems.IsEquipment(record);
             string slotLine = equipment ? SlotLine(record) : string.Empty;
-            var body = new List<string>();
-            foreach (string line in (record.Description ?? string.Empty).Replace("\r", string.Empty).Split('\n'))
-            {
-                string trimmed = line.Trim();
-                if (trimmed.Length == 0) continue;
-                if (equipment) body.Add(trimmed);
-                else body.AddRange(WrapWords(trimmed, WrapColumns));
-            }
-            var level = equipment ? LevelLines(record) : new List<string>();
+            var body = StockUiTextLayout.Wrap(record.Description, measure, TextWidth);
+            var level = equipment ? LevelLines(record, measure) : new List<string>();
             string footer = Footer(record);
 
             var pages = new List<StockUiItemDescriptionPage>();
@@ -186,21 +192,5 @@ namespace Gordian.Core.Ui
             return pages;
         }
 
-        /// <summary>Word-wraps a line to at most <paramref name="columns"/> characters (a longer word stays whole).</summary>
-        internal static IEnumerable<string> WrapWords(string text, int columns)
-        {
-            var line = new StringBuilder();
-            foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (line.Length > 0 && line.Length + 1 + word.Length > columns)
-                {
-                    yield return line.ToString();
-                    line.Clear();
-                }
-                if (line.Length > 0) line.Append(' ');
-                line.Append(word);
-            }
-            if (line.Length > 0) yield return line.ToString();
-        }
     }
 }

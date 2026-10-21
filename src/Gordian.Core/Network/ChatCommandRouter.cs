@@ -66,6 +66,8 @@ namespace Gordian.Core.Network
         StockUiVisibility,
         /// <summary><c>/perf [off|fps|full|next]</c>: the viewport's performance overlay (#30); client only.</summary>
         PerformanceOverlay,
+        /// <summary><c>/buttonpreview &lt;folder&gt; [zoom] | off</c>: the menu hint button art picker (#360); client only.</summary>
+        ButtonPreview,
         /// <summary><c>/lockstyle [on|off]</c>: queries, enables or disables the style lock (C2S 0x053).</summary>
         Lockstyle,
         /// <summary><c>/lockstyleset [n [echo]]</c>: without a set number enables the style lock, with one locks it to that equipment set (C2S 0x053, #92).</summary>
@@ -313,6 +315,7 @@ namespace Gordian.Core.Network
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },
                     "stockui" => new ChatCommandResult { Kind = ChatCommandResultKind.StockUiVisibility, Message = args },
                     "perf" => new ChatCommandResult { Kind = ChatCommandResultKind.PerformanceOverlay, Message = args },
+                    "buttonpreview" => new ChatCommandResult { Kind = ChatCommandResultKind.ButtonPreview, Message = args },
 
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },

@@ -99,7 +99,8 @@ namespace Gordian.Core.Ui
         public string? ItemHelpText(int id) => ItemOwner?.MenuHelpText?.Invoke(id);
 
         /// <summary>An Items or Equipment window: drawn at its own place rather than following the root.</summary>
-        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment;
+        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment
+            || IsSynthesisGrid || IsSynthesisOptions;
 
         /// <summary>The item worn in the slot a grid button shows (0 when empty or not the Equipment grid).</summary>
         public ushort EquippedItemIn(int buttonId) =>
@@ -108,6 +109,7 @@ namespace Gordian.Core.Ui
         /// <summary>The item whose description the window shows: the list's row under the cursor, or the grid's worn item.</summary>
         public ushort DescribedItem => IsItemList
             ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
+            : IsSynthesisGrid ? SynthesisGridItem
             : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId) : EquippedItemIn(SelectedButtonId);
 
         /// <summary>The description pages of <see cref="DescribedItem"/> (empty without an item or its record).</summary>
@@ -341,6 +343,11 @@ namespace Gordian.Core.Ui
                 StockUiItemListKind.Equipment when menu.EquipSetNumber > 0 => StockUiEquipSets.SetRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, MenuMessageText),
                 StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
                 StockUiItemListKind.Usable => OrderedRows(ContainerId.Inventory, usableOnly: true),
+                StockUiItemListKind.Crystals => StockUiSynthesis.CrystalRows(OrderedRows(ContainerId.Inventory)),
+                StockUiItemListKind.SynthesisMaterials when menu.Parent is { IsSynthesisGrid: true } grid =>
+                    StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),
+                StockUiItemListKind.SynthesisHistory => StockUiSynthesis.HistoryRows(HistoryEntries(), ItemLookup),
+                StockUiItemListKind.GuildSell => StockUiGuildShop.InventoryRows(Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>(), OrderedRows(ContainerId.Inventory)),
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
@@ -390,6 +397,11 @@ namespace Gordian.Core.Ui
                     else if (menu.IsEquipment)
                     {
                         menu.CompanionRows = StockUiItems.EquipRows(Inventory, menu.EquipContainer, null, ItemLookup, Character());
+                        changed = true;
+                    }
+                    else if (menu.IsSynthesisGrid)
+                    {
+                        RefreshSynthesisRows(menu);
                         changed = true;
                     }
                     else if (menu.IsEquipSetGrid)
@@ -461,12 +473,13 @@ namespace Gordian.Core.Ui
             StockUiOpenMenu? baseWindow = null;
             for (int i = open.Length - 1; i >= 0 && baseWindow == null; i--)
             {
-                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid) baseWindow = open[i];
+                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid || open[i].IsSynthesisGrid) baseWindow = open[i];
             }
             if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
             var top = open[^1];
             string title = top.IsQuantity ? StockUiItems.TitleQuantity
                 : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
+                : window.IsSynthesisGrid || window.ItemListKind == StockUiItemListKind.SynthesisHistory ? StockUiSynthesis.Title
                 : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
                 : StockUiItems.TitleItems;
@@ -485,6 +498,11 @@ namespace Gordian.Core.Ui
                         numerator = window.ItemRows.Count;
                         denominator = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;
                         break;
+                    case StockUiItemListKind.Crystals:
+                        // "Items 3/30" (capture Crystal_Synthesis.png): the crystals listed over the inventory's size.
+                        numerator = window.ItemRows.Count;
+                        denominator = StockUiItems.Fill(Inventory, ContainerId.Inventory).Total;
+                        break;
                 }
             }
             int help = -1;
@@ -492,6 +510,9 @@ namespace Gordian.Core.Ui
             {
                 var menu = open[i];
                 if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
+                else if (menu.ItemListKind == StockUiItemListKind.SynthesisMaterials) help = StockUiSynthesis.HelpSelectMaterials;
+                // The History capture shows "Synthesize this combination of items." while the list has the cursor.
+                else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
                 else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
                 else if (menu.SelectedButton is { HelpTextId: >= 0 } button) help = button.HelpTextId;
                 else if (menu.Menu.Frame.HelpTextId >= 0) help = menu.Menu.Frame.HelpTextId;
@@ -552,6 +573,18 @@ namespace Gordian.Core.Ui
                 case StockUiItemListKind.RecycleBin:
                     if (row.Count > 1) OpenItemQuantity(list, list, row, restore: true);
                     else RestoreItem(row, 1);
+                    return;
+                case StockUiItemListKind.Crystals:
+                    OpenSynthesisGrid(list, row);
+                    return;
+                case StockUiItemListKind.SynthesisMaterials:
+                    PickMaterial(list, row);
+                    return;
+                case StockUiItemListKind.SynthesisHistory:
+                    ChooseHistoryRecipe(list);
+                    return;
+                case StockUiItemListKind.GuildSell:
+                    PickGuildSale(list, row);
                     return;
             }
             if (list.IsManualSort)
@@ -621,8 +654,9 @@ namespace Gordian.Core.Ui
             var record = known ?? StockUiShop.Lookup(ItemLookup, row.ItemId);
             if (StockUiItems.IsCrystal(row.ItemId))
             {
-                if (StockUiItems.IsInventoryFull(Inventory)) ErrorPosted?.Invoke(StockUiItems.InventoryFullMessage);
-                else NoticePosted?.Invoke("Synthesis: the synthesis window is not available yet.");
+                // The synthesis grid opens over the Items list (the video, 2026-10-16: Use on a Wind Crystal); Use / Drop closes.
+                CloseItemAction(list);
+                OpenSynthesisGrid(list, row);
                 return;
             }
             if (!StockUiItems.IsUsable(known))
