@@ -242,6 +242,77 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
+        /// A weapon DAT's Info section (0x45) fields that pick its motions: byte 3 the animation type (the battle pack
+        /// index), byte 4 its sub-type, byte 6 the skeleton reference of its mount (field names from xi-model-viewer
+        /// ui/js/dat/inspect.js: weaponType, weaponSub, standard joint index).
+        /// </summary>
+        internal readonly record struct WeaponInfo(byte Type, byte SubType, byte MountReference)
+        {
+            /// <summary>
+            /// Whether a sub-slot item is a weapon held in the left hand: shields have no type, mount 125 (the shield back
+            /// mount) or none, and are skinned to the forearm (see <see cref="ResolveWeaponParentOverrides"/>).
+            /// </summary>
+            public bool IsHeldWeapon => Type != 0xFF && MountReference is not (125 or 0xFF);
+        }
+
+        internal static WeaponInfo? ReadWeaponInfo(ReadOnlySpan<byte> dat)
+        {
+            foreach (var head in DatSectionWalker.ReadHeaders(dat))
+            {
+                if (head.TypeCode != DatSectionType.Info) continue;
+                if (head.DataOffset + 7 > dat.Length) return null;
+                return new WeaponInfo(dat[head.DataOffset + 3], dat[head.DataOffset + 4], dat[head.DataOffset + 6]);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The dual-wield draw and sheathe (#308). The dual-wield main-hand pack's own <c>in 0</c> / <c>out0</c> play no
+        /// clip (72 ticks); each hand has its own 36-tick routine instead: <c>in1N</c> / <c>ot1N</c> in the main-hand pack,
+        /// <c>in2N</c> / <c>ot2N</c> in the off-hand pack, N the weapon's sub-type (Info byte 4; Tarutaru's pack for type 1
+        /// has <c>in20</c>-<c>in22</c> for its three sub-types). Their clips say the order: the draw is the main hand's
+        /// <c>i0?</c> (none drawn to one) then the off hand's <c>i1?</c>; the sheathe the off hand's <c>o0?</c> first, then the main
+        /// hand's <c>o1?</c>: <c>o0?</c> starts at the battle stance and ends where <c>o1?</c> starts (checked by evaluating
+        /// the retail clips, 2026-10-18; round 1 had the main hand first, and its sheathe started from the wrong pose, D5). So <c>in 0</c> / <c>out0</c> become the two in turn (the second linked at the first's length).
+        /// Read from the retail packs (2026-10-18); the retail draw itself was not captured.
+        /// </summary>
+        internal static void AddDualWieldDrawRoutines(EntityModel model, int mainSubType, int subSubType)
+        {
+            string Pick(string stem, int subType)
+            {
+                string name = stem + (char)('0' + Math.Clamp(subType, 0, 9));
+                return model.RawMotionRoutines.ContainsKey(name) ? name : stem + "0";
+            }
+
+            void Add(string name, string first, string second)
+            {
+                if (!model.RawMotionRoutines.TryGetValue(first, out var head) || !model.RawMotionRoutines.ContainsKey(second)) return;
+                // Plain links at explicit ticks: a blocking link (0x3B) would count the first routine's length twice in the
+                // flattened total and hold the last pose for another 72 ticks (round 1, D5: the sheathe "got stuck").
+                const byte Link = 0x03;
+                int at = head.TotalTicks;
+                model.RawMotionRoutines[name] = new RawMotionRoutine
+                {
+                    Name = name,
+                    TotalTicks = at + model.RawMotionRoutines[second].TotalTicks,
+                    Commands =
+                    [
+                        new MotionRoutineCommand(Link, 0, 0, first, 0, 0, 1, 1f, -1, 0),
+                        new MotionRoutineCommand(Link, at, 0, second, 0, 0, 1, 1f, -1, 0)
+                    ],
+                    SoundCommands =
+                    [
+                        new RoutineSoundCommand(Link, 0, first, 0, -1),
+                        new RoutineSoundCommand(Link, at, second, 0, -1)
+                    ]
+                };
+            }
+
+            Add("in 0", Pick("in1", mainSubType), Pick("in2", subSubType));
+            Add("out0", Pick("ot2", subSubType), Pick("ot1", mainSubType));
+        }
+
+        /// <summary>
         /// Adds a DAT's motion routines to the model, replacing any same-named routine from an earlier source (a PC's
         /// weapon battle pack overrides its race base).
         /// </summary>
@@ -354,6 +425,7 @@ namespace Gordian.Core.Resources
 
             var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources, extraWeaponSlots);
             model.RangedType = rangedType;
+            model.IsCharacter = true;
             if (rangedType >= 0 && !EnableSpeculativeMotionPacks) model.RebuildMotionRoutines(); // calg / shlg now reach lc / ls<NN>
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
@@ -380,34 +452,34 @@ namespace Gordian.Core.Resources
                 // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
                 // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138).
                 int weaponAnimType = CharacterEquipmentResolver.GetUnarmedWeaponType(race);
-                for (int w = 0; w < weaponDats.Count; w++)
+                WeaponInfo? mainInfo = null, subInfo = null;
+                foreach (var (slot, dat) in weaponDats)
                 {
-                    var (slot, dat) = weaponDats[w];
-                    if (slot == CharacterSlot.Main)
-                    {
-                        var headers = DatSectionWalker.ReadHeaders(dat.Span);
-                        for (int h = 0; h < headers.Count; h++)
-                        {
-                            var head = headers[h];
-                            if (head.TypeCode == DatSectionType.Info && head.DataOffset + 4 <= dat.Length)
-                            {
-                                byte animByte = dat.Span[head.DataOffset + 3];
-                                if (animByte != 0xFF)
-                                {
-                                    weaponAnimType = animByte;
-                                }
-                                break;
-                            }
-                        }
-                        break;
-                    }
+                    if (ReadWeaponInfo(dat.Span) is not { } info) continue;
+                    if (slot == CharacterSlot.Main) mainInfo = info;
+                    else if (slot == CharacterSlot.Sub) subInfo = info;
                 }
+                if (mainInfo is { Type: not 0xFF } main) weaponAnimType = main.Type;
+
+                // Dual wield (#308): a sub weapon that is a weapon (not a shield or grip) swaps the battle pack for the
+                // dual-wield pair, the main hand's (stance, ati*, moving swings, counters) and the off hand's (bti*, btf0...).
+                string dualMainPath = string.Empty, dualSubPath = string.Empty;
+                bool dualWield = mainInfo is { Type: not 0xFF } && subInfo is { IsHeldWeapon: true }
+                    && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, mainInfo.Value.Type, subInfo.Value.Type, out dualMainPath, out dualSubPath);
 
                 // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
                 // number (folder * 1000 + file, 32013 for Hume male club and staff) as a file id, which names no file or an
                 // unrelated one (#203); the path already goes through the VFS and the game directory.
-                string battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
+                string battlePath = dualWield ? dualMainPath : CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
                 byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
+                byte[]? dualSubDat = dualWield ? datByPath(dualSubPath) : null;
+                if (dualWield && (battleDat == null || battleDat.Length == 0 || dualSubDat == null || dualSubDat.Length == 0))
+                {
+                    // A missing dual-wield pack falls back to the main weapon's own battle pack.
+                    dualWield = false;
+                    battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
+                    battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
+                }
 
                 List<AnimationClip>? battleAnims = null;
                 if (battleDat != null && battleDat.Length > 0)
@@ -416,6 +488,15 @@ namespace Gordian.Core.Resources
                     battleAnims = battle.Animations;
                     // The weapon's swings, draw and sheathe (ati0-ati2, atf0, out0, in 0...) live in its battle pack.
                     AddRoutines(model, battle.Routines);
+                }
+
+                if (dualWield && battleAnims != null)
+                {
+                    var off = ParseDatContainer(dualSubDat!, "DualWieldSubPack");
+                    battleAnims = [.. battleAnims, .. off.Animations];
+                    AddRoutines(model, off.Routines);
+                    AddDualWieldDrawRoutines(model, mainInfo!.Value.SubType, subInfo!.Value.SubType);
+                    model.IsDualWielding = true;
                 }
 
                 if (overlaySources.Count > 0 || (battleAnims != null && battleAnims.Count > 0))

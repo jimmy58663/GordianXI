@@ -43,6 +43,19 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public int DefaultHiddenWeaponSlots { get; set; }
 
+        /// <summary>
+        /// Whether the character fights with the dual-wield motion packs (#308): a sub weapon held in the left hand, both
+        /// weapons of types with a dual-wield pack. Its off-hand hits (S2C 0x028 <c>sub_kind</c> 1) play the off-hand
+        /// pack's <c>bti*</c> and moving <c>btf0</c> / <c>btb0</c> / <c>btl0</c> / <c>btr0</c>.
+        /// </summary>
+        public bool IsDualWielding { get; set; }
+
+        /// <summary>
+        /// Whether the model is a player character assembled from a race and gear (<c>AssembleCharacter</c>), whose melee
+        /// swings play at the retail swing pace (#307, <c>EntityAnimationState.SwingSpeed</c>); false for fixed models.
+        /// </summary>
+        public bool IsCharacter { get; set; }
+
         /// <summary>The model's blur aura (Section 0x5E: avatars, Prime avatars), or null when it has none (#82).</summary>
         public BlurAura? BlurAura { get; set; }
 
