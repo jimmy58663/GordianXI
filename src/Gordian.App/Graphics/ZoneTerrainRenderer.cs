@@ -817,6 +817,9 @@ namespace Gordian.App.Graphics
             public ushort MapRoutineZoneId { get; set; }
             public bool EmittersWarm { get; set; }
             public DoorAnimator? DoorAnimator { get; set; }
+            public Dictionary<ZoneParticleEmitter, WeatherSkyLayer> AttachedLayers { get; } = new(ReferenceEqualityComparer.Instance);
+            public Dictionary<ZoneParticleEmitter, AttachedBinding> AttachedBindings { get; } = new(ReferenceEqualityComparer.Instance);
+            public DoorEffectTrigger? DoorEffects { get; set; }
 
             public void Dispose() => DisposeSubEnvironmentScenes(SubEnvironmentScenes);
         }
@@ -843,11 +846,15 @@ namespace Gordian.App.Graphics
             }
             runtime.WeatherRoutines = zone.WeatherRoutineGroups.Count > 0 ? new WeatherRoutinePlayer(zone.WeatherRoutineGroups) : null;
             runtime.MapRoutines = zone.MapRoutines.RoutineCount > 0 ? new ZoneRoutinePlayer(zone.MapRoutines) : null;
+            if (runtime.MapRoutines != null) runtime.MapRoutines.GeneratorWithoutEmitterStarted += PostRoutineSound;
             runtime.MapRoutineZoneId = (ushort)zone.ZoneId;
+            runtime.DoorEffects = zone.DoorDirectories.Count > 0 ? new DoorEffectTrigger(zone.DoorDirectories) : null;
             foreach (var (layer, emitter) in runtime.Emitters)
             {
                 if (layer.PointLightSlot >= 0 && layer.PointLightSlot < PointLightTableLayout.Slots) runtime.PointLights.Add((layer, emitter));
+                if (layer.IsActorAttached) runtime.AttachedLayers[emitter] = layer;
             }
+            LogDoorEffects(zone.DoorDirectories.Count, runtime.AttachedLayers.Count, (ushort)zone.ZoneId);
             runtime.EmittersWarm = false;
             return runtime;
         }
@@ -864,6 +871,9 @@ namespace Gordian.App.Graphics
             _mapRoutineZoneId = runtime.MapRoutineZoneId;
             _emittersWarm = runtime.EmittersWarm;
             _doorAnimator = runtime.DoorAnimator;
+            _attachedLayers = runtime.AttachedLayers;
+            _attachedBindings = runtime.AttachedBindings;
+            _doorEffects = runtime.DoorEffects;
         }
 
         /// <summary>Writes the zone's scalar simulation state back into its runtime before another zone is shown.</summary>
@@ -1499,6 +1509,7 @@ namespace Gordian.App.Graphics
                 _effectDrawList.Clear();
                 foreach (var effectMesh in _effectSubmeshes)
                 {
+                    if (effectMesh.Layer.IsActorAttached) continue;
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
                     // Camera-following weather effects sit at their base offset from the eye.
@@ -1508,6 +1519,7 @@ namespace Gordian.App.Graphics
                     _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, _emitters.GetValueOrDefault(effectMesh.Layer), null));
                 }
                 AddActorEffectDraws(camera);
+                AddAttachedEffectDraws(camera);
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
@@ -2262,6 +2274,12 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// How long a weather emitter's live particles take to fade out when its weather ends (60 Hz frames): GordianXI's
+        /// choice, about the length of a sky blend; retail's is not measured.
+        /// </summary>
+        internal const float WeatherFadeOutFrames = 120f;
+
+        /// <summary>
         /// Advances every zone emitter on the 60 Hz effect clock; the first frame after a zone load pre-warms them so the
         /// shoreline is not empty while the first waves roll in. Weather emitters run only under their weather.
         /// </summary>
@@ -2283,21 +2301,33 @@ namespace Gordian.App.Graphics
                 World.TakeMapSchedulers(_mapRoutineZoneId, _mapSchedulerRequests);
                 foreach (var request in _mapSchedulerRequests)
                 {
-                    bool known = request.Stop ? _mapRoutines?.Stop(request.Routine) == true : _mapRoutines?.Play(request.Routine) == true;
+                    bool known = PlayMapScheduler(request);
                     if (!known) GordianLog.Debug("Graphics", $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
                     else GordianLog.Debug("Graphics", $"Zone routine '{request.Routine}' {(request.Stop ? "stopped" : "started")} (actors {request.CasterServerId:X8} / {request.TargetServerId:X8}); {_mapRoutines!.RunningCount} running in zone {_mapRoutineZoneId}.");
                 }
             }
+            // Doors play their own routines as they open and close (#227).
+            UpdateDoorEffects();
+            _bindAttached ??= BindAttached;
             _mapRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f,
-                template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null);
+                template => _emittersByTemplate.TryGetValue(template, out var triggered) ? triggered : null, _bindAttached);
+            // Generators that ride an actor run in its model space (#232).
+            UpdateAttachedEmitters(camera, environment, _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : 0.0f);
             foreach (var (emitterLayer, emitter) in _emitters)
             {
-                // Weather emitters run only under their weather; a weather change starts them afresh.
+                if (emitterLayer.IsActorAttached) continue;
+                // Weather emitters run only under their weather. When it ends they stop emitting and their particles fade out
+                // (round 2 E1: the birds all vanished in one frame); when it returns they start afresh.
                 if (emitterLayer.WeatherIds.Count > 0 && !emitterLayer.WeatherIds.Contains(_effectWeather))
                 {
-                    if (emitter.Particles.Count > 0) emitter.Particles.Clear();
+                    if (emitter.Particles.Count > 0)
+                    {
+                        emitter.Retire(WeatherFadeOutFrames);
+                        emitter.Update(emitterFrames, frame);
+                    }
                     continue;
                 }
+                if (emitter.IsRetiring) emitter.Resume();
                 emitter.Update(emitterFrames, frame);
             }
             _emittersWarm = true;

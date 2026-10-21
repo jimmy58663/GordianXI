@@ -87,6 +87,7 @@ namespace Gordian.App.Graphics
                 }
                 _actionEffectTracker.EndFrame();
                 foreach (var effect in _actionEffectEvents) StartActionEffect(effect, resourceManager);
+                PlayScheduledActorEffects(resourceManager);
             }
             if (ActionEffectCount == 0) return;
 
@@ -168,6 +169,43 @@ namespace Gordian.App.Graphics
                 case ActionEffectEventKind.ActionEnded:
                     if (_sharedActorEffects.TryGetValue(effect.ActorId, out var running)) running.Player.StopIfSustained(effect.Routine);
                     break;
+            }
+        }
+
+        private readonly List<ActorEffectRequest> _scheduledActorEffects = new();
+
+        /// <summary>
+        /// Plays the effects S2C 0x038 / 0x03A asked for (#311, <see cref="SchedulerPlayback"/>): a presentation file's on its
+        /// actor toward its target; for an actor routine, the model's own generators of that routine, and the shared
+        /// <c>ROM/0/0</c> routine of that name with its colour commands (<c>kesu</c> fades the actor out) and the actor
+        /// routines it links (<c>hitl</c>: <c>eflg</c>, <c>selg</c>).
+        /// </summary>
+        private void PlayScheduledActorEffects(ResourceManager resourceManager)
+        {
+            if (World == null) return;
+            _scheduledActorEffects.Clear();
+            World.TakeActorEffects(World.CurrentZoneId, _scheduledActorEffects);
+            foreach (var request in _scheduledActorEffects)
+            {
+                var effect = new ActionEffectEvent(ActionEffectEventKind.Presentation, request.ActorServerId, request.TargetServerId);
+                if (request.Asset != null)
+                {
+                    StartFileEffect(request.Asset, effect, resourceManager);
+                    continue;
+                }
+                bool modelPlayed = _actorEffects.TryGetValue(request.ActorServerId, out var instance) && instance.Play(request.Routine);
+                bool sharedPlayed = false;
+                if (resourceManager.GetSharedRoutineEffects() is { } files && files.Routines.TryGetRoutine(request.Routine, out var shared))
+                {
+                    if (World.TryGetByServerId(request.ActorServerId, out var actor)) actor.ActorColor.Schedule(shared, ActorColorTrack.Now);
+                    foreach (var command in shared.Commands)
+                    {
+                        if (command.Kind == Gordian.Core.Resources.Events.SceneCommandKind.LinkActorRoutine && instance != null) instance.Play(command.Reference);
+                    }
+                    if (shared.HasEffects) StartActionEffect(effect with { Kind = ActionEffectEventKind.SharedRoutine, Routine = request.Routine }, resourceManager);
+                    sharedPlayed = true;
+                }
+                GordianLog.Debug("Graphics", $"Actor scheduler '{request.Routine}' on {request.ActorServerId:X8}: model effects {(modelPlayed ? "played" : "none")}, ROM/0/0 {(sharedPlayed ? "played" : "none")}.");
             }
         }
 

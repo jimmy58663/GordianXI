@@ -87,5 +87,22 @@ namespace Gordian.Core.Tests.Audio
                 }
             }
         }
+            /// <summary>Doors' own open / close sounds come from their routines' op 0x0B (round 5 E2).</summary>
+        [Theory]
+        [InlineData(72, "_20d", 9229, 9230, 30f)]
+        [InlineData(237, "_6l0", 9021, 9022, 10f)]
+        public void DoorRoutineSounds_ComeFromTheDoorsOpenAndClos(int zoneId, string doorId, int open, int close, float far)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            byte[]? dat = rm.LoadDatBytesByFileId(ZoneDataLoader.GetZoneModelFileId(zoneId));
+            if (dat == null) return;
+            var sounds = ZoneSoundTable.Read(DatDirectoryTree.Build(dat)).DoorRoutineSounds[doorId];
+            Assert.Equal(open, sounds.OpenSound);
+            Assert.Equal(close, sounds.CloseSound);
+            Assert.Equal(far, sounds.Far, 1);
+            Assert.Equal(3f, sounds.Near, 1);
+        }
     }
 }

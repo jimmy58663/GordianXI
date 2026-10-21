@@ -224,6 +224,8 @@ namespace Gordian.App.Audio
                 LoadZoneSounds(zone);
                 StopAmbient(0.5f);
                 _emitters.SetEmitters(Array.Empty<ZoneSoundEmitter>());
+                _zoneSoundSources = Array.Empty<ZoneSoundEmitter>();
+                _doorStatuses.Clear();
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);
@@ -234,7 +236,10 @@ namespace Gordian.App.Audio
             if (Interlocked.Exchange(ref _pendingEmitters, null) is { } loaded)
             {
                 _emitters.SetEmitters(loaded);
+                _zoneSoundSources = loaded;
             }
+            PlayZoneRoutineSounds(world, zone);
+            PlayDoorSounds(world);
 
             _emitters.Update(_listenerPosition, hour / 24f);
         }
@@ -448,6 +453,64 @@ namespace Gordian.App.Audio
         /// silent, in-game round 3). A generator whose file loops keeps playing until the generator is killed (0x1E / 0x3F),
         /// its spawn duration runs out, or the event ends.
         /// </summary>
+        private readonly Dictionary<uint, bool> _doorStatuses = new();
+
+        /// <summary>
+        /// Plays a door's own open / close sound when its entity's status turns to open (8) or leaves it, at the door, as
+        /// its <c>open</c> / <c>clos</c> routine does (<see cref="ZoneSoundTable.DoorRoutineSounds"/>; round 5 E2: no door made a
+        /// sound). A door first seen plays nothing.
+        /// </summary>
+        private void PlayDoorSounds(WorldState world)
+        {
+            var sounds = _zoneSounds.DoorRoutineSounds;
+            if (sounds.Count == 0) return;
+            foreach (var (doorId, door) in Gordian.Core.World.Collision.ZoneDoors.DoorEntities(world))
+            {
+                bool open = Gordian.Core.World.Collision.ZoneDoors.StatusOf(door) == Gordian.Core.World.Collision.ZoneDoors.StatusOpen;
+                bool seen = _doorStatuses.TryGetValue(door.ServerId, out bool wasOpen);
+                _doorStatuses[door.ServerId] = open;
+                if (!seen || wasOpen == open || !sounds.TryGetValue(doorId, out var doorSounds)) continue;
+                int soundId = open ? doorSounds.OpenSound : doorSounds.CloseSound;
+                if (soundId == 0) continue;
+                float far = doorSounds.Far > 0f ? doorSounds.Far : 30f;
+                PlayEffect(soundId, AudioCategory.Zone, 1f, new AudioEmitter(door.Position, doorSounds.Near, far));
+            }
+        }
+
+        private IReadOnlyList<ZoneSoundEmitter> _zoneSoundSources = Array.Empty<ZoneSoundEmitter>();
+        private readonly List<ZoneSoundRequest> _zoneSoundRequests = new();
+
+        /// <summary>
+        /// Plays the sound generators zone routines started (round 4 E2: a door's <c>stat</c> starts <c>se01</c>; before, the
+        /// sounds a routine starts were never played, only the zone's auto-running ones): once, at the generator's place, or,
+        /// for one that rides an actor (Alzadaal's door sounds are ZoneActor0xA), at the routine's entity plus the
+        /// generator's offset.
+        /// </summary>
+        private void PlayZoneRoutineSounds(WorldState world, ushort zone)
+        {
+            _zoneSoundRequests.Clear();
+            world.TakeZoneSounds(zone, _zoneSoundRequests);
+            foreach (var request in _zoneSoundRequests)
+            {
+                ZoneSoundEmitter? source = null;
+                foreach (var candidate in _zoneSoundSources)
+                {
+                    if (!string.Equals(candidate.Name, request.Generator, StringComparison.OrdinalIgnoreCase) || !candidate.IsReachedFrom(request.Directory)) continue;
+                    // The nearest directory wins (the routine's own before its parents').
+                    if (source == null || candidate.Directory.Length > source.Directory.Length) source = candidate;
+                }
+                if (source == null) continue;
+                Vector3 position = source.Position;
+                uint actor = new Gordian.Core.Graphics.ZoneRoutineActors(request.CasterServerId, request.TargetServerId).ActorFor(source.AttachType);
+                if (actor != 0)
+                {
+                    if (!world.TryGetByServerId(actor, out var entity)) continue;
+                    position = entity.Position + source.Position;
+                }
+                PlayEffect(source.SoundId, AudioCategory.Zone, 1f, new AudioEmitter(position, source.Near, source.Far));
+            }
+        }
+
         private void PlaySceneSounds(Gordian.Core.Events.EventPresentation presentation)
         {
             int resets = presentation.SoundResets;

@@ -198,6 +198,9 @@ namespace Gordian.Core.Events
         /// </summary>
         private readonly List<WorldEntity> _banked = new();
 
+        /// <summary>Entities whose colour a scene routine changed (0x29 / 0x2E, #206): drawn as is again when the event ends.</summary>
+        private readonly List<WorldEntity> _colored = new();
+
 
         /// <summary>Whether an event is running (the character is held and Confirm belongs to the dialog).</summary>
         public bool IsActive => _scene != null;
@@ -604,6 +607,8 @@ namespace Gordian.Core.Events
                 });
             }
             _banked.Clear();
+            foreach (var entity in _colored) entity.ActorColor.Reset();
+            _colored.Clear();
             var world = _world;
             if (world != null)
             {
@@ -623,6 +628,7 @@ namespace Gordian.Core.Events
                     entity.EventHeadTurnSpeed = 0;
                     entity.EventTurnSpeed = 0;
                     entity.EventAlpha = WorldEntity.OpaqueEventAlpha;
+                    entity.ActorColor.Reset();
                     entity.IsEventHidden = false;
                     entity.KeepsEventHeight = false;
                     entity.HidesEventName = false;
@@ -1427,6 +1433,11 @@ namespace Gordian.Core.Events
             else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
             if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
             Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
+            // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206).
+            if (_world != null && _world.TryGetByServerId(casterServerId, out var colored) && colored.ActorColor.Schedule(scene, ActorColorTrack.Now))
+            {
+                if (!_colored.Contains(colored)) _colored.Add(colored);
+            }
             return scene.TotalFrames;
         }
 
@@ -1438,11 +1449,22 @@ namespace Gordian.Core.Events
         /// </summary>
         public static Func<ushort, string, int>? ZoneRoutineFrames { get; set; }
 
+        /// <summary>
+        /// How many 60 Hz frames a door's own routine runs (<c>open</c> / <c>clos</c>: its leaves' move and its effect
+        /// routines), for a 0x54 that waits on a 0x2D naming a door (#233); arguments zone, door id (the entity's 0x00E door
+        /// FourCC) and routine. Set by the app; null or 0 when not known.
+        /// </summary>
+        public static Func<ushort, string, string, int>? DoorRoutineFrames { get; set; }
+
         int IEventVmHost.StartZoneScheduler(string routine, uint casterServerId, uint targetServerId)
         {
             if (_world == null || string.IsNullOrEmpty(routine)) return 0;
-            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false);
-            int frames = ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false, sceneZone: true);
+            // A door's open / clos is the door's own routine, not one of the zone's by name (#233).
+            int frames = Gordian.Core.Graphics.DoorEffectTrigger.IsDoorRoutine(routine) && _world.TryGetByServerId(casterServerId, out var door) &&
+                         door.Type == EntityType.Door && door.TransportId.Length > 0
+                ? DoorRoutineFrames?.Invoke(_world.SceneZoneId, door.TransportId, routine) ?? 0
+                : ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;
             GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} in zone {_world.SceneZoneId}: {frames} frames.");
             return frames;
         }
@@ -1450,7 +1472,7 @@ namespace Gordian.Core.Events
         void IEventVmHost.StopZoneScheduler(string routine, uint casterServerId, uint targetServerId)
         {
             if (_world == null) return;
-            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true);
+            _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true, sceneZone: true);
             GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
         }
 

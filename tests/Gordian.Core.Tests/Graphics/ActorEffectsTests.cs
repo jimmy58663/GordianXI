@@ -55,11 +55,16 @@ namespace Gordian.Core.Tests.Graphics
         }
 
         [Fact]
-        public void ZoneParse_StillSkipsActorAttachedGenerators()
+        public void ZoneParse_KeepsRoutineStartedActorGenerators_AsAttachedEmitters()
         {
+            // Read as a zone DAT (#232): act0 (TargetActor), which the routine BIND starts, waits as an actor-attached
+            // emitter for the entity a trigger names; idl0 auto-runs on an actor no zone routine names, so it is skipped.
             var zone = ZoneDataLoader.ParseZoneContainer(BuildModelDat(), zoneId: 4);
 
-            Assert.Empty(zone.EffectLayers);
+            var layer = Assert.Single(zone.EffectLayers);
+            Assert.Equal("act0", layer.Name);
+            Assert.True(layer.IsActorAttached);
+            Assert.Equal(ParticleAttachType.TargetActor, layer.AttachType);
             Assert.Empty(zone.ActorRoutines);
         }
 
@@ -124,6 +129,60 @@ namespace Gordian.Core.Tests.Graphics
             Assert.Equal(-2f, point.Z, 4);
             Assert.Equal(Vector3.Zero, ActorEffectInstance.ResolveJointReference(skeleton, translations, rotations, scales, 7));
             Assert.Equal(Vector3.Zero, ActorEffectInstance.ResolveJointReference(null, translations, rotations, scales, 1));
+        }
+            // ── retail model DATs (#257) ─────────────────────────────────────────────
+
+        private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+
+        private static ActorEffectSet? RetailEffects(int fileId)
+        {
+            if (!System.IO.Directory.Exists(GameDirectory)) return null;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            return rm.LoadDatBytesByFileId(fileId) is { } bytes ? ActorEffectLoader.Load(bytes) : null;
+        }
+
+        private static readonly ZoneParticleFrame RetailFrame = new(new Vector3(0f, -1f, 5f), 0.5f, Vector3.One);
+
+        /// <summary>Synthesis Focuser II (model 2335): idle shows no orbs; its blue state routine starts the blue ones only.</summary>
+        [Fact]
+        public void SynthesisFocuser_IsDarkWhenIdle_AndItsStateRoutineLightsOneColour()
+        {
+            if (RetailEffects(52630) is not { } effects) return;
+            var orbs = effects.Layers.Where(l => l.Name.Length == 4 && "byr".Contains(l.Name[0]) && l.Name[1] is 'g' or 'f' or 'c').ToList();
+            Assert.Equal(15, orbs.Count);
+            Assert.All(orbs, l => Assert.Contains(l.Emitter!, effects.StateTriggered));
+
+            var instance = new ActorEffectInstance(effects);
+            for (int i = 0; i < 120; i++) instance.Update(1f, RetailFrame);
+            Assert.All(instance.Emitters.Where(e => orbs.Contains(e.Layer)), e => Assert.Empty(e.Emitter.Particles));
+
+            Assert.True(instance.Play("bslp"));
+            for (int i = 0; i < 30; i++) instance.Update(1f, RetailFrame);
+            Assert.Contains(instance.Emitters, e => e.Layer.Name == "bgp0" && e.Emitter.Particles.Count > 0);
+            Assert.All(instance.Emitters.Where(e => e.Layer.Name[0] is 'y' or 'r' && orbs.Contains(e.Layer)), e => Assert.Empty(e.Emitter.Particles));
+        }
+
+        /// <summary>The Synergy Furnace (model 2348) shows no synthesis effect at rest, as in retail (Whitegate, 2026-10-17).</summary>
+        [Fact]
+        public void SynergyFurnace_ShowsNothingAtRest()
+        {
+            if (RetailEffects(52643) is not { } effects) return;
+            Assert.NotEmpty(effects.StateTriggered);
+            var instance = new ActorEffectInstance(effects);
+            for (int i = 0; i < 120; i++) instance.Update(1f, RetailFrame);
+            Assert.All(instance.Emitters, e => Assert.Empty(e.Emitter.Particles));
+        }
+
+        /// <summary>The Home Point crystal (model 51) has no state routines: its idle layers still emit from spawn.</summary>
+        [Fact]
+        public void HomePoint_KeepsItsIdleLayers()
+        {
+            if (RetailEffects(1351) is not { } effects) return;
+            Assert.Empty(effects.StateTriggered);
+            var instance = new ActorEffectInstance(effects);
+            for (int i = 0; i < 30; i++) instance.Update(1f, RetailFrame);
+            Assert.Contains(instance.Emitters, e => e.Layer.Name == "bnd0" && e.Emitter.Particles.Count > 0);
         }
     }
 }

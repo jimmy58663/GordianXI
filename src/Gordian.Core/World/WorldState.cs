@@ -88,6 +88,8 @@ namespace Gordian.Core.World
                         _collision = null;
                         _eventZoneId = 0;
                         _mapSchedulers.Clear();
+                        _actorEffects.Clear();
+                        _zoneSounds.Clear();
                         changed = true;
                     }
                 }
@@ -172,6 +174,65 @@ namespace Gordian.Core.World
         }
 
         private readonly List<MapSchedulerRequest> _mapSchedulers = new();
+        private readonly List<ActorEffectRequest> _actorEffects = new();
+        private readonly List<ZoneSoundRequest> _zoneSounds = new();
+
+        /// <summary>
+        /// Queues a sound generator a zone routine started (round 4 E2) for the audio side of the current zone. Bounded like
+        /// the map schedulers; a zone change drops them.
+        /// </summary>
+        public void PostZoneSound(ZoneSoundRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            lock (_syncRoot)
+            {
+                if (_zoneSounds.Count >= MaxPendingMapSchedulers) _zoneSounds.RemoveAt(0);
+                _zoneSounds.Add(request with { ZoneId = _currentZoneId });
+            }
+        }
+
+        /// <summary>Moves the queued zone sounds of <paramref name="zoneId"/> into <paramref name="into"/> and drops the rest.</summary>
+        public void TakeZoneSounds(ushort zoneId, List<ZoneSoundRequest> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_syncRoot)
+            {
+                foreach (var request in _zoneSounds)
+                {
+                    if (request.ZoneId == zoneId) into.Add(request);
+                }
+                _zoneSounds.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Queues an effect for the viewport to play on an actor (S2C 0x038 / 0x03A, #311): a routine's model and shared
+        /// <c>ROM/0/0</c> effects, or a presentation file's. Bounded like the map schedulers; a zone change drops them.
+        /// </summary>
+        public void PostActorEffect(ActorEffectRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            lock (_syncRoot)
+            {
+                if (_actorEffects.Count >= MaxPendingMapSchedulers) _actorEffects.RemoveAt(0);
+                _actorEffects.Add(request with { ZoneId = _currentZoneId });
+            }
+        }
+
+        /// <summary>Moves the queued actor effects of <paramref name="zoneId"/> into <paramref name="into"/> and drops those of other zones.</summary>
+        public void TakeActorEffects(ushort zoneId, List<ActorEffectRequest> into)
+        {
+            ArgumentNullException.ThrowIfNull(into);
+            lock (_syncRoot)
+            {
+                if (_actorEffects.Count == 0) return;
+                foreach (var request in _actorEffects)
+                {
+                    if (request.ZoneId == zoneId) into.Add(request);
+                }
+                _actorEffects.Clear();
+            }
+        }
 
         /// <summary>Most map schedulers kept for a zone the viewport has not loaded yet.</summary>
         public const int MaxPendingMapSchedulers = 64;
@@ -187,13 +248,21 @@ namespace Gordian.Core.World
         /// Queues a zone routine start, or with <paramref name="stop"/> its end (an event's 0x51, CodeENDMAPSCHEDULOR), for
         /// the viewport that draws the current zone (<see cref="PostMapScheduler(string, uint, uint)"/>).
         /// </summary>
-        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop)
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop) =>
+            PostMapScheduler(routine, casterServerId, targetServerId, stop, sceneZone: false);
+
+        /// <summary>
+        /// Queues a zone routine start or end; with <paramref name="sceneZone"/> (an event's 0x2D / 0x51) for the zone the
+        /// scene shows: the event zone while one is open (#233: a cutscene stage's own routines), else the current zone.
+        /// </summary>
+        public void PostMapScheduler(string routine, uint casterServerId, uint targetServerId, bool stop, bool sceneZone)
         {
             if (string.IsNullOrEmpty(routine)) return;
             lock (_syncRoot)
             {
                 if (_mapSchedulers.Count >= MaxPendingMapSchedulers) _mapSchedulers.RemoveAt(0);
-                _mapSchedulers.Add(new MapSchedulerRequest(_currentZoneId, routine, casterServerId, targetServerId, stop));
+                ushort zone = sceneZone && _eventZoneId != 0 ? (ushort)_eventZoneId : _currentZoneId;
+                _mapSchedulers.Add(new MapSchedulerRequest(zone, routine, casterServerId, targetServerId, stop));
             }
         }
 
@@ -212,7 +281,8 @@ namespace Gordian.Core.World
                     if (_mapSchedulers[i].ZoneId == zoneId) into.Add(_mapSchedulers[i]);
                 }
                 ushort current = _currentZoneId;
-                _mapSchedulers.RemoveAll(r => r.ZoneId == zoneId || r.ZoneId != current);
+                int scene = _eventZoneId;
+                _mapSchedulers.RemoveAll(r => r.ZoneId == zoneId || (r.ZoneId != current && r.ZoneId != scene));
             }
         }
 
@@ -663,4 +733,26 @@ namespace Gordian.Core.World
     /// viewport to play or end, with the two actors it names (0 = none / the player).
     /// </summary>
     public readonly record struct MapSchedulerRequest(ushort ZoneId, string Routine, uint CasterServerId, uint TargetServerId, bool Stop = false);
+
+    /// <summary>
+    /// An effect the viewport plays on actor <paramref name="ActorServerId"/> toward <paramref name="TargetServerId"/>
+    /// (#311): the effects of the actor's routine <paramref name="Routine"/> (an S2C 0x038 actor scheduler: the model's own
+    /// generators and the shared <c>ROM/0/0</c> routine of that name), or of the presentation file
+    /// <paramref name="Asset"/> (an S2C 0x03A magic scheduler).
+    /// </summary>
+    /// <summary>
+    /// A sound generator <paramref name="Generator"/> that a zone routine of <paramref name="Directory"/> started on
+    /// <paramref name="CasterServerId"/> / <paramref name="TargetServerId"/> (0 = none), for the audio side.
+    /// </summary>
+    public sealed record ZoneSoundRequest(string Directory, string Generator, uint CasterServerId, uint TargetServerId)
+    {
+        /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostZoneSound"/>).</summary>
+        public ushort ZoneId { get; init; }
+    }
+
+    public sealed record ActorEffectRequest(uint ActorServerId, uint TargetServerId, string Routine, Animation.ActionAsset? Asset = null)
+    {
+        /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostActorEffect"/>).</summary>
+        public ushort ZoneId { get; init; }
+    }
 }

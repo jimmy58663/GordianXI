@@ -123,6 +123,65 @@ namespace Gordian.Core.Tests.World.Collision
         }
 
         [Fact]
+        public void DoorTables_SkipTheLiftTables_AndReadDoorsPastTheFirstTable()
+        {
+            // Alzadaal-like: the first table holds no door; a later one does. A lift table's shaft doors stay out.
+            byte[] dat = Section("zl00", 0x36, RidPayload("z001"))
+                .Concat(Section("door", 0x36, RidPayload("_20t")))
+                .Concat(Section("e237", 0x36, RidPayload("@6l0", 3856, 798)))
+                .ToArray();
+            var doors = ZoneInteractionDecoder.DecodeDoorTablesFromDat(dat);
+            Assert.Equal(new[] { "z001", "_20t" }, doors.Select(r => r.Id));
+        }
+
+        /// <summary>Alzadaal Undersea Ruins' doors block while closed (round 4 E2: their records are not in the first table).</summary>
+        [Fact]
+        public void Alzadaal_DoorsBlock_FromBothLoaders()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var collisionOnly = new ResourceManager(GameDirectory);
+            collisionOnly.InitializeFileTable();
+            Assert.Contains(collisionOnly.TryLoadZoneCollision(72)!.Doors, d => d.Id == "_20t");
+            var full = new ResourceManager(GameDirectory);
+            full.InitializeFileTable();
+            Assert.True(full.TryLoadZone(72, out var zone, out _));
+            Assert.Equal(33, zone!.Collision!.Doors.Count);
+            var stone = zone.Collision.Doors.Single(d => d.Id == "_20t");
+            Assert.Equal(ZoneDoors.FlatDoorHeight, stone.Size.Y);
+            // A body walking through the closed stone door at its floor is stopped at the box.
+            var floor = new Vector3(stone.Center.X, stone.Center.Y + ZoneDoors.FlatDoorHeight * 0.5f, stone.Center.Z);
+            var depth = new Vector3(stone.DepthAxis.X, 0f, stone.DepthAxis.Y) * 3f;
+            var end = ZoneDoors.Resolve(new[] { stone }, floor - depth, floor + depth, Radius, StepUp, BodyHeight);
+            Assert.True(Vector3.Distance(end, floor + depth) > 1f, $"walked through to {end}");
+        }
+
+        /// <summary>
+        /// Round 5 E2: the player ran through Alzadaal's closed gate _20d (turned 180 degrees). Stopped at the face, the body
+        /// came back a rounding error inside it and the next step let it out freely. Through the locomotion controller it now
+        /// stops at the face from either side.
+        /// </summary>
+        [Theory]
+        [InlineData(90f, -34f, -39.3f)]
+        [InlineData(270f, -46f, -40.7f)]
+        public void Alzadaal_ClosedGate_StopsTheRunningPlayer(float cameraYaw, float startZ, float stopZ)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var world = new WorldState { CurrentZoneId = 72 };
+            world.Collision = rm.TryLoadZoneCollision(72);
+            var player = new Gordian.Core.World.LocalPlayerState { ServerId = 0x12345678 };
+            var me = new PlayerEntity(player.ServerId, 1) { Name = "T", Position = new Vector3(180f, 0f, startZ), IsSpawned = true };
+            world.UpsertEntity(me);
+            world.UpsertEntity(new WorldEntity(0x010480BB, 187, EntityType.Door) { TransportId = "_20d", AnimationState = ZoneDoors.StatusClosed, Position = new Vector3(180, -2, -40), IsSpawned = true });
+            var input = new Gordian.Core.Input.InputState();
+            var controller = new Gordian.Core.Input.PlayerLocomotionController(input, Gordian.Core.Input.InputProfile.CreateCompact(), world, player) { CameraYaw = cameraYaw };
+            input.SetKeyDown(Gordian.Core.Input.GordianKey.W);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromSeconds(0.05));
+            Assert.InRange(me.Position.Z, MathF.Min(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f), MathF.Max(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f));
+        }
+
+        [Fact]
         public void DoorRoutineDecoder_ReadsRotateAndSlideMoves()
         {
             // Modelled on Metalworks _6l0/open: 01 ; 0B sound ; 0D part 0 -80 degrees ; 0D part 1 +80 degrees (70 frames) ; 0C slide.

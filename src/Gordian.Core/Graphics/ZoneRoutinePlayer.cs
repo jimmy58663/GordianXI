@@ -2,9 +2,36 @@
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.Graphics
 {
+    /// <summary>
+    /// The two actors a zone routine plays on: the caster and the target a map scheduler (S2C 0x039) or an event's 0x2D
+    /// names, or the door entity for a door's own routines (both the door). 0 = none (a routine the zone starts itself).
+    /// </summary>
+    public readonly record struct ZoneRoutineActors(uint CasterServerId, uint TargetServerId)
+    {
+        public static readonly ZoneRoutineActors None = default;
+
+        /// <summary>
+        /// The entity a generator of <paramref name="attachType"/> rides (#232), 0 for one placed in the zone: target-side
+        /// types the target (else the caster), source-side types and the zone actor types 0xA-0xC the caster (else the
+        /// target). LandSandBoat sends a map scheduler with one entity as both (<c>0x039_mapschedulor.cpp</c>), and a
+        /// door's routines play on the door, so the side matters only for an event's 0x2D with two actors. Sides
+        /// referenced from xi-model-viewer (ui/js/particle/runtime.js, TARGET_ATTACH); that the zone actor types ride the
+        /// routine's caster is *inference* (Alzadaal's door <c>_20t</c> carries its effects as ZoneActor0xA a few yalms
+        /// from the door).
+        /// </summary>
+        public uint ActorFor(ParticleAttachType attachType)
+        {
+            if (!Resources.ZoneDataLoader.IsActorAttached(attachType)) return 0;
+            bool targetSide = attachType is ParticleAttachType.TargetActor or ParticleAttachType.TargetToSourceBasis;
+            uint first = targetSide ? TargetServerId : CasterServerId;
+            return first != 0 ? first : targetSide ? CasterServerId : TargetServerId;
+        }
+    }
+
     /// <summary>
     /// The Section 0x07 routines of a zone DAT that the client plays on demand, with the emitters of the generators they
     /// start, by directory path (<c>d_at/effe/pba1/1pba</c>). A routine or generator named by a command resolves in the
@@ -21,15 +48,22 @@ namespace Gordian.Core.Graphics
         public int RoutineCount { get; private set; }
 
         /// <summary>Adds a routine a map scheduler or another routine can start (<see cref="Find"/>).</summary>
-        public void AddRoutine(string directory, SceneRoutine routine)
+        public void AddRoutine(string directory, SceneRoutine routine) => AddRoutine(directory, routine, byName: true);
+
+        /// <summary>
+        /// Adds a routine; with <paramref name="byName"/> false only a command or <see cref="ZoneRoutinePlayer.PlayAt"/>
+        /// reaches it by its directory, never a map scheduler's name (a door's <c>open</c>, #227).
+        /// </summary>
+        public void AddRoutine(string directory, SceneRoutine routine, bool byName)
         {
             ArgumentNullException.ThrowIfNull(routine);
             directory ??= string.Empty;
             if (!_routines.TryGetValue(directory, out var inDirectory)) _routines[directory] = inDirectory = new(StringComparer.OrdinalIgnoreCase);
             if (!inDirectory.TryAdd(routine.Name, routine)) return;
+            RoutineCount++;
+            if (!byName) return;
             if (!_byName.TryGetValue(routine.Name, out var named)) _byName[routine.Name] = named = new();
             named.Add((directory, routine));
-            RoutineCount++;
         }
 
         /// <summary>Adds the emitter of a generator declared in <paramref name="directory"/>.</summary>
@@ -48,7 +82,12 @@ namespace Gordian.Core.Graphics
         public IReadOnlyList<(string Directory, SceneRoutine Routine)> Find(string name) =>
             name != null && _byName.TryGetValue(name, out var named) ? named : Array.Empty<(string, SceneRoutine)>();
 
-        /// <summary>The routine <paramref name="name"/> as a command in <paramref name="directory"/> sees it.</summary>
+        /// <summary>
+        /// The routine <paramref name="name"/> as a command in <paramref name="directory"/> sees it: in the directory, then
+        /// each parent, then a <c>door</c> directory under it. The last is a door's: Alzadaal's <c>d_at/door/_20t/open</c>
+        /// starts <c>stat</c>, and the door's effect routines all sit in <c>d_at/door/_20t/door/</c> (retail DAT, read
+        /// 2026-10-18); *inference* that the client looks there.
+        /// </summary>
         public bool TryResolveRoutine(string directory, string name, out string foundIn, out SceneRoutine routine)
         {
             foreach (string dir in Ancestors(directory))
@@ -59,9 +98,22 @@ namespace Gordian.Core.Graphics
                     return true;
                 }
             }
+            string doorResources = (directory ?? string.Empty) + "/door";
+            if (_routines.TryGetValue(doorResources, out var inDoor) && inDoor.TryGetValue(name, out routine!))
+            {
+                foundIn = doorResources;
+                return true;
+            }
             foundIn = string.Empty;
             routine = null!;
             return false;
+        }
+
+        /// <summary>The routine <paramref name="name"/> of exactly <paramref name="directory"/> (a door's <c>open</c>).</summary>
+        public bool TryGetRoutine(string directory, string name, out SceneRoutine routine)
+        {
+            routine = null!;
+            return _routines.TryGetValue(directory ?? string.Empty, out var inDirectory) && inDirectory.TryGetValue(name, out routine!);
         }
 
         /// <summary>The generator <paramref name="name"/> as a command in <paramref name="directory"/> sees it.</summary>
@@ -106,6 +158,7 @@ namespace Gordian.Core.Graphics
         {
             public required string Directory;
             public required SceneRoutine Routine;
+            public ZoneRoutineActors Actors;
             public bool Loop;
             public float Clock;
             public int Next;
@@ -114,6 +167,14 @@ namespace Gordian.Core.Graphics
         private readonly ZoneRoutineLibrary _library;
         private readonly List<Running> _running = new();
         private Func<ZoneEmitterTemplate, ZoneParticleEmitter?>? _resolve;
+        private Action<ZoneParticleEmitter, ZoneRoutineActors>? _bind;
+
+        /// <summary>
+        /// Raised when a command starts a generator the library has no emitter for, with the routine's directory and actors:
+        /// a sound generator (linked data 0x3D), which the audio side plays (round 4 E2: Alzadaal's door <c>_20t</c>'s
+        /// <c>stat</c> starts its sound <c>se01</c>).
+        /// </summary>
+        public event Action<string, string, ZoneRoutineActors>? GeneratorWithoutEmitterStarted;
 
         /// <summary>Routine nesting limit, so routines that start each other cannot grow without end.</summary>
         public const int MaxRunning = 64;
@@ -127,14 +188,51 @@ namespace Gordian.Core.Graphics
         public int RunningCount => _running.Count;
 
         /// <summary>Starts every routine of the zone named <paramref name="name"/>; false when the zone has none.</summary>
-        public bool Play(string name)
+        public bool Play(string name) => Play(name, ZoneRoutineActors.None);
+
+        /// <summary>
+        /// Starts every routine of the zone named <paramref name="name"/> on <paramref name="actors"/>: the generators it
+        /// starts that ride an actor are bound to the one their attach type picks (<see cref="ZoneRoutineActors.ActorFor"/>,
+        /// #232), and so are those of the routines it starts. False when the zone has none.
+        /// </summary>
+        public bool Play(string name, ZoneRoutineActors actors)
         {
             var found = _library.Find(name);
             foreach (var (directory, routine) in found)
             {
-                if (_running.Count < MaxRunning) Add(directory, routine, loop: false);
+                if (_running.Count < MaxRunning) Add(directory, routine, loop: false, actors);
             }
             return found.Count > 0;
+        }
+
+        /// <summary>
+        /// Starts the routine <paramref name="name"/> of exactly <paramref name="directory"/> on <paramref name="actors"/>
+        /// (a door's <c>open</c> / <c>clos</c> / <c>into</c> / <c>intc</c> on the door entity, #227). False when there is none.
+        /// </summary>
+        public bool PlayAt(string directory, string name, ZoneRoutineActors actors)
+        {
+            if (!_library.TryGetRoutine(directory, name, out var routine)) return false;
+            if (_running.Count < MaxRunning) Add(directory, routine, loop: false, actors);
+            return true;
+        }
+
+        /// <summary>The length in frames of the routine <paramref name="name"/> of <paramref name="directory"/>, with the routines it starts; 0 when there is none.</summary>
+        public int GetFrames(string directory, string name) =>
+            _library.TryGetRoutine(directory, name, out var routine) ? FramesWithChildren(directory, routine, 0) : 0;
+
+        private int FramesWithChildren(string directory, SceneRoutine routine, int depth)
+        {
+            int frames = routine.TotalFrames;
+            if (depth >= 8) return frames;
+            foreach (var command in routine.Commands)
+            {
+                if (command.Kind == SceneCommandKind.StartRoutine && _library.TryResolveRoutine(directory, command.Reference, out string dir, out var child) &&
+                    !ReferenceEquals(child, routine))
+                {
+                    frames = Math.Max(frames, command.StartFrame + FramesWithChildren(dir, child, depth + 1));
+                }
+            }
+            return frames;
         }
 
         /// <summary>
@@ -169,9 +267,17 @@ namespace Gordian.Core.Graphics
         /// Runs the commands due in the next <paramref name="frames"/> 60 Hz frames, starting and stopping emitters through
         /// <paramref name="resolve"/> (the zone's running emitter for a template).
         /// </summary>
-        public void Update(float frames, Func<ZoneEmitterTemplate, ZoneParticleEmitter?> resolve)
+        public void Update(float frames, Func<ZoneEmitterTemplate, ZoneParticleEmitter?> resolve) => Update(frames, resolve, null);
+
+        /// <summary>
+        /// Runs the commands due in the next <paramref name="frames"/> frames like <see cref="Update(float, Func{ZoneEmitterTemplate, ZoneParticleEmitter?})"/>;
+        /// <paramref name="bind"/> hears of every emitter a command starts with the actors of its routine, so the caller
+        /// can place actor-attached ones (#232).
+        /// </summary>
+        public void Update(float frames, Func<ZoneEmitterTemplate, ZoneParticleEmitter?> resolve, Action<ZoneParticleEmitter, ZoneRoutineActors>? bind)
         {
             _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+            _bind = bind;
             // Routines a command starts run from this frame on, in the same pass.
             for (int i = 0; i < _running.Count; i++)
             {
@@ -202,25 +308,41 @@ namespace Gordian.Core.Graphics
         private ZoneParticleEmitter? Emitter(Running run, string generator) =>
             generator.Length > 0 && _library.TryResolveGenerator(run.Directory, generator, out var template) ? _resolve?.Invoke(template) : null;
 
+        /// <summary>Starts a generator's emitter, binding it to the routine's actors first.</summary>
+        private void Start(Running run, string generator, int duration)
+        {
+            if (Emitter(run, generator) is not { } emitter)
+            {
+                if (generator.Length > 0) GeneratorWithoutEmitterStarted?.Invoke(run.Directory, generator, run.Actors);
+                return;
+            }
+            _bind?.Invoke(emitter, run.Actors);
+            emitter.Trigger(0, duration);
+        }
+
         private void Execute(Running run, SceneCommand command)
         {
             switch (command.Kind)
             {
                 case SceneCommandKind.SpawnGenerator:
-                    Emitter(run, command.Reference)?.Trigger(0, command.Duration);
+                    Start(run, command.Reference, command.Duration);
                     break;
                 case SceneCommandKind.KillGenerator:
                     Emitter(run, command.Reference)?.Kill();
                     break;
                 case SceneCommandKind.ReplaceGenerator:
                     Emitter(run, command.Reference)?.Kill();
-                    Emitter(run, command.Reference2)?.Trigger(0, command.Duration);
+                    Start(run, command.Reference2, command.Duration);
+                    break;
+                case SceneCommandKind.StopGenerator:
+                    // 0x2D: the generator stops emitting; its particles live out their lives (as in SceneEffectPlayer).
+                    Emitter(run, command.Reference)?.StopEmitting();
                     break;
                 case SceneCommandKind.StartRoutine:
                 case SceneCommandKind.LoopRoutine:
                     if (_running.Count < MaxRunning && _library.TryResolveRoutine(run.Directory, command.Reference, out string dir, out var routine))
                     {
-                        Add(dir, routine, command.Kind == SceneCommandKind.LoopRoutine && routine.TotalFrames > 0);
+                        Add(dir, routine, command.Kind == SceneCommandKind.LoopRoutine && routine.TotalFrames > 0, run.Actors);
                     }
                     break;
                 case SceneCommandKind.StopRoutine:
@@ -236,14 +358,14 @@ namespace Gordian.Core.Graphics
             }
         }
 
-        private void Add(string directory, SceneRoutine routine, bool loop)
+        private void Add(string directory, SceneRoutine routine, bool loop, ZoneRoutineActors actors)
         {
             // The same routine started again starts over (the old run is dropped after this pass).
             foreach (var run in _running)
             {
                 if (ReferenceEquals(run.Routine, routine)) End(run);
             }
-            _running.Add(new Running { Directory = directory, Routine = routine, Loop = loop });
+            _running.Add(new Running { Directory = directory, Routine = routine, Loop = loop, Actors = actors });
         }
 
         private static void End(Running run)

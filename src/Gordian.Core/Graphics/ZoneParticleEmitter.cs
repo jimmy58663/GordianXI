@@ -70,6 +70,18 @@ namespace Gordian.Core.Graphics
         public IReadOnlyDictionary<ushort, KeyFrameCurve> Curves { get; }
 
         public Vector3 RawBasePosition => Definition.Setup?.BasePosition ?? Vector3.Zero;
+
+        /// <summary>
+        /// The Section 0x3E point lists the generator's initializers 0x54 name, by allocation slot: updater 0x34 moves the
+        /// particle along one over its life (<see cref="Resources.Graphics.PointListDecoder"/>).
+        /// </summary>
+        public Dictionary<ushort, Vector3[]> PointLists { get; } = new();
+
+        /// <summary>
+        /// The curve of <see cref="ParticleGeneratorDefinition.EmissionClockKeyFrameId"/> (section 1 op 0x17), resolved like
+        /// the slot curves: each emission makes the authored count times its value at the time of day. Null: no such op.
+        /// </summary>
+        public KeyFrameCurve? EmissionClockCurve { get; set; }
     }
 
     /// <summary>
@@ -375,6 +387,16 @@ namespace Gordian.Core.Graphics
             }
             Particles.RemoveAll(p => p.IsExpired);
 
+            if (_retireTotal > 0f)
+            {
+                // Retiring: no new particles; the live ones fade out with what is left of the fade, then go.
+                _retireFrames = MathF.Max(0f, _retireFrames - frames);
+                float left = _retireFrames / _retireTotal;
+                foreach (var particle in Particles) particle.ColorMultiplier = particle.ColorMultiplier with { W = particle.ColorMultiplier.W * left };
+                if (_retireFrames <= 0f) Particles.Clear();
+                return;
+            }
+
             if (Template.ChildOnly) return;
             AdvanceSchedule(frames, frame.DayFraction);
             AdvanceTriggers(frames);
@@ -398,7 +420,7 @@ namespace Gordian.Core.Graphics
                 if (LivesForever && (Def.AutoRun && !StartsOnTrigger ? _totalEmitted : _emittedSinceArm) > 0) break;
 
                 _framesUntilNextParticle += Def.FramesPerEmission + PosRand(Def.EmissionVariance);
-                int count = ParticlesPerEmission;
+                int count = ScaledByClock(ParticlesPerEmission, frame.DayFraction);
                 for (int i = 0; i < count; i++)
                 {
                     Particles.Add(CreateParticle(null, ChildFollow.None));
@@ -408,6 +430,38 @@ namespace Gordian.Core.Graphics
                 if (IsDoneEmitting()) break;
             }
         }
+
+        /// <summary>
+        /// The particles one emission makes under <see cref="ZoneEmitterTemplate.EmissionClockCurve"/>: the count times the
+        /// curve at the time of day, the fraction emitting one more with that chance.
+        /// </summary>
+        private int ScaledByClock(int count, float dayFraction)
+        {
+            if (Template.EmissionClockCurve is not { } curve) return count;
+            float expected = count * MathF.Max(0f, curve.Evaluate(Math.Clamp(dayFraction, 0f, 1f)));
+            int whole = (int)MathF.Floor(expected);
+            return whole + ((Rand() + 1f) * 0.5f < expected - whole ? 1 : 0);
+        }
+
+        private float _retireFrames;
+        private float _retireTotal;
+
+        /// <summary>Whether the emitter is fading its particles out (<see cref="Retire"/>).</summary>
+        public bool IsRetiring => _retireTotal > 0f;
+
+        /// <summary>
+        /// Stops emitting and fades the live particles out over <paramref name="frames"/>, then drops them: a weather emitter
+        /// whose weather ended (round 2 E1: fifty birds vanished in one frame when the weather changed). The fade length is
+        /// GordianXI's (retail's weather change is not measured).
+        /// </summary>
+        public void Retire(float frames)
+        {
+            if (_retireTotal > 0f) return;
+            _retireTotal = _retireFrames = MathF.Max(1f, frames);
+        }
+
+        /// <summary>Ends a <see cref="Retire"/>: the emitter emits again (its weather is back).</summary>
+        public void Resume() => _retireTotal = _retireFrames = 0f;
 
         /// <summary>
         /// A non-auto-running generator emits only inside the window its routine armed; once that window has passed and it
@@ -1025,6 +1079,14 @@ namespace Gordian.Core.Graphics
             ushort slot = op.Allocation;
             switch (op.OpCode)
             {
+                case 0x34: // PointListPositionUpdater: along the slot's path (0x54) by its curve, else the particle's progress
+                    if (Template.PointLists.TryGetValue(slot, out var path))
+                    {
+                        float along = p.Progress;
+                        if (Template.Curves.TryGetValue(slot, out var pathCurve)) along = pathCurve.Evaluate(Math.Clamp(along, 0f, 1f));
+                        p.Position = Resources.Graphics.PointListDecoder.Sample(path, along);
+                    }
+                    break;
                 case 0x02: // PositionUpdater (sub-particles drift along their own relative velocity)
                     if (p.Transforms.TryGetValue(slot, out var moving)) p.Position += TotalVelocity(p, moving.State) * frames;
                     if (p.SubOffsets is { } drifting && p.SubRelativeVelocities is { } driftVelocities)

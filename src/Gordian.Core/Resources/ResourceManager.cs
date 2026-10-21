@@ -490,11 +490,11 @@ namespace Gordian.Core.Resources
                     if (collision != null)
                     {
                         var placements = ZoneDefDecoder.ParseZonePlacements(payload, nodeCount);
-                        // Lift and zone-line records live in every 0x36 table; the door blockers keep to the first table.
+                        // Lift and zone-line records live in every 0x36 table; the door blockers come from the tables without lifts.
                         var allInteractions = ZoneInteractionDecoder.DecodeAllFromDat(datBytes);
                         collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision,
                                                                                          allInteractions);
-                        collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeFromDat(datBytes));
+                        collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeDoorTablesFromDat(datBytes));
                         collision.ZoneLineVolumes = World.Collision.ZoneLines.Select(allInteractions);
                     }
                     break;

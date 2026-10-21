@@ -282,6 +282,21 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// True if this generator attaches to the Sun or Moon, or links to celestial geometry.
         /// </summary>
+        /// <summary>
+        /// Section 1 op 0x17 (<c>17 05 .. 00000000 curve flag 0</c>): a keyframe curve over the Vana'diel day whose value
+        /// scales how many particles each emission makes (fractional values emit with that chance). Read from the retail
+        /// zone DATs (round 2 E1, 2026-10-19): Phanauet Channel's and Carpenters' Landing's birds <c>tobi/wbi?</c> link
+        /// <c>wabi</c> (0 before 05:50 and after 17:30, 0.05 from 08:54 to 13:54), the divers <c>dw0?</c> <c>tbif</c> (a peak
+        /// of 0.22 at 06:23, then 0.02-0.06), the fireflies <c>hota/htr?</c> <c>time</c> (3 at midnight, 1 at 04:20 and 20:10,
+        /// 0 from 05:11 to 18:41), the white birds <c>whtb/brd?</c> <c>tims</c> (peaks of 0.2 at 07:41 and 17:12). The maintainer
+        /// sees one or two birds at a time in retail, or none, where every emission made one before. *Inference*: no reference
+        /// names the op (xi-model-viewer's section-1 table stops at 0x14).
+        /// </summary>
+        public string EmissionClockKeyFrameId { get; set; } = string.Empty;
+
+        /// <summary>The u32 after <see cref="EmissionClockKeyFrameId"/>: 1 on the birds' curves, 0 on the fireflies'; meaning unknown.</summary>
+        public uint EmissionClockFlag { get; set; }
+
         public bool IsCelestial =>
             AttachType == ParticleAttachType.Sun ||
             AttachType == ParticleAttachType.Moon ||
@@ -446,6 +461,13 @@ namespace Gordian.Core.Resources.Graphics
                                 : 1;
                             def.KeyFrameLinks[allocationOffset] = new ParticleKeyFrameLink(curveId, cycles);
                         }
+                        // PointListPositionSetup (0x54): the progress curve sits at +4, the point list at +16
+                        // (xi-model-viewer ui/js/particle/ops/initializers.js PointListPositionSetup).
+                        if (opCode == 0x54 && opPayload.Length >= 8 && ReadDatId(opPayload.Slice(4, 4)) is { Length: > 0 } pathCurve &&
+                            BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(4, 4)) != 0)
+                        {
+                            def.KeyFrameLinks[allocationOffset] = new ParticleKeyFrameLink(pathCurve, 1);
+                        }
                         if (opCode == 0x0B && opPayload.Length >= 16) // RotationVelocitySetup
                         {
                             rotationVelocities[allocationOffset] = ReadVector3(opPayload.Slice(4));
@@ -476,6 +498,14 @@ namespace Gordian.Core.Resources.Graphics
                         float maxEmitDistance = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));
                         if (maxEmitDistance > 0f) def.MaxDrawDistance = maxEmitDistance;
                         def.MaxEmitDistance = maxEmitDistance;
+                    }
+                    break;
+                case 0x17: // Emission count by the time of day: a curve at +8 (see EmissionClockKeyFrameId)
+                    if (opPayload.Length >= 12 && ReadDatId(opPayload.Slice(8, 4)) is { Length: > 0 } clockCurve &&
+                        BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(8, 4)) != 0)
+                    {
+                        def.EmissionClockKeyFrameId = clockCurve;
+                        def.EmissionClockFlag = opPayload.Length >= 16 ? BinaryPrimitives.ReadUInt32LittleEndian(opPayload.Slice(12, 4)) : 0;
                     }
                     break;
             }

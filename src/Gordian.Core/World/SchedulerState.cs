@@ -40,9 +40,9 @@ namespace Gordian.Core.World
 
     /// <summary>
     /// What the server asked the client to animate with scheduler packets that are not part of an action: S2C 0x038
-    /// (actor schedulers) and 0x03A (magic schedulers). Decode only: nothing plays them yet. The requests wait here,
-    /// bounded and in arrival order, until a playback component takes them (<see cref="TakeActorSchedulers"/>,
-    /// <see cref="TakeMagicSchedulers"/>) or subscribes to the events; a zone change drops what is left.
+    /// (actor schedulers) and 0x03A (magic schedulers). <see cref="Animation.SchedulerPlayback"/> plays each as it is
+    /// posted (#311, through the events). The requests also wait here, bounded and in arrival order, for any other
+    /// consumer (<see cref="TakeActorSchedulers"/>, <see cref="TakeMagicSchedulers"/>); a zone change drops what is left.
     /// S2C 0x039 is a separate path (<see cref="WorldState.PostMapScheduler(string, uint, uint)"/>).
     /// </summary>
     public sealed class SchedulerState

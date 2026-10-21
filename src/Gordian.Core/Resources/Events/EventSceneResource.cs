@@ -135,7 +135,7 @@ namespace Gordian.Core.Resources.Events
     /// <summary>What a scene routine command does, as far as the event presentation plays it.</summary>
     public enum SceneCommandKind : byte
     {
-        /// <summary>Anything not played (markers, sound 0x60, motion clips 0x05, scene colours 0x29 / 0x46).</summary>
+        /// <summary>Anything not played (markers, motion clips 0x05, scene colour 0x46, the unknown ops of #206).</summary>
         Other,
 
         /// <summary>Op 0x04: plays the camera route <see cref="SceneCommand.Reference"/> over the command's duration.</summary>
@@ -195,6 +195,35 @@ namespace Gordian.Core.Resources.Events
         /// (read 2026-10-12, #132 round 2: without it the circle emitted for its whole 1800 frames after the cast).
         /// </summary>
         StopGenerator,
+
+        /// <summary>
+        /// Op 0x29: moves the colour the routine's actor is drawn with toward <see cref="SceneCommand.Color"/> over the
+        /// command's duration (B, G, R, A half scale: 0x80 = as drawn, alpha 0 = invisible, FF = twice as bright).
+        /// <para>
+        /// Read from the retail DATs (#206, #311, 2026-10-18): the shared <c>ROM/0/0</c> <c>syst/acti/kesu</c>, which
+        /// LandSandBoat sends with S2C 0x038 to fade a despawning entity out, is this one command, 80 80 80 00 over its 90
+        /// frames; the battlefield warp <c>wp00</c> (file 5013) goes to FF FF FF 80 over 60 frames and to 80 80 80 00 over
+        /// frames 90-150, <c>wp01</c> (5014) starts at 80 80 80 00 and goes to FF FF FF 80 over frames 20-60 and back to
+        /// 80 80 80 80 over 60-120. The maintainer's retail capture of the Shooting Fish BCNM (Horlais Peak, 2026-10-17)
+        /// shows the player turning white and translucent into the warp glow and later reappearing white from nothing.
+        /// *Inference*, not in any reference: XiEvents, XiPackets, LandSandBoat and xi-tools leave the op unnamed.
+        /// </para>
+        /// </summary>
+        ActorColor,
+
+        /// <summary>
+        /// Op 0x2E: keeps the actor's colour change (<see cref="ActorColor"/>) for the command's duration; when it ends the
+        /// actor is drawn as is again. <c>wp00</c> holds 150 frames (its whole length), <c>wp01</c> 120 (to the end of its
+        /// last fade). *Inference* from those two routines (#206); <c>kesu</c> has no 0x2E and its fade stays.
+        /// </summary>
+        ActorHold,
+
+        /// <summary>
+        /// Ops 0x57 and 0x3C: run the actor's own routine <see cref="SceneCommand.Reference"/> (0x3C waits for it), as in the
+        /// motion routines (<see cref="Graphics.MotionRoutineDecoder"/>). The shared <c>ROM/0/0</c> <c>syst/acti/hitl</c>
+        /// (fishing's sweat, S2C 0x038) is two of them: <c>eflg</c> and <c>selg</c>.
+        /// </summary>
+        LinkActorRoutine,
     }
 
     /// <summary>
@@ -295,6 +324,20 @@ namespace Gordian.Core.Resources.Events
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
                     if (reference.Length > 0) kind = SceneCommandKind.Sound;
+                }
+                else if (op == 0x29 && size >= 12 && p + 12 <= payload.Length)
+                {
+                    color = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
+                    kind = SceneCommandKind.ActorColor;
+                }
+                else if (op == 0x2E)
+                {
+                    kind = SceneCommandKind.ActorHold;
+                }
+                else if (op is 0x57 or 0x3C && size >= 12 && p + 12 <= payload.Length)
+                {
+                    reference = ReadFourCc(payload.Slice(p + 8, 4));
+                    if (reference.Length > 0) kind = SceneCommandKind.LinkActorRoutine;
                 }
                 else if (EffectKind(op) is { } effect && size >= 12 && p + 12 <= payload.Length)
                 {

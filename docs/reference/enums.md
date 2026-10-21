@@ -274,3 +274,35 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTYPE` in `battle_entity.h`; `StockUiItems.Target*`): 0x001 self, 0x002 party, 0x004 enemy, 0x008 alliance, 0x010 player, 0x020 dead player, 0x040 NPC, 0x080 party (Pianissimo), 0x100 pet. 0 means the item cannot be used (the Items window greys Use).
 
 DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing. Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
+
+## Particle attach types (Section 0x05 `attachFlags & 0x0F`)
+
+`ParticleAttachType` (`WeatherSkyDefinition.cs`); names from xi-tools `docs/fx/effect_system.md` and xi-model-viewer `ui/js/particle/types.js`. How GordianXI places each in a zone DAT (#232 / #121, 2026-10-18) and on an actor (model, scene and action DATs):
+
+| value | name | in a zone DAT | on an actor |
+|---|---|---|---|
+| 0x0 | None | placed in the zone | the actor's origin |
+| 0x1 | SourceActor | rides the routine's caster (else target) | source joint reference (bits 4-9) |
+| 0x2 | TargetActor | rides the target (else caster) | target joint reference (bits 10-15); the action's target |
+| 0x3 | SourceToTargetBasis | rides the caster | source joint |
+| 0x4 | TargetActorSourceFacing | **placed in the zone** (its bases are zone positions; **Beyond xi-tools**, *inference*) | target joint; the action's target |
+| 0x5 | SourceActorTargetFacing | rides the caster (weather sky layers: the camera) | source joint |
+| 0x6 | TargetToSourceBasis | rides the target | target joint |
+| 0x9 | SourceActorWeapon | rides the caster | source joint |
+| 0xA-0xC | ZoneActor0xA-0xC | rides the caster: the door for a door's routines, else the entity the map scheduler or 0x2D names (*inference*) | source joint |
+| 0xE / 0xF | Sun / Moon | the sky | not drawn |
+
+## Magic scheduler types (S2C 0x03A)
+
+`MagicSchedulerType`; names from XiPackets `world/server/0x003A` (which warns the list is not reliable). What `SchedulerPlayback` plays (#311, 2026-10-18; **Beyond XiPackets**, *inference*: `fileNum` read as the action animation number of the family):
+
+| type | XiPackets | plays |
+|---|---|---|
+| 0 | cast spell | the spell presentation 2800 + n (LandSandBoat: `xi.magic.spell.WARP`, 122) |
+| 1 | use item | nothing (file not known) |
+| 2 | ability | the job ability presentation 4412 + n |
+| 3, 4, 5, 8, 10, 11, 12 | events, banners, warps, casts | nothing (LandSandBoat's 250-252 with type 4: lightbulb, hearts, music notes) |
+| 6 | weapon skill | the weapon skill of the caster's race (`ActionMotionLibrary.WeaponSkillFileId`) |
+| 7 | unknown | nothing |
+| 9 | monster skill | the monster skill presentation (3900 + n, 50159 + n - 512) |
+

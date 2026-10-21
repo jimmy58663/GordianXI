@@ -265,6 +265,20 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public int PointLightSlot { get; set; } = -1;
 
+        /// <summary>
+        /// A zone emitter whose generator rides an actor (attach types SourceActor, TargetActor, the basis and facing
+        /// variants, SourceActorWeapon and ZoneActor 0xA-0xC; #232): it is simulated in that actor's model space and drawn
+        /// at the actor, bound by the routine that starts it (the entity a map scheduler or 0x2D names, or the door whose
+        /// routine plays). Unbound, it neither emits nor draws. <see cref="AttachType"/> holds the generator's type.
+        /// </summary>
+        public bool IsActorAttached { get; set; }
+
+        /// <summary>
+        /// For a generator declared under a door directory (<c>&lt;zone&gt;/door/&lt;door id&gt;/...</c>), the door id: an
+        /// actor-attached one that auto-runs rides that door entity (#227).
+        /// </summary>
+        public string? OwnerDoorId { get; set; }
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }
