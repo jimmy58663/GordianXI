@@ -23,7 +23,10 @@ namespace Gordian.Core.Animation
         JobAbility,
 
         /// <summary>A spell (<c>cmd_no</c> 4): its <c>main</c> links the caster's release (<c>shwh</c>, <c>shbk</c>...).</summary>
-        Spell
+        Spell,
+
+        /// <summary>A synthesis (S2C 0x030, #315): the crystal's element file, its <c>main</c> built from <c>frst</c> and the result's ending.</summary>
+        Synthesis
     }
 
     /// <summary>
@@ -47,6 +50,12 @@ namespace Gordian.Core.Animation
 
         public ActionAssetKind Kind { get; }
 
+        /// <summary>
+        /// Whether the body holds the presentation's last clip until its <c>main</c> ends rather than giving it back at the end
+        /// of the clip step (a synthesis holds the crystal up in <c>ri0?</c> through the whole effect, #315).
+        /// </summary>
+        public bool HoldsBodyToEnd { get; init; }
+
         /// <summary>The packet's animation number (the result's 12-bit <c>sub_kind</c>).</summary>
         public int Animation { get; }
 
@@ -60,6 +69,64 @@ namespace Gordian.Core.Animation
         public EventSceneResource? Effects { get; }
 
         public override string ToString() => $"{Kind} {Animation} (file {FileId})";
+
+        private IReadOnlyList<RoutineSoundCue>? _generatorSounds;
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, IReadOnlyList<RoutineSoundCue>> _soundsOnModel = new();
+
+        /// <summary>
+        /// The sounds of the presentation's audio generators (#328): the generators <see cref="MainRoutine"/> and the
+        /// routines it starts (0x03, one pass of 0x73, four deep) spawn or swap in whose linked data is a sound pointer, each
+        /// at its start on the routine clock (60 Hz). Most spells and job abilities carry their sound this way rather than as
+        /// a sound command; the walk and the generator-to-sound reading are the cutscene scene files' (EventPresentation).
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GeneratorSounds => _generatorSounds ??= CollectGeneratorSounds(Effects);
+
+        /// <summary>
+        /// Everything the presentation plays on an actor: the sound commands of <see cref="MainRoutine"/> through the DAT's
+        /// and the actor's routines (<see cref="EventMotionBank.GetSoundsOnModel"/>) and the <see cref="GeneratorSounds"/>,
+        /// by tick; cached per model.
+        /// </summary>
+        public IReadOnlyList<RoutineSoundCue> GetSoundsOnModel(EntityModel model)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+            if (_soundsOnModel.TryGetValue(model, out var cached)) return cached;
+            var commands = Motion?.GetSoundsOnModel(model, MainRoutine) ?? Array.Empty<RoutineSoundCue>();
+            var generators = GeneratorSounds;
+            IReadOnlyList<RoutineSoundCue> all = generators.Count == 0 ? commands
+                : [.. System.Linq.Enumerable.OrderBy(System.Linq.Enumerable.Concat(commands, generators), c => c.Tick)];
+            _soundsOnModel.AddOrUpdate(model, all);
+            return all;
+        }
+
+        internal static IReadOnlyList<RoutineSoundCue> CollectGeneratorSounds(EventSceneResource? resource)
+        {
+            if (resource == null || !resource.TryGetRoutine(MainRoutine, out var main)) return Array.Empty<RoutineSoundCue>();
+            var cues = new List<RoutineSoundCue>();
+            void Walk(SceneRoutine routine, int start, int depth)
+            {
+                foreach (var command in routine.Commands)
+                {
+                    int at = start + command.StartFrame;
+                    switch (command.Kind)
+                    {
+                        case SceneCommandKind.SpawnGenerator when resource.TryGetGeneratorSound(command.Reference, out var spawned):
+                            cues.Add(new RoutineSoundCue(at, [spawned.SoundId], 0x02));
+                            break;
+                        case SceneCommandKind.ReplaceGenerator when resource.TryGetGeneratorSound(command.Reference2, out var replacement):
+                            cues.Add(new RoutineSoundCue(at, [replacement.SoundId], 0x02));
+                            break;
+                        case SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine when depth < 4
+                            && command.Reference != routine.Name && resource.TryGetRoutine(command.Reference, out var child):
+                            Walk(child, at, depth + 1);
+                            break;
+                    }
+                }
+            }
+            Walk(main, 0, 0);
+            if (cues.Count == 0) return Array.Empty<RoutineSoundCue>();
+            cues.Sort((a, b) => a.Tick.CompareTo(b.Tick));
+            return cues;
+        }
     }
 
     /// <summary>
@@ -142,7 +209,114 @@ namespace Gordian.Core.Animation
         public static Action<int>? EffectsPreloader { get; set; }
 
         /// <summary>Drops the cache (a VFS reload).</summary>
-        public void Clear() => _cache.Clear();
+        public void Clear()
+        {
+            _cache.Clear();
+            _synthesisCache.Clear();
+        }
+
+        /// <summary>
+        /// The synthesis effect files: 4912 + S2C 0x030's <c>EffectNum</c> (0x10-0x17), ROM/16/56-63, one per element in
+        /// LandSandBoat's <c>SynthesisEffect</c> order (water, wind, fire, earth, lightning, ice, light, dark; textures
+        /// <c>cris_aq</c>, <c>cris_ar</c>, <c>cris_ig</c>, <c>cris_tr</c>, <c>cris_th</c>, <c>cris_ic</c>, <c>cris_lt</c>,
+        /// <c>cris_dk</c>). 4912 starts the item use effect files (4912 / 4913 the antidote's <c>doku</c>, potions and ethers
+        /// after). <b>Beyond XiPackets / xi-tools / LandSandBoat</b>: found in the retail DATs 2026-10-18 by texture name.
+        /// </summary>
+        public const int SynthesisEffectFileBase = 4912;
+
+        /// <summary>The first and last synthesis <c>EffectNum</c>.</summary>
+        public const int FirstSynthesisEffect = 0x10, LastSynthesisEffect = 0x17;
+
+        /// <summary>
+        /// A synthesis effect file's routines (#315): <c>frst</c> (630 ticks) plays the crafter's <c>ri0?</c> (the right hand
+        /// up with the crystal) and starts <c>strt</c> (the crystal <c>cri0</c> and the element's intro) and <c>loop</c> five
+        /// times; then one ending: <c>ednn</c> success (rays, rings, the flash), <c>edmm</c> break (the crystal <c>cri1</c>
+        /// again, then <c>san3</c> scattering it, no rays), <c>edxx</c> high quality; <c>stcr</c> stops everything. The file's
+        /// own test routines (<c>s000</c> / <c>t000</c>) run exactly this: <c>frst</c>, an ending at tick 630, then <c>stcr</c>.
+        /// Its <c>main</c> links a template name (<c>ed x</c>) the client fills in, so the ending is picked here from
+        /// <c>Type</c>: 0 success <c>ednn</c>, 1 break <c>edmm</c>, 2-4 high quality <c>edxx</c>. <c>Type</c> is LandSandBoat's
+        /// <c>RESULT_*</c> value (synthutils.cpp: <c>RESULT_SUCCESS</c> 0, <c>RESULT_FAIL</c> 1, <c>RESULT_HQ</c> 2), not its
+        /// <c>SYNTHESIS_*</c> enum (fail 0, success 1); reading it as the latter swapped the endings in the maintainer's round 3
+        /// (2026-10-18: successes broke and breaks succeeded for wind, fire and lightning). (The eight files ROM/160/19-26
+        /// carry the same endings named <c>ng00</c> / <c>ok00</c> / <c>okex</c>).
+        /// </summary>
+        public const string SynthesisStart = "frst", SynthesisSuccess = "ednn", SynthesisBreak = "edmm", SynthesisHighQuality = "edxx", SynthesisStop = "stcr";
+
+        /// <summary>The ending routine for 0x030's <c>Type</c> (the result the server computed up front).</summary>
+        public static string SynthesisEnding(int type) => type switch
+        {
+            0 => SynthesisSuccess,
+            1 => SynthesisBreak,
+            _ => SynthesisHighQuality,
+        };
+
+        private readonly ConcurrentDictionary<(int Effect, string Ending), ActionAsset?> _synthesisCache = new();
+
+        /// <summary>
+        /// The synthesis presentation for S2C 0x030 (#315): the element's file with a <c>main</c> that runs <c>frst</c>, the
+        /// ending for <paramref name="type"/> when <c>frst</c> ends, then <c>stcr</c>, on the body (the crystal held up through
+        /// it all) and as effect timelines. Null outside 0x10-0x17 or when the file cannot be read.
+        /// </summary>
+        public ActionAsset? ResolveSynthesis(int effectNum, int type)
+        {
+            if (effectNum is < FirstSynthesisEffect or > LastSynthesisEffect) return null;
+            var loader = Loader;
+            if (loader == null) return null;
+            string ending = SynthesisEnding(type);
+            if (_synthesisCache.TryGetValue((effectNum, ending), out var cached)) return cached;
+            var asset = _synthesisCache.GetOrAdd((effectNum, ending), key => LoadSynthesis(key.Effect, key.Ending, loader));
+            if (asset?.Effects != null && _loader == null && EffectsPreloader is { } preload) Preload(preload, asset.FileId, asset.ToString());
+            return asset;
+        }
+
+        private static ActionAsset? LoadSynthesis(int effectNum, string ending, Func<int, byte[]?> loader)
+        {
+            int fileId = SynthesisEffectFileBase + effectNum;
+            try
+            {
+                var bytes = loader(fileId);
+                if (bytes == null || bytes.Length == 0) return null;
+                var container = EntityModelLoader.ParseDatContainer(bytes, $"Synthesis_{fileId}");
+                var effects = EventSceneResource.Parse(bytes);
+                int startTicks = 0, endTicks = 0;
+                foreach (var raw in container.Routines)
+                {
+                    if (raw.Name == SynthesisStart) startTicks = raw.TotalTicks;
+                }
+                if (startTicks <= 0 || !effects.TryGetRoutine(ending, out var end)) return null;
+                endTicks = end.TotalFrames;
+                int stop = startTicks + endTicks;
+                var routines = new List<RawMotionRoutine>(container.Routines);
+                routines.RemoveAll(r => r.Name == ActionAsset.MainRoutine);
+                routines.Add(new RawMotionRoutine
+                {
+                    Name = ActionAsset.MainRoutine,
+                    TotalTicks = stop,
+                    Commands = new[] { Link(0, SynthesisStart), Link(startTicks, ending) },
+                    SoundCommands = new[] { new RoutineSoundCommand(0x03, 0, SynthesisStart, 0, -1), new RoutineSoundCommand(0x03, startTicks, ending, 0, -1) },
+                });
+                effects.AddRoutine(new SceneRoutine
+                {
+                    Name = ActionAsset.MainRoutine,
+                    TotalFrames = stop,
+                    Commands = new[]
+                    {
+                        new SceneCommand(0x03, SceneCommandKind.StartRoutine, 0, 0, SynthesisStart, 0),
+                        new SceneCommand(0x03, SceneCommandKind.StartRoutine, startTicks, 0, ending, 0),
+                        new SceneCommand(0x03, SceneCommandKind.StartRoutine, stop, 0, SynthesisStop, 0),
+                    },
+                });
+                var motion = new EventMotionBank(fileId, container.Animations, routines);
+                return new ActionAsset(ActionAssetKind.Synthesis, effectNum, fileId, motion, effects) { HoldsBodyToEnd = true };
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"Synthesis effect 0x{effectNum:X2} (file {fileId}) could not be read: {ex.Message}");
+                return null;
+            }
+
+            static MotionRoutineCommand Link(int tick, string name) => new(0x03, tick, 0, name, 0, 0, 0, 1f, 0, 0);
+        }
 
         /// <summary>
         /// The body file of weapon skill <paramref name="animation"/> for a race, or with <paramref name="companion"/> 1 / 2 its

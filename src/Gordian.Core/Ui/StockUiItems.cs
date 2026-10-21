@@ -22,6 +22,18 @@ namespace Gordian.Core.Ui
 
         /// <summary>The Equipment window's list for one slot: the items of one storage that fit it; Confirm equips.</summary>
         Equipment,
+
+        /// <summary>Synthesis > Crystal Synthesis: the inventory's crystals; Confirm opens the synthesis grid (#330).</summary>
+        Crystals,
+
+        /// <summary>The material list beside the synthesis grid: Confirm puts the item in the grid's slot (#330).</summary>
+        SynthesisMaterials,
+
+        /// <summary>Synthesis > History: the recipes done; the grid shows the one under the cursor (#330).</summary>
+        SynthesisHistory,
+
+        /// <summary>The guild Sell list's "Select from your inventory.": the items the guild buys; Confirm asks the count to sell (#330).</summary>
+        GuildSell,
     }
 
     /// <summary>
@@ -32,7 +44,7 @@ namespace Gordian.Core.Ui
     /// </summary>
     public readonly record struct StockUiItemRow(ushort ItemId, string Name, uint Count, ContainerId Container, byte Slot,
         int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsStorageOptions = false,
-        StockUiSetRowAction SetAction = StockUiSetRowAction.None)
+        StockUiSetRowAction SetAction = StockUiSetRowAction.None, bool Picked = false)
     {
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
@@ -254,11 +266,11 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>
-        /// Whether an item is a crystal (fire ... dark, 4096-4103, and the HQ crystals, 4238-4245): using one opens the
+        /// Whether an item is a crystal (fire ... dark, 4096-4103, and the HQ crystals, 4238-4245 and 6506-6513): using one opens the
         /// synthesis window rather than sending C2S 0x037 (the maintainer's retail check, 2026-10-11). Item ids from
         /// LandSandBoat's item tables.
         /// </summary>
-        public static bool IsCrystal(ushort itemId) => itemId is >= 4096 and <= 4103 or >= 4238 and <= 4245;
+        public static bool IsCrystal(ushort itemId) => itemId is >= 4096 and <= 4103 or >= 4238 and <= 4245 or >= 6506 and <= 6513;
 
         /// <summary>
         /// Whether an item can be used: a crystal (synthesis), or an item flagged CanUse (LandSandBoat <c>ItemFlag::CanUse</c>,

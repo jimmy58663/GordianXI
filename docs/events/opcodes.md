@@ -144,7 +144,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x79 |  | by sub | runs | 3,925 | One actor looks at another (subs 0 / 1), or holds its head on a fixed axis (sub 2, [#188](https://github.com/jimmy58663/GordianXI/issues/188)). An unknown sub ends the request ([#201](https://github.com/jimmy58663/GordianXI/issues/201)). |
 | 0x7A |  | by sub | stepped | 594 | Request-stack control on another entity: clear its whole VM or one slot, borrow or return its event data, copy or reset a request. |
 | 0x7B |  | 5 | runs | 3,113 | An actor stops looking and talking. |
-| 0x7C |  | 6 | ignored | 1,576 | Sets or clears `Render.Flags2` bit 17 of an actor. |
+| 0x7C |  | 6 | ignored | 1,576 | Sets or clears `Render.Flags2` bit 17 of an actor; no visible effect beyond possibly the idle blink in the Cacaroon capture (2026-10-17, [#217](https://github.com/jimmy58663/GordianXI/issues/217)). |
 | 0x7D |  | 3 | stepped | 57 | Starts a scene task on the local player from file 5112 + n (rank-up scenes). |
 | 0x7E | `CodeCHOCOBO` | by sub | stepped | 547 | Puts an actor on or off a chocobo or mount (event status, render flags, chocobo colours, mount id). |
 | 0x7F | `CodeQUERYWAIT2` | 1 | runs | 6 | Waits for the open query like 0x25, but a cancel stores 255 and does not end the event. |
@@ -168,7 +168,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x91 |  | 3 | stepped | 7 | Sets the event entity's base walk speed. |
 | 0x92 |  | 6 | runs | 8,349 | Sets or clears `Render.Flags3` bit 16 of an actor: no name plate for the event (#191; `WorldEntity.HidesEventName`). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x93 |  | 3 | stepped | 5,479 | Opens the item information window on an item id, or closes it for 0. |
-| 0x94 |  | 6 | runs | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor; kept on the entity, effect unknown ([#198](https://github.com/jimmy58663/GordianXI/issues/198)); [#217](https://github.com/jimmy58663/GordianXI/issues/217). |
+| 0x94 |  | 6 | runs | 3,902 | Sets or clears `Render.Flags3` bit 17 of an actor; kept on the entity, no visible effect in the Deraquien capture ([#198](https://github.com/jimmy58663/GordianXI/issues/198)); [#217](https://github.com/jimmy58663/GordianXI/issues/217). |
 | 0x95 |  | 3 | stepped | 378 | Marks the event entity as an event NPC and clears its attachments. |
 | 0x96 |  | 1 | stepped | 167 | Ends that event NPC state and clears the attachments again. |
 | 0x97 |  | 5 | stepped | 165 | Saves the zone's wind values and sets new ones. |
@@ -212,7 +212,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xBD |  | 15 | runs | 1 | Stops a 0xBB task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xBE |  | 3 | runs | 0 | Stores the server id of the entity that queued the running request. |
 | 0xBF |  | by sub | stepped | 60 | Chocobo racing: reads race, chocobo, section or result parameters. |
-| 0xC0 |  | 3 | runs | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value; kept on the entity, effect unknown ([#198](https://github.com/jimmy58663/GordianXI/issues/198)); [#217](https://github.com/jimmy58663/GordianXI/issues/217). |
+| 0xC0 |  | 3 | runs | 1,073 | Sets or clears `Render.Flags3` bit 12 of the event entity from a work value; kept on the entity, no visible effect in the Zone 67 CS 4 capture ([#198](https://github.com/jimmy58663/GordianXI/issues/198)); [#217](https://github.com/jimmy58663/GordianXI/issues/217). |
 | 0xC1 |  | 5 | stepped | 1 | Once an actor's resources have loaded, ends its last action and releases a loaded resource set. |
 | 0xC2 |  | by sub | stepped | 35 | Party Mog House visits: mask of members that can be visited, whether one's house is open. |
 | 0xC3 |  | 7 | stepped | 54 | Copies a work string and a value into one of eight 20-byte slots. |
@@ -670,6 +670,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `94 on actor:u32`. Sets `Render.Flags3` bit 17 of the actor from bit 0 of the byte at +1 (XiEvents OpCodes/0x0094).
 - GordianXI keeps the bit as `EventRenderFlags.Flags3Bit17` on the entity until the event ends; nothing reads it ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Retail check (2026-10-17, `Deraquien.mp4`, #217):** Deraquien (Southern San d'Oria event 18) showed no visible difference from Coderiant and Glenne: all three keep their plate, turn to the player and return to idle; shadow and cursor look the same. Not checked: whether Coderiant's and Glenne's events lack 0x94 (if either sets it, the comparison proves nothing). *Inference:* no visible effect in a plain talk event; it probably matters only in staged cutscenes or changes state the screen does not show. Stays stored and unread.
 - **Beyond XiEvents:** census (2026-10-03): 14,815 uses set it and 140 clear it; 2,233 of the sets name the player. Most scripts set it next to 0x92 at the event's start (Port Jeuno 324 on every actor it places). It is not the name plate (the player's plate stays in 324's retail recording). The events that use it are the staged cutscenes: the opcodes most over-represented beside it are the cutscene ones (0xBA placements, 0x52 scheduler ends, 0x77 / 0x78 clock lock, 0x9A), each about 10-16 times their rate in all events, with no single opcode that would point at an effect. A plain talk event uses it too: Deraquien (Southern San d'Oria, event 18, LandSandBoat's `onTrigger`) starts `94 01 self`, then turns to the player and plays the `sl00` / `tlk0` motion packages around two lines that wait for Enter. It is not the talking mouth: the mouth follows each line's length whether the bit is set or not (in-game comparison, 2026-10-03; [world/entities-and-animation.md](../world/entities-and-animation.md)). What it changes is open. Open: [#217](https://github.com/jimmy58663/GordianXI/issues/217).
 
 ### 0x99
@@ -781,6 +782,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `C0 on:work`. Sets `Render.Flags3` bit 12 of the event's own entity from bit 0 of the work value (XiEvents OpCodes/0x00C0).
 - GordianXI keeps the bit as `EventRenderFlags.Flags3Bit12` until the event ends; nothing reads it ([#198](https://github.com/jimmy58663/GordianXI/issues/198)).
+- **Retail check (2026-10-17, `Zone67_CS4.mp4`, #217):** Aphmau in Jade Sepulcher CS 4 is drawn like the other actors in the scene over a 5-minute scene (same forest ambient and torch tint, no extra glow, no outline; no actor shows a name plate during the scene; shadows too dark to judge). *Inference:* 0xC0 changes nothing visible; possibly a bookkeeping flag (event-owned actor, hide or delete at the event's end), which would need the actor's state after the event to check. Stays stored and unread.
 - **Beyond XiEvents:** every use in the census (2026-10-03) takes an immediate-data operand (`NN 80`), and in 674 events it is the whole entry: `C0 value` then `00`. These are the entries a cutscene's actors run on themselves (#85), and the actors are story characters and summons that exist for cutscenes: Disjoined One (La Theine Plateau and other zones, 211 entries), Iroha, Lilisette, Excenmille, Aphmau, Luzaf, Nashmeira, Arciela, Aldo, Odin, Fenrir, Cait Sith, and a Moogle in Southern / Northern San d'Oria (events 30023-30026). Most set the bit; some helper entries clear it again. What it changes is open; that it marks the cutscene-only story actors is the pattern (*inference*). What the bit changes is open. Open: [#217](https://github.com/jimmy58663/GordianXI/issues/217).
 
 ### 0xC2

@@ -318,5 +318,20 @@ namespace Gordian.Core.Tests.Resources
             Assert.False(inst.IsBlend);
             Assert.False(inst.IsWater);
         }
+
+        [Fact]
+        public void QufimIsland_BlendedDecals_AreNotWater()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(gameDir)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(126, out var zone, out _)) return;
+
+            // quf is Qufim's general texture prefix: its blended decals draw in authored order, not in the water pass (#255).
+            var decals = zone.MeshGroups.FindAll(g => g.IsBlend && g.TextureName.Contains("quf_", StringComparison.Ordinal));
+            Assert.NotEmpty(decals);
+            Assert.All(decals, g => Assert.False(g.IsWater, g.ToString()));
+        }
     }
 }

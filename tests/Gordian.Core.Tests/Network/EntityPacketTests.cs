@@ -561,6 +561,39 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void Costume_OfOtherPlayers_ComesFrom0x00D_AndTheLocalPlayers_From0x037()
+        {
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState { ServerId = 0x01020304 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, localPlayer, (chunk, enc) => Task.CompletedTask).Register(dispatcher);
+
+            // Another player's costume rides in the 0x00D (CostumeId at payload +44).
+            byte[] pc = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(pc.AsSpan(0, 4), 0x0A0B0C0D);
+            BinaryPrimitives.WriteUInt16LittleEndian(pc.AsSpan(4, 2), 0x0200);
+            pc[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General);
+            BinaryPrimitives.WriteUInt16LittleEndian(pc.AsSpan(44, 2), 3000);
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(pc.Length + 4), 1), pc);
+            Assert.True(world.TryGetByServerId(0x0A0B0C0D, out var other));
+            Assert.Equal(3000u, other!.Appearance.ModelId);
+            BinaryPrimitives.WriteUInt16LittleEndian(pc.AsSpan(44, 2), 0);
+            dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(pc.Length + 4), 2), pc);
+            Assert.Equal(0u, other.Appearance.ModelId);
+
+            // The local player is never sent a 0x00D of their own: the costume is in the 0x037 (CostumeId at payload +64).
+            var self = new PlayerEntity(0x01020304, 10);
+            world.UpsertEntity(self);
+            byte[] status = new byte[0x60];
+            BinaryPrimitives.WriteUInt16LittleEndian(status.AsSpan(64, 2), 3000);
+            dispatcher.Dispatch(new PacketHeader(0x037, (ushort)(status.Length + 4), 3), status);
+            Assert.Equal(3000u, self.Appearance.ModelId);
+            BinaryPrimitives.WriteUInt16LittleEndian(status.AsSpan(64, 2), 0);
+            dispatcher.Dispatch(new PacketHeader(0x037, (ushort)(status.Length + 4), 4), status);
+            Assert.Equal(0u, self.Appearance.ModelId);
+        }
+
+        [Fact]
         public void EntityPacketModule_NamelessPc_TriggersCharReqPacket()
         {
             var world = new WorldState();

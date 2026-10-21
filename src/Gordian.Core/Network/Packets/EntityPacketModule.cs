@@ -269,6 +269,10 @@ namespace Gordian.Core.Network.Packets
 
             player.PetActorIndex = pc.PetActorIndex;
             player.Appearance.CostumeId = pc.CostumeId;
+            // A costume draws the player as the NPC / monster model with that id (setCostume / !costume; the id is
+            // sent in every 0x00D update). Retail capture 2026-10-17 (#83): 3000 draws a model, 3193 draws nothing.
+            // Clearing it returns the player to the race model.
+            player.Appearance.ModelId = pc.CostumeId is 0 or 0xFFFF ? 0u : pc.CostumeId;
 
             if (pc.HasModel)
             {
@@ -656,6 +660,9 @@ namespace Gordian.Core.Network.Packets
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
                 localEnt.NamePlate = charStatus.NamePlate;
+                // The server sends the player's own costume (!costume, setCostume) in this packet, not in a 0x00D of their own.
+                localEnt.Appearance.CostumeId = charStatus.CostumeId;
+                localEnt.Appearance.ModelId = charStatus.CostumeId is 0 or 0xFFFF ? 0u : charStatus.CostumeId;
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 localEnt.AnimationState = charStatus.ServerStatus;

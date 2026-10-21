@@ -72,16 +72,39 @@ namespace Gordian.Core.Tests.Ui
         }
 
         [Fact]
-        public void Defaults_AreZeroToEightLines_AndTheResizeTimeIsTwentiethsOfTheSlider()
+        public void Defaults_AreZeroToTenLines_AndTheResizeTimeIsThreeSecondsPlusOnePerStep()
         {
             var settings = new StockUiSettings();
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window1MinLines));
             Assert.Equal(0, settings.GetValue(StockUiSettingKey.Window2MinLines));
-            Assert.Equal(8, settings.GetValue(StockUiSettingKey.Window1MaxLines));
-            Assert.Equal(8, settings.GetValue(StockUiSettingKey.Window2MaxLines));
-            Assert.Equal(2.5, StockUiLogSizing.ResizeSeconds(50));
+            Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(10, settings.GetValue(StockUiSettingKey.Window2MaxLines));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.Window1ResizeTime));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.Window2ResizeTime));
+            Assert.Equal(2, settings.GetValue(StockUiSettingKey.IconType));
+            settings.SetValue(StockUiSettingKey.Window1MaxLines, 99);
+            Assert.Equal(20, settings.GetValue(StockUiSettingKey.Window1MaxLines));
+            Assert.Equal(3, StockUiLogSizing.ResizeSeconds(0));
+            Assert.Equal(30, StockUiLogSizing.ResizeSeconds(27));
+            Assert.Equal(30, StockUiLogSizing.ResizeSeconds(99));
+            settings.SetValue(StockUiSettingKey.Window1MaxLines, 1);
+            Assert.Equal(4, settings.GetValue(StockUiSettingKey.Window1MaxLines)); // the floor
+            settings.SetValue(StockUiSettingKey.Window1MinLines, 15);
+            Assert.Equal(15, settings.GetValue(StockUiSettingKey.Window1MaxLines)); // Min pushes Max up
             var sizing = new StockUiLogSizing();
             Assert.Equal(4, sizing.Update(0, 0, true, 8, 4, 5, false));        // a minimum above the maximum is the maximum
+        }
+
+        [Fact]
+        public void ShrinkRequest_DropsOneLineAtOnce_WhenReactive()
+        {
+            var sizing = new StockUiLogSizing();
+            Assert.Equal(6, sizing.Update(0, 0, true, 0, 6, 30, true));                        // expanded: all six lines
+            Assert.Equal(6, sizing.Update(1, 0, true, 0, 6, 30, false));                       // released, waiting 30 s
+            Assert.Equal(5, sizing.Update(2, 0, true, 0, 6, 30, false, shrinkRequests: 1));    // Cancel: one line now
+            Assert.Equal(5, sizing.Update(3, 0, true, 0, 6, 30, false, shrinkRequests: 1));    // no repeat without a new request
+            Assert.Equal(3, sizing.Update(4, 0, true, 0, 6, 30, false, shrinkRequests: 3));    // two more requests
+            Assert.Equal(3, sizing.Update(5, 0, true, 3, 6, 30, false, shrinkRequests: 4));    // never below the minimum
         }
 
         [Fact]

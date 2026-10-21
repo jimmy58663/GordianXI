@@ -694,6 +694,13 @@ namespace Gordian.Core.Resources
             // 1. Monster / NPC with numeric ModelId
             if (entity.Appearance.ModelId > 0)
             {
+                // Unregistered ids (3193-3499) draw nothing in retail, a costumed player included (#83).
+                if (CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId) == CharacterEquipmentResolver.NoModelFileId)
+                {
+                    model = null;
+                    return false;
+                }
+
                 string cacheKey = $"Monster_{entity.Appearance.ModelId}";
                 if (_entityModelCache.TryGetValue(cacheKey, out model))
                 {
@@ -773,6 +780,35 @@ namespace Gordian.Core.Resources
                 var bytes = LoadDatBytesByFileId(id);
                 return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true);
             });
+        }
+
+        private SharedHitRoutines? _sharedHitRoutines;
+        private int _sharedHitRoutinesState; // 0 not started, 1 loading, 2 done
+
+        /// <summary>
+        /// The shared hit routines of <c>ROM/0/0.DAT</c> (#328), or null while they load: the first call starts reading
+        /// them on the thread pool, so the frame that hears the first hit does not wait for the file.
+        /// </summary>
+        public SharedHitRoutines? GetSharedHitRoutines()
+        {
+            if (Volatile.Read(ref _sharedHitRoutinesState) == 2) return _sharedHitRoutines;
+            if (Interlocked.CompareExchange(ref _sharedHitRoutinesState, 1, 0) == 0)
+            {
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        byte[]? bytes = LoadDatBytes(Path.Combine("ROM", "0", "0.DAT"));
+                        _sharedHitRoutines = bytes is { Length: > 0 } ? SharedHitRoutines.Parse(bytes) : null;
+                    }
+                    catch (Exception ex)
+                    {
+                        GordianLog.Warning("RES", $"Shared hit routines not read: {ex.Message}");
+                    }
+                    Volatile.Write(ref _sharedHitRoutinesState, 2);
+                });
+            }
+            return null;
         }
 
         private (Events.EventSceneResource Routines, Gordian.Core.Graphics.ActorEffectSet Effects)? _sharedRoutineEffects;

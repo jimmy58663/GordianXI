@@ -12,8 +12,8 @@ namespace Gordian.Core.Ui
     /// <para>
     /// The window's height follows the line count smoothly (<see cref="DisplayLines"/> moves towards
     /// <see cref="Lines"/> at <see cref="LinesPerSecond"/>, easing in the last line). Behaviour from the maintainer's
-    /// in-game comparison (2026-10-04, #48); the timings are GordianXI's (the maintainer: they need not match retail):
-    /// Resize Time is the slider value / 20 seconds per line (the default 50 = 2.5 s). New lines count one line each,
+    /// in-game comparison (2026-10-04, #48); the resize timing follows retail videos (2026-10-18):
+    /// Resize Time is 3 s plus 1 s per slider step (0-27) per line, measured from retail videos. New lines count one line each,
     /// however many rows they wrap to.
     /// </para>
     /// </summary>
@@ -22,7 +22,7 @@ namespace Gordian.Core.Ui
         /// <summary>How fast the drawn height follows the line count, in lines per second.</summary>
         public const double LinesPerSecond = 8;
 
-        private long _seen = -1;
+        private long _seen = -1, _shrinkSeen = -1;
         private double _lastStep, _lastUpdate = double.NaN;
         private bool _started;
 
@@ -32,8 +32,12 @@ namespace Gordian.Core.Ui
         /// <summary>The lines' worth of height drawn now, moving smoothly towards <see cref="Lines"/>.</summary>
         public float DisplayLines { get; private set; }
 
-        /// <summary>The "Resize Time" slider (0-100) as the seconds the window waits before giving back each line.</summary>
-        public static double ResizeSeconds(int sliderValue) => Math.Max(0, sliderValue) / 20.0;
+        /// <summary>
+        /// The "Resize Time" slider (0-27) as the seconds the window waits before giving back each line: 3 s at Min,
+        /// 1 s more per step, 30 s at Max. Measured in retail videos (2026-10-18): about 3 s per line drop at Min and
+        /// about 30 s at Max (27 steps between, per the maintainer).
+        /// </summary>
+        public static double ResizeSeconds(int sliderValue) => 3 + Math.Clamp(sliderValue, 0, 27);
 
         /// <summary>
         /// Advances the sizing to <paramref name="now"/> (seconds, any monotonic clock) given the window's arrived-line
@@ -42,7 +46,7 @@ namespace Gordian.Core.Ui
         /// the window may shrink to while an event line waits for Confirm: the rows of that dialog (#369, retail: the window still
         /// shrinks and grows, but never below the line the NPC's dialog started on).
         /// </summary>
-        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, int floor = 0)
+        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, int floor = 0, long shrinkRequests = 0)
         {
             maxLines = Math.Max(1, maxLines);
             minLines = Math.Clamp(minLines, 0, maxLines);
@@ -50,6 +54,9 @@ namespace Gordian.Core.Ui
             _seen = addedCount;
             double elapsed = double.IsNaN(_lastUpdate) ? 0 : Math.Max(0, now - _lastUpdate);
             _lastUpdate = now;
+
+            long shrinks = _shrinkSeen < 0 ? 0 : Math.Max(0, shrinkRequests - _shrinkSeen);
+            _shrinkSeen = shrinkRequests;
 
             if (!_started)
             {
@@ -73,6 +80,12 @@ namespace Gordian.Core.Ui
             {
                 // One line per Resize Time: wait, drop a line, wait again.
                 Lines--;
+                _lastStep = now;
+            }
+            // Cancel with nothing to cancel: drop a line now (only a reactive window gives lines back).
+            if (reactive && !expanded && shrinks > 0 && Lines > minLines)
+            {
+                Lines = (int)Math.Max(minLines, Lines - shrinks);
                 _lastStep = now;
             }
             Lines = Math.Clamp(Lines, Math.Clamp(Math.Max(minLines, floor), 0, maxLines), maxLines);

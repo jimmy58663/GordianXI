@@ -43,7 +43,7 @@ namespace Gordian.Core.Ui
     public readonly record struct StockUiQueryOption(int Number, string Text);
 
     /// <summary>Client text drawn beside a button's label, starting at layout <paramref name="X"/> from the frame's left edge.</summary>
-    public readonly record struct StockUiSideText(string Text, float X);
+    public readonly record struct StockUiSideText(string Text, float X, float Y = 0);
 
     /// <summary>
     /// Where the HUD drew an open menu on the last frame (its frame's top-left in screen pixels and the UI scale),
@@ -248,7 +248,8 @@ namespace Gordian.Core.Ui
         }
 
         /// <summary>Whether this is the shop's Buy / Sell window ("shopmain", the root of the shop windows).</summary>
-        public bool IsShopMenu => Menu.Name.Equals(StockUiShop.MenuName, StringComparison.OrdinalIgnoreCase);
+        public bool IsShopMenu => Menu.Name.Equals(StockUiShop.MenuName, StringComparison.OrdinalIgnoreCase)
+            || Menu.Name.Equals(StockUiGuildShop.MenuName, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The shop side a list or quantity prompt belongs to; null for other menus.</summary>
         public StockUiShopSide? ShopSide { get; init; }
@@ -321,6 +322,9 @@ namespace Gordian.Core.Ui
                 // bin, and the Equipment grid's stats side at its left and the storage's list at its right (retail captures
                 // 2026-10-11).
                 if (ItemListKind == StockUiItemListKind.Items) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
+                // The crystal list and the synthesis grid leave the right of the screen empty (Crystal_Synthesis.png, the
+                // video 2026-10-16): the Synthesis menu and main menu there are hidden (#330).
+                if (ItemListKind == StockUiItemListKind.Crystals || IsSynthesisGrid) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
                 if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
                 if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 // A set's grid while it is edited: the storage's list beside it, and the options and set list gone (image-12).
@@ -626,7 +630,7 @@ namespace Gordian.Core.Ui
                 if (_open.Length == 0) return;
                 closed = _open[^1];
                 if (closed.Pinned) return;
-                if (CancelItemMode(closed))
+                if (CancelItemMode(closed) || CancelSynthesisHistoryGrid(closed))
                 {
                     closed = null;
                 }
@@ -634,6 +638,9 @@ namespace Gordian.Core.Ui
                 {
                     Remember(closed);
                     _open = _open[..^1];
+                    // Cancel on the History list leaves History: its grid goes with it (#330).
+                    if (closed.ItemListKind == StockUiItemListKind.SynthesisHistory && _open.Length > 0 && ReferenceEquals(_open[^1], closed.Parent)
+                        && closed.Parent is { IsSynthesisHistory: true }) _open = _open[..^1];
                 }
             }
             if (closed == null)
@@ -988,6 +995,8 @@ namespace Gordian.Core.Ui
             }
         }
 
+        private const float SliderValueRight = 181, SliderValueDigitWidth = 8.5f, SliderValueRise = -16;
+
         /// <summary>Rebuilds a menu's markers, slider fills and list rows from the current settings.</summary>
         private void Refresh(StockUiOpenMenu menu)
         {
@@ -995,6 +1004,7 @@ namespace Gordian.Core.Ui
             {
                 var marked = new HashSet<int>();
                 var sliders = new Dictionary<int, float>();
+                Dictionary<int, StockUiSideText>? values = null;
                 foreach (var row in page.Rows)
                 {
                     int value = GetSetting(row.Key);
@@ -1006,11 +1016,19 @@ namespace Gordian.Core.Ui
                             break;
                         case StockUiSliderRow slider:
                             sliders[slider.ButtonId] = slider.Fraction(value);
+                            if (slider.ShowValue && menu.Menu.FindButton(slider.ButtonId) is { } bar)
+                            {
+                                // The value in numbers above the bar's right end, right-aligned to its last digit (retail's
+                                // Maximum / Minimum lines rows; placed from a capture, 2026-10-18).
+                                string text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                (values ??= new())[slider.ButtonId] = new StockUiSideText(text, bar.X + SliderValueRight - SliderValueDigitWidth * text.Length, SliderValueRise);
+                            }
                             break;
                     }
                 }
                 menu.SetMarks(marked);
                 menu.SliderFractions = sliders;
+                if (values != null) menu.SideTexts = values;
                 if (page.Menu.Equals(StockUiConfigPages.FontColorEditPage, StringComparison.OrdinalIgnoreCase))
                 {
                     // The colour editor shows the row being set in the colour of its sliders (provisional: where retail
@@ -1173,7 +1191,7 @@ namespace Gordian.Core.Ui
                 return false;
             }
 
-            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions() || ToggleActionOptions() || ToggleMacroOptions()))
+            if (input.WasActionTriggered(InputAction.CycleLogWindow) && (ToggleTreasureDone() || ToggleItemOptions() || ToggleActionOptions() || ToggleMacroOptions() || ToggleSynthesisOptions()))
             {
                 // The Treasure Pool's + / Y: the cursor to Done and back; the Items window's: to its options and back.
                 SoundCue?.Invoke(StockUiSoundCue.CursorMove);
@@ -1336,6 +1354,13 @@ namespace Gordian.Core.Ui
                         bool forward = direction is InputAction.MenuDown or InputAction.MenuRight;
                         changed = ScrollList(top, forward);
                     }
+                }
+            }
+            if (changed)
+            {
+                lock (_sync)
+                {
+                    if (Top is { } moved) OnSynthesisCursorMoved(moved);
                 }
             }
             if (edit is { } e)
@@ -1550,7 +1575,8 @@ namespace Gordian.Core.Ui
 
             if (top.IsQuantity)
             {
-                if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
+                if (top.SynthesisPickRow is { } pick) RunSynthesisQuantity(top, pick);
+                else if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
                 else RunQuantity(top);
                 return;
             }
@@ -1598,7 +1624,7 @@ namespace Gordian.Core.Ui
             }
 
             if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
-            if (TryActivateItemWindow(top, button)) return;
+            if (TryActivateSynthesis(top, button) || TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -1926,6 +1952,22 @@ namespace Gordian.Core.Ui
                     OpenEquipment(from);
                     break;
 
+                case StockUiMenuCommand.GuildBuy:
+                    OpenGuildList(StockUiShopSide.Buy, from);
+                    break;
+
+                case StockUiMenuCommand.GuildSell:
+                    OpenGuildList(StockUiShopSide.Sell, from);
+                    break;
+
+                case StockUiMenuCommand.SynthesisCrystals:
+                    OpenCrystalList(from);
+                    break;
+
+                case StockUiMenuCommand.SynthesisHistory:
+                    OpenSynthesisHistory(from);
+                    break;
+
                 case StockUiMenuCommand.KeyItems:
                     OpenKeyItems(from);
                     break;
@@ -2112,6 +2154,7 @@ namespace Gordian.Core.Ui
         public void OnInventoryChanged()
         {
             OnItemsChanged();
+            if (_guildOpen) OnGuildListChanged();
             if (!_shopOpen) return;
             lock (_sync)
             {
@@ -2155,6 +2198,7 @@ namespace Gordian.Core.Ui
         /// <summary>The shop's root window closed (Cancel, or every menu closing): the shop session ends with it.</summary>
         private void EndShopSession()
         {
+            _guildOpen = false; // the guild shop has no closing packet (#330)
             if (!_shopOpen) return;
             _shopOpen = false;
             ClearAppraisals();
@@ -2220,6 +2264,11 @@ namespace Gordian.Core.Ui
         /// </summary>
         private void ActivateShopRow(StockUiOpenMenu list)
         {
+            if (list.IsGuild)
+            {
+                ActivateGuildRow(list);
+                return;
+            }
             bool changed = false;
             string? notice = null;
             (uint Count, ushort ItemId, byte Slot)? appraise = null;
@@ -2306,6 +2355,11 @@ namespace Gordian.Core.Ui
         /// <summary>Confirm on the quantity prompt: sends the purchase (0x083) or the sale (0x084 with the count, then 0x085).</summary>
         private void RunQuantity(StockUiOpenMenu prompt)
         {
+            if (prompt.IsGuild)
+            {
+                RunGuildQuantity(prompt);
+                return;
+            }
             uint count = prompt.Quantity;
             var row = prompt.QuantityRow;
             lock (_sync)

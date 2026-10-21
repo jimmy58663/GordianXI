@@ -89,6 +89,8 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     _libraryGeneration = generation;
                     _library = library;
                 }
@@ -119,6 +121,8 @@ namespace Gordian.App.Graphics
                     if (library == null) return;
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
+                    // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
                     if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
@@ -551,6 +555,13 @@ namespace Gordian.App.Graphics
                     var f = itemOptions.Frame;
                     StockUiItemWindow.DrawOptions(renderer, library, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
+                if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory && i == open.Count - 1 && library.TryGetMenu(StockUiSynthesis.OptionsMenu, out var synthesisOptions))
+                {
+                    // "+ : Synthesis Options" (Favorite / Unfavorite) stands at the top right while the History list takes input
+                    // (capture Synthesis_History.png); + / Y puts the cursor on it.
+                    var f = synthesisOptions.Frame;
+                    renderer.DrawMenu(synthesisOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
+                }
                 if (i == open.Count - 1 && menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor
                     && library.TryGetMenu(menu.MacroView == StockUiMacroView.PaletteEditor ? StockUiMacroMenus.ButtonOptions : StockUiMacroMenus.LineOptions, out var macroOptions))
                 {
@@ -902,7 +913,8 @@ namespace Gordian.App.Graphics
             int dialogFloor, StockUiSettingKey reactive, StockUiSettingKey minLines, StockUiSettingKey maxLines, StockUiSettingKey resizeTime) =>
             sizing.Update(now, chat.Log.AddedCount(window), settings.IsOn(reactive), settings.GetValue(minLines), settings.GetValue(maxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(resizeTime)),
-                expanded: expanded || chat.IsLogSelected || chat.Log.ScrollOffset(window) > 0, floor: dialogFloor);
+                expanded: expanded || chat.IsLogSelected || chat.Log.ScrollOffset(window) > 0, floor: dialogFloor,
+                shrinkRequests: chat.LogShrinkRequests);
 
         /// <summary>Each log window's text width as last drawn (authored pixels), for working out how many rows a dialog line takes.</summary>
         private readonly float[] _logTextWidth = { 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight, 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight };
@@ -952,10 +964,37 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static bool TryGetLogFrame(UiResourceLibrary library, int lines, out UiMenuDefinition menu, out int rows)
         {
-            rows = Math.Clamp(lines, 1, 8);
+            rows = Math.Clamp(lines, 1, 20);
+            if (rows > 8)
+            {
+                // The UI DAT authors "log1".."log8" only (checked 2026-10-18); retail's way past 8 lines is not known,
+                // so the log8 frame grows 16 px per extra line (the pitch of log1..log8), bottom edge fixed.
+                if (!library.TryGetMenu("log8", out var log8)) { menu = null!; return false; }
+                var cache = TallLogFrames.GetValue(library, _ => new Dictionary<int, UiMenuDefinition>());
+                if (!cache.TryGetValue(rows, out menu!)) cache[rows] = menu = StretchedLogFrame(log8, rows);
+                return true;
+            }
             if (library.TryGetMenu($"log{rows}", out menu)) return true;
             rows = 8;
             return library.TryGetMenu("logwindo", out menu);
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UiResourceLibrary, Dictionary<int, UiMenuDefinition>> TallLogFrames = new();
+
+        private static UiMenuDefinition StretchedLogFrame(UiMenuDefinition log8, int rows)
+        {
+            short extra = (short)((rows - 8) * 16);
+            var f = log8.Frame;
+            return new UiMenuDefinition
+            {
+                DatId = log8.DatId, Category = log8.Category, Name = $"log{rows}", MenuType = log8.MenuType, Buttons = log8.Buttons,
+                Frame = new UiMenuFrame
+                {
+                    X = f.X, Y = (short)(f.Y - extra), CursorOffsetX = f.CursorOffsetX, CursorOffsetY = f.CursorOffsetY,
+                    Width = f.Width, Height = (short)(f.Height + extra), AuthoredHeight = f.Height, DrawOffsetX = f.DrawOffsetX, DrawOffsetY = f.DrawOffsetY,
+                    Anchor = f.Anchor, Shapes = f.Shapes, HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
+                },
+            };
         }
 
         /// <summary>A window's "Window Width" setting (percent of its full width; never narrower than 128 px).</summary>

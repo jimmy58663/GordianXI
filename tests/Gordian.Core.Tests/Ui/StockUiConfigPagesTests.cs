@@ -289,7 +289,7 @@ namespace Gordian.Core.Tests.Ui
             {
                 var settings = new StockUiSettings();
                 settings.SetValue(StockUiSettingKey.MusicVolume, 40);
-                settings.SetValue(StockUiSettingKey.Window1MaxLines, 99);      // clamped to 8
+                settings.SetValue(StockUiSettingKey.Window1MaxLines, 99);      // clamped to 20
                 settings.SetValue(StockUiSettingKey.AutoTarget, 0);            // server-scoped: not saved
                 settings.SaveToFile(path);
 
@@ -300,7 +300,7 @@ namespace Gordian.Core.Tests.Ui
 
                 var loaded = StockUiSettings.LoadOrDefault(path);
                 Assert.Equal(40, loaded.GetValue(StockUiSettingKey.MusicVolume));
-                Assert.Equal(8, loaded.GetValue(StockUiSettingKey.Window1MaxLines));
+                Assert.Equal(20, loaded.GetValue(StockUiSettingKey.Window1MaxLines));
                 Assert.Equal(100, loaded.GetValue(StockUiSettingKey.GammaRed));
                 Assert.True(loaded.HasValue(StockUiSettingKey.GammaRed));
                 Assert.False(loaded.HasValue(StockUiSettingKey.SoundEffectsVolume));

@@ -196,6 +196,32 @@ namespace Gordian.App.Graphics
         /// orange. The client's exact light pipeline is not decoded.
         /// </summary>
         public float PointLightStrength { get; set; } = 0.75f;
+
+        /// <summary>
+        /// Where terrain highlights start to roll off (#7): a lit terrain colour channel (after the modulate-2x) above
+        /// this knee is compressed smoothly toward <see cref="TerrainHighlightCeiling"/> (excess e becomes
+        /// e / (1 + e / (ceiling - knee))) instead of clipping at white. Retail clips: at noon Valkurm Dunes' sand
+        /// saturates to pure white across the frame (maintainer capture <c>Bright_Sand.png</c>, 2026-10-17, about 13:17,
+        /// clear). The maintainer chose a toned-down default over that parity. Valkurm's noon sand reaches about 1.5
+        /// before the clamp and now draws at about 0.84 (light grey-white); Bibiki Bay's calibrated 15:58 sand (red 0.72)
+        /// moves by under 2% and the dusk cliffs (0.6) not at all. The shoulder is on the output colour, not the summed
+        /// light, because the summed light is already at its clamp (1) on that calibrated 15:58 sand.
+        /// </summary>
+        public float TerrainHighlightKnee { get; set; } = 0.65f;
+
+        /// <summary>The level toned terrain highlights approach (#7); see <see cref="TerrainHighlightKnee"/>.</summary>
+        public float TerrainHighlightCeiling { get; set; } = 0.9f;
+
+        /// <summary>
+        /// Draws terrain with the retail client's plain clamp, so bright sand at noon clips to white (#7); off by default
+        /// (<see cref="ViewportRenderSettings.RetailTerrainBrightness"/>).
+        /// </summary>
+        public bool RetailTerrainBrightness { get; set; }
+
+        /// <summary>The terrain shaders' highlight shoulder for this frame (zero: plain clamp).</summary>
+        internal Vector4 TerrainTone => RetailTerrainBrightness || TerrainHighlightCeiling <= TerrainHighlightKnee
+            ? Vector4.Zero
+            : new Vector4(TerrainHighlightKnee, TerrainHighlightCeiling, 0.0f, 0.0f);
         private Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
         private ZoneRoutinePlayer? _mapRoutines;
@@ -432,31 +458,32 @@ namespace Gordian.App.Graphics
             _waterResourceSet = factory.CreateResourceSet(new ResourceSetDescription(_sceneLayout, _waterUniformBuffer));
             _textureCache = _shared.ZoneTextures;
 
-            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky)
+            // 3. Shaders (SPIR-V cross-compilation for Opaque, Cutout Foliage, Blended surfaces, and Weather Sky). Zone meshes
+            // are lit per vertex like the legacy fixed-function client (TerrainShaders, #7 round 2).
             var vsDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderGlsl),
                 "main");
             var fsOpaqueDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderOpaqueGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderOpaqueGlsl),
                 "main");
             var fsCutoutDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderCutoutGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderCutoutGlsl),
                 "main");
             var fsBlendDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderBlendGlsl),
                 "main");
 
             var vsDecalDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderDecalGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderDecalGlsl),
                 "main");
             var vsWaterDesc = new ShaderDescription(
                 ShaderStages.Vertex,
-                Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderWaterGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.VertexShaderWaterGlsl),
                 "main");
             var vsWeatherSkyDesc = new ShaderDescription(
                 ShaderStages.Vertex,
@@ -465,7 +492,7 @@ namespace Gordian.App.Graphics
 
             var fsWaterDesc = new ShaderDescription(
                 ShaderStages.Fragment,
-                Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderBlendGlsl),
+                Encoding.UTF8.GetBytes(TerrainShaders.FragmentShaderBlendGlsl),
                 "main");
             var fsWeatherSkyDesc = new ShaderDescription(
                 ShaderStages.Fragment,
@@ -1182,7 +1209,8 @@ namespace Gordian.App.Graphics
                 FogParams = new Vector4(environment.FogStart, fogFar, 1.0f / fogRange, environment.FogDensity),
                 EyePosition = new Vector4(camera.Position, 1.0f),
                 WeatherParams = Vector4.Zero,
-                MoonColor = new Vector4(environment.MoonColor, 1.0f)
+                MoonColor = new Vector4(environment.MoonColor, 1.0f),
+                TerrainTone = TerrainTone
             };
 
             // 2. Select submesh list (loaded zone or fallback scene)
@@ -1504,6 +1532,10 @@ namespace Gordian.App.Graphics
                 }
                 currentBoundBlendPipeline = null;
             }
+
+            // Actor shadows, after the water and world-effect layers so ground overlays drawn there (Bibiki Bay's cave
+            // floor gradients) do not cover them (#7 round 2, F11).
+            if (_entityRenderer != null) draws += _entityRenderer.DrawQueuedShadows(_commandList);
 
             // Pass 3b: Optional synthetic sea-level ocean water plane (enhancement, not in the legacy client)
             // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.

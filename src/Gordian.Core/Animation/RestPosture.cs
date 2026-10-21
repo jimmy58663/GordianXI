@@ -21,6 +21,15 @@ namespace Gordian.Core.Animation
     /// clip once, then the sitting idle"). The status values are LandSandBoat's <c>xi.animation.HEALING</c> (33) and
     /// <c>SIT</c> (47) (https://github.com/LandSandBoat/server, scripts/enum/animation.codegen.lua), sent in the entity
     /// status of S2C 0x00D / 0x00E and, for the player, S2C 0x037. <b>Beyond xi-tools:</b> which routines the statuses play.
+    /// <para>
+    /// Synthesis (status 44, LandSandBoat <c>xi.animation.SYNTH</c>, also in S2C 0x030's <c>Status</c>) takes the Healing
+    /// posture (#315): in the maintainer's retail video (<c>Synth_Wind_Fire_Lightning_Breaks.mp4</c>, a Tarutaru, 2026-10-16)
+    /// the crafter sits in one short motion, holds a seated pose with the hands together at the chest and, after the result,
+    /// rocks back onto its back and stands up; Tarutaru's <c>rx2</c> does exactly that (the head joint drops from 0.43 to
+    /// 0.12 yalms and 0.59 behind the root at 0.4-0.5 s, then rises to the standing 0.62), and <c>rx0</c> lowers the head
+    /// from 0.63 to 0.44 between 0.3 and 0.5 s. The raised right hand holding the crystal is the race's <c>ri0?</c>, which the synthesis
+    /// effect file's <c>frst</c> plays (<see cref="SynthesisAnimationController"/>).
+    /// </para>
     /// </summary>
     public static class RestPosture
     {
@@ -30,10 +39,13 @@ namespace Gordian.Core.Animation
         /// <summary>LandSandBoat <c>xi.animation.SIT</c>: sitting with /sit.</summary>
         public const byte StatusSitting = 47;
 
+        /// <summary>LandSandBoat <c>xi.animation.SYNTH</c>: synthesizing (#315); drawn with the Healing posture.</summary>
+        public const byte StatusSynthesis = 44;
+
         /// <summary>The seated category a server status puts the entity in, or null for any other status.</summary>
         public static AnimationCategory? CategoryFor(byte status) => status switch
         {
-            StatusHealing => AnimationCategory.Healing,
+            StatusHealing or StatusSynthesis => AnimationCategory.Healing,
             StatusSitting => AnimationCategory.Sitting,
             _ => null,
         };

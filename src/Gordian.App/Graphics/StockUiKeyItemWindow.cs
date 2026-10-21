@@ -88,12 +88,9 @@ namespace Gordian.App.Graphics
                 if (menu.KeyItemQuestion is { } question)
                 {
                     // A long key item name wraps the question onto a second line (16 px down), still above Yes at y 74 (round 3).
-                    Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-                    var lines = StockUiKeyItems.Wrap(question, measure, frame.Width - QuestionX - DescRightPad, QuestionMaxLines);
-                    for (int i = 0; i < lines.Count; i++)
-                    {
-                        Text(renderer, font, logFont, lines[i], placement.X + QuestionX * s, placement.Y + (QuestionY + i * StockUiLogFont.CellHeight) * s, s, White);
-                    }
+                    var lines = StockUiTextLayout.Wrap(question, StockUiTextBoxes.Measure(font, logFont), frame.Width - QuestionX - DescRightPad, QuestionMaxLines);
+                    StockUiTextBoxes.DrawLines(renderer, font, logFont, lines, placement.X + QuestionX * s, placement.Y + QuestionY * s,
+                        frame.Width - QuestionX - DescRightPad, QuestionMaxLines * StockUiTextBoxes.LinePitch(font, logFont), s, White);
                 }
                 foreach (var button in definition.Buttons)
                 {
@@ -109,12 +106,8 @@ namespace Gordian.App.Graphics
             {
                 Image(renderer, library, SmallBulletGroup, SmallBulletImage, placement.X + DescBulletX * s, placement.Y + DescBulletY * s, s);
                 Text(renderer, font, logFont, shown.Name, placement.X + DescNameX * s, placement.Y + DescNameY * s, s, White);
-                Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-                var lines = StockUiKeyItems.Wrap(menu.KeyItemDescription, measure, frame.Width - DescTextX - DescRightPad);
-                for (int i = 0; i < lines.Count; i++)
-                {
-                    Text(renderer, font, logFont, lines[i], placement.X + DescTextX * s, placement.Y + (DescTextY + i * StockUiLogFont.CellHeight) * s, s, White);
-                }
+                StockUiTextBoxes.DrawWrapped(renderer, font, logFont, menu.KeyItemDescription, placement.X + DescTextX * s, placement.Y + DescTextY * s,
+                    frame.Width - DescTextX - DescRightPad, frame.Height - DescTextY - DescRightPad, s, White, keepBlankLines: true);
                 return;
             }
 
