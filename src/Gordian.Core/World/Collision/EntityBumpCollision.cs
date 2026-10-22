@@ -16,8 +16,8 @@ namespace Gordian.Core.World.Collision
     /// Retail (Collision_Bump.mp4, Castoff Point, #16): the stop distance grows with the character's size (a Hume-size NPC
     /// about 0.6-0.8 yalm centre to centre, a Galka-size NPC about 1-1.5, a Galka PC about 1) and the hold before passing
     /// is about 0.7 s for a Hume-size NPC and longer for a large one (up to about 2 s, not separable from the player's
-    /// input). The pass-through lasting per character until it leaves is the maintainer's retail observation. The radii
-    /// and holds are frame estimates.
+    /// input). The pass-through lasting per character until it leaves render distance is the maintainer's retail
+    /// observation. The radii and holds are frame estimates.
     /// </para>
     /// </summary>
     public sealed class EntityBumpCollision
@@ -32,9 +32,17 @@ namespace Gordian.Core.World.Collision
         public const float TarutaruRadius = 0.25f;
 
         /// <summary>
-        /// How long the player must keep pushing into a Hume-size character before passing through it (retail about 0.7 s).
+        /// The client's position update interval: C2S 0x015 goes out every 250 ms (<c>SessionNetworkManager</c>'s network tick).
         /// </summary>
-        public const float HoldSeconds = 0.7f;
+        public const float PositionUpdateSeconds = 0.25f;
+
+        /// <summary>
+        /// How long the player must keep pushing into a Hume-size character before passing through it: two position updates
+        /// (provisional). Retail's hold of about 0.7-0.8 s against a Hume-size NPC (#16) reads as two of its ~400 ms updates;
+        /// at GordianXI's 250 ms that is 0.5 s, which also felt right in the in-game test (round 1, 2026-10-21: 0.7 s felt
+        /// slightly long).
+        /// </summary>
+        public const float HoldSeconds = 2 * PositionUpdateSeconds;
 
         /// <summary>The hold grows with the contact distance, up to this for the largest characters (retail up to about 2 s).</summary>
         public const float MaxHoldSeconds = 2.0f;
@@ -48,12 +56,20 @@ namespace Gordian.Core.World.Collision
         /// <summary>Contact distance of two Hume-size bodies, for which the hold is <see cref="HoldSeconds"/>.</summary>
         private const float HumeContact = PlayerRadius * 2.0f;
 
-        private readonly List<WorldEntity> _passedThrough = new();
+        /// <summary>
+        /// How far (yalms, across the ground) a character passed through may be from the player before it blocks again: the
+        /// server's entity render distance (LandSandBoat <c>zone_entities.cpp</c> ENTITY_RENDER_DISTANCE).
+        /// </summary>
+        public const float RenderDistance = 50.0f;
+
+        /// <summary>The characters passed through, by server id, with where each was last seen.</summary>
+        private readonly Dictionary<uint, Vector3> _passedThrough = new();
+        private ushort _zoneId;
         private uint _pressingId;
         private float _pressSeconds;
         private float _sincePress = float.MaxValue;
 
-        /// <summary>The characters passed through that are still here; they no longer block.</summary>
+        /// <summary>The characters passed through that are still in range; they no longer block.</summary>
         public int PassedThroughCount => _passedThrough.Count;
 
         /// <summary>
@@ -94,7 +110,7 @@ namespace Gordian.Core.World.Collision
             ArgumentNullException.ThrowIfNull(world);
             ArgumentNullException.ThrowIfNull(self);
             _sincePress += deltaSeconds;
-            ForgetDeparted(world);
+            ForgetDeparted(world, self);
 
             WorldEntity? blocker = FindBlocker(world, self, from, to, out float contact);
             if (blocker == null) return true;
@@ -111,24 +127,34 @@ namespace Gordian.Core.World.Collision
 
             _pressSeconds = 0.0f;
             _pressingId = 0;
-            _passedThrough.Add(blocker);
+            _passedThrough[blocker.ServerId] = blocker.Position;
             return true;
         }
 
         /// <summary>
-        /// Forgets the characters passed through that have left: despawned, out of range, or replaced by a new entity with
-        /// the same id (after a zone change), which blocks again.
+        /// Forgets the characters passed through that have left render distance (<see cref="RenderDistance"/>, measured from
+        /// where each was last seen) or whose zone the player left. They are kept by server id, not by entity, because
+        /// LandSandBoat despawns and respawns standing NPCs every few seconds even right beside the player (a Port Jeuno log,
+        /// 2026-10-21): a new entity for the same NPC is the same character, which kept blocking again (round 1).
         /// </summary>
-        private void ForgetDeparted(WorldState world)
+        private void ForgetDeparted(WorldState world, WorldEntity self)
         {
-            for (int i = _passedThrough.Count - 1; i >= 0; i--)
+            if (world.CurrentZoneId != _zoneId)
             {
-                var entity = _passedThrough[i];
-                if (!entity.IsSpawned || !world.TryGetByServerId(entity.ServerId, out var current) || !ReferenceEquals(current, entity))
-                {
-                    _passedThrough.RemoveAt(i);
-                }
+                _zoneId = world.CurrentZoneId;
+                _passedThrough.Clear();
+                return;
             }
+            if (_passedThrough.Count == 0) return;
+
+            List<uint>? gone = null;
+            foreach (var (id, lastSeen) in _passedThrough)
+            {
+                Vector3 seen = world.TryGetByServerId(id, out var entity) && entity.IsSpawned ? entity.Position : lastSeen;
+                if (DistanceXZ(self.Position, seen) > RenderDistance) (gone ??= new List<uint>()).Add(id);
+                else if (seen != lastSeen) _passedThrough[id] = seen;
+            }
+            if (gone != null) foreach (uint id in gone) _passedThrough.Remove(id);
         }
 
         /// <summary>
@@ -142,7 +168,7 @@ namespace Gordian.Core.World.Collision
             float ownRadius = RadiusOf(self);
             foreach (var other in world.GetEntitiesInRadius(to, 4.0f))
             {
-                if (!Blocks(other, self) || _passedThrough.Contains(other)) continue;
+                if (!Blocks(other, self) || _passedThrough.ContainsKey(other.ServerId)) continue;
                 var position = other.Position;
                 if (MathF.Abs(position.Y - from.Y) > MaxHeightDifference) continue;
 

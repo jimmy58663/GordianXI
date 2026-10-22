@@ -109,12 +109,43 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.True(bump.TryMove(world, self, from, to, 30.0f));
             Assert.False(bump.TryMove(world, self, new Vector3(1.6f, 0, 0), new Vector3(1.75f, 0, 0), Tick));
 
-            // Once it has left (despawned, out of range) and comes back, it blocks again.
+            // LandSandBoat despawns and respawns standing NPCs right beside the player: the new entity is the same NPC and
+            // stays passable (round 1: the pass-through held for PCs but not NPCs).
             world.TryGetByServerId(100, out var first);
             world.RemoveEntity(100);
             world.UpsertEntity(new WorldEntity(100, 100, EntityType.Npc) { Position = first!.Position, IsSpawned = true, Hpp = 100 });
-            Assert.False(bump.TryMove(world, self, from, to, Tick));
+            Assert.True(bump.TryMove(world, self, from, to, Tick));
+            Assert.Equal(1, bump.PassedThroughCount);
+
+            // Once the player is beyond render distance of it, it blocks again.
+            self.Position = new Vector3(EntityBumpCollision.RenderDistance + 5.0f, 0, 0);
+            bump.TryMove(world, self, self.Position, self.Position, Tick);
             Assert.Equal(0, bump.PassedThroughCount);
+            self.Position = Vector3.Zero;
+            Assert.False(bump.TryMove(world, self, from, to, Tick));
+        }
+
+        [Fact]
+        public void Bump_PassThroughEndsWithTheZone()
+        {
+            var (world, self) = Crowd(new Vector3(1.0f, 0, 0));
+            world.CurrentZoneId = 246;
+            var bump = new EntityBumpCollision();
+            var from = new Vector3(0.2f, 0, 0);
+            var to = new Vector3(0.35f, 0, 0);
+            while (!bump.TryMove(world, self, from, to, 1.0f / 60.0f)) { }
+            Assert.Equal(1, bump.PassedThroughCount);
+
+            world.CurrentZoneId = 243; // PCs keep their ids across zones
+            Assert.False(bump.TryMove(world, self, from, to, 1.0f / 60.0f));
+            Assert.Equal(0, bump.PassedThroughCount);
+        }
+
+        [Fact]
+        public void Bump_HoldIsTwoPositionUpdates()
+        {
+            Assert.Equal(0.5f, EntityBumpCollision.HoldSeconds, 3);
+            Assert.Equal(2 * EntityBumpCollision.PositionUpdateSeconds, EntityBumpCollision.HoldSeconds, 3);
         }
 
         [Fact]
@@ -136,7 +167,7 @@ namespace Gordian.Core.Tests.World.Collision
 
             Assert.Equal(EntityBumpCollision.HoldSeconds, EntityBumpCollision.HoldFor(hume), 3);
             Assert.True(EntityBumpCollision.HoldFor(galka) > EntityBumpCollision.HoldSeconds);
-            Assert.InRange(EntityBumpCollision.HoldFor(0.35f + EntityBumpCollision.RadiusOf(2)), 1.5f, EntityBumpCollision.MaxHoldSeconds);
+            Assert.InRange(EntityBumpCollision.HoldFor(0.35f + EntityBumpCollision.RadiusOf(2)), 1.0f, EntityBumpCollision.MaxHoldSeconds);
             Assert.Equal(EntityBumpCollision.MaxHoldSeconds, EntityBumpCollision.HoldFor(4.0f), 3);
         }
 

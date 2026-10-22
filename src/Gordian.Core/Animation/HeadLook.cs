@@ -30,11 +30,13 @@ namespace Gordian.Core.Animation
         public const float MaxYaw = MathF.PI / 4f;
 
         /// <summary>
-        /// The largest tilt of the head up or down toward the target's head (45 degrees; not measured). The maintainer's
+        /// The largest tilt of the head up or down toward the target's head (40 degrees; not measured). 45 degrees looked
+        /// a little unnatural at its highest in the in-game test (#402, round 1, 2026-10-21: a Tarutaru NPC looking up at a
+        /// Galka), so it is 5 degrees lower. The maintainer's
         /// retail recording of the Windurst Waters intro as a Galka (2026-10-02, 2:04) shows Ajido-Marujido tilting his head
         /// well back to look up at the player's face from about a yalm and a half away.
         /// </summary>
-        public const float MaxPitch = MathF.PI / 4f;
+        public const float MaxPitch = 40f * MathF.PI / 180f;
 
         /// <summary>How fast the head eases toward its angle (per second, exponential; the viewport's turn ease uses 8).</summary>
         public const float EaseRate = 8f;
