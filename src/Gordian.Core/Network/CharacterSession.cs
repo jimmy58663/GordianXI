@@ -301,7 +301,7 @@ namespace Gordian.Core.Network
             {
                 var members = Party.Members;
                 uint self = LocalPlayer.ServerId;
-                return new Gordian.Core.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeader, members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0));
+                return new Gordian.Core.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeaderOf(self), members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0));
             };
             ActionService.Menus.PartyDisbandRequested = leader => ActionService.DisbandOrLeavePartyAsync(leader);
             // Unity membership (#65): the Unity leader (1-11) in S2C 0x061's unity_info; 0 = not in a Unity.

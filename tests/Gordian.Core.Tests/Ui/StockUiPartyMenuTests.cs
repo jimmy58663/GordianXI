@@ -74,9 +74,9 @@ namespace Gordian.Core.Tests.Ui
             var state = new PartyState();
             state.UpsertMember(new PartyMember { ServerId = 0x100, Name = "Cybin", IsLeader = true, MemberNumber = 0 });
             Assert.True(state.IsInParty);
-            Assert.True(state.IsLeader);
+            Assert.True(state.IsLeaderOf(0x100));
 
-            var menus = Controller(new StockUiPartyContext(state.IsInParty, state.IsLeader, 0, false));
+            var menus = Controller(new StockUiPartyContext(state.IsInParty, state.IsLeaderOf(0x100), 0, false));
             Assert.Equal(StockUiParty.LeaderMenu, OpenParty(menus).Name);
 
             state.ClearParty();
@@ -160,6 +160,46 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(state.HasPendingInvite);
             state.ClearPendingInvite();
             Assert.False(state.HasPendingInvite);
+        }
+
+        [Fact]
+        public void Leadership_FollowsTheLeaderFlag_NotTheSlot()
+        {
+            var state = new PartyState();
+            state.UpsertMember(new PartyMember { ServerId = 0x100, Name = "Cybin", IsLeader = true, MemberNumber = 0 });
+            state.UpsertMember(new PartyMember { ServerId = 0x200, Name = "Zeid", MemberNumber = 1 });
+            Assert.True(state.IsLeaderOf(0x100));
+            Assert.False(state.IsLeaderOf(0x200));
+
+            // Leadership passes to the member in slot 1 (the old leader's packet need not follow).
+            state.UpsertMember(new PartyMember { ServerId = 0x200, Name = "Zeid", IsLeader = true, MemberNumber = 1 });
+            Assert.True(state.IsLeaderOf(0x200));
+            Assert.False(state.IsLeaderOf(0x100));
+            Assert.False(state.IsLeaderOf(0x300)); // not a member
+        }
+
+        [Fact]
+        public void ReleasingEveryTrust_ReturnsToSolo_ButAPlayerPartyOfOneStays()
+        {
+            const uint self = 0x100, trustA = 0x01004802, trustB = 0x01004803;
+            var state = new PartyState();
+            state.UpsertMember(new PartyMember { ServerId = self, Name = "Cybin", IsLeader = true });
+            state.UpsertMember(new PartyMember { ServerId = trustA, Name = "Shantotto", MemberNumber = 1 });
+            state.UpsertMember(new PartyMember { ServerId = trustB, Name = "Ajido", MemberNumber = 2 });
+            int disbanded = 0;
+            state.PartyDisbanded += () => disbanded++;
+
+            state.RetainMembers(new uint[] { self, trustB }); // one Trust released
+            Assert.True(state.IsInParty);
+            state.RetainMembers(new uint[] { self }); // the last one
+            Assert.False(state.IsInParty);
+            Assert.Equal(1, disbanded);
+
+            // A party of players left with one member is still a party.
+            state.UpsertMember(new PartyMember { ServerId = self, Name = "Cybin", IsLeader = true });
+            state.UpsertMember(new PartyMember { ServerId = 0x200, Name = "Zeid", MemberNumber = 1 });
+            state.RemoveMember(0x200);
+            Assert.True(state.IsInParty);
         }
     }
 }

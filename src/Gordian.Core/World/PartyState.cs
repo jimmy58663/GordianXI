@@ -162,16 +162,14 @@ namespace Gordian.Core.World
             }
         }
 
-        public bool IsLeader
+        /// <summary>
+        /// Whether the member with this server id leads their party: the leader flag the server sets on that member (GAttr bit 2
+        /// of S2C 0x0DD / 0x0E2, bit 2 of an S2C 0x0C8 entry's flags). The leader is not always slot 0: leadership passes to
+        /// whoever the leader names or to the next member when the leader leaves (#397).
+        /// </summary>
+        public bool IsLeaderOf(uint serverId)
         {
-            get
-            {
-                lock (_lock)
-                {
-                    var leader = _members.FirstOrDefault(m => m.IsLeader);
-                    return leader != null && leader.MemberNumber == 0;
-                }
-            }
+            lock (_lock) return serverId != 0 && _members.Any(m => m.ServerId == serverId && m.IsLeader);
         }
 
         public IReadOnlyList<PartyMember> Members
@@ -341,6 +339,18 @@ namespace Gordian.Core.World
                 }
             }
 
+            if (member.IsLeader)
+            {
+                // The leader flag moved to this member: a member list packet for the old leader may not follow.
+                lock (_lock)
+                {
+                    foreach (var other in _members)
+                    {
+                        if (other.ServerId != member.ServerId && other.PartyNumber == member.PartyNumber) other.IsLeader = false;
+                    }
+                }
+            }
+
             if (isNew && notifyMember != null)
             {
                 MemberJoined?.Invoke(notifyMember);
@@ -405,12 +415,28 @@ namespace Gordian.Core.World
         {
             ArgumentNullException.ThrowIfNull(serverIds);
             List<uint> removed;
+            bool disbanded;
             lock (_lock)
             {
                 removed = _members.Where(m => !serverIds.Contains(m.ServerId)).Select(m => m.ServerId).ToList();
                 _members.RemoveAll(m => !serverIds.Contains(m.ServerId));
+                disbanded = DisbandTrustOnlyParty(removed);
             }
             foreach (uint id in removed) MemberLeft?.Invoke(id);
+            if (disbanded) PartyDisbanded?.Invoke();
+        }
+
+        /// <summary>
+        /// A Trust left (released, or dismissed) and no other player is left with the character: the party the Trusts formed is
+        /// gone, so the character is Solo again rather than in a party of one (#397). Call under the lock; adds the last
+        /// member to <paramref name="removed"/> and returns whether it cleared the party.
+        /// </summary>
+        private bool DisbandTrustOnlyParty(List<uint> removed)
+        {
+            if (_members.Count > 1 || !removed.Exists(id => id >= PartyMember.FirstNonPlayerId)) return false;
+            removed.AddRange(_members.Select(m => m.ServerId));
+            _members.Clear();
+            return true;
         }
 
         /// <summary>
@@ -462,7 +488,8 @@ namespace Gordian.Core.World
 
         public void RemoveMember(uint serverId)
         {
-            bool removed = false;
+            bool removed = false, disbanded = false;
+            var left = new List<uint>();
             lock (_lock)
             {
                 int index = _members.FindIndex(m => m.ServerId == serverId);
@@ -470,12 +497,15 @@ namespace Gordian.Core.World
                 {
                     _members.RemoveAt(index);
                     removed = true;
+                    left.Add(serverId);
+                    disbanded = DisbandTrustOnlyParty(left);
                 }
             }
 
             if (removed)
             {
-                MemberLeft?.Invoke(serverId);
+                foreach (uint id in left) MemberLeft?.Invoke(id);
+                if (disbanded) PartyDisbanded?.Invoke();
             }
         }
 

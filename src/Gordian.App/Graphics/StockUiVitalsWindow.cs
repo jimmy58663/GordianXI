@@ -30,6 +30,25 @@ namespace Gordian.App.Graphics
         /// <summary>The TP the gauge counts as full.</summary>
         public const int FullTp = 3000;
 
+        /// <summary>
+        /// At this much TP a weapon skill can be used and the TP gauge flashes between <see cref="TpGaugeColor"/> and
+        /// <see cref="TpFlashColor"/> (the maintainer's round 1 note: "flashing when over 1000 TP"). <b>Provisional:</b> the
+        /// flash rate (<see cref="TpFlashPeriod"/> seconds a cycle) and the bright colour; neither is found in the data.
+        /// </summary>
+        public const int WeaponSkillTp = 1000;
+
+        public const double TpFlashPeriod = 0.8;
+        public static readonly UiColor TpFlashColor = new(0x78, 0xA0, 0xC8, 0x80);
+
+        /// <summary>The TP gauge's colour at <paramref name="seconds"/>: steady below <see cref="WeaponSkillTp"/>, pulsing above.</summary>
+        public static UiColor TpColorAt(int tp, double seconds)
+        {
+            if (tp < WeaponSkillTp) return TpGaugeColor;
+            float t = 0.5f - 0.5f * (float)Math.Cos(2 * Math.PI * seconds / TpFlashPeriod);
+            byte Mix(byte a, byte b) => (byte)(a + (b - a) * t);
+            return new UiColor(Mix(TpGaugeColor.R, TpFlashColor.R), Mix(TpGaugeColor.G, TpFlashColor.G), Mix(TpGaugeColor.B, TpFlashColor.B), 0x80);
+        }
+
         private const float LabelX = 6, GaugeX = 26, ValueRight = 122, FirstRowY = 2, RowPitch = 14, GaugeDy = 2, GlyphWidth = 9, GlyphHeight = 11;
 
         // Glyph cells in the "font" texture, from the Status frame's HP / MP / TP rows.
@@ -44,7 +63,7 @@ namespace Gordian.App.Graphics
         /// Draws the block at its authored place; returns where, or null when the menu DAT has no <c>gaugewin</c>.
         /// </summary>
         public static StockUiPlacement? Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font,
-            int hp, int maxHp, int mp, int maxMp, int tp, float scale, uint width, uint height)
+            int hp, int maxHp, int mp, int maxMp, int tp, float scale, uint width, uint height, double seconds = 0)
         {
             if (!library.TryGetMenu(MenuName, out var menu)) return null;
             var f = menu.Frame;
@@ -53,7 +72,7 @@ namespace Gordian.App.Graphics
 
             DrawRow(renderer, font, at, 0, GlyphH, hp, Percent(hp, maxHp), StockUiPartyWindow.HpGaugeColor, scale);
             DrawRow(renderer, font, at, 1, GlyphM, mp, Percent(mp, maxMp), StockUiPartyWindow.MpGaugeColor, scale);
-            DrawRow(renderer, font, at, 2, GlyphT, tp, Percent(tp, FullTp), TpGaugeColor, scale);
+            DrawRow(renderer, font, at, 2, GlyphT, tp, Percent(tp, FullTp), TpColorAt(tp, seconds), scale);
             return at;
         }
 
@@ -67,7 +86,7 @@ namespace Gordian.App.Graphics
 
             string text = value.ToString(CultureInfo.InvariantCulture);
             float textScale = s * StockUiPartyWindow.TextScale;
-            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * textScale, y - 1 * s, textScale);
+            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * textScale, y + 1 * s, textScale);
         }
     }
 }

@@ -358,7 +358,7 @@ namespace Gordian.App.Graphics
             if (!menus.Suspended && menus.OpenMenus.Any(m => !m.IsCommandMenu && m.Menu.Frame.Anchor == UiAnchor.TopLeft && m.Menu.Frame.X < 144 && m.Menu.Frame.Y < 92)) return;
             var local = session.LocalPlayer;
             StockUiVitalsWindow.Draw(renderer, library, font, local.CurrentHp, local.MaxHp, local.CurrentMp, local.MaxMp, local.CurrentTp,
-                Layout.Scale, width, height);
+                Layout.Scale, width, height, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         }
 
         /// <summary>
@@ -1054,7 +1054,7 @@ namespace Gordian.App.Graphics
             if (placement.Hidden) return result;
             renderer.DrawMenu(menu, placement, includeButtons: false);
             Drag.Register(StockUiWindowIds.Party, menu.Frame, placement);
-            if (session.Party.HasPendingInvite) StockUiPartyWindow.DrawInviteIcon(renderer, placement);
+            if (session.Party.HasPendingInvite && _font is { } inviteFont) StockUiPartyWindow.DrawInviteIcon(renderer, inviteFont, placement);
 
             var font = _font;
             if (font == null) return result;

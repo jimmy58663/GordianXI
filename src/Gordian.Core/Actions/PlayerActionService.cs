@@ -688,7 +688,7 @@ namespace Gordian.Core.Actions
             var combat = Combat;
             bool engaged = combat?.IsEngaged == true;
             var party = _partyModule.State;
-            bool canInvite = !party.IsInParty || party.IsLeader;
+            bool canInvite = !party.IsInParty || party.IsLeaderOf(_localPlayer.ServerId);
             if (canInvite)
             {
                 foreach (var member in party.Members)

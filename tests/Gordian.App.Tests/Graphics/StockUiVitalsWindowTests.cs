@@ -34,7 +34,15 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void RendersPartyWindowWithThePendingInviteOrb()
+        public void TpGaugeFlashesOnlyFromAThousand()
+        {
+            Assert.Equal(StockUiVitalsWindow.TpGaugeColor, StockUiVitalsWindow.TpColorAt(999, 0.3));
+            Assert.Equal(StockUiVitalsWindow.TpGaugeColor, StockUiVitalsWindow.TpColorAt(1000, 0));
+            Assert.Equal(StockUiVitalsWindow.TpFlashColor, StockUiVitalsWindow.TpColorAt(3000, StockUiVitalsWindow.TpFlashPeriod / 2));
+        }
+
+        [Fact]
+        public void RendersPartyWindowWithThePendingInviteIcon()
         {
             using var screen = StockUiOffscreen.TryCreate(640, 200);
             if (screen == null) return;
@@ -44,13 +52,21 @@ namespace Gordian.App.Tests.Graphics
             var shot = screen.Render(r =>
             {
                 r.DrawMenu(menu, placement, includeButtons: false);
-                StockUiPartyWindow.DrawInviteIcon(r, placement);
-            }, "gpu_party_invite_orb.png");
+                StockUiPartyWindow.DrawInviteIcon(r, screen.Font, placement);
+            }, "gpu_party_invite_icon.png");
 
-            // A strongly green pixel inside the orb's box.
-            int cx = (int)(placement.X + StockUiPartyWindow.InviteIconX + 4), cy = (int)(placement.Y + StockUiPartyWindow.InviteIconY + 4);
-            var (red, green, blue) = screen.Pixel(shot, cx, cy);
-            Assert.True(green > red && green > blue, $"expected a green orb at ({cx},{cy}), got {red},{green},{blue}");
+            // Some pixel of the icon's box differs from the grey window frame behind it.
+            int x0 = (int)(placement.X + StockUiPartyWindow.InviteIconX), y0 = (int)(placement.Y + StockUiPartyWindow.InviteIconY);
+            bool greenFound = false;
+            for (int y = y0; y < y0 + 12 && !greenFound; y++)
+            {
+                for (int x = x0; x < x0 + 12; x++)
+                {
+                    var (red, green, blue) = screen.Pixel(shot, x, y);
+                    if (green > red + 40 && green > blue + 40 && green > 120) { greenFound = true; break; }
+                }
+            }
+            Assert.True(greenFound, "expected the icon's green '!'");
         }
     }
 }
