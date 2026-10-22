@@ -35,6 +35,18 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// How far the mounted character is moved up (positive) or down from the shared origin to sit on its mount's back
+        /// (<see cref="MountModels.SeatOffset"/>, cached per rider and mount); 0 on foot or without the models.
+        /// </summary>
+        private static float RiderSeatOffset(WorldEntity entity, EntityModel character, ResourceManager? resources)
+        {
+            if (resources == null) return 0f;
+            var rider = RiderOrSelf(entity, character, resources);
+            if (ReferenceEquals(rider, character) || !resources.TryLoadMountModel(entity.Mount, out var mount) || mount == null) return 0f;
+            return resources.GetSeatOffset(rider, mount);
+        }
+
+        /// <summary>
         /// Draws the mount of a mounted entity at the rider's origin and heading, unscaled (retail draws the same mount
         /// under every race, Mounts.mp4), animated by its own state with the rider's movement category. Leaves its joint
         /// palette for the next frame; frees it when the entity no longer rides. Returns the draw calls made.
@@ -68,6 +80,8 @@ namespace Gordian.App.Graphics
             cl.SetGraphicsResourceSet(0, _entityResourceSet);
             cl.SetGraphicsResourceSet(2, palette.Set);
             int draws = DrawSubmeshes(cl, gpuModel, 0, uniform);
+            // The Fenrir mount carries an avatar's blur aura (Section 0x5E), drawn as on the avatar (#82).
+            if (!faded && mount.BlurAura is { } aura) QueueBlurAura(uniform, palette.Set, gpuModel, 0, aura, key);
             if (faded)
             {
                 cl.SetPipeline(_skinnedFadePipeline);

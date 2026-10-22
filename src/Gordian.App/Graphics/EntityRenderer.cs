@@ -589,7 +589,11 @@ namespace Gordian.App.Graphics
                                   ReferenceEquals(gpuModel, _fallbackMonsterProxy);
                 var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
 
-                var worldMatrix = rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
+                // A rider sits on its mount's back (#87): lowered or raised from the shared origin onto the seat.
+                float seat = mounted && !isFallback && entityModel != null ? RiderSeatOffset(entity, entityModel, resourceManager) : 0f;
+                var riderPos = pos + new Vector3(0.0f, seat, 0.0f);
+                if (seat != 0f) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(riderPos) };
+                var worldMatrix = rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(riderPos);
 
                 var uniform = new ZoneSceneUniform
                 {
@@ -682,7 +686,7 @@ namespace Gordian.App.Graphics
                 if (mounted && isSkinned && resourceManager != null && resourceManager.TryLoadMountModel(entity.Mount, out var mountModel)
                     && mountModel?.Skeleton is { Count: > 0 })
                 {
-                    overheadHeight = Math.Max(overheadHeight + RiderSeatRaise, CursorHeight(mountModel));
+                    overheadHeight = Math.Max(overheadHeight + RiderSeatRaise + seat, CursorHeight(mountModel));
                 }
                 var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));

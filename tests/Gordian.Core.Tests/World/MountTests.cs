@@ -241,6 +241,48 @@ namespace Gordian.Core.Tests.World
                 $"{race}: seated hips {Hips(rider.Animations["idl"]):F2} vs standing {Hips(character.Animations["idl"]):F2}");
         }
 
+        /// <summary>
+        /// Round 1 H2 / H8: every race sits on the same seat (Mounts.mp4: a Galka deep in the raptor's back, a Tarutaru on the
+        /// same spot, hips about 1.45-1.5 yalms over the ground). The riding packs alone put the hips at 1.70 (Tarutaru) to
+        /// 2.31 (Galka); the seat offset brings each race's onto the mount's back.
+        /// </summary>
+        [Fact]
+        public void RetailRiders_SitOnTheMountsBack()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 2, 2), out var raptor));
+            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(5, 0, 1), out var chocobo));
+            var raptorHips = new Dictionary<CharacterRace, float>();
+            foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.ElvaanFemale,
+                CharacterRace.TaruMale, CharacterRace.Mithra, CharacterRace.Galka })
+            {
+                var character = EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+                Assert.True(rm.TryGetRiderModel(character, race, out var rider));
+                float hips = -Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(character.Skeleton!, rider!.Animations["chi"], 0f, true).Translations[2].Y;
+                raptorHips[race] = hips + rm.GetSeatOffset(rider, raptor!);
+                Assert.InRange(hips + rm.GetSeatOffset(rider, chocobo!), 1.6f, 2.05f);
+            }
+            Assert.All(raptorHips.Values, h => Assert.InRange(h, 1.4f, 1.75f));
+            Assert.InRange(raptorHips[CharacterRace.TaruMale], 1.45f, 1.6f);
+            // The Hume male's riding pack already fits the chocobo's saddle.
+            var hume = EntityModelLoader.AssembleCharacter(CharacterRace.HumeMale, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            rm.TryGetRiderModel(hume, CharacterRace.HumeMale, out var humeRider);
+            Assert.InRange(rm.GetSeatOffset(humeRider!, chocobo!), -0.1f, 0.1f);
+        }
+
+        /// <summary>Of the retail mounts only Fenrir (id 9) carries a blur aura (Section 0x5E), drawn as on the avatar.</summary>
+        [Fact]
+        public void RetailFenrirMount_HasItsBlurAura()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 10, 3), out var fenrir));
+            Assert.NotNull(fenrir!.BlurAura);
+            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 2, 2), out var raptor));
+            Assert.Null(raptor!.BlurAura);
+        }
+
         // ---- Mount list ----
 
         [Fact]

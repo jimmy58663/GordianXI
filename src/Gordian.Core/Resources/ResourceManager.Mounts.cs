@@ -47,11 +47,22 @@ namespace Gordian.Core.Resources
             return true;
         }
 
+        private ConditionalWeakTable<EntityModel, ConcurrentDictionary<EntityModel, float>> _seats = new();
+
+        /// <summary>
+        /// How far <paramref name="rider"/> is moved up or down to sit on <paramref name="mount"/> (#87,
+        /// <see cref="MountModels.SeatOffset"/>), computed once per rider and mount.
+        /// </summary>
+        public float GetSeatOffset(EntityModel rider, EntityModel mount) =>
+            _seats.GetValue(rider, _ => new ConcurrentDictionary<EntityModel, float>())
+                .GetOrAdd(mount, m => MountModels.SeatOffset(rider, m));
+
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()
         {
             _riderPacks.Clear();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();
+            _seats = new ConditionalWeakTable<EntityModel, ConcurrentDictionary<EntityModel, float>>();
         }
     }
 }
