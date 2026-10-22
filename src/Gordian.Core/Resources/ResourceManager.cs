@@ -562,8 +562,8 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Loads (once) a building interior's DAT (<see cref="World.Collision.ZoneSubAreas.InteriorFileId"/>, #68): a small zone
-        /// DAT already in its parent zone's space. Its point-light references name its own light table, which the parent's
-        /// renderer does not have, so they are dropped. False when the file is missing or holds nothing.
+        /// DAT already in its parent zone's space. Its point-light references name its own light table (the renderer moves them
+        /// into free slots of the zone's). False when the file is missing or holds nothing.
         /// </summary>
         public bool TryLoadSubAreaInterior(int subAreaId, [NotNullWhen(true)] out ZoneGeometry? interior, out Dictionary<string, DecodedTexture> textures)
         {
@@ -576,7 +576,6 @@ namespace Gordian.Core.Resources
                 var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
                 var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
                     GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId));
-                foreach (var group in geometry.MeshGroups) group.PointLightSlots = Array.Empty<int>();
                 _interiorCollisionCache.TryAdd(id, geometry.Collision);
                 GordianLog.Info("RES", $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
                 return (geometry, decoded);

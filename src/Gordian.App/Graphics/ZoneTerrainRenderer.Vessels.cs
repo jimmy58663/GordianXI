@@ -41,18 +41,25 @@ namespace Gordian.App.Graphics
             Matrix4x4.CreateTranslation(new Vector3(-internalPosition.X, -internalPosition.Y, internalPosition.Z));
 
         /// <summary>The yaw between a vessel's own frame and an entity heading of 0 (see <see cref="TransportVesselWorld"/>).</summary>
-        internal static float TransportYawOffset { get; set; } = MathF.PI * 0.5f;
+        internal static float TransportYawOffset { get; set; } = -MathF.PI * 0.5f;
 
         /// <summary>
         /// Draws placed submeshes with one world transform, in the scene uniform of each one's environment (restored after
         /// each draw), with the given texture table.
         /// </summary>
         private void DrawPlacedSubmeshes(List<GpuSubmesh> submeshes, Matrix4x4 world, IReadOnlyDictionary<string, DecodedTexture>? textures,
-            ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+            ZoneSceneUniform sceneUniform, BoundingFrustum frustum, bool deferred, ref int draws, ref int visible, ref int culled,
+            Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)>? scenes = null, Dictionary<string, ZoneSceneUniform>? uniforms = null)
         {
             if (submeshes.Count == 0) return;
+            // A building interior lights its placements by its own sub-environments (#68); everything else by the zone's.
+            scenes ??= _subEnvironmentScenes;
+            uniforms ??= _subEnvironmentUniforms;
             foreach (var submesh in submeshes)
             {
+                // Blended water and the blended parts of alpha-tested meshes draw after the entities, as the zone's do
+                // (round 1: the Manaclipper's lamp glows drew as solid yellow panels in the opaque pass).
+                if (submesh.Pass.IsDeferred() != deferred) continue;
                 TransformBounds(submesh.MinBounds, submesh.MaxBounds, world, out var min, out var max);
                 if (!frustum.IntersectsBox(min, max))
                 {
@@ -60,9 +67,10 @@ namespace Gordian.App.Graphics
                     continue;
                 }
 
-                bool sub = submesh.EnvironmentId.Length > 0 && _subEnvironmentScenes.TryGetValue(submesh.EnvironmentId, out _);
-                var buffer = sub ? _subEnvironmentScenes[submesh.EnvironmentId].Buffer : _sceneUniformBuffer;
-                var baseUniform = sub && _subEnvironmentUniforms.TryGetValue(submesh.EnvironmentId, out var subUniform) ? subUniform : sceneUniform;
+                (DeviceBuffer Buffer, ResourceSet Set) subScene = default;
+                bool sub = submesh.EnvironmentId.Length > 0 && scenes.TryGetValue(submesh.EnvironmentId, out subScene);
+                var buffer = sub ? subScene.Buffer : _sceneUniformBuffer;
+                var baseUniform = sub && uniforms.TryGetValue(submesh.EnvironmentId, out var subUniform) ? subUniform : sceneUniform;
                 var moved = baseUniform;
                 moved.World = world;
                 _commandList.UpdateBuffer(buffer, 0, ref moved);
@@ -70,12 +78,13 @@ namespace Gordian.App.Graphics
                 var pass = submesh.Pass;
                 var pipeline = pass switch
                 {
-                    ZoneSubmeshPass.BlendDecal or ZoneSubmeshPass.DeferredBlend or ZoneSubmeshPass.Water => _terrainBlendPipeline,
+                    ZoneSubmeshPass.DeferredBlend or ZoneSubmeshPass.Water => _blendPipeline,
+                    ZoneSubmeshPass.BlendDecal => _terrainBlendPipeline,
                     ZoneSubmeshPass.Cutout => _cutoutPipeline,
                     _ => _pipeline
                 };
                 _commandList.SetPipeline(ForSubmesh(pipeline, submesh.NoCull));
-                _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
+                _commandList.SetGraphicsResourceSet(0, sub ? subScene.Set : _sceneResourceSet);
                 _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, textures));
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
@@ -92,9 +101,9 @@ namespace Gordian.App.Graphics
         /// time a ship needs it (a zone DAT parse); the ship appears when it is ready.
         /// </summary>
         private void DrawTransportVessels(IEnumerable<WorldEntity>? entities, ResourceManager? resourceManager, ZoneSceneUniform sceneUniform,
-            BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+            BoundingFrustum frustum, bool deferred, ref int draws, ref int visible, ref int culled)
         {
-            TransportVesselsDrawn = 0;
+            if (!deferred) TransportVesselsDrawn = 0;
             if (entities == null || resourceManager == null) return;
             foreach (var entity in entities)
             {
@@ -105,8 +114,8 @@ namespace Gordian.App.Graphics
                 var vessel = GetTransportVessel(vesselZone, resourceManager);
                 if (vessel == null) continue;
                 float heading = entity.RenderHeadingRadians != 0f || entity.Direction != 0 ? entity.RenderHeadingRadians : entity.HeadingRadians;
-                DrawPlacedSubmeshes(vessel.Submeshes, TransportVesselWorld(entity.Position, heading), vessel.Textures, sceneUniform, frustum, ref draws, ref visible, ref culled);
-                TransportVesselsDrawn++;
+                DrawPlacedSubmeshes(vessel.Submeshes, TransportVesselWorld(entity.Position, heading), vessel.Textures, sceneUniform, frustum, deferred, ref draws, ref visible, ref culled);
+                if (!deferred) TransportVesselsDrawn++;
             }
         }
 

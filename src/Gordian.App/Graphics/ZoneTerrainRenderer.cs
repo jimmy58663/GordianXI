@@ -1093,8 +1093,10 @@ namespace Gordian.App.Graphics
         /// Uploads one placed zone submesh (vertex and 16-bit index buffers, its point-light references). Call under the
         /// device lock.
         /// </summary>
-        internal static GpuSubmesh UploadSubmesh(GpuSharedResources shared, MeshGroup group, string platformId = "", string doorId = "", DoorLeaf? leaf = null)
+        internal static GpuSubmesh UploadSubmesh(GpuSharedResources shared, MeshGroup group, string platformId = "", string doorId = "", DoorLeaf? leaf = null,
+            int[]? pointLightSlots = null)
         {
+            pointLightSlots ??= group.PointLightSlots;
             var gd = shared.Device;
             var factory = gd.ResourceFactory;
             var vb = factory.CreateBuffer(new BufferDescription(
@@ -1116,9 +1118,9 @@ namespace Gordian.App.Graphics
 
             DeviceBuffer? lightRefs = null;
             ResourceSet? lightSet = null;
-            if (group.PointLightSlots.Length > 0)
+            if (pointLightSlots.Length > 0)
             {
-                lightRefs = shared.CreateLightRefsBuffer(group.PointLightSlots);
+                lightRefs = shared.CreateLightRefsBuffer(pointLightSlots);
                 lightSet = factory.CreateResourceSet(new ResourceSetDescription(shared.LightLayout, shared.LightTableBuffer, lightRefs));
             }
 
@@ -1442,9 +1444,9 @@ namespace Gordian.App.Graphics
 
             DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawDoors(sceneUniform, frustum, ref draws, ref visible, ref culled);
-            DrawPlacedSubmeshes(_vesselSubmeshes, Matrix4x4.Identity, _activeDecodedTextures, sceneUniform, camera.Frustum, ref draws, ref visible, ref culled);
-            DrawSubAreaInteriors(resourceManager, sceneUniform, frustum, ref draws, ref visible, ref culled);
-            DrawTransportVessels(entities, resourceManager, sceneUniform, camera.Frustum, ref draws, ref visible, ref culled);
+            DrawPlacedSubmeshes(_vesselSubmeshes, Matrix4x4.Identity, _activeDecodedTextures, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
+            DrawSubAreaInteriors(resourceManager, sceneUniform, environment, frustum, deferred: false, ref draws, ref visible, ref culled);
+            DrawTransportVessels(entities, resourceManager, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
 
             // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
             // render the adaptive ground plane centered under the player so character stands on solid ground.
@@ -1552,6 +1554,12 @@ namespace Gordian.App.Graphics
                 draws++;
             }
 
+            // The blended parts of vessels and interiors, after the entities like the zone's own (#403, #68).
+            DrawPlacedSubmeshes(_vesselSubmeshes, Matrix4x4.Identity, _activeDecodedTextures, sceneUniform, camera.Frustum, deferred: true, ref draws, ref visible, ref culled);
+            DrawSubAreaInteriors(resourceManager, sceneUniform, environment, frustum, deferred: true, ref draws, ref visible, ref culled);
+            DrawTransportVessels(entities, resourceManager, sceneUniform, camera.Frustum, deferred: true, ref draws, ref visible, ref culled);
+            currentBoundBlendPipeline = null;
+
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
             if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0))
@@ -1572,7 +1580,15 @@ namespace Gordian.App.Graphics
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
                         : Vector3.Distance(camera.Position, effectMesh.BasePosition);
-                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, _emitters.GetValueOrDefault(effectMesh.Layer), null));
+                    // A voyage zone's scenery emitters (surf on its rocks, spouts) live in the scenery's frame (#403).
+                    Matrix4x4? sceneryAnchor = null;
+                    if (!_sceneryTransform.IsIdentity && !effectMesh.FollowCamera && !effectMesh.Layer.OnVessel)
+                    {
+                        sceneryAnchor = _sceneryTransform;
+                        sortDistance = Vector3.Distance(camera.Position, Vector3.Transform(effectMesh.BasePosition, _sceneryTransform));
+                    }
+                    var effectEmitter = _emitters.GetValueOrDefault(effectMesh.Layer);
+                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null));
                 }
                 AddActorEffectDraws(camera);
                 AddAttachedEffectDraws(camera);
@@ -2344,8 +2360,15 @@ namespace Gordian.App.Graphics
         private void UpdateZoneEmitters(ViewportCamera camera, ZoneEnvironmentSettings environment, float deltaSeconds)
         {
             _effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
-            var frame = new ZoneParticleFrame(ToDisplay(camera.Position), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
-                ToDisplay(camera.Forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
+            // In a voyage zone the emitters are simulated in the scenery's frame, so they see the eye there (#403).
+            Vector3 eye = camera.Position, forward = camera.Forward;
+            if (!_sceneryTransform.IsIdentity && Matrix4x4.Invert(_sceneryTransform, out var toScenery))
+            {
+                eye = Vector3.Transform(eye, toScenery);
+                forward = Vector3.TransformNormal(forward, toScenery);
+            }
+            var frame = new ZoneParticleFrame(ToDisplay(eye), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
+                ToDisplay(forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
                 IsViewerInSubEnvironment(camera.Position));
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
             // Lightning strikes and other short weather routines start their generators at random.
@@ -2389,7 +2412,12 @@ namespace Gordian.App.Graphics
                 emitter.Update(emitterFrames, frame);
             }
             _emittersWarm = true;
+            _lastEmitterFrame = frame;
+            _lastEmitterFrames = emitterFrames;
         }
+
+        private ZoneParticleFrame? _lastEmitterFrame;
+        private float _lastEmitterFrames;
 
         /// <summary>
         /// Fills the frame's point-light table from the running light generators: each slot takes its generator's live
@@ -2436,7 +2464,33 @@ namespace Gordian.App.Graphics
                     _lightTable[colorBase + slot * 4 + 3] = 1.0f;
                 }
             }
+            if (EnableZoneEffects) WriteInteriorLights(positionBase, colorBase);
             _commandList.UpdateBuffer(_lightTableBuffer, 0, _lightTable);
+        }
+
+        /// <summary>Writes one light generator's live particle into its slot of the light table (see <see cref="UploadPointLights"/>).</summary>
+        private void WriteLight(ZoneParticleEmitter emitter, int slot, int positionBase, int colorBase)
+        {
+            if ((uint)slot >= PointLightTableLayout.Slots) return;
+            ZoneParticle? light = null;
+            foreach (var particle in emitter.Particles)
+            {
+                if (!particle.IsExpired) { light = particle; break; }
+            }
+            if (light == null) return;
+            float range = light.LightRange * light.LightRangeMultiplier;
+            float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
+            if (range <= 0.0f || power <= 0.0f) return;
+            var position = Vector3.Transform(ToDisplay(light.WorldPosition), _sceneryTransform);
+            _lightTable[positionBase + slot * 4] = position.X;
+            _lightTable[positionBase + slot * 4 + 1] = position.Y;
+            _lightTable[positionBase + slot * 4 + 2] = position.Z;
+            _lightTable[positionBase + slot * 4 + 3] = range;
+            var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One) * PointLightStrength;
+            _lightTable[colorBase + slot * 4] = lightColor.X;
+            _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
+            _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
+            _lightTable[colorBase + slot * 4 + 3] = 1.0f;
         }
 
         /// <summary>
@@ -2651,11 +2705,15 @@ namespace Gordian.App.Graphics
         /// Fills each sub-environment's scene uniform: the frame's camera and fog with that environment's own lights
         /// (indoor sun and ambient, no moon), as the legacy client lights each placement by its linked environment.
         /// </summary>
-        private void UpdateSubEnvironmentScenes(ZoneSceneUniform sceneUniform, ZoneEnvironmentSettings environment)
+        private void UpdateSubEnvironmentScenes(ZoneSceneUniform sceneUniform, ZoneEnvironmentSettings environment) =>
+            UpdateSubEnvironmentScenes(LoadedZone?.EnvironmentData, _subEnvironmentScenes, _subEnvironmentUniforms, _subEnvironmentActorLights, sceneUniform, environment);
+
+        /// <summary>Fills the scene uniforms of one set of sub-environments (the zone's, or a building interior's, #68).</summary>
+        private void UpdateSubEnvironmentScenes(ZoneEnvironmentData? data, Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> scenes,
+            Dictionary<string, ZoneSceneUniform> uniforms, Dictionary<string, ActorLighting>? actorLights, ZoneSceneUniform sceneUniform, ZoneEnvironmentSettings environment)
         {
-            var data = LoadedZone?.EnvironmentData;
             if (data == null) return;
-            foreach (var (id, scene) in _subEnvironmentScenes)
+            foreach (var (id, scene) in scenes)
             {
                 var uniform = sceneUniform;
                 var keyframe = data.InterpolateSubEnvironment(id, environment.TimeOfDayHours, environment.WeatherId);
@@ -2663,14 +2721,14 @@ namespace Gordian.App.Graphics
                 {
                     var lighting = new ZoneEnvironmentSettings();
                     lighting.ApplyKeyframe(keyframe);
-                    _subEnvironmentActorLights[id] = ActorLighting.From(lighting);
+                    if (actorLights != null) actorLights[id] = ActorLighting.From(lighting);
                     uniform.SunDirection = new Vector4(lighting.SunDirection, 0.0f);
                     uniform.SunColor = new Vector4(lighting.SunColor, 1.0f);
                     uniform.AmbientColor = new Vector4(lighting.AmbientColor, 1.0f);
                     uniform.MoonColor = new Vector4(lighting.MoonColor, 1.0f);
                 }
                 _commandList.UpdateBuffer(scene.Buffer, 0, ref uniform);
-                _subEnvironmentUniforms[id] = uniform;
+                uniforms[id] = uniform;
             }
         }
 

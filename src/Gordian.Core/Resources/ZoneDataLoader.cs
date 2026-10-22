@@ -973,7 +973,11 @@ namespace Gordian.Core.Resources
             {
                 if (string.IsNullOrEmpty(genWeather) || !string.Equals(parentDir, genWeather, StringComparison.OrdinalIgnoreCase)) continue;
                 var setup = gen.Setup;
-                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh || !setup.FollowCamera) continue;
+                // A ship zone's clouds ride the source actor (the viewer) instead of following the camera: Phanauet Channel's
+                // weat/fine/cld1 and cld2 (attach type 5, follow-camera clear). Drawn as camera-following shells (#403 round 1:
+                // no clouds over the channel).
+                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh ||
+                    !(setup.FollowCamera || gen.AttachType == ParticleAttachType.SourceActorTargetFacing)) continue;
 
                 if (!zoneMeshSections.TryGetValue($"{genWeather}/{setup.LinkedDataId}", out var cloudMeshes) &&
                     !zoneMeshSections.TryGetValue(setup.LinkedDataId, out cloudMeshes)) continue;

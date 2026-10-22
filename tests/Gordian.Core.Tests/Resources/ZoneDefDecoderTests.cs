@@ -68,12 +68,12 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void DecryptZoneObjects_UnmasksObjectNamesWithXor55()
         {
-            // Build synthetic ZoneDef unencrypted payload (mode = 0x01 <= 0x1A, 2 nodes)
+            // Synthetic encrypted ZoneDef (mode 0x1B > 0x1A) with an XOR stream length of 0: only the names are masked.
             int stride = ZoneDefDecoder.StrideModern; // 100 bytes
             byte[] payload = new byte[0x20 + (2 * stride)];
 
-            // meta0: mode = 1
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000000);
+            // meta0: mode = 0x1B, stream length 0
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x1B000000);
             // meta4: nodeCount = 2
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 2);
 
@@ -93,6 +93,19 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void DecryptZoneObjects_LeavesUnencryptedNamesAlone()
+        {
+            // Mode 0x1A or below is not encrypted, names included (xi-tools xi_decrypt.py); Port Jeuno's shop interior.
+            int stride = ZoneDefDecoder.StrideModern;
+            byte[] payload = new byte[0x20 + (2 * stride)];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x1A000000);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 2);
+            Encoding.ASCII.GetBytes("ju402_box02_2").CopyTo(payload, 0x20);
+            Assert.Equal(2, ZoneDefDecoder.DecryptZoneObjects(payload, new byte[256]));
+            Assert.Equal("ju402_box02_2", Encoding.ASCII.GetString(payload.AsSpan(0x20, 13)));
+        }
+
+        [Fact]
         public void DecryptZoneObjects_DetectsModernStrideFromMaskedUnderscoreNames()
         {
             // City zones (e.g. Southern San d'Oria) name objects like "rig_10": '_' masks to 0x0A, a control byte,
@@ -102,7 +115,7 @@ namespace Gordian.Core.Tests.Resources
             const int nodes = 8;
             byte[] payload = new byte[0x20 + (nodes * stride)];
             payload.AsSpan(0x20).Fill((byte)'A');
-            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000000);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x1B000000);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), nodes);
 
             for (int n = 0; n < nodes; n++)

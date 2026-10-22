@@ -378,6 +378,7 @@ namespace Gordian.App.Graphics
         {
             _entityEnvironments.Clear();
             _actorAnchors.Clear();
+            _shadowLights.Clear();
         }
 
         public void RenderEntities(
@@ -682,7 +683,7 @@ namespace Gordian.App.Graphics
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
                 if (!faded && !isFallback && !entity.HidesShadow)
-                    QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y);
+                    QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y, entity.ServerId, deltaSeconds);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.

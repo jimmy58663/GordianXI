@@ -110,6 +110,22 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void UnencryptedInteriors_KeepTheirNames_AndStayInTheirRoom()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            // Port Jeuno's shop (469, file 569) and Lower Jeuno's last three (464-466) have ZoneDefs of mode 0x1A: not
+            // encrypted, names included. "Unmasking" their names threw parts out as kilometre-wide brown walls (round 1).
+            foreach (int id in new[] { 469, 464, 465, 466 })
+            {
+                Assert.True(rm.TryLoadSubAreaInterior(id, out var interior, out _));
+                Assert.All(interior!.Placements, p => Assert.True(p.Scale.Length() < 100f && p.Position.Length() < 2000f, $"{id}: {p.MeshId} {p.Position} {p.Scale}"));
+                Assert.All(interior.MeshGroups, g => Assert.True((g.MaxBounds - g.MinBounds).Length() < 500f, $"{id}: {g.Name} {g.MinBounds}..{g.MaxBounds}"));
+            }
+        }
+
+        [Fact]
         public void LowerJeuno_HasThirteenInteriors_EachWithItsPlaceholderAndDat()
         {
             if (!Directory.Exists(GameDirectory)) return;

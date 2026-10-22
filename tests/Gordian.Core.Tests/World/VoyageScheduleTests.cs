@@ -66,9 +66,9 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(0.5f, mid.Progress, 3);
             Assert.False(mid.Reversed);
 
-            // The two central-to-south legs run c000 backwards.
+            // The two central-to-south legs run c001 backwards (round 1: c000 took another branch of the channel than retail).
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 800, out var south));
-            Assert.Equal("c000", south.Route.Name);
+            Assert.Equal("c001", south.Route.Name);
             Assert.True(south.Reversed);
 
             // Between legs the vessel waits at the end of the leg that landed last (North -> Central lands at 2774 s).

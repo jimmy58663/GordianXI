@@ -33,8 +33,10 @@ namespace Gordian.Core.World
     /// <para>
     /// Which Route each leg plays is an *inference* from where the Routes run (**Beyond LandSandBoat / xi-tools**, which do not
     /// name them): Phanauet Channel's <c>c002</c> runs from the south end to the north end, <c>c003</c> from the north end to
-    /// the central landing, <c>c000</c> and <c>c001</c> both from the south end to the central landing (<c>c001</c> taken as
-    /// the Emfea leg, <c>c000</c> run backwards for the two central-to-south legs: no Route starts at the central landing).
+    /// the central landing, <c>c000</c> and <c>c001</c> both from the south end to the central landing (<c>c000</c> taken as
+    /// the Emfea leg, <c>c001</c> run backwards for the two central-to-south legs: no Route starts at the central landing).
+    /// Round 1 in game (2026-10-20): the night central-to-south leg landed at the south landing at 23:40 as retail did, but
+    /// on <c>c000</c> it ran through another part of the channel than retail, so the two were swapped.
     /// The Manaclipper's <c>c002</c> runs Bibiki Bay to Purgonorgo, <c>c003</c> back, <c>c000</c> / <c>c001</c> are loops
     /// (<c>c000</c> taken as the tour). Zones without a timetable hold the vessel halfway along their first Route.
     /// </para>
@@ -51,11 +53,11 @@ namespace Gordian.Core.World
             // Phanauet Channel: South -> Central (Emfea), Central -> South (day), South -> North, North -> Central, Central -> South (night).
             [1] = new Timetable(3456, new[]
             {
-                new VoyageLeg("c001", false, 129, 661),
-                new VoyageLeg("c000", true, 752, 1285),
+                new VoyageLeg("c000", false, 129, 661),
+                new VoyageLeg("c001", true, 752, 1285),
                 new VoyageLeg("c002", false, 1472, 2306),
                 new VoyageLeg("c003", false, 2514, 2774),
-                new VoyageLeg("c000", true, 2864, 3397),
+                new VoyageLeg("c001", true, 2864, 3397),
             }),
             // Manaclipper: the Bibiki Bay tour, Bibiki Bay -> Purgonorgo Isle, Purgonorgo Isle -> Bibiki Bay (arrives 31 s into the next cycle).
             [3] = new Timetable(1728, new[]

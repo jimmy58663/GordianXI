@@ -19,6 +19,18 @@ namespace Gordian.App.Tests.Graphics
         private const uint Width = 640, Height = 360;
 
         [Fact]
+        public void ShadowLight_EasesBetweenTheStreetAndTheRoom()
+        {
+            var outdoor = Vector3.Normalize(new Vector3(0.6f, 0.8f, 0f));
+            var indoor = Vector3.UnitY;
+            var step = EntityRenderer.EaseShadowLight(outdoor, indoor, 1f / 60f);
+            Assert.True(Vector3.Dot(step, outdoor) > 0.99f, "one frame barely moves it");
+            var later = outdoor;
+            for (int i = 0; i < 180; i++) later = EntityRenderer.EaseShadowLight(later, indoor, 1f / 60f);
+            Assert.True(Vector3.Dot(later, indoor) > 0.99f, "three seconds reach the room's light");
+        }
+
+        [Fact]
         public void TransportVesselWorld_PlacesTheVesselAtTheEntity()
         {
             var world = ZoneTerrainRenderer.TransportVesselWorld(new Vector3(-125.042f, 0f, 72.786f), 0f);
