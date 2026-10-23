@@ -218,7 +218,7 @@ namespace Gordian.App.Audio
             ApplyVolumes(session.ActionService.UiSettings);
             ApplyEventVolumes(world.EventSoundVolumes);
             UpdateListener(camera);
-            ushort zone = world.CurrentZoneId;
+            ushort zone = world.MapZoneId;
             if (zone != _zoneId)
             {
                 _zoneId = zone;

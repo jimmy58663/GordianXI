@@ -41,11 +41,12 @@ namespace Gordian.Core.World.Collision
             id.Length == 4 && id != MogHouseExitId && (id.StartsWith("zmr", StringComparison.Ordinal) || id.StartsWith("zms", StringComparison.Ordinal));
 
         /// <summary>
-        /// Whether walking into the line sends the request: a crossing (<see cref="IsCrossing"/>) that is not a Mog House
-        /// entrance. GordianXI does not draw the Mog House room yet, and its way out (the <c>zmrq</c> line or the exit
-        /// menu of the room) comes with it, so entering one would leave the player stuck in the city with no exit.
+        /// Whether walking into the line sends the request: every crossing (<see cref="IsCrossing"/>), the Mog House
+        /// entrances included since the room is drawn and has its way out (#354, <see cref="MogHouseRooms"/>). LandSandBoat
+        /// answers an entrance (<c>zmr0</c> in Southern San d'Oria, a 1 x 4 box behind the door) by placing the player in the
+        /// room. Before #354 the entrances were held back, as the player would have been stuck in the city with no exit.
         /// </summary>
-        public static bool IsRequestable(string id) => IsCrossing(id) && !IsMogHouseEntrance(id);
+        public static bool IsRequestable(string id) => IsCrossing(id);
 
         private static int Base36(char c) => c switch
         {

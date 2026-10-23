@@ -288,6 +288,12 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public string? OwnerDoorId { get; set; }
 
+        /// <summary>
+        /// A ship zone's vessel effect (its generator is under <c>mode/ship</c>, Phanauet Channel's paddle wheel <c>su00</c>):
+        /// it rides the vessel, not the scenery moving past it (#403).
+        /// </summary>
+        public bool OnVessel { get; set; }
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }

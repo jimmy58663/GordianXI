@@ -875,6 +875,18 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
+        /// For a ship (SubKind 4), its <c>DoorId</c> (payload 0x30) read as a number: retail's ships carry a small ship
+        /// number there, not a FourCC (LandSandBoat data/zones: the barge 16 in Carpenters' Landing, the Manaclipper 17 in
+        /// Bibiki Bay, the Port Jeuno airship 6). Packet structure referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets, world/server/0x000E, SubKind 4). False for other kinds or a zero id.
+        /// </summary>
+        public bool TryGetShipNumber(out uint shipNumber)
+        {
+            shipNumber = SubKind == EntitySubKind.Ship && _payload.Length >= 0x34 ? BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(0x30, 4)) : 0u;
+            return shipNumber != 0;
+        }
+
+        /// <summary>
         /// For a door (SubKind 2), the FourCC of the zone door it opens (<c>DoorId</c>, e.g. <c>_6l0</c>): the door's
         /// Section 0x36 record and the BlockID of its leaves. Packet structure referenced from XiPackets
         /// (https://github.com/atom0s/XiPackets, world/server/0x000E, SubKind 2).

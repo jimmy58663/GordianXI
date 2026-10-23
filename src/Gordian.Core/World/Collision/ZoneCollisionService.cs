@@ -31,7 +31,7 @@ namespace Gordian.Core.World.Collision
 
         private void OnSessionUnregistered(object? sender, CharacterSession session)
         {
-            if (_attached.TryRemove(session.SessionId, out var entry)) entry.World.ZoneChanged -= entry.Handler;
+            if (_attached.TryRemove(session.SessionId, out var entry)) entry.World.MapZoneChanged -= entry.Handler;
         }
 
         private void Attach(CharacterSession session)
@@ -39,8 +39,9 @@ namespace Gordian.Core.World.Collision
             var world = session.World;
             Action<ushort> handler = zoneId => _ = LoadForAsync(world, zoneId);
             if (!_attached.TryAdd(session.SessionId, (world, handler))) return;
-            world.ZoneChanged += handler;
-            if (world.CurrentZoneId != 0) handler(world.CurrentZoneId);
+            // The map zone: the Mog House room while in it (#354), else the zone.
+            world.MapZoneChanged += handler;
+            if (world.MapZoneId != 0) handler(world.MapZoneId);
         }
 
         /// <summary>
@@ -54,7 +55,7 @@ namespace Gordian.Core.World.Collision
                 try
                 {
                     var collision = _loader(zoneId);
-                    if (collision != null && world.CurrentZoneId == zoneId) world.Collision = collision;
+                    if (collision != null && world.MapZoneId == zoneId) world.Collision = collision;
                 }
                 catch (Exception ex)
                 {
@@ -67,7 +68,7 @@ namespace Gordian.Core.World.Collision
         {
             _registry.SessionRegistered -= OnSessionRegistered;
             _registry.SessionUnregistered -= OnSessionUnregistered;
-            foreach (var entry in _attached.Values) entry.World.ZoneChanged -= entry.Handler;
+            foreach (var entry in _attached.Values) entry.World.MapZoneChanged -= entry.Handler;
             _attached.Clear();
         }
     }

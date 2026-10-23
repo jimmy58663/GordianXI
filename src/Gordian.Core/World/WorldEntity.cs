@@ -999,6 +999,11 @@ namespace Gordian.Core.World
         public string TransportId { get; set; } = string.Empty;
 
         /// <summary>
+        /// For a ship (0x00E SubKind 4): its ship number, which names the vessel model (<see cref="ShipModels"/>); 0 otherwise.
+        /// </summary>
+        public uint ShipNumber { get; set; }
+
+        /// <summary>
         /// For an elevator or ship: the Earth second since the Vana'diel epoch its current leg started.
         /// </summary>
         public uint TransportStartSeconds { get; set; }

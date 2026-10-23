@@ -35,11 +35,11 @@ namespace Gordian.Core.Tests.World.Collision
         [InlineData("z2sa", true, true)]
         [InlineData("z2sf", false, false)]
         [InlineData("z2sy", true, true)]
-        [InlineData("zmr0", true, false)] // Mog House entrance: not until the room is drawn
-        [InlineData("zms2", true, false)]
+        [InlineData("zmr0", true, true)] // Mog House entrance: the room is drawn since #354
+        [InlineData("zms2", true, true)]
         [InlineData("zmrq", true, true)] // Mog House exit
         [InlineData("_6e0", false, false)]
-        public void IsCrossing_EvenLastCharacterAndNoMogHouseEntrance(string id, bool crossing, bool requestable)
+        public void IsCrossing_EvenLastCharacter(string id, bool crossing, bool requestable)
         {
             Assert.Equal(crossing, ZoneLines.IsCrossing(id));
             Assert.Equal(requestable, ZoneLines.IsRequestable(id));

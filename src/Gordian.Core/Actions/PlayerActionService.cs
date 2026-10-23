@@ -619,6 +619,9 @@ namespace Gordian.Core.Actions
         /// </summary>
         public bool CanTalkToTarget => CurrentTarget is { Type: EntityType.Npc or EntityType.Door };
 
+        /// <summary>Raised when Confirm is pressed on the Mog House room's door (<see cref="MogHouseRooms.ExitDoorServerId"/>).</summary>
+        public event Action? MogHouseExitRequested;
+
         /// <summary>
         /// Talks to the current target (Confirm on a targeted NPC or door): sends the 0x01A interaction, after which
         /// the server starts the NPC's event or prints its line.
@@ -628,6 +631,12 @@ namespace Gordian.Core.Actions
             var target = CurrentTarget;
             if (target == null) return PlayerActionResult.Warn("Nothing is targeted.", ChatCommandResultKind.Talk);
             if (!CanTalkToTarget) return PlayerActionResult.Warn($"{target.Name} cannot be talked to.", ChatCommandResultKind.Talk);
+            // The Mog House door is the client's own: Confirm on it asks before leaving, the server is told only on Yes (#354).
+            if (MogHouseRooms.IsExitDoor(target))
+            {
+                MogHouseExitRequested?.Invoke();
+                return PlayerActionResult.Ok(MogHouseRooms.ExitQuestion, ChatCommandResultKind.Talk);
+            }
             try
             {
                 await _combatModule.RequestTalkAsync(target.ServerId, target.TargetIndex).ConfigureAwait(false);

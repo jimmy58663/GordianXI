@@ -21,6 +21,8 @@ public partial class App : Application
         // Every session, displayed or not, follows the collision of its own zone (loaded off the UI thread).
         _zoneCollision = new ZoneCollisionService(SessionRegistry.Default,
             zoneId => AppResourceManager.Instance?.TryLoadZoneCollision(zoneId));
+        // Building interiors near the player are walked as well (#68).
+        Gordian.Core.World.SubAreaTracker.InteriorCollisionLoader = subAreaId => AppResourceManager.Instance?.TryLoadSubAreaCollision(subAreaId);
 
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
         Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);

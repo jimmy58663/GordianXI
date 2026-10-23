@@ -475,6 +475,7 @@ namespace Gordian.Core.Network.Packets
             }
 
             if (npcPacket.TryGetDoorObjectId(out string doorId)) entity.TransportId = doorId;
+            if (npcPacket.TryGetShipNumber(out uint shipNumber)) entity.ShipNumber = shipNumber;
 
             if (npcPacket.TryGetEquippedLook(out _, out _, out var grapTable))
             {
