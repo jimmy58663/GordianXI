@@ -117,13 +117,30 @@ namespace Gordian.Core.Network.Packets
                     MemberNumber = nextSlot[partyNumber]++
                 }, includeVitals: false);
             }
-            _partyState.RetainMembers(listed);
+            // LandSandBoat sends this table with every slot empty (UniqueNo 0) when the character is not in a party any more
+            // (CParty::DisbandParty / RemoveMember: GROUP_TBL(nullptr)): that is Solo, not a party of one.
+            if (listed.Count == 0) _partyState.ClearParty();
+            else _partyState.RetainMembers(listed);
         }
+
+        /// <summary>
+        /// LandSandBoat follows the empty group table that ends a party with a member list for the character alone with
+        /// every flag clear (<c>GROUP_LIST(PChar, 0, 0, zone)</c> in party.cpp, sent to whoever was left or left): a real
+        /// party always lists its members in the table first, so such a packet with no roster is "not in a party", not a
+        /// party of one (#397; a party of one has the leader flag set on its one member).
+        /// </summary>
+        private bool IsSoloNotice(uint attributes) => attributes == 0 && _partyState.Members.Count == 0;
 
         private void HandleGroupList(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var list = new S2C_0x0DD_GroupList(payload);
             if (!list.IsValid) return;
+
+            if (IsSoloNotice(list.GAttr))
+            {
+                GordianLog.Debug("PARTY", "Group member update with no flags and no roster: not in a party.");
+                return;
+            }
 
             string name = list.GetName();
             var member = new PartyMember
@@ -310,6 +327,8 @@ namespace Gordian.Core.Network.Packets
         {
             var list2 = new S2C_0x0E2_GroupList2(payload);
             if (!list2.IsValid) return;
+
+            if (IsSoloNotice(list2.GAttr)) return;
 
             string name = list2.GetName();
             var member = new PartyMember

@@ -38,7 +38,7 @@ namespace Gordian.App.Graphics
         public const int WeaponSkillTp = 1000;
 
         public const double TpFlashPeriod = 0.8;
-        public static readonly UiColor TpFlashColor = new(0x78, 0xA0, 0xC8, 0x80);
+        public static readonly UiColor TpFlashColor = new(0xA0, 0xCC, 0xFF, 0x80);
 
         /// <summary>The TP gauge's colour at <paramref name="seconds"/>: steady below <see cref="WeaponSkillTp"/>, pulsing above.</summary>
         public static UiColor TpColorAt(int tp, double seconds)
