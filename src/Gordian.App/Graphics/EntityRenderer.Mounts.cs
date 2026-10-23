@@ -17,31 +17,44 @@ namespace Gordian.App.Graphics
         /// <summary>The mount's joint palette key: the rider's server id with the top bit set (no entity id uses it).</summary>
         private static uint MountPaletteKey(uint serverId) => serverId ^ 0x8000_0000u;
 
+        private static CharacterRace RaceOf(WorldEntity entity) => (CharacterRace)((entity.Appearance.FaceModel >> 8) & 0xFF);
+
         /// <summary>
-        /// The model a mounted character is animated with: its riding variant (same meshes and GPU copy, the riding clips),
-        /// else <paramref name="character"/> itself (on foot, a costume, a race without a riding pack).
+        /// The model a mounted character is animated with (same meshes and GPU copy): on a chocobo its race's chocobo riding
+        /// pack; on another mount the pose that mount gives its race (<see cref="MountSeating"/>, round 5: the Magic Pot's
+        /// riders stand, the Spectral Chair's sit) from its race's mount rider pack. Else <paramref name="character"/> itself
+        /// (on foot, a costume, a race without the packs).
         /// </summary>
         private static EntityModel RiderOrSelf(WorldEntity entity, EntityModel character, ResourceManager? resources)
         {
             if (!entity.Mount.IsMounted || resources == null || !character.IsCharacter || entity.Appearance.ModelId != 0) return character;
-            var race = (CharacterRace)((entity.Appearance.FaceModel >> 8) & 0xFF);
+            var race = RaceOf(entity);
+            if (!entity.Mount.RidesChocobo)
+            {
+                byte pose = resources.GetRideData(entity.Mount)?.PoseFor(race) ?? MountSeating.StraddlePose;
+                if (resources.TryGetPoseRiderModel(character, race, pose, out var posed) && posed != null) return posed;
+            }
             return resources.TryGetRiderModel(character, race, out var rider) && rider != null ? rider : character;
         }
 
-        /// <summary>A mount prepared for this frame: its model and GPU copy, posed palette, scale, where the rider sits and the seat's height.</summary>
+        /// <summary>
+        /// A mount prepared for this frame: its model and GPU copy, posed palette, scale, where the rider goes and how far the
+        /// rider's name plate is raised.
+        /// </summary>
         private readonly record struct MountRide(EntityModel Mount, GpuEntityModel Gpu, JointPaletteEntry Palette, uint Key, float Scale,
-            Vector3 RiderOffset, float SeatHeight);
-
-        /// <summary>The chocobo the riding packs are authored on (its seat is the reference other mounts replace).</summary>
-        private static readonly MountAppearance RidingChocobo = MountAppearance.FromWire(MountAppearance.StatusChocobo, 0, 1);
+            Vector3 RiderOffset, float PlateLift);
 
         /// <summary>
         /// Advances and poses the mount of a mounted entity (its own state, the rider's movement category) and works out the
-        /// rider's place (#87, round 2): the mount is scaled by the rider's race (<see cref="MountModels.MountScale"/>), and
-        /// the rider, whose pack moves with a chocobo's seat, is moved by this mount's seat (skeleton reference 1, posed:
-        /// it bobs with the mount, idle included) less the chocobo's at the rider's clip time, and up by how much higher
-        /// this mount's back stands over its seat than the chocobo's (<see cref="MountModels.BackHeight"/>), scaled. On the
-        /// chocobo itself the pack fits as authored. Frees the mount's palette and returns null when the entity does not ride.
+        /// rider's place (#87, round 5, all from the mount's data, <see cref="MountSeating"/>):
+        /// <list type="bullet">
+        /// <item>A chocobo is scaled by the rider's race (<see cref="MountModels.MountScale"/>) and the chocobo riding pack fits it
+        /// as authored.</item>
+        /// <item>Any other mount is drawn at its own size for the rider's build (Info bytes 10-12). The rider holds the pose the
+        /// mount gives its race, its hips on the race's seat reference (r48 + race) in the mount's current pose, so it bobs with
+        /// the mount.</item>
+        /// </list>
+        /// Frees the mount's palette and returns null when the entity does not ride.
         /// </summary>
         private MountRide? PrepareMount(CommandList cl, WorldEntity entity, EntityModel? character, ResourceManager? resources,
             bool engaged, bool isLocalPlayer, float deltaSeconds)
@@ -66,33 +79,32 @@ namespace Gordian.App.Graphics
 
             var rider = character != null ? RiderOrSelf(entity, character, resources) : null;
             bool riding = rider != null && !ReferenceEquals(rider, character);
-            // The pack's chocobo is scaled by the race; the mount by the race and its own size, its model's Info scale (round 4).
+            // The straddling pack's chocobo is scaled by the race (the pose rider's idle is the straddle's on a straddle).
             float raceScale = riding ? resources.GetMountScale(rider!) : 1f;
-            float scale = raceScale * resources.GetMountBaseScale(entity.Mount);
-            var seat = MountModels.SeatPoint(mount, pose) + new Vector3(MountModels.SeatShift(entity.Mount), 0f, 0f);
-            var offset = Vector3.Zero;
-            float back = 0f;
-            if (riding && !entity.Mount.RidesChocobo && resources.TryLoadMountModel(RidingChocobo, out var chocobo) && chocobo != null)
+            var race = RaceOf(entity);
+            if (entity.Mount.RidesChocobo)
             {
-                var animation = entity.Animation;
-                var expected = MountModels.ChocoboSeat(chocobo, animation.CurrentClip, animation.ElapsedSeconds);
-                if (animation.IsBlending && animation.PreviousClip != null)
-                {
-                    expected = Vector3.Lerp(MountModels.ChocoboSeat(chocobo, animation.PreviousClip, animation.PreviousElapsedSeconds),
-                        expected, animation.BlendWeight);
-                }
-                // Model space is Y-down: a higher back moves the rider to -Y.
-                // Model space is Y-down: the back's height over the seat raises the rider (-Y). The pack expects the chocobo's
-                // seat and back at the race scale; this mount's are at its own scale.
-                back = resources.GetBackHeight(mount, MountModels.SeatShift(entity.Mount));
-                var mountBack = scale * (seat - new Vector3(0f, back, 0f));
-                var chocoboBack = raceScale * (expected - new Vector3(0f, resources.GetBackHeight(chocobo), 0f));
-                offset = mountBack - chocoboBack;
+                // The name plate: the rider's own overhead point raised by half its seat's height (round 3 H17).
+                var chocoboSeat = MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference);
+                return new MountRide(mount, gpuModel, palette, key, raceScale, Vector3.Zero, 0.5f * raceScale * -chocoboSeat.Y);
             }
-            // The name plate: the rider's own overhead point raised by half its seat's height (round 3 H17; the full height,
-            // round 2, sat a little too high against retail's image-9.png). For another mount the seat is its back as placed.
-            float seatHeight = riding && !entity.Mount.RidesChocobo ? raceScale * MountModels.ChocoboRestSeatHeight - offset.Y : scale * -seat.Y;
-            return new MountRide(mount, gpuModel, palette, key, scale, offset, 0.5f * seatHeight);
+
+            var data = resources.GetRideData(entity.Mount);
+            float scale = data?.ScaleFor(race) ?? 1f;
+            byte riderPose = data?.PoseFor(race) ?? MountSeating.StraddlePose;
+            int seatReference = MountSeating.SeatReference(race);
+            var seat = scale * (MountModels.HasReference(mount, seatReference)
+                ? MountModels.ReferencePoint(mount, pose, seatReference)
+                : MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference));
+            if (!riding) return new MountRide(mount, gpuModel, palette, key, scale, Vector3.Zero, 0f);
+            // Whatever the pose (a straddle, standing on the Magic Pot, a chair), the rider's hips go on the race's seat: the
+            // references sit just over the raptor's back at one height for every race, and on the Magic Pot by each race's
+            // standing hip height over the lid. Model space is Y-down: heights are -Y.
+            var offset = seat - resources.GetRiderHips(rider!);
+            // The name plate rides with the rider: raised by how far its origin moved, plus half the seat's height for a
+            // straddle (round 3 H17), whose origin is the ground under a chocobo.
+            float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? 0.5f * raceScale * MountModels.ChocoboRestSeatHeight : 0f);
+            return new MountRide(mount, gpuModel, palette, key, scale, offset, lift);
         }
 
         /// <summary>

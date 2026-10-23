@@ -689,7 +689,7 @@ namespace Gordian.App.Graphics
                 float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
                 // A rider's name plate (#87, round 2 H12): its own overhead point over the mount's seat, about a yalm over the
                 // seated head as in retail (image-9.png), not over the head itself.
-                if (ride is { } plated && isSkinned) overheadHeight += plated.SeatHeight;
+                if (ride is { } plated && isSkinned) overheadHeight += plated.PlateLift;
                 var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;

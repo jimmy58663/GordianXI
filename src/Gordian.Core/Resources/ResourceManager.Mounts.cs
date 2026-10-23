@@ -11,7 +11,11 @@ namespace Gordian.Core.Resources
     public sealed partial class ResourceManager
     {
         private readonly ConcurrentDictionary<CharacterRace, (List<AnimationClip> Clips, List<RawMotionRoutine> Routines)?> _riderPacks = new();
+        private readonly ConcurrentDictionary<CharacterRace, (List<AnimationClip> Clips, List<RawMotionRoutine> Routines)?> _mountPacks = new();
         private ConditionalWeakTable<EntityModel, EntityModel> _riders = new();
+        private ConditionalWeakTable<EntityModel, ConcurrentDictionary<byte, EntityModel?>> _poseRiders = new();
+        private ConditionalWeakTable<EntityModel, StrongBox<float>> _mountScales = new();
+        private readonly ConcurrentDictionary<string, MountSeating.RideData?> _rideData = new();
 
         /// <summary>
         /// The model of the mount <paramref name="mount"/> rides (#87, <see cref="MountModels.LoadMount"/>), cached with the
@@ -30,7 +34,7 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// <paramref name="character"/> seated: the same meshes playing its race's chocobo riding pack (#87,
+        /// <paramref name="character"/> seated on a chocobo: the same meshes playing its race's chocobo riding pack (#87,
         /// <see cref="MountModels.BuildRider"/>), built once per character model. False for a race without a pack.
         /// </summary>
         public bool TryGetRiderModel(EntityModel character, CharacterRace race, out EntityModel? rider)
@@ -47,37 +51,54 @@ namespace Gordian.Core.Resources
             return true;
         }
 
-        private ConditionalWeakTable<EntityModel, StrongBox<float>> _mountScales = new();
-
-        /// <summary>How much the mount is scaled under <paramref name="rider"/> (#87, <see cref="MountModels.MountScale"/>), computed once per rider.</summary>
-        public float GetMountScale(EntityModel rider) => _mountScales.GetValue(rider, r => new StrongBox<float>(MountModels.MountScale(r))).Value;
-
-        private readonly ConcurrentDictionary<string, float> _mountBaseScales = new();
-
-        /// <summary>The mount's own size from its model's Info section (#87, <see cref="MountModels.MountBaseScale"/>), read once per mount.</summary>
-        public float GetMountBaseScale(in MountAppearance mount)
+        /// <summary>
+        /// <paramref name="character"/> holding mount rider pose <paramref name="pose"/> (#87, round 5,
+        /// <see cref="MountSeating"/>): its race's mount rider pack's <c>{pose}hi</c> / <c>lk</c> / <c>un</c> / <c>vb</c> as its
+        /// idle and locomotion, on its own meshes. Built once per character and pose; false without the pack or the pose.
+        /// </summary>
+        public bool TryGetPoseRiderModel(EntityModel character, CharacterRace race, byte pose, out EntityModel? rider)
         {
-            var key = MountModels.CacheKey(mount);
-            if (_mountBaseScales.TryGetValue(key, out float cached)) return cached;
-            float scale = MountModels.MountBaseScale(mount, LoadDatBytes, LoadDatBytesByFileId);
-            _mountBaseScales[key] = scale;
-            return scale;
+            var byPose = _poseRiders.GetValue(character, _ => new ConcurrentDictionary<byte, EntityModel?>());
+            rider = byPose.GetOrAdd(pose, p =>
+            {
+                if (_mountPacks.GetOrAdd(race, r => MountSeating.LoadPack(r, LoadDatBytes)) is not { } pack) return null;
+                var clips = MountSeating.PoseClips(pack.Clips, p);
+                return clips.Count == 0 ? null : MountModels.BuildRider(character, clips, pack.Routines);
+            });
+            return rider != null;
         }
 
-        private ConditionalWeakTable<EntityModel, StrongBox<float>> _backHeights = new();
+        /// <summary>How much the chocobo is scaled under <paramref name="rider"/> (#87, <see cref="MountModels.MountScale"/>), computed once per rider.</summary>
+        public float GetMountScale(EntityModel rider) => _mountScales.GetValue(rider, r => new StrongBox<float>(MountModels.MountScale(r))).Value;
 
-        /// <summary>How high the mount's back stands over its seat reference (#87, <see cref="MountModels.BackHeight"/>), computed once per mount.</summary>
-        public float GetBackHeight(EntityModel mount, float seatShift = 0f) =>
-            _backHeights.GetValue(mount, m => new StrongBox<float>(MountModels.BackHeight(m, seatShift))).Value;
+        /// <summary>A mount's ride data (size per build, pose per race; #87 round 5, <see cref="MountSeating.Read"/>), read once per mount; null for the chocobo.</summary>
+        public MountSeating.RideData? GetRideData(in MountAppearance mount)
+        {
+            if (!mount.IsMounted || mount.RidesChocobo) return null;
+            var key = MountModels.CacheKey(mount);
+            if (_rideData.TryGetValue(key, out var cached)) return cached;
+            byte[]? dat = LoadDatBytesByFileId(MountModels.MountFileId(mount.MountId));
+            var data = dat == null || dat.Length == 0 ? null : MountSeating.Read(dat);
+            _rideData[key] = data;
+            return data;
+        }
+
+        private ConditionalWeakTable<EntityModel, StrongBox<System.Numerics.Vector3>> _riderHips = new();
+
+        /// <summary>Where <paramref name="rider"/>'s hips are in its pose (#87 round 5, <see cref="MountModels.RiderHips"/>), computed once per rider.</summary>
+        public System.Numerics.Vector3 GetRiderHips(EntityModel rider) =>
+            _riderHips.GetValue(rider, r => new StrongBox<System.Numerics.Vector3>(MountModels.RiderHips(r))).Value;
 
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()
         {
             _riderPacks.Clear();
-            _mountBaseScales.Clear();
+            _mountPacks.Clear();
+            _rideData.Clear();
+            _riderHips = new ConditionalWeakTable<EntityModel, StrongBox<System.Numerics.Vector3>>();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();
+            _poseRiders = new ConditionalWeakTable<EntityModel, ConcurrentDictionary<byte, EntityModel?>>();
             _mountScales = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
-            _backHeights = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
         }
     }
 }

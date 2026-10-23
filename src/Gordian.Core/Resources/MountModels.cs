@@ -32,9 +32,8 @@ namespace Gordian.Core.Resources
     /// chocobo's own <c>chor</c>), <c>coff</c> (dismount: <c>ch1</c> 104 ticks then <c>ch2</c>), <c>cdam</c>. Its clips are as long
     /// as the chocobo race's (<c>chi</c> 31 frames, <c>run</c> 13, <c>wlk</c> 17, <c>chh</c> 77) and lift the rider from its own
     /// origin (Hume male <c>chi</c>: hips at 1.78 yalms, which fits the chocobo's saddle), each race onto a chocobo scaled to
-    /// it (<see cref="MountScale"/>). On another mount the rider moves with that mount's seat (skeleton reference 1) in place
-    /// of the chocobo's (<see cref="ChocoboSeat"/>; **Beyond xi-tools**, which does not say how the rider is seated). Every
-    /// mount uses the same riding pack.</item>
+    /// it (<see cref="MountScale"/>; **Beyond xi-tools**, which does not say how the rider is seated). Other mounts use the
+    /// mount rider packs and their own ride data instead (<see cref="MountSeating"/>).</item>
     /// </list>
     /// </summary>
     public static class MountModels
@@ -217,20 +216,17 @@ namespace Gordian.Core.Resources
         /// </summary>
         public const float ReferenceRiderHips = 1.7802f;
 
-        /// <summary>The chocobo's seat height (reference 1 in its idle, yalms), for the name plate over another mount.</summary>
-        public const float ChocoboRestSeatHeight = 1.44f;
-
-        /// <summary>The skeleton reference the rider sits on: reference 1, the body joint of the chocobo and of every mount.</summary>
-        public const int SeatReference = 1;
+        /// <summary>The chocobo the riding packs are authored on (a rental chocobo).</summary>
+        public static readonly MountAppearance RidingChocobo = MountAppearance.FromWire(MountAppearance.StatusChocobo, 0, 1);
 
         /// <summary>
-        /// How much the mount is scaled under this rider (#87, round 2: retail scales the mount by the rider's race,
-        /// image-9.png and the maintainer's video of 2026-10-23). Every race's riding pack is authored for a chocobo scaled to
-        /// it: its seated hips sit at s x (the chocobo's reference 1 + 0.34 yalm) through <c>chi</c>, <c>run</c> and
+        /// How much the chocobo is scaled under this rider (#87, round 2: retail scales the mount by the rider's race,
+        /// image-9.png and the maintainer's video of 2026-10-23). Every race's chocobo riding pack is authored for a chocobo
+        /// scaled to it: its seated hips sit at s x (the chocobo's reference 1 + 0.34 yalm) through <c>chi</c>, <c>run</c> and
         /// <c>wlk</c>, with s = the pack's hip height over the Hume male's: Hume female 0.995, Elvaan male 1.233, Elvaan female
-        /// 1.216, Tarutaru 0.955, Mithra 0.982, Galka 1.298 (read from the retail packs, 2026-10-22). The video's raptors
-        /// measure the same ratios against the Mithra's (Galka and Elvaan about 1.25, Tarutaru 0.96). **Beyond xi-tools.**
-        /// *Inference*: that the client scales by this ratio rather than a table of its own.
+        /// 1.216, Tarutaru 0.955, Mithra 0.982, Galka 1.298 (read from the retail packs, 2026-10-22). The chocobo race has no
+        /// per-race sizes of its own (its Info scale bytes read 100 / 125 / 100 / 100). Other mounts carry theirs
+        /// (<see cref="MountSeating"/>). **Beyond xi-tools.** *Inference*: that the client scales the chocobo by this ratio.
         /// </summary>
         public static float MountScale(EntityModel rider)
         {
@@ -239,126 +235,29 @@ namespace Gordian.Core.Resources
             return hips > 0.1f ? hips / ReferenceRiderHips : 1f;
         }
 
+        /// <summary>The chocobo's seat height (reference 1 in its idle, yalms), for a straddling rider's name plate.</summary>
+        public const float ChocoboRestSeatHeight = 1.44f;
+
+        /// <summary>The chocobo's body joint reference (r1), under the straddling rider's seat.</summary>
+        public const int ChocoboSeatReference = 1;
+
+        /// <summary>The position of skeleton reference <paramref name="reference"/> of <paramref name="model"/> in model space (Y down, unscaled) for <paramref name="pose"/>.</summary>
+        public static System.Numerics.Vector3 ReferencePoint(EntityModel model, in SkeletonPoseEvaluator.EvaluatedPose pose, int reference) =>
+            Gordian.Core.Graphics.ActorEffectInstance.ResolveJointReference(model.Skeleton, pose.Translations, pose.Rotations, pose.Scales, reference);
+
+        /// <summary>Whether <paramref name="model"/> carries skeleton reference <paramref name="reference"/> on a joint (a mount's seat references r48-r55).</summary>
+        public static bool HasReference(EntityModel model, int reference) =>
+            model.Skeleton is { } skeleton && reference >= 0 && reference < skeleton.References.Count
+            && (skeleton.References[reference].Index != 0 || skeleton.References[reference].Offset != System.Numerics.Vector3.Zero);
+
         /// <summary>
-        /// The mount's own size against the chocobo the riding packs are authored on, applied on top of the rider's
-        /// <see cref="MountScale"/> (#87, round 4): the model's Info section (0x45 <c>info</c>) byte 10, a percentage, which
-        /// xi-model-viewer (https://github.com/vekien/xi-model-viewer) <c>ui/js/dat/inspect.js</c> names "Scale" after xim's
-        /// InfoSection. The chocobo race (<c>ROM/169/11</c>) carries 100. Read from every retail mount (2026-10-23):
-        /// <list type="bullet">
-        /// <item>85: the raptor, tiger, crabs and most others</item>
-        /// <item>60: Fenrir and Dhalmel</item>
-        /// <item>50: Magic Pot; 65: Phuabo; 70: Xzomit; 95: Hippogryph</item>
-        /// <item>100: Moogle, Tulfaire, Spheroid, Coeurl, Ixion, Alicorn</item>
-        /// <item>105: Goobbue; 115: the bombs and Levitus; 120: Omega; 130: Beetle</item>
-        /// </list>
-        /// The retail shots agree with the hand fits it replaces: image-12.png fitted the raptor at 0.84-0.86 for every race,
-        /// image-13.png Fenrir at 0.61 under the Galka. **Beyond xi-model-viewer**: that the mount is drawn at this scale times
-        /// the race's riding scale. 1 when the file has no Info section or the byte is 0xFF (unset).
+        /// Where the rider's hips (joint 2) are in its idle's first frame (model space, Y down): what sits on the mount's seat
+        /// reference (<see cref="MountSeating.SeatReference"/>; #87, round 5). Zero without a skeleton or an idle.
         /// </summary>
-        public static float InfoScale(ReadOnlySpan<byte> dat)
+        public static System.Numerics.Vector3 RiderHips(EntityModel rider)
         {
-            foreach (var header in DatSectionWalker.ReadHeaders(dat))
-            {
-                if (header.TypeCode != DatSectionType.Info || header.DatId.StartsWith("moun", StringComparison.Ordinal)) continue;
-                if (header.DataSizeBytes < 11 || header.DataOffset + 11 > dat.Length) return 1f;
-                byte scale = dat[header.DataOffset + InfoScaleByte];
-                return scale is 0 or 0xFF ? 1f : scale / 100f;
-            }
-            return 1f;
-        }
-
-        /// <summary>The Info section byte that holds the model's scale (<see cref="InfoScale"/>).</summary>
-        public const int InfoScaleByte = 10;
-
-        /// <summary>
-        /// The mount's own size (<see cref="InfoScale"/> of its model DAT; the chocobo race's for a chocobo or the Noble
-        /// Chocobo). 1 when the file is missing.
-        /// </summary>
-        public static float MountBaseScale(in MountAppearance mount, Func<string, byte[]?> datByPath, Func<int, byte[]?> datByFileId)
-        {
-            if (!mount.IsMounted) return 1f;
-            byte[]? dat = mount.RidesChocobo ? datByPath(ChocoboSkeletonPath) : datByFileId(MountFileId(mount.MountId));
-            return dat == null || dat.Length == 0 ? 1f : InfoScale(dat);
-        }
-
-        /// <summary>
-        /// How far the rider's seat is moved along the mount from its seat reference (model units, + forward), for a mount
-        /// whose reference 1 is not under the riding spot (#87, round 3 H15). Fenrir's back is flat at 1.80-1.86 from 1.0 to
-        /// 0.0 behind its reference and climbs to 2.45-2.5 over the shoulders from 0.4 ahead, where the pack's 0.27 put the
-        /// riders (too high and too far forward against image-13.png, where the Galka sits mid-back): 0.6 back. Others: 0.
-        /// </summary>
-        public static float SeatShift(in MountAppearance mount) => !mount.RidesChocobo && mount.MountId == 9 ? FenrirSeatShift : 0f;
-
-        /// <summary>Fenrir's seat shift (<see cref="SeatShift"/>).</summary>
-        public const float FenrirSeatShift = -0.6f;
-
-        /// <summary>
-        /// The seat point (<see cref="SeatReference"/>) of <paramref name="model"/> in its model space (Y down, unscaled) for
-        /// <paramref name="pose"/>.
-        /// </summary>
-        public static System.Numerics.Vector3 SeatPoint(EntityModel model, in SkeletonPoseEvaluator.EvaluatedPose pose) =>
-            Gordian.Core.Graphics.ActorEffectInstance.ResolveJointReference(model.Skeleton, pose.Translations, pose.Rotations, pose.Scales, SeatReference);
-
-        /// <summary>
-        /// Where the riding pack expects the chocobo's seat while it plays <paramref name="clip"/> at <paramref name="time"/>:
-        /// the chocobo race's own clip of that name (the packs are as long as the chocobo's and move with it) at the same
-        /// time; its idle when it has no such clip.
-        /// </summary>
-        public static System.Numerics.Vector3 ChocoboSeat(EntityModel chocobo, AnimationClip? clip, float time)
-        {
-            if (chocobo.Skeleton is not { Count: > 0 } skeleton) return System.Numerics.Vector3.Zero;
-            AnimationClip? own = null;
-            if (clip != null && !chocobo.Animations.TryGetValue(clip.Name, out own)) chocobo.Animations.TryGetValue(clip.Name + "0", out own);
-            own ??= chocobo.Animations.TryGetValue("idl", out var idle) ? idle : null;
-            var pose = own != null ? SkeletonPoseEvaluator.EvaluatePose(skeleton, own, time, true) : SkeletonPoseEvaluator.ComputeBindPose(skeleton);
-            return SeatPoint(chocobo, pose);
-        }
-
-        /// <summary>
-        /// How far ahead of the seat reference the riding packs put the hips (yalms): the Hume male's <c>chi</c> has them 0.27
-        /// ahead of the chocobo's reference 1, and every race's is within 0.1 of that scaled.
-        /// </summary>
-        public const float SeatForward = 0.27f;
-
-        // The patch searched for the top of a mount's back: forward / back and sideways (yalms).
-        private const float BackHalfLength = 0.18f, BackHalfWidth = 0.12f;
-
-        /// <summary>
-        /// How far the top of the mount's back stands over its seat reference where the rider sits (<see cref="SeatForward"/>
-        /// ahead of it, in its idle's first frame): the chocobo's 0.21, the raptor's 0.28, Fenrir's 1.02 (a thick body over
-        /// its hip joint). The rider is raised by the difference from the chocobo's (round 2 H11: on Fenrir the riders sank
-        /// into the body). 0 when the patch has no vertex.
-        /// </summary>
-        public static float BackHeight(EntityModel mount, float seatShift = 0f)
-        {
-            if (mount.Skeleton is not { Count: > 0 } skeleton) return 0f;
-            var pose = mount.Animations.TryGetValue("idl", out var idle)
-                ? SkeletonPoseEvaluator.EvaluatePose(skeleton, idle, 0f, true)
-                : SkeletonPoseEvaluator.ComputeBindPose(skeleton);
-            var seat = SeatPoint(mount, pose);
-            float x = seat.X + SeatForward + seatShift;
-            float top = float.MinValue;
-            foreach (var p in SkinnedPoints(mount, pose))
-            {
-                if (MathF.Abs(p.X - x) < BackHalfLength && MathF.Abs(p.Z - seat.Z) < BackHalfWidth) top = MathF.Max(top, -p.Y);
-            }
-            return top == float.MinValue ? 0f : top + seat.Y;
-        }
-
-        private static IEnumerable<System.Numerics.Vector3> SkinnedPoints(EntityModel model, SkeletonPoseEvaluator.EvaluatedPose pose)
-        {
-            foreach (var group in model.AnimatedMeshGroups)
-            {
-                foreach (var v in group.Vertices)
-                {
-                    var skinned = new SkinnedVertex
-                    {
-                        Position0 = v.Position0, Position1 = v.Position1, Normal0 = v.Normal0, Normal1 = v.Normal1,
-                        Weight0 = v.Weight0, Weight1 = v.Weight1, Joint0 = v.Joint0, Joint1 = v.Joint1,
-                    };
-                    yield return SkeletonPoseEvaluator.SkinVertex(skinned, pose).Position;
-                }
-            }
+            if (rider.Skeleton is not { Count: > 2 } skeleton || !rider.Animations.TryGetValue("chi", out var seated)) return System.Numerics.Vector3.Zero;
+            return SkeletonPoseEvaluator.EvaluatePose(skeleton, seated, 0f, true).Translations[2];
         }
 
         private static bool IsFootMotion(string name)

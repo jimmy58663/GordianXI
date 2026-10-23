@@ -272,76 +272,125 @@ namespace Gordian.Core.Tests.World
                 {
                     float t = i * clip.DurationSeconds / 6;
                     var hips = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(character.Skeleton!, clip, t, true).Translations[2];
-                    var seat = MountModels.ChocoboSeat(chocobo!, clip, t) * scale;
+                    var own = chocobo!.Animations.TryGetValue(clip.Name, out var c) ? c : chocobo.Animations["idl"];
+                    var chocoboPose = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(chocobo.Skeleton!, own, t, true);
+                    var seat = MountModels.ReferencePoint(chocobo, chocoboPose, MountModels.ChocoboSeatReference) * scale;
                     Assert.InRange(-(hips.Y - seat.Y) / scale, 0.28f, 0.42f);
                     Assert.InRange((hips.X - seat.X) / scale, 0.15f, 0.55f);
                 }
             }
         }
 
+        private static MountSeating.RideData Ride(ResourceManager rm, byte mountId) =>
+            rm.GetRideData(MountAppearance.FromWire(85, (byte)(mountId + 1), 1))!;
+
         /// <summary>
-        /// The top of each mount's back over its seat reference, where the hips go: the rider is raised by the difference from
-        /// the chocobo's (round 2 H11: on Fenrir, whose seat reference is a hip joint deep in a thick body, riders sank in).
+        /// Round 5: each mount's size per build is its Info bytes 10-12 (Hume, Mithra, Tarutaru; Elvaan; Galka). The raptor's
+        /// 85 / 100 / 115 match image-12.png's fits; Fenrir is 60 under every race (image-13.png's five Fenrirs alike); the
+        /// chocobo has no ride data (the pack's race scale sizes it).
         /// </summary>
         [Fact]
-        public void RetailMounts_BackHeightOverTheSeat()
+        public void RetailRideData_SizesPerBuild()
         {
             var rm = Retail();
             if (rm == null) return;
-            float Back(MountAppearance mount)
-            {
-                Assert.True(rm.TryLoadMountModel(mount, out var model));
-                return rm.GetBackHeight(model!);
-            }
-            Assert.InRange(Back(MountAppearance.FromWire(5, 0, 1)), 0.18f, 0.25f);   // chocobo
-            Assert.InRange(Back(MountAppearance.FromWire(85, 2, 2)), 0.24f, 0.32f);  // raptor
-            Assert.InRange(Back(MountAppearance.FromWire(85, 10, 3)), 0.95f, 1.10f); // Fenrir at its hip joint: the shoulder fur
-            // Round 3 H15: Fenrir's riders sit 0.6 further back, on its flat mid-back.
-            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 10, 3), out var fenrir));
-            Assert.InRange(MountModels.BackHeight(fenrir!, MountModels.SeatShift(MountAppearance.FromWire(85, 10, 3))), 0.30f, 0.45f);
+            Assert.Null(rm.GetRideData(MountAppearance.FromWire(5, 0, 1)));
+            var raptor = Ride(rm, 1);
+            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.HumeMale), 3);
+            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.Mithra), 3);
+            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.TaruFemale), 3);
+            Assert.Equal(1.00f, raptor.ScaleFor(CharacterRace.ElvaanFemale), 3);
+            Assert.Equal(1.15f, raptor.ScaleFor(CharacterRace.Galka), 3);
+            var fenrir = Ride(rm, 9);
+            Assert.All(new[] { CharacterRace.HumeMale, CharacterRace.ElvaanMale, CharacterRace.Galka, CharacterRace.TaruMale },
+                race => Assert.Equal(0.60f, fenrir.ScaleFor(race), 3));
+            Assert.Equal(0.50f, Ride(rm, 12).ScaleFor(CharacterRace.Mithra), 3); // Magic Pot
+            Assert.Equal(1.30f, Ride(rm, 10).ScaleFor(CharacterRace.Mithra), 3); // Beetle
         }
 
         /// <summary>
-        /// Round 4: each mount's own size is its model's Info byte 10 (xim / xi-model-viewer "Scale"), on top of the race
-        /// scale: the chocobo race 100, the raptor 85 (round 3's hand fit), Fenrir 60 (round 3 measured 0.61 under the Galka),
-        /// and every other mount its own value.
+        /// Round 5: the <c>moun</c> section's bytes 8-15 are each race's pose: the raptor and Fenrir straddle (6), the Magic Pot's
+        /// riders stand (5, image-26.png), the Spectral Chair's sit (3); the tiger differs by race.
         /// </summary>
         [Fact]
-        public void RetailMountBaseScales_ComeFromTheModelsInfoScale()
+        public void RetailRideData_PosePerRace()
         {
             var rm = Retail();
             if (rm == null) return;
-            Assert.Equal(1.00f, rm.GetMountBaseScale(MountAppearance.FromWire(5, 0, 2)), 3);   // chocobo (ROM/169/11)
-            Assert.Equal(1.00f, rm.GetMountBaseScale(MountAppearance.FromWire(5, 34, 4)), 3);  // Noble Chocobo: the chocobo
-            Assert.Equal(0.85f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 2, 2)), 3);  // raptor
-            Assert.Equal(0.85f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 31, 7)), 3); // red raptor
-            Assert.Equal(0.60f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 10, 3)), 3); // Fenrir
-            Assert.Equal(0.50f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 13, 6)), 3); // Magic Pot
-            Assert.Equal(1.30f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 11, 4)), 3); // Beetle
+            Assert.All(Enum.GetValues<CharacterRace>().Where(r => r is >= CharacterRace.HumeMale and <= CharacterRace.Galka),
+                race =>
+                {
+                    Assert.Equal(6, Ride(rm, 1).PoseFor(race));
+                    Assert.Equal(6, Ride(rm, 9).PoseFor(race));
+                    Assert.Equal(5, Ride(rm, 12).PoseFor(race));
+                    Assert.Equal(3, Ride(rm, 17).PoseFor(race));
+                });
+            var tiger = Ride(rm, 2);
+            Assert.Equal(new byte[] { 6, 3, 6, 3, 3, 3, 3, 6 }, new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale,
+                CharacterRace.ElvaanFemale, CharacterRace.TaruMale, CharacterRace.TaruFemale, CharacterRace.Mithra, CharacterRace.Galka }
+                .Select(tiger.PoseFor).ToArray());
         }
 
         [Fact]
-        public void InfoScale_ReadsByteTenOfTheInfoSection()
+        public void RideData_ReadsTheInfoScalesAndThePoses()
         {
-            // A 0x45 "info" section (16-byte header + 16-byte body) with byte 10 = 85, and a "moun" one that must be skipped.
+            // An "info" section (16-byte header + body) with scales 85 / 100 / 115 / 140 at bytes 10-13, then a "moun" one with
+            // poses 6 3 6 3 3 3 3 6 at bytes 8-15.
             var dat = new byte[64];
-            void Section(int at, string id, byte scale)
+            void Section(int at, string id)
             {
                 System.Text.Encoding.ASCII.GetBytes(id).CopyTo(dat, at);
                 BinaryPrimitives.WriteUInt32LittleEndian(dat.AsSpan(at + 4), 0x45 | ((32u / 16) << 7));
-                dat[at + 16 + 10] = scale;
             }
-            Section(0, "moun", 0x40);
-            Section(32, "info", 85);
-            Assert.Equal(0.85f, MountModels.InfoScale(dat), 3);
-            Assert.Equal(1f, MountModels.InfoScale(new byte[8]));
+            Section(0, "info");
+            new byte[] { 85, 100, 115, 140 }.CopyTo(dat, 16 + 10);
+            Section(32, "moun");
+            new byte[] { 6, 3, 6, 3, 3, 3, 3, 6 }.CopyTo(dat, 48 + 8);
+            var data = MountSeating.Read(dat)!;
+            Assert.Equal(new[] { 0.85f, 1.00f, 1.15f, 1.40f }, data.Scales);
+            Assert.Equal(1.15f, data.ScaleFor(CharacterRace.Galka));
+            Assert.Equal(3, data.PoseFor(CharacterRace.Mithra));
+            Assert.Null(MountSeating.Read(new byte[8]));
+            Assert.Equal(48, MountSeating.SeatReference(CharacterRace.HumeMale));
+            Assert.Equal(55, MountSeating.SeatReference(CharacterRace.Galka));
         }
 
+        /// <summary>
+        /// Round 5: every mount carries one seat reference per race (r48 Hume male ... r55 Galka) where the rider's hips go: on
+        /// the raptor's back at one height for every race, on Fenrir's mid-back behind its hip joint (where round 3 had to move
+        /// the seat by hand), over the Magic Pot's lid by each race's standing hip height (the Tarutaru's lowest).
+        /// </summary>
         [Fact]
-        public void SeatShifts()
+        public void RetailMounts_CarryAPerRaceSeat()
         {
-            Assert.Equal(-0.6f, MountModels.SeatShift(MountAppearance.FromWire(85, 10, 3)));
-            Assert.Equal(0f, MountModels.SeatShift(MountAppearance.FromWire(85, 2, 2)));
+            var rm = Retail();
+            if (rm == null) return;
+            System.Numerics.Vector3 Seat(byte mountId, CharacterRace race)
+            {
+                Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, (byte)(mountId + 1), 1), out var model));
+                Assert.True(MountModels.HasReference(model!, MountSeating.SeatReference(race)));
+                var pose = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(model!.Skeleton!, model.Animations["idl"], 0f, true);
+                return MountModels.ReferencePoint(model, pose, MountSeating.SeatReference(race));
+            }
+            Assert.InRange(-Seat(1, CharacterRace.HumeMale).Y, 1.40f, 1.55f);
+            Assert.InRange(-Seat(1, CharacterRace.Galka).Y, 1.40f, 1.55f);
+            Assert.InRange(Seat(9, CharacterRace.Galka).X, -0.9f, -0.4f);
+            Assert.True(-Seat(12, CharacterRace.TaruMale).Y < -Seat(12, CharacterRace.HumeMale).Y - 1f);
+        }
+
+        /// <summary>The mount rider packs (<c>ROM/351/61</c> + 3 per race) carry the poses: standing (5) puts a Mithra's hips at its standing height.</summary>
+        [Fact]
+        public void RetailPoseRiders_HoldTheMountsPose()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            var mithra = EntityModelLoader.AssembleCharacter(CharacterRace.Mithra, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            Assert.True(rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 5, out var standing));
+            Assert.InRange(-rm.GetRiderHips(standing!).Y, 0.9f, 1.1f);
+            Assert.True(rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 6, out var straddling));
+            Assert.InRange(-rm.GetRiderHips(straddling!).Y, 1.7f, 1.8f); // the chocobo pack's straddle
+            Assert.Same(standing, rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 5, out var again) ? again : null);
+            Assert.Equal((System.IO.Path.Combine("ROM", "351", "79.DAT"), System.IO.Path.Combine("ROM", "351", "80.DAT")), MountSeating.PackPaths(CharacterRace.Galka));
         }
 
         /// <summary>Of the retail mounts only Fenrir (id 9) carries a blur aura (Section 0x5E), drawn as on the avatar.</summary>
