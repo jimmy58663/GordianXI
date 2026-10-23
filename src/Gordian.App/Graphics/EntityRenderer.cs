@@ -520,7 +520,7 @@ namespace Gordian.App.Graphics
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
                 // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); a rider
-                // is not scaled, so it stays on its saddle (#87; the mount is the same size under every race in retail).
+                // is not: its mount is scaled for its race instead (#87, MountModels.MountScale), the pack seating it on that.
                 bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player && !mounted ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
@@ -589,11 +589,16 @@ namespace Gordian.App.Graphics
                                   ReferenceEquals(gpuModel, _fallbackMonsterProxy);
                 var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
 
-                // A rider sits on its mount's back (#87): lowered or raised from the shared origin onto the seat.
-                float seat = mounted && !isFallback && entityModel != null ? RiderSeatOffset(entity, entityModel, resourceManager) : 0f;
-                var riderPos = pos + new Vector3(0.0f, seat, 0.0f);
-                if (seat != 0f) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(riderPos) };
-                var worldMatrix = rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(riderPos);
+                // A rider sits on its mount's seat (#87): the mount is posed first, scaled for the rider's race, and the rider
+                // follows its seat (round 2: the bob, idle included). A mount left from the last frame frees its palette.
+                bool isLocalEntity = entity.ServerId == localPlayerServerId;
+                bool engagedNow = isLocalEntity ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
+                var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
+                    ? PrepareMount(cl, entity, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
+                    : null;
+                var seatShift = ride is { } seated && !isFallback ? Matrix4x4.CreateTranslation(seated.RiderOffset) : Matrix4x4.Identity;
+                if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos) };
+                var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
                 {
@@ -682,12 +687,9 @@ namespace Gordian.App.Graphics
 
                 float sizeFactor = entity.Type == EntityType.Player && !isFallback && !mounted ? PlayerSizeScale.For(entity.GraphSize) : 1f;
                 float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
-                // A rider's name plate sits over its raised head, or the mount's own overhead point if that is higher (#87).
-                if (mounted && isSkinned && resourceManager != null && resourceManager.TryLoadMountModel(entity.Mount, out var mountModel)
-                    && mountModel?.Skeleton is { Count: > 0 })
-                {
-                    overheadHeight = Math.Max(overheadHeight + RiderSeatRaise + seat, CursorHeight(mountModel));
-                }
+                // A rider's name plate (#87, round 2 H12): its own overhead point over the mount's seat, about a yalm over the
+                // seated head as in retail (image-9.png), not over the head itself.
+                if (ride is { } plated && isSkinned) overheadHeight += plated.SeatHeight;
                 var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
@@ -707,13 +709,7 @@ namespace Gordian.App.Graphics
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
                     draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 }
-                if (mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId)))
-                {
-                    bool isLocal = entity.ServerId == localPlayerServerId;
-                    bool engagedNow = isLocal ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
-                    draws += DrawMount(cl, entity, resourceManager, uniform, headingRot, pos, faded, engagedNow, isLocal, deltaSeconds,
-                        draw: !isFallback);
-                }
+                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, headingRot, pos, faded, isLocalEntity);
             }
 
             draws += DrawBlurAuras(cl, deltaSeconds);

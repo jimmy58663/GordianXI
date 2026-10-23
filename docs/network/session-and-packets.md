@@ -221,7 +221,7 @@ Not done: the stock Treasure Pool window ([#143](https://github.com/jimmy58663/G
 
 | Mode | Sender (LSB) | Fields | Applied to |
 |---|---|---|---|
-| 2 player | 0x067, `CCharSyncPacket` | 2 u16 index, 4 u32 id, 8 u16 fellow index, 12 u32 `NameFlags` (bit 1 Campaign, bit 2 Level Sync icon), 16 u32 `NameIcon`, 20 / 24 u32 custom properties (chocobo look), 28 u32 Mog House owner, 32 Mog House open, 33 main job level, 34 Level Sync cap (LSB `m_LevelRestriction`), 35 Mog expansion; u16 at 15 is the mount's sub-power | the local player: `LocalPlayerState.CharSync` / `IsLevelSynced`; any player: `WorldEntity.SyncNameFlags` |
+| 2 player | 0x067, `CCharSyncPacket` | 2 u16 index, 4 u32 id, 8 u16 fellow index, 12 u32 `NameFlags` (bit 1 Campaign, bit 2 Level Sync icon), 16 u32 `NameIcon`, 20 / 24 u32 custom properties (chocobo look; the local player's personal chocobo colour and parts, `LocalPlayerState.Mount`, #87), 28 u32 Mog House owner, 32 Mog House open, 33 main job level, 34 Level Sync cap (LSB `m_LevelRestriction`), 35 Mog expansion; u16 at 15 is the mount's sub-power | the local player: `LocalPlayerState.CharSync` / `IsLevelSynced`; any player: `WorldEntity.SyncNameFlags` |
 | 3 NPC | 0x067, `CEntitySetNamePacket` | 8 u16 owner index (a Trust's summoner), 12 u32 `NameFlags`, name at 20 (LSB) or 16 (XiPackets) | the entity: `Name` (underscores to spaces), `OwnerTargetIndex`, `Type` becomes `Trust` when an owner is given |
 | 4 pet | 0x068, `CPetSyncPacket` | 8 u16 second index, 10 HP%, 11 MP%, 12 TP, 16 u32 target id, name at 20 | `LocalPetState` (`CharacterSession.Pet`), the pet entity's `OwnerTargetIndex` and `Hpp`, the local `PlayerEntity.PetActorIndex` |
 

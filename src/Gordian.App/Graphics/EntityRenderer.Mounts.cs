@@ -18,12 +18,6 @@ namespace Gordian.App.Graphics
         private static uint MountPaletteKey(uint serverId) => serverId ^ 0x8000_0000u;
 
         /// <summary>
-        /// How far the riding pack lifts the rider's head over its standing height (Hume male <c>chi</c>: hips 1.05 to 1.78
-        /// yalms), for the name plate and target cursor of a rider that stands above its mount's own overhead point.
-        /// </summary>
-        internal const float RiderSeatRaise = 0.75f;
-
-        /// <summary>
         /// The model a mounted character is animated with: its riding variant (same meshes and GPU copy, the riding clips),
         /// else <paramref name="character"/> itself (on foot, a costume, a race without a riding pack).
         /// </summary>
@@ -34,35 +28,33 @@ namespace Gordian.App.Graphics
             return resources.TryGetRiderModel(character, race, out var rider) && rider != null ? rider : character;
         }
 
-        /// <summary>
-        /// How far the mounted character is moved up (positive) or down from the shared origin to sit on its mount's back
-        /// (<see cref="MountModels.SeatOffset"/>, cached per rider and mount); 0 on foot or without the models.
-        /// </summary>
-        private static float RiderSeatOffset(WorldEntity entity, EntityModel character, ResourceManager? resources)
-        {
-            if (resources == null) return 0f;
-            var rider = RiderOrSelf(entity, character, resources);
-            if (ReferenceEquals(rider, character) || !resources.TryLoadMountModel(entity.Mount, out var mount) || mount == null) return 0f;
-            return resources.GetSeatOffset(rider, mount);
-        }
+        /// <summary>A mount prepared for this frame: its model and GPU copy, posed palette, scale, where the rider sits and the seat's height.</summary>
+        private readonly record struct MountRide(EntityModel Mount, GpuEntityModel Gpu, JointPaletteEntry Palette, uint Key, float Scale,
+            Vector3 RiderOffset, float SeatHeight);
+
+        /// <summary>The chocobo the riding packs are authored on (its seat is the reference other mounts replace).</summary>
+        private static readonly MountAppearance RidingChocobo = MountAppearance.FromWire(MountAppearance.StatusChocobo, 0, 1);
 
         /// <summary>
-        /// Draws the mount of a mounted entity at the rider's origin and heading, unscaled (retail draws the same mount
-        /// under every race, Mounts.mp4), animated by its own state with the rider's movement category. Leaves its joint
-        /// palette for the next frame; frees it when the entity no longer rides. Returns the draw calls made.
+        /// Advances and poses the mount of a mounted entity (its own state, the rider's movement category) and works out the
+        /// rider's place (#87, round 2): the mount is scaled by the rider's race (<see cref="MountModels.MountScale"/>), and
+        /// the rider, whose pack moves with a chocobo's seat, is moved by this mount's seat (skeleton reference 1, posed:
+        /// it bobs with the mount, idle included) less the chocobo's at the rider's clip time, and up by how much higher
+        /// this mount's back stands over its seat than the chocobo's (<see cref="MountModels.BackHeight"/>), scaled. On the
+        /// chocobo itself the pack fits as authored. Frees the mount's palette and returns null when the entity does not ride.
         /// </summary>
-        private int DrawMount(CommandList cl, WorldEntity entity, ResourceManager? resources, in ZoneSceneUniform riderUniform,
-            Matrix4x4 headingRot, Vector3 pos, bool faded, bool engaged, bool isLocalPlayer, float deltaSeconds, bool draw)
+        private MountRide? PrepareMount(CommandList cl, WorldEntity entity, EntityModel? character, ResourceManager? resources,
+            bool engaged, bool isLocalPlayer, float deltaSeconds)
         {
             uint key = MountPaletteKey(entity.ServerId);
             if (!entity.Mount.IsMounted || resources == null || !resources.TryLoadMountModel(entity.Mount, out var mount)
                 || mount?.Skeleton is not { Count: > 0 })
             {
                 if (_jointPaletteByEntity.TryRemove(key, out var stale)) stale.Dispose();
-                return 0;
+                return null;
             }
             var gpuModel = GetOrUploadGpuModel(mount);
-            if (gpuModel.Submeshes.Count == 0) return 0;
+            if (gpuModel.Submeshes.Count == 0) return null;
 
             var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
             if (!entity.IsMotionStopped || entity.MountAnimation.CurrentClip == null)
@@ -70,28 +62,58 @@ namespace Gordian.App.Graphics
                 entity.MountAnimation.Advance(entity.MountAnimation.ClaimFrameTime(deltaSeconds), category, 0, mount);
             }
             var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
-            UpdateJointPalette(cl, palette.Buffer, mount, entity.MountAnimation, null, Vector2.Zero, null, out _);
-            if (!draw) return 0;
+            UpdateJointPalette(cl, palette.Buffer, mount, entity.MountAnimation, null, Vector2.Zero, null, out var pose);
 
+            var rider = character != null ? RiderOrSelf(entity, character, resources) : null;
+            bool riding = rider != null && !ReferenceEquals(rider, character);
+            float scale = riding ? resources.GetMountScale(rider!) : 1f;
+            var seat = MountModels.SeatPoint(mount, pose);
+            var offset = Vector3.Zero;
+            float thicker = 0f;
+            if (riding && !entity.Mount.RidesChocobo && resources.TryLoadMountModel(RidingChocobo, out var chocobo) && chocobo != null)
+            {
+                var animation = entity.Animation;
+                var expected = MountModels.ChocoboSeat(chocobo, animation.CurrentClip, animation.ElapsedSeconds);
+                if (animation.IsBlending && animation.PreviousClip != null)
+                {
+                    expected = Vector3.Lerp(MountModels.ChocoboSeat(chocobo, animation.PreviousClip, animation.PreviousElapsedSeconds),
+                        expected, animation.BlendWeight);
+                }
+                // Model space is Y-down: a higher back moves the rider to -Y.
+                thicker = resources.GetBackHeight(mount) - resources.GetBackHeight(chocobo);
+                offset = scale * (seat - expected - new Vector3(0f, thicker, 0f));
+            }
+            // The name plate (round 2 H12): the rider's own overhead point over its seat, about a yalm over a seated head as in
+            // retail (image-9.png), so the seat's height (with the lift of a thick back) is added to the rider's.
+            return new MountRide(mount, gpuModel, palette, key, scale, offset, scale * (-seat.Y + thicker));
+        }
+
+        /// <summary>
+        /// Draws a prepared mount at the entity's origin and heading, scaled for its rider, with event fades, its shadow and
+        /// its blur aura (only Fenrir has one). Returns the draw calls made.
+        /// </summary>
+        private int DrawMount(CommandList cl, WorldEntity entity, in MountRide ride, in ZoneSceneUniform riderUniform,
+            Matrix4x4 headingRot, Vector3 pos, bool faded, bool isLocalPlayer)
+        {
             var uniform = riderUniform;
-            uniform.World = EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
+            uniform.World = Matrix4x4.CreateScale(ride.Scale) * EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
             cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
             cl.SetPipeline(faded ? _skinnedDepthPipeline : _skinnedPipeline);
             cl.SetGraphicsResourceSet(0, _entityResourceSet);
-            cl.SetGraphicsResourceSet(2, palette.Set);
-            int draws = DrawSubmeshes(cl, gpuModel, 0, uniform);
+            cl.SetGraphicsResourceSet(2, ride.Palette.Set);
+            int draws = DrawSubmeshes(cl, ride.Gpu, 0, uniform);
             // The Fenrir mount carries an avatar's blur aura (Section 0x5E), drawn as on the avatar (#82).
-            if (!faded && mount.BlurAura is { } aura) QueueBlurAura(uniform, palette.Set, gpuModel, 0, aura, key);
+            if (!faded && ride.Mount.BlurAura is { } aura) QueueBlurAura(uniform, ride.Palette.Set, ride.Gpu, 0, aura, ride.Key);
             if (faded)
             {
                 cl.SetPipeline(_skinnedFadePipeline);
                 cl.SetGraphicsResourceSet(0, _entityResourceSet);
-                cl.SetGraphicsResourceSet(2, palette.Set);
-                draws += DrawSubmeshes(cl, gpuModel, 0, uniform);
+                cl.SetGraphicsResourceSet(2, ride.Palette.Set);
+                draws += DrawSubmeshes(cl, ride.Gpu, 0, uniform);
             }
             else if (!entity.HidesShadow)
             {
-                QueueShadow(uniform, palette.Set, gpuModel, 0, pos, isLocalPlayer, CursorHeight(mount));
+                QueueShadow(uniform, ride.Palette.Set, ride.Gpu, 0, pos, isLocalPlayer, CursorHeight(ride.Mount) * ride.Scale);
             }
             return draws;
         }

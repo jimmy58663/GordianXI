@@ -241,34 +241,61 @@ namespace Gordian.Core.Tests.World
                 $"{race}: seated hips {Hips(rider.Animations["idl"]):F2} vs standing {Hips(character.Animations["idl"]):F2}");
         }
 
+        public static TheoryData<CharacterRace, float> RaceScales => new()
+        {
+            { CharacterRace.HumeMale, 1.000f }, { CharacterRace.HumeFemale, 0.995f }, { CharacterRace.ElvaanMale, 1.233f },
+            { CharacterRace.ElvaanFemale, 1.216f }, { CharacterRace.TaruMale, 0.955f }, { CharacterRace.TaruFemale, 0.955f },
+            { CharacterRace.Mithra, 0.982f }, { CharacterRace.Galka, 1.298f },
+        };
+
         /// <summary>
-        /// Round 1 H2 / H8: every race sits on the same seat (Mounts.mp4: a Galka deep in the raptor's back, a Tarutaru on the
-        /// same spot, hips about 1.45-1.5 yalms over the ground). The riding packs alone put the hips at 1.70 (Tarutaru) to
-        /// 2.31 (Galka); the seat offset brings each race's onto the mount's back.
+        /// Round 2 (image-9.png, the video of 2026-10-23): retail scales the mount by the rider's race. Each race's riding pack
+        /// is authored on a chocobo scaled by its hip height over the Hume male's: through <c>chi</c>, <c>run</c> and
+        /// <c>wlk</c> its hips stay 0.28-0.42 x s over the scaled chocobo's seat (reference 1) and 0.15-0.55 x s ahead of it (0.34 and
+        /// 0.27 at rest). So the pack carries the chocobo's bob, which another mount's seat replaces.
         /// </summary>
-        [Fact]
-        public void RetailRiders_SitOnTheMountsBack()
+        [Theory]
+        [MemberData(nameof(RaceScales))]
+        public void RetailRidingPacks_FollowAChocoboScaledByRace(CharacterRace race, float expectedScale)
         {
             var rm = Retail();
             if (rm == null) return;
-            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 2, 2), out var raptor));
             Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(5, 0, 1), out var chocobo));
-            var raptorHips = new Dictionary<CharacterRace, float>();
-            foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.ElvaanFemale,
-                CharacterRace.TaruMale, CharacterRace.Mithra, CharacterRace.Galka })
+            var character = EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            Assert.True(rm.TryGetRiderModel(character, race, out var rider));
+            float scale = rm.GetMountScale(rider!);
+            Assert.InRange(scale, expectedScale - 0.005f, expectedScale + 0.005f);
+            foreach (var name in new[] { "chi", "run", "wlk" })
             {
-                var character = EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
-                Assert.True(rm.TryGetRiderModel(character, race, out var rider));
-                float hips = -Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(character.Skeleton!, rider!.Animations["chi"], 0f, true).Translations[2].Y;
-                raptorHips[race] = hips + rm.GetSeatOffset(rider, raptor!);
-                Assert.InRange(hips + rm.GetSeatOffset(rider, chocobo!), 1.6f, 2.05f);
+                var clip = rider!.Animations[name];
+                for (int i = 0; i < 6; i++)
+                {
+                    float t = i * clip.DurationSeconds / 6;
+                    var hips = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(character.Skeleton!, clip, t, true).Translations[2];
+                    var seat = MountModels.ChocoboSeat(chocobo!, clip, t) * scale;
+                    Assert.InRange(-(hips.Y - seat.Y) / scale, 0.28f, 0.42f);
+                    Assert.InRange((hips.X - seat.X) / scale, 0.15f, 0.55f);
+                }
             }
-            Assert.All(raptorHips.Values, h => Assert.InRange(h, 1.4f, 1.75f));
-            Assert.InRange(raptorHips[CharacterRace.TaruMale], 1.45f, 1.6f);
-            // The Hume male's riding pack already fits the chocobo's saddle.
-            var hume = EntityModelLoader.AssembleCharacter(CharacterRace.HumeMale, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
-            rm.TryGetRiderModel(hume, CharacterRace.HumeMale, out var humeRider);
-            Assert.InRange(rm.GetSeatOffset(humeRider!, chocobo!), -0.1f, 0.1f);
+        }
+
+        /// <summary>
+        /// The top of each mount's back over its seat reference, where the hips go: the rider is raised by the difference from
+        /// the chocobo's (round 2 H11: on Fenrir, whose seat reference is a hip joint deep in a thick body, riders sank in).
+        /// </summary>
+        [Fact]
+        public void RetailMounts_BackHeightOverTheSeat()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            float Back(MountAppearance mount)
+            {
+                Assert.True(rm.TryLoadMountModel(mount, out var model));
+                return rm.GetBackHeight(model!);
+            }
+            Assert.InRange(Back(MountAppearance.FromWire(5, 0, 1)), 0.18f, 0.25f);   // chocobo
+            Assert.InRange(Back(MountAppearance.FromWire(85, 2, 2)), 0.24f, 0.32f);  // raptor
+            Assert.InRange(Back(MountAppearance.FromWire(85, 10, 3)), 0.95f, 1.10f); // Fenrir
         }
 
         /// <summary>Of the retail mounts only Fenrir (id 9) carries a blur aura (Section 0x5E), drawn as on the avatar.</summary>

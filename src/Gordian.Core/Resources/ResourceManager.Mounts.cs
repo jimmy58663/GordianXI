@@ -47,22 +47,23 @@ namespace Gordian.Core.Resources
             return true;
         }
 
-        private ConditionalWeakTable<EntityModel, ConcurrentDictionary<EntityModel, float>> _seats = new();
+        private ConditionalWeakTable<EntityModel, StrongBox<float>> _mountScales = new();
 
-        /// <summary>
-        /// How far <paramref name="rider"/> is moved up or down to sit on <paramref name="mount"/> (#87,
-        /// <see cref="MountModels.SeatOffset"/>), computed once per rider and mount.
-        /// </summary>
-        public float GetSeatOffset(EntityModel rider, EntityModel mount) =>
-            _seats.GetValue(rider, _ => new ConcurrentDictionary<EntityModel, float>())
-                .GetOrAdd(mount, m => MountModels.SeatOffset(rider, m));
+        /// <summary>How much the mount is scaled under <paramref name="rider"/> (#87, <see cref="MountModels.MountScale"/>), computed once per rider.</summary>
+        public float GetMountScale(EntityModel rider) => _mountScales.GetValue(rider, r => new StrongBox<float>(MountModels.MountScale(r))).Value;
+
+        private ConditionalWeakTable<EntityModel, StrongBox<float>> _backHeights = new();
+
+        /// <summary>How high the mount's back stands over its seat reference (#87, <see cref="MountModels.BackHeight"/>), computed once per mount.</summary>
+        public float GetBackHeight(EntityModel mount) => _backHeights.GetValue(mount, m => new StrongBox<float>(MountModels.BackHeight(m))).Value;
 
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()
         {
             _riderPacks.Clear();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();
-            _seats = new ConditionalWeakTable<EntityModel, ConcurrentDictionary<EntityModel, float>>();
+            _mountScales = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
+            _backHeights = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
         }
     }
 }
