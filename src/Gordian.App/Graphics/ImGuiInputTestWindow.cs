@@ -18,6 +18,7 @@ namespace Gordian.App.Graphics
         private int _clicks;
         private float _slider = 0.5f;
         private bool _check;
+        private float _wheel;
         private readonly byte[] _text = new byte[128];
 
         private ImGuiInputTestWindow()
@@ -49,6 +50,18 @@ namespace Gordian.App.Graphics
                 ImGui.Checkbox("check"u8, ref _check);
                 fixed (byte* text = _text) ImGui.InputText("text"u8, text, (nuint)_text.Length);
                 ImGui.TextUnformatted(Encoding.UTF8.GetString(_text).TrimEnd('\0'));
+                // Scrollable content, so the wheel has something to move; the readout shows the wheel ImGui last saw.
+                ImGui.Text($"wheel: {_wheel:0.##} (scroll {ImGui.GetScrollY():0})");
+                if (ImGui.BeginChild("##list"u8, new Vector2(0, 110), ImGuiChildFlags.Borders))
+                {
+                    for (int i = 1; i <= 40; i++) ImGui.Text($"Line {i}");
+                    if (ImGui.IsWindowHovered())
+                    {
+                        float wheel = ImGui.GetIO().MouseWheel;
+                        if (wheel != 0) _wheel = wheel;
+                    }
+                }
+                ImGui.EndChild();
             }
             ImGui.End();
             _visible = open;

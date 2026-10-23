@@ -221,6 +221,49 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        private sealed class ScrollOverlay : IImGuiOverlay
+        {
+            public bool IsVisible => true;
+            public float ScrollY;
+
+            public void Draw()
+            {
+                ImGui.SetNextWindowPos(new Vector2(100, 100));
+                ImGui.SetNextWindowSize(new Vector2(300, 120));
+                if (ImGui.Begin("scroll test"u8, ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
+                {
+                    for (int i = 0; i < 60; i++) ImGui.Text($"Line {i}");
+                    ScrollY = ImGui.GetScrollY();
+                }
+                ImGui.End();
+            }
+        }
+
+        [Fact]
+        public void Layer_WheelScrollsAnImGuiWindow()
+        {
+            using var target = ImGuiOverlayRenderTests.Target.TryCreate();
+            if (target == null) return;
+            var overlay = new ScrollOverlay();
+            ImGuiOverlayRegistry.Add(overlay);
+            try
+            {
+                using var layer = new ImGuiOverlayLayer(target.Device, target.Framebuffer.OutputDescription);
+                var input = new ImGuiInputBridge();
+                input.MouseMove(200, 150);
+                Frames(layer, target, input, 3);
+                Assert.True(input.WantCaptureMouse);
+                Assert.Equal(0f, overlay.ScrollY);
+                input.MouseWheel(0, -1); // down, as Avalonia reports it
+                Frames(layer, target, input, 10);
+                Assert.True(overlay.ScrollY > 0f, $"scroll {overlay.ScrollY}");
+            }
+            finally
+            {
+                ImGuiOverlayRegistry.Remove(overlay);
+            }
+        }
+
         [Fact]
         public void Layer_PerformanceOverlayAloneCapturesNothing()
         {
