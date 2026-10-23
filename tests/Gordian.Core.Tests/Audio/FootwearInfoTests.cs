@@ -50,7 +50,7 @@ namespace Gordian.Core.Tests.Audio
                     read++;
                     string key = $"{info.MovementChar}{info.ShakeFactor}";
                     digits[key] = digits.GetValueOrDefault(key) + 1;
-                    if (table.FootstepSound(5, info.MovementChar, info.ShakeFactor, running: false) != 0)
+                    if (table.FootstepSound(5, info.MovementChar, info.ShakeFactor, wet: false) != 0)
                     {
                         matched++;
                     }
