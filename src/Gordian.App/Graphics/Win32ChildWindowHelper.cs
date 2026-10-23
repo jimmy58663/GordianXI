@@ -117,6 +117,15 @@ namespace Gordian.App.Graphics
         [DllImport("user32.dll")]
         private static extern IntPtr SetCursor(IntPtr hCursor);
 
+        [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+        private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
+
+        /// <summary>
+        /// A shared system cursor (<c>IDC_*</c>: 32512 arrow, 32513 I-beam, ...), for the cursor shape an ImGui overlay
+        /// asks for (#380). Shared cursors are never destroyed. Returns <see cref="IntPtr.Zero"/> when it cannot load.
+        /// </summary>
+        public static IntPtr LoadSystemCursor(int id) => LoadCursor(IntPtr.Zero, new IntPtr(id));
+
         [StructLayout(LayoutKind.Sequential)]
         private struct TRACKMOUSEEVENT
         {

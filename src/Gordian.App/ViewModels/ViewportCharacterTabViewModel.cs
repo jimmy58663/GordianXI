@@ -58,6 +58,28 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _isActive, value);
         }
 
+        private bool _showLiveThumbnail = true;
+
+        /// <summary>The PiP card renders this character's scene (#302) instead of showing status only.</summary>
+        public bool ShowLiveThumbnail
+        {
+            get => _showLiveThumbnail;
+            set
+            {
+                if (SetProperty(ref _showLiveThumbnail, value))
+                {
+                    OnPropertyChanged(nameof(ShowStatusFill));
+                    OnPropertyChanged(nameof(LiveSession));
+                }
+            }
+        }
+
+        /// <summary>The session its PiP thumbnail renders: null (nothing drawn) while live thumbnails are off.</summary>
+        public CharacterSession? LiveSession => _showLiveThumbnail ? _session : null;
+
+        /// <summary>The PiP card fills its picture area with status text (no live thumbnail).</summary>
+        public bool ShowStatusFill => !_showLiveThumbnail;
+
         public bool IsPoppedOut
         {
             get => _isPoppedOut;

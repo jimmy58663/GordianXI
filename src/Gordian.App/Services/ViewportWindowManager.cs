@@ -56,6 +56,7 @@ namespace Gordian.App.Services
 
             _primaryViewModel.TabPoppedOut += OnTabPoppedOut;
             _primaryViewModel.ViewportWindowRequested += OnViewportWindowRequested;
+            _primaryViewModel.ViewportReopenRequested += OnViewportReopenRequested;
             _primaryViewModel.PropertyChanged += OnPrimaryViewModelPropertyChanged;
         }
 
@@ -82,16 +83,86 @@ namespace Gordian.App.Services
             {
                 _primaryViewModel.TabPoppedOut -= OnTabPoppedOut;
                 _primaryViewModel.ViewportWindowRequested -= OnViewportWindowRequested;
+                _primaryViewModel.ViewportReopenRequested -= OnViewportReopenRequested;
                 _primaryViewModel.PropertyChanged -= OnPrimaryViewModelPropertyChanged;
             }
 
             _primaryViewModel = viewModel;
             _primaryViewModel.TabPoppedOut += OnTabPoppedOut;
             _primaryViewModel.ViewportWindowRequested += OnViewportWindowRequested;
+            _primaryViewModel.ViewportReopenRequested += OnViewportReopenRequested;
             _primaryViewModel.PropertyChanged += OnPrimaryViewModelPropertyChanged;
         }
 
         private void OnViewportWindowRequested(object? sender, EventArgs e) => ShowPrimaryWindow();
+
+        private void OnViewportReopenRequested(object? sender, EventArgs e) => ReopenViewports();
+
+        private bool _reopening;
+
+        /// <summary>How long to wait for the closed windows to release the shared device before reopening anyway.</summary>
+        private static readonly TimeSpan ReopenDeviceWait = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Closes the main viewport window and every pop-out and opens them again, so a changed graphics backend applies
+        /// (#319, #320). The device is created again when the last window has released it. The sessions stay connected;
+        /// each character keeps its window (main or pop-out) and the main window its active tab, and the windows return to
+        /// their saved placement.
+        /// </summary>
+        public void ReopenViewports()
+        {
+            PostToUi(() =>
+            {
+                if (_reopening || (_primaryWindow == null && _secondaryWindows.IsEmpty)) return;
+                _reopening = true;
+
+                bool primaryOpen = _primaryWindow != null;
+                var activeTab = _primaryViewModel.ActiveTab;
+                var poppedOut = new System.Collections.Generic.List<Guid>(_secondaryWindows.Keys);
+                GordianLog.Info("ViewportManager", $"Reopening the viewport for the {_primaryViewModel.SelectedBackend} backend ({poppedOut.Count} pop-out(s)).");
+
+                foreach (var window in new System.Collections.Generic.List<ViewportWindow>(_secondaryWindows.Values))
+                {
+                    try { window.Close(); }
+                    catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close a pop-out for the reopen: {ex.Message}"); }
+                }
+                try { _primaryWindow?.Close(); }
+                catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close the primary viewport for the reopen: {ex.Message}"); }
+                _primaryWindow = null;
+
+                var deadline = DateTime.UtcNow + ReopenDeviceWait;
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+                timer.Tick += (_, _) =>
+                {
+                    // The device goes when the last window has released it; the next window creates it with the new choice.
+                    if (SharedGraphicsDevice.Current != null && DateTime.UtcNow < deadline) return;
+                    timer.Stop();
+                    if (SharedGraphicsDevice.Current != null) GordianLog.Warning("ViewportManager", "The viewport device was still open after the wait; reopening on it.");
+                    try
+                    {
+                        if (primaryOpen)
+                        {
+                            if (activeTab != null && _primaryViewModel.CharacterTabs.Contains(activeTab)) _primaryViewModel.ActiveTab = activeTab;
+                            ShowPrimaryWindow();
+                        }
+                        foreach (var sessionId in poppedOut)
+                        {
+                            foreach (var tab in _primaryViewModel.CharacterTabs)
+                            {
+                                if (tab.SessionId == sessionId) OnTabPoppedOut(this, tab);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _reopening = false;
+                        _primaryViewModel.RefreshBackendState();
+                    }
+                };
+                timer.Start();
+                _primaryViewModel.RefreshBackendState();
+            });
+        }
 
         /// <summary>Pop-out windows follow the switcher style chosen in the settings (they show their one character).</summary>
         private void OnPrimaryViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -333,6 +404,7 @@ namespace Gordian.App.Services
             {
                 _primaryViewModel.TabPoppedOut -= OnTabPoppedOut;
                 _primaryViewModel.ViewportWindowRequested -= OnViewportWindowRequested;
+                _primaryViewModel.ViewportReopenRequested -= OnViewportReopenRequested;
                 _primaryViewModel.PropertyChanged -= OnPrimaryViewModelPropertyChanged;
             }
 
