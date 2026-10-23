@@ -23,13 +23,17 @@ namespace Gordian.App.Graphics
 
         private int _references;
 
-        private SharedGraphicsDevice(GraphicsDevice device)
+        private SharedGraphicsDevice(GraphicsDevice device, GraphicsBackendPreference requested)
         {
             Device = device;
+            RequestedPreference = requested;
             Resources = new GpuSharedResources(device, Lock);
         }
 
         public GraphicsDevice Device { get; }
+
+        /// <summary>The backend preference the device was created for (it may have fallen back to another backend).</summary>
+        public GraphicsBackendPreference RequestedPreference { get; }
 
         /// <summary>The lock every frame and every immediate-context use on <see cref="Device"/> is made under.</summary>
         public object Lock { get; } = new();
@@ -55,7 +59,7 @@ namespace Gordian.App.Graphics
                 {
                     var options = CreateOptions(debug, vsync: true);
                     var device = CreateHeadlessDevice(options, preference);
-                    s_instance = new SharedGraphicsDevice(device);
+                    s_instance = new SharedGraphicsDevice(device, preference);
                     GordianLog.Info("Graphics", $"Created the shared Veldrid {device.BackendType} device: '{device.DeviceName}' (one per process, #300).");
                     if (FallbackNote(preference, device.BackendType) is { } note) GordianLog.Warning("Graphics", note);
                 }
@@ -109,6 +113,17 @@ namespace Gordian.App.Graphics
             // Auto, and a legacy OpenGL setting, which means Auto (#390).
             _ => true
         };
+
+        /// <summary>
+        /// Whether a viewport has to be reopened for <paramref name="selected"/> to apply (#319): the open device was not
+        /// created for it and is not already running it. A preference that fell back (Vulkan asked, Direct3D 11 running)
+        /// is not flagged again while it stays selected, and Auto is satisfied by whatever runs.
+        /// </summary>
+        public static bool ReopenNeeded(GraphicsBackendPreference selected, GraphicsBackendPreference requested, GraphicsBackend running) =>
+            Normalize(selected) != Normalize(requested) && !Matches(selected, running);
+
+        // A legacy OpenGL setting means Auto (#390).
+        private static GraphicsBackendPreference Normalize(GraphicsBackendPreference p) => p == GraphicsBackendPreference.OpenGL ? GraphicsBackendPreference.Auto : p;
 
         /// <summary>
         /// Why the running backend is not the preferred one (null when it is, or for Auto): the preferred backend failed

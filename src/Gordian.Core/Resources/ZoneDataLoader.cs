@@ -91,6 +91,7 @@ namespace Gordian.Core.Resources
             // (xi-model-viewer initializers.js: StandardSetup flag and BlendFuncInitializer.apply).
             layer.IgnoreTextureAlpha = (gen.Setup?.IgnoreTextureAlpha ?? false) || gen.IgnoreTextureAlpha;
             layer.AlphaOverride = gen.AlphaOverride;
+            layer.GroundColored = gen.GroundColored;
             layer.AuthoredOrder = authoredOrder.TryGetValue(gen, out int order) ? order : int.MaxValue;
             layer.DayOfWeekColors = gen.DayOfWeekColors;
             layer.MoonPhaseColors = gen.MoonPhaseColors;
@@ -1289,6 +1290,12 @@ namespace Gordian.Core.Resources
             {
                 foreach (string childId in ChildGeneratorIds(parentGen)) childGeneratorIds.Add(childId);
             }
+            // The foot effects (#40): a zone's fses/fefs (dry) and fser/fefr (rain) roots, started where a foot lands on
+            // their terrain. They ride no routine, so they are kept apart from the zone's effect layers.
+            var footLayers = new List<WeatherSkyLayer>();
+            var footDry = new Dictionary<int, WeatherSkyLayer>();
+            var footWet = new Dictionary<int, WeatherSkyLayer>();
+            var footLayerSet = new HashSet<WeatherSkyLayer>(ReferenceEqualityComparer.Instance);
             foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
                 var setup = gen.Setup;
@@ -1297,6 +1304,19 @@ namespace Gordian.Core.Resources
                 bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
                 if (skyGenerators.Contains(gen)) continue;
+                if (!actorEffects && generatorPaths.TryGetValue(gen, out string? footPath) &&
+                    Gordian.Core.Graphics.ZoneFootEffects.IsFootEffectDirectory(footPath, out bool footRain))
+                {
+                    int footTerrain = Gordian.Core.Graphics.ZoneFootEffects.TerrainOfRoot(genId);
+                    if (footTerrain >= 0 && BuildEffectLayer(genId, genWeather, footPath, gen, isEmitter: true, null, 0, childOnly: false, sharedMeshes: true) is { } footLayer)
+                    {
+                        (footRain ? footWet : footDry).TryAdd(footTerrain, footLayer);
+                        footLayers.Add(footLayer);
+                        footLayerSet.Add(footLayer);
+                        layerDirectories[footLayer] = footPath;
+                    }
+                    continue;
+                }
                 // In a zone DAT, a generator attached to an actor rides the entity its routine names (#232); one placed by
                 // TargetActorSourceFacing is drawn where the zone puts it (IsZonePlaced, #121).
                 bool actorAttached = !actorEffects && IsActorAttached(gen.AttachType);
@@ -1471,7 +1491,7 @@ namespace Gordian.Core.Resources
             // Child generators (0x3C once at birth, 0x44 / 0x53 / 0x6A for the parent's life, expiration 0x01 on death):
             // each gets a child-only emitter layer that its parents spawn into, resolved from the parent's directory first.
             var childLayers = new Dictionary<ParticleGeneratorDefinition, WeatherSkyLayer>(ReferenceEqualityComparer.Instance);
-            var pendingParents = new Queue<WeatherSkyLayer>(zone.EffectLayers.Where(l => l.Emitter != null));
+            var pendingParents = new Queue<WeatherSkyLayer>(zone.EffectLayers.Concat(footLayers).Where(l => l.Emitter != null));
             while (pendingParents.Count > 0)
             {
                 var parentLayer = pendingParents.Dequeue();
@@ -1495,7 +1515,8 @@ namespace Gordian.Core.Resources
                     if (!childLayers.TryGetValue(child.Generator, out var childLayer))
                     {
                         generatorPaths.TryGetValue(child.Generator, out string? childPath);
-                        var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true);
+                        var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true,
+                            sharedMeshes: footLayerSet.Contains(parentLayer));
                         if (built == null) continue;
                         // A child takes its parent's place (xi-tools docs/fx/effect_system.md "Child generators"), so it
                         // rides the parent's actor.
@@ -1505,11 +1526,38 @@ namespace Gordian.Core.Resources
                         childLayer = built;
                         childLayers[child.Generator] = childLayer;
                         layerDirectories[childLayer] = childPath;
-                        zone.EffectLayers.Add(childLayer);
+                        // A foot effect's children are foot effects too: they play only where a foot lands.
+                        if (footLayerSet.Contains(parentLayer))
+                        {
+                            footLayers.Add(childLayer);
+                            footLayerSet.Add(childLayer);
+                        }
+                        else zone.EffectLayers.Add(childLayer);
                         pendingParents.Enqueue(childLayer);
                     }
                     parentTemplate.Children[childId] = childLayer.Emitter!;
                 }
+            }
+
+            if (footLayers.Count > 0)
+            {
+                // The textures the foot effects sample (sprite sheets from ROM/0/0 included), under the names the draw looks up.
+                var footTextures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+                if (outTextures != null)
+                {
+                    foreach (var layer in footLayers)
+                    {
+                        foreach (var group in layer.MeshGroups)
+                        {
+                            string name = group.TextureName.Trim();
+                            if (name.Length > 0 && !footTextures.ContainsKey(name) &&
+                                Gordian.Core.Graphics.ActorEffectLoader.FindTexture(outTextures, name) is { } texture) footTextures[name] = texture;
+                        }
+                    }
+                }
+                zone.FootEffects = new Gordian.Core.Graphics.ZoneFootEffects(
+                    new Gordian.Core.Graphics.ActorEffectSet(footLayers, Array.Empty<Gordian.Core.Graphics.WeatherRoutineVariant>(), footTextures),
+                    footDry, footWet);
             }
 
             WeatherSkyLayer? BuildEffectLayer(
@@ -1520,7 +1568,8 @@ namespace Gordian.Core.Resources
                 bool isEmitter,
                 List<EffectRoutineSpawn>? schedule,
                 int scheduleLoop,
-                bool childOnly)
+                bool childOnly,
+                bool sharedMeshes = false)
             {
                 var setup = gen.Setup;
                 if (setup == null) return null;
@@ -1547,6 +1596,18 @@ namespace Gordian.Core.Resources
                 }
                 if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                 if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
+                // A foot effect's mesh may live only in the shared effects DAT (ROM/0/0 syst/effe hit7, asi1, asi2).
+                if (effectMeshes == null && sharedMeshes && sharedEffects != null && sharedEffects.ParticleMeshes.TryGetValue(linkId, out var sharedMeshGroups))
+                {
+                    effectMeshes = sharedMeshGroups;
+                    if (outTextures != null)
+                    {
+                        foreach (var group in sharedMeshGroups)
+                        {
+                            if (sharedEffects.Textures.TryGetValue(group.TextureName, out var sharedTexture)) outTextures.TryAdd(group.TextureName, sharedTexture);
+                        }
+                    }
+                }
                 if (effectMeshes == null)
                 {
                     isParticleMesh = false;

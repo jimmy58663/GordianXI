@@ -12,9 +12,10 @@ namespace Gordian.App.Tests.Graphics
     /// green clear, and the D3D11 GPU pass timer. Skipped off Windows or without a device; set GORDIAN_UI_DUMP to a
     /// folder to save the frames as PNG.
     /// </summary>
+    [Collection("ImGuiOverlayRegistry")]
     public class ImGuiOverlayRenderTests
     {
-        private const uint Width = 800, Height = 600;
+        internal const uint Width = 800, Height = 600;
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int x, int y,
@@ -23,7 +24,7 @@ namespace Gordian.App.Tests.Graphics
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyWindow(IntPtr hwnd);
 
-        private sealed class Target : IDisposable
+        internal sealed class Target : IDisposable
         {
             private readonly IntPtr _hwnd;
             private readonly VeldridDeviceManager _devices;

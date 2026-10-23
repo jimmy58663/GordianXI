@@ -122,7 +122,8 @@ namespace Gordian.Core.Graphics
             return new ActorEffectSet(layers, parsed.ActorRoutines, textures) { StateTriggered = stateTriggered };
         }
 
-        private static DecodedTexture? FindTexture(Dictionary<string, DecodedTexture> decoded, string name)
+        /// <summary>A decoded texture by its trimmed name, or one whose name ends with it (or it with theirs).</summary>
+        internal static DecodedTexture? FindTexture(Dictionary<string, DecodedTexture> decoded, string name)
         {
             if (decoded.TryGetValue(name, out var exact)) return exact;
             foreach (var (key, texture) in decoded)

@@ -127,7 +127,7 @@ namespace Gordian.App.Graphics
         private Pipeline _weatherSkyAdditivePipeline = null!;
         private Pipeline _weatherSkyReverseSubtractPipeline = null!;
         // World-space zone effects: [straight alpha, additive, reverse subtract] x [no depth write, depth write]
-        private readonly Pipeline[,] _effectPipelines = new Pipeline[3, 2];
+        private readonly Pipeline[,] _effectPipelines = new Pipeline[5, 2];
         private Pipeline _lensFlarePipeline = null!;
         private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
         private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
@@ -718,7 +718,13 @@ namespace Gordian.App.Graphics
             {
                 weatherSkyPipelineDesc.BlendState,
                 weatherSkyAdditiveDesc.BlendState,
-                weatherSkyReverseSubtractDesc.BlendState
+                weatherSkyReverseSubtractDesc.BlendState,
+                // 3: a ground-coloured decal (op 0x8F, the footprint): modulate-2x over the ground, src x dst + dst x src.
+                new BlendStateDescription(RgbaFloat.Black, new BlendAttachmentDescription(true,
+                    BlendFactor.DestinationColor, BlendFactor.SourceColor, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add)),
+                // 4: ground-coloured additive (op 0x8F, the foot puffs): the ground brightens by its own colour, dst x (1 + src).
+                new BlendStateDescription(RgbaFloat.Black, new BlendAttachmentDescription(true,
+                    BlendFactor.DestinationColor, BlendFactor.One, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add))
             };
             for (int blend = 0; blend < effectBlendStates.Length; blend++)
             {
@@ -811,6 +817,7 @@ namespace Gordian.App.Graphics
             _lightSourceVisibility.Clear();
             _actorEffects.Clear();
             ClearActionEffects();
+            ResetFootEffects(zone);
             _subEnvironmentUniforms.Clear();
             _subEnvironmentActorLights.Clear();
             _viewerFloorProbe = new Vector3(float.NaN);
@@ -1497,6 +1504,7 @@ namespace Gordian.App.Graphics
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateActionEffects(camera, environment, entities, resourceManager, deltaSeconds);
+            UpdateFootEffects(camera, environment, entities, resourceManager, deltaSeconds);
 
             // Pass 3: Translucent Water and the blended parts of alpha-tested meshes (ZoneSubmeshPass.Water / DeferredBlend: 0x8000 only)
             // Rendered with depth testing enabled and depth writing DISABLED so ocean/rivers composite over seabed and wading entities.
@@ -1570,7 +1578,8 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0))
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
+                                      FootEffectCount > 0))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1602,6 +1611,7 @@ namespace Gordian.App.Graphics
                 AddAttachedEffectDraws(camera);
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
+                AddFootEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
@@ -1974,12 +1984,13 @@ namespace Gordian.App.Graphics
                 }
                 if (textureFactor.W <= 0.001f) continue;
 
-                // Particle rotation is in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations.
+                // Particle rotation is in raw DAT axes; the (-x, -y, z) display flip negates X and Y rotations. It applies Z,
+                // Y, then X, or X, Y, then Z with setup flag 0x0200 (StandardParticleSetup.RotationOrderZyx, #40).
                 Vector3 rotation = particle.NegateRotationY ? particle.Rotation with { Y = -particle.Rotation.Y } : particle.Rotation;
                 Matrix4x4 local = Matrix4x4.CreateScale(particle.Scale) *
-                                  Matrix4x4.CreateRotationX(-rotation.X) *
-                                  Matrix4x4.CreateRotationY(-rotation.Y) *
-                                  Matrix4x4.CreateRotationZ(rotation.Z);
+                                  (emitter.Template.Definition.Setup?.RotationOrderZyx == true
+                                      ? Matrix4x4.CreateRotationX(-rotation.X) * Matrix4x4.CreateRotationY(-rotation.Y) * Matrix4x4.CreateRotationZ(rotation.Z)
+                                      : Matrix4x4.CreateRotationZ(rotation.Z) * Matrix4x4.CreateRotationY(-rotation.Y) * Matrix4x4.CreateRotationX(-rotation.X));
                 // Billboards replace the orientation after the particle's own rotation and scale: XYZ faces the camera,
                 // XZ keeps world up and turns only about it (xim applies both to the model-view's upper 3x3).
                 Matrix4x4 facing = billboard switch
@@ -2072,6 +2083,12 @@ namespace Gordian.App.Graphics
                     ParticleBlendFunc.SrcOneRevSub => 2,
                     _ => 1
                 };
+                // Op 0x8F: the particle takes the ground's colour (#40). Blend output 3 = decal, 4 = additive lift.
+                if (layer.GroundColored && blendIndex != 2)
+                {
+                    blendIndex = blendIndex == 0 ? 3 : 4;
+                    blendOutput = blendIndex;
+                }
                 pipeline = _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
             }
             if (currentPipeline != pipeline)

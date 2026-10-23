@@ -54,6 +54,60 @@ namespace Gordian.App
         // messages; a raw button event carries no position of its own, but a move always precedes it.
         private Point? _lastRawMouse;
 
+        // Mouse buttons (bit 0 left, 1 right, 2 middle) whose press an interactive ImGui overlay took (#380): their
+        // release goes to ImGui too, and the game never saw the press.
+        private int _imguiButtons;
+
+        /// <summary>The ImGui input bridge while an interactive overlay is visible, else null: the game keeps all input.</summary>
+        private ImGuiInputBridge? ImGuiBridge => ImGuiInputBridge.Accepting ? _viewportControl?.ImGuiInput : null;
+
+        private static int ToImGuiButton(Avalonia.Input.MouseButton button) => button switch
+        {
+            Avalonia.Input.MouseButton.Left => 0,
+            Avalonia.Input.MouseButton.Right => 1,
+            Avalonia.Input.MouseButton.Middle => 2,
+            _ => -1,
+        };
+
+        /// <summary>Feeds a press to ImGui; true when ImGui took it (the pointer is over one of its windows), so it is not game input.</summary>
+        private bool ImGuiPress(Avalonia.Input.MouseButton button)
+        {
+            int index = ToImGuiButton(button);
+            if (ImGuiBridge is not { } gui || index < 0) return false;
+            gui.MouseButton(index, true);
+            if (!gui.WantCaptureMouse) return false;
+            _imguiButtons |= 1 << index;
+            return true;
+        }
+
+        /// <summary>Feeds a release to ImGui; true when ImGui took the matching press, so the game never sees the release.</summary>
+        private bool ImGuiRelease(Avalonia.Input.MouseButton button)
+        {
+            int index = ToImGuiButton(button);
+            if (index < 0) return false;
+            ImGuiBridge?.MouseButton(index, false);
+            int bit = 1 << index;
+            if ((_imguiButtons & bit) == 0) return false;
+            _imguiButtons &= ~bit;
+            return true;
+        }
+
+        /// <summary>Feeds the pointer position to ImGui; true while the pointer belongs to ImGui (over a window of its or dragging in one).</summary>
+        private bool ImGuiMove(double x, double y)
+        {
+            if (ImGuiBridge is not { } gui) return false;
+            gui.MouseMove((float)x, (float)y);
+            return gui.WantCaptureMouse || _imguiButtons != 0;
+        }
+
+        /// <summary>Feeds the wheel to ImGui; true when ImGui took it.</summary>
+        private bool ImGuiWheel(Vector delta)
+        {
+            if (ImGuiBridge is not { } gui) return false;
+            gui.MouseWheel((float)delta.X, (float)delta.Y);
+            return gui.WantCaptureMouse;
+        }
+
         public ViewportWindow() : this("ViewportWindow")
         {
         }
@@ -80,7 +134,17 @@ namespace Gordian.App
 
                 // The focused window's character is the one heard (Phase 5H).
                 var viewport = _viewportControl;
-                Activated += (_, _) => Audio.GameAudioService.Instance.Claim(viewport);
+                Activated += (_, _) =>
+                {
+                    Audio.GameAudioService.Instance.Claim(viewport);
+                    viewport.ImGuiInput.Focus(true);
+                };
+                Deactivated += (_, _) =>
+                {
+                    // ImGui drops its focus and held buttons; the game's own press, if any, is released by the OS as before.
+                    viewport.ImGuiInput.Focus(false);
+                    _imguiButtons = 0;
+                };
             }
 
             var minimizeBtn = this.FindControl<Button>("MinimizeButton");
@@ -124,9 +188,31 @@ namespace Gordian.App
             {
                 var collapsed = this.FindControl<Border>("PillCollapsed");
                 var expanded = this.FindControl<Border>("PillExpanded");
-                pillRoot.PointerEntered += (_, _) => SetPillExpanded(collapsed, expanded, true);
-                pillRoot.PointerExited += (_, _) => SetPillExpanded(collapsed, expanded, false);
+                bool pillPointerOver = false;
+                bool backendOpen = false;
+                pillRoot.PointerEntered += (_, _) =>
+                {
+                    pillPointerOver = true;
+                    SetPillExpanded(collapsed, expanded, true);
+                };
+                // The backend drop-down is its own popup, so the pointer leaves the pill while it is open: stay expanded.
+                pillRoot.PointerExited += (_, _) =>
+                {
+                    pillPointerOver = false;
+                    if (!backendOpen) SetPillExpanded(collapsed, expanded, false);
+                };
+                if (this.FindControl<ComboBox>("PillBackendCombo") is { } backendCombo)
+                {
+                    backendCombo.DropDownOpened += (_, _) => backendOpen = true;
+                    backendCombo.DropDownClosed += (_, _) =>
+                    {
+                        backendOpen = false;
+                        if (!pillPointerOver) SetPillExpanded(collapsed, expanded, false);
+                    };
+                }
             }
+            if (this.FindControl<Button>("PillMinimizeButton") is { } pillMinimize) pillMinimize.Click += (_, _) => WindowState = WindowState.Minimized;
+            if (this.FindControl<Button>("PillCloseButton") is { } pillClose) pillClose.Click += (_, _) => Close();
 
             // The auto-hiding ribbon and rail stay while the pointer is over them (or a drop-down of theirs is open) and
             // hide a moment after it leaves them.
@@ -540,6 +626,9 @@ namespace Gordian.App
                         GordianLog.Info("Viewport", $"Ctrl+Shift+F12: stock UI restored for {restored.CharacterName}.");
                     }
                     break;
+                case ViewportShortcut.ToggleImGuiTestWindow:
+                    GordianLog.Info("Viewport", ImGuiInputTestWindow.Instance.Toggle() ? "ImGui input test window shown." : "ImGui input test window hidden.");
+                    break;
                 case ViewportShortcut.CyclePerformanceOverlay:
                     ViewportRenderSettings.PerformanceOverlay = PerformanceOverlayModes.Next(ViewportRenderSettings.PerformanceOverlay);
                     break;
@@ -556,6 +645,20 @@ namespace Gordian.App
                 ApplyShortcut(shortcut);
                 e.Handled = true;
                 return;
+            }
+
+            // An interactive ImGui overlay (#380) sees every key (it tracks the modifiers); it keeps the key from the
+            // game only while one of its items is active (a text field, a drag). Character keys are left unhandled so
+            // the platform's text input for them follows (OnGameTextInput).
+            if (ImGuiBridge is { } gui)
+            {
+                gui.Key(ImGuiKeyMap.FromAvalonia(e.Key), true);
+                if (gui.WantCaptureKeyboard && !IsModifierKey(e.Key))
+                {
+                    bool character = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Alt)) == 0;
+                    if (!character) e.Handled = true;
+                    return;
+                }
             }
 
             if (ActiveLobby is { } lobby)
@@ -649,6 +752,12 @@ namespace Gordian.App
         /// <summary>Typed text for the stock chat input line (shifted and layout-specific characters included).</summary>
         private void OnGameTextInput(object? sender, TextInputEventArgs e)
         {
+            if (ImGuiBridge is { WantTextInput: true } gui)
+            {
+                gui.Text(e.Text ?? string.Empty);
+                e.Handled = true;
+                return;
+            }
             if (ActiveLobby is { } lobby)
             {
                 if (!string.IsNullOrEmpty(e.Text)) lobby.HandleText(e.Text);
@@ -685,8 +794,14 @@ namespace Gordian.App
             if (!string.IsNullOrEmpty(text)) input.InsertText(text.Replace("\r", string.Empty).Replace('\n', ' '));
         }
 
+        private static bool IsModifierKey(Key key) => key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin;
+
         private void OnGameKeyUp(object? sender, KeyEventArgs e)
         {
+            // ImGui sees every release (it ignores keys it never saw go down); the game gets it too, so a key held
+            // before an ImGui text field took the keyboard is not left down.
+            ImGuiBridge?.Key(ImGuiKeyMap.FromAvalonia(e.Key), false);
             if (ActiveLobby != null) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
@@ -704,6 +819,14 @@ namespace Gordian.App
         private void OnGamePointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
+            if (ImGuiBridge != null)
+            {
+                if (TryGetViewportPoint(e, out var imguiPoint)) ImGuiMove(imguiPoint.X, imguiPoint.Y);
+                var pressed = e.Properties.IsLeftButtonPressed ? Avalonia.Input.MouseButton.Left
+                    : e.Properties.IsRightButtonPressed ? Avalonia.Input.MouseButton.Right
+                    : e.Properties.IsMiddleButtonPressed ? Avalonia.Input.MouseButton.Middle : Avalonia.Input.MouseButton.None;
+                if (ImGuiPress(pressed)) return;
+            }
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint))
@@ -738,6 +861,7 @@ namespace Gordian.App
         private void OnGamePointerReleased(object? sender, PointerReleasedEventArgs e)
         {
             if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
+            if (ImGuiRelease(e.InitialPressMouseButton)) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -761,7 +885,16 @@ namespace Gordian.App
         private void OnGamePointerMoved(object? sender, PointerEventArgs e)
         {
             if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
-            if (TryGetViewportPoint(e, out var edgePoint)) UpdateEdgeReveal(edgePoint);
+            if (TryGetViewportPoint(e, out var edgePoint))
+            {
+                UpdateEdgeReveal(edgePoint);
+                if (ImGuiMove(edgePoint.X, edgePoint.Y))
+                {
+                    _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Leave();
+                    UpdateViewportCursor();
+                    return;
+                }
+            }
             if (ActiveLobby is { } lobby)
             {
                 if (TryGetViewportPoint(e, out var lobbyPoint)) LobbyPointer(lobby, lobbyPoint, null);
@@ -784,6 +917,7 @@ namespace Gordian.App
         private void OnGamePointerWheelChanged(object? sender, PointerWheelEventArgs e)
         {
             if (IsFromOverlay(e)) return; // a switcher or the PiP deck, not the 3D view
+            if (ImGuiWheel(e.Delta)) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
@@ -858,6 +992,7 @@ namespace Gordian.App
         private void OnRawMouseLeft()
         {
             _lastRawMouse = null;
+            ImGuiBridge?.MouseLeave();
             _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Leave();
         }
 
@@ -895,6 +1030,7 @@ namespace Gordian.App
 
         private void OnRawMouseButtonDown(Avalonia.Input.MouseButton button)
         {
+            if (ImGuiPress(button)) return;
             if (ActiveLobby is { } lobby)
             {
                 if (_lastRawMouse is { } lobbyPoint) LobbyPointer(lobby, lobbyPoint, button);
@@ -916,6 +1052,7 @@ namespace Gordian.App
 
         private void OnRawMouseButtonUp(Avalonia.Input.MouseButton button)
         {
+            if (ImGuiRelease(button)) return;
             if (ActiveLobby != null) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
@@ -935,6 +1072,11 @@ namespace Gordian.App
         {
             _lastRawMouse = new Point(x, y);
             UpdateEdgeReveal(new Point(x, y));
+            if (ImGuiMove(x, y))
+            {
+                _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Leave();
+                return;
+            }
             if (ActiveLobby is { } lobby)
             {
                 LobbyPointer(lobby, new Point(x, y), null);
@@ -976,6 +1118,7 @@ namespace Gordian.App
                 _viewModel.ActiveBackend = viewportControl.ActiveBackendName;
                 _viewModel.GpuName = viewportControl.GpuDeviceName;
                 _viewModel.SyncFromActiveSession();
+                _viewModel.RefreshBackendState();
 
                 UpdateViewportCursor();
             }
@@ -988,9 +1131,21 @@ namespace Gordian.App
         private void UpdateViewportCursor()
         {
             if (OperatingSystem.IsWindows() || _viewportControl == null) return;
+            if (_viewportControl.ImGuiInput.WantCaptureMouse)
+            {
+                var shape = ImGuiKeyMap.ToAvaloniaCursor(_viewportControl.ImGuiInput.MouseCursor);
+                if (_viewportControl.Cursor is not { } current || !_imguiCursors.TryGetValue(shape, out var cached) || !ReferenceEquals(current, cached))
+                {
+                    if (!_imguiCursors.TryGetValue(shape, out cached)) _imguiCursors[shape] = cached = new Cursor(shape);
+                    _viewportControl.Cursor = cached;
+                }
+                return;
+            }
             var cursor = _viewportControl.StockUi.PointerDrawn ? HiddenCursor : ArrowCursor.Value;
             if (!ReferenceEquals(_viewportControl.Cursor, cursor)) _viewportControl.Cursor = cursor;
         }
+
+        private readonly System.Collections.Generic.Dictionary<StandardCursorType, Cursor> _imguiCursors = new();
 
         private static readonly Cursor HiddenCursor = new(StandardCursorType.None);
 

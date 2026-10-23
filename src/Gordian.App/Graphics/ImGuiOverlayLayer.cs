@@ -10,8 +10,9 @@ namespace Gordian.App.Graphics
     /// One viewport window's Tier 3 ImGui layer (#30): its own Dear ImGui context (Hexa.NET.ImGui, chosen in
     /// docs/reference/dependencies.md) and <see cref="ImGuiRenderer"/>, created the first time an overlay is shown. A
     /// frame runs NewFrame, the overlays' drawing, Render and the GPU draw in one go under the device's GPU lock, so the
-    /// windows' render threads never share ImGui's current context. The overlays take no input yet (no mouse or keyboard
-    /// is fed in), so nothing here touches the game's input path.
+    /// windows' render threads never share ImGui's current context. Input reaches interactive overlays through an
+    /// <see cref="ImGuiInputBridge"/> (#380); the performance overlay's windows take none (<c>NoInputs</c>), so with only
+    /// it shown nothing is captured from the game.
     /// </summary>
     public sealed unsafe class ImGuiOverlayLayer : IDisposable
     {
@@ -33,7 +34,9 @@ namespace Gordian.App.Graphics
             io.IniFilename = null;
             io.LogFilename = null;
             io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset | ImGuiBackendFlags.RendererHasTextures;
-            io.ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange | ImGuiConfigFlags.NoMouse;
+            // The cursor shape is the viewport window's to set (ImGuiInputBridge.MouseCursor). Keyboard navigation stays off so
+            // a visible overlay takes keys only while one of its items is active, never as a standing focus.
+            io.ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
             ApplyStyle(ImGui.GetStyle());
             ImGui.SetCurrentContext(previous);
         }
@@ -61,9 +64,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Runs one ImGui frame at the framebuffer's size: <paramref name="draw"/> issues the overlays' ImGui calls, then the
-        /// result is drawn over the framebuffer. Call under the GPU lock.
+        /// result is drawn over the framebuffer. Call under the GPU lock. The <paramref name="input"/> queued since the last
+        /// frame is applied first and what ImGui wants afterwards is published back to it.
         /// </summary>
-        public void Render<TState>(Framebuffer framebuffer, float deltaSeconds, TState state, Action<TState> draw)
+        public void Render<TState>(Framebuffer framebuffer, float deltaSeconds, TState state, Action<TState> draw, ImGuiInputBridge? input = null)
         {
             if (_disposed || framebuffer.Width == 0 || framebuffer.Height == 0) return;
             var previous = ImGui.GetCurrentContext();
@@ -74,14 +78,32 @@ namespace Gordian.App.Graphics
                 io.DisplaySize = new Vector2(framebuffer.Width, framebuffer.Height);
                 io.DisplayFramebufferScale = Vector2.One;
                 io.DeltaTime = Math.Clamp(deltaSeconds, 1e-4f, 1.0f);
+                if (input != null) ApplyInput(io, input);
                 ImGui.NewFrame();
                 draw(state);
+                if (input != null) input.Publish(io.WantCaptureMouse, io.WantCaptureKeyboard, io.WantTextInput, ImGui.GetMouseCursor());
                 ImGui.Render();
                 _renderer.Render(ImGui.GetDrawData(), framebuffer);
             }
             finally
             {
                 ImGui.SetCurrentContext(previous);
+            }
+        }
+
+        private static void ApplyInput(ImGuiIOPtr io, ImGuiInputBridge input)
+        {
+            foreach (var e in input.Drain())
+            {
+                switch (e.Kind)
+                {
+                    case ImGuiInputKind.MousePos: io.AddMousePosEvent(e.X, e.Y); break;
+                    case ImGuiInputKind.MouseButton: io.AddMouseButtonEvent(e.Code, e.Down); break;
+                    case ImGuiInputKind.MouseWheel: io.AddMouseWheelEvent(e.X, e.Y); break;
+                    case ImGuiInputKind.Key: io.AddKeyEvent((ImGuiKey)e.Code, e.Down); break;
+                    case ImGuiInputKind.Text: io.AddInputCharactersUTF8(e.Text); break;
+                    case ImGuiInputKind.Focus: io.AddFocusEvent(e.Down); break;
+                }
             }
         }
 
