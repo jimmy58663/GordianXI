@@ -1,11 +1,10 @@
 // tests/Gordian.App.Tests/Audio/FootstepTrackerTests.cs
-using Gordian.App.Audio;
 using Gordian.Core.Animation;
 using Xunit;
 
 namespace Gordian.App.Tests.Audio
 {
-    /// <summary>Foot landing detection from the gait clip's phase (#40).</summary>
+    /// <summary>Foot landing detection from the gait clip's phase (#40), the footfall hook the step sounds and footprints share.</summary>
     public class FootstepTrackerTests
     {
         [Theory]
@@ -15,16 +14,16 @@ namespace Gordian.App.Tests.Audio
         [InlineData(0.9f, 0.05f, true)] // wrapped: first foot
         [InlineData(0.6f, 0.8f, false)]
         public void CrossedLanding_AtTheStartAndMiddleOfTheCycle(float previous, float current, bool expected) =>
-            Assert.Equal(expected, FootstepTracker.CrossedLanding(previous, current));
+            Assert.Equal(expected, FootfallDetector.CrossedLanding(previous, current));
 
         [Fact]
         public void Gaits()
         {
-            Assert.True(FootstepTracker.IsStepping(AnimationCategory.Run));
-            Assert.True(FootstepTracker.IsStepping(AnimationCategory.CombatMoveLeft));
-            Assert.False(FootstepTracker.IsStepping(AnimationCategory.Idle));
-            Assert.True(FootstepTracker.IsRunning(AnimationCategory.CombatRun));
-            Assert.False(FootstepTracker.IsRunning(AnimationCategory.Walk));
+            Assert.True(FootfallDetector.IsStepping(AnimationCategory.Run));
+            Assert.True(FootfallDetector.IsStepping(AnimationCategory.CombatMoveLeft));
+            Assert.False(FootfallDetector.IsStepping(AnimationCategory.Idle));
+            Assert.True(FootfallDetector.IsRunning(AnimationCategory.CombatRun));
+            Assert.False(FootfallDetector.IsRunning(AnimationCategory.Walk));
         }
     }
 }

@@ -61,11 +61,11 @@ Sound pointers (`SoundEffectPointer`, DAT section 0x3D, xi-tools `docs/audio/ref
 |---|---|---|
 | `weat/<weather>` | Ambient loop per weather, keyed by the Vana'diel time it starts (`HHMM`) | Bibiki Bay `suny`: `0600` → 1013, `1800` → 1015; Southern San d'Oria: `0000` → 1081. Stereo, looped ADPCM |
 | `weat/<weather>/indo` | An indoor set (when it applies is unknown) | Bibiki Bay: four `1064` → 1064 |
-| `<area>/fses`, `<area>/fser` | Footsteps, walking and running, named `0<terrain><move><shake+1>` (xi-tools `docs/sounds/footsteps.md`) | `0111` → 100001 (walk) / 100011 (run) |
+| `<area>/fses`, `<area>/fser` | Footsteps on dry ground and in the rain, named `0<terrain><move><shake+1>` (xi-tools `docs/sounds/footsteps.md`); their `fefs` / `fefr` sub-directories hold the foot effects ([particles.md](../rendering/particles.md#footprints-and-foot-effects-40)) | `0111` → 100001 (dry) / 100011 (rain) |
 | `door/<door>` | A door's open / close sounds | `_6e1`: 9021, 9022 |
 | `effe/...` | Effect sounds the zone's routines use | `seso`: 2060, 2003, 2175, 2197 |
 
-**Beyond xi-tools:** the `fser` running set, and the `HHMM` time keys of the weather ambient loops (our reading: it matches the 06:00 / 18:00 switch; provisional).
+**Beyond xi-tools:** the `fser` rain set (#342, [Footsteps](#footsteps-40)), and the `HHMM` time keys of the weather ambient loops (our reading: it matches the 06:00 / 18:00 switch; provisional).
 
 `SoundLibrary` (App) decodes effects whole once and caches them (about 96 MB cap), and streams music from the file bytes, both through `FfxiSoundDecoder` (ADPCM / PCM / ATRAC3, all managed).
 
@@ -93,7 +93,7 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 **Who is heard:** one device for the app. By default the viewport whose window was last activated owns the sound (multi-boxing plays only that character); the opt-in multi-box policy (#265, below) can prefer another character. The owner's render loop calls `GameAudioService.Update` each frame. The listener is the camera: position, and the view matrix's screen-right axis for panning.
 
-**Changing who is heard (#368, #377):** when the heard session changes (a Ctrl+Tab character switch, another window taking the sound) or becomes none, `GameAudioService.SwitchSession` fades out everything the last one played except its music (below): ambience, zone sounds, cutscene scene loops and the Effects bus (0.5 s). The combat / action sound and footstep trackers forget their actors, and the new session's already-due scene sounds are dropped: each session has its own world, so the same server id there is another object with other action serials, and the first frame after a switch used to replay every nearby actor's last action (a Trust's summon, the last swing). Only what happens after the switch plays. The character lobby and the black screen of a Log Out show no world: their frames call `GameAudioService.UpdateWithoutWorldIfCreated`, which hears no session, so a Log Out to the lobby fades the zone's music and sounds out instead of letting them play on in character select (before, those frames skipped the audio update). Every character's music fades to silence there, and a character that logged out lets its track go. The lobby is then as quiet as on a first launch, which creates no audio device until a world is shown; the title music retail plays there is [#378](https://github.com/jimmy58663/GordianXI/issues/378).
+**Changing who is heard (#368, #377):** when the heard session changes (a Ctrl+Tab character switch, another window taking the sound) or becomes none, `GameAudioService.SwitchSession` fades out everything the last one played except its music (below): ambience, zone sounds, cutscene scene loops and the Effects bus (0.5 s). The combat / action sound and footstep trackers forget their actors, and the new session's already-due scene sounds are dropped: each session has its own world, so the same server id there is another object with other action serials, and the first frame after a switch used to replay every nearby actor's last action (a Trust's summon, the last swing). Only what happens after the switch plays. The character lobby and the black screen of a Log Out show no world: their frames call `GameAudioService.UpdateWithoutWorldIfCreated`, which hears no session, so a Log Out to the lobby fades the zone's music and sounds out instead of letting them play on in character select (before, those frames skipped the audio update). Every character's music fades to silence there, and a character that logged out lets its track go. Since #378 the lobby then plays the title music ([Title music](#title-music-378)).
 
 **Music across character switches (round 2 of the #368 / #377 tests, the maintainer's request; GordianXI behaviour, retail has one character):** every logged-in character has its own `MusicDirector`, updated every frame from its own situation (zone table, status, party, Vana'diel hour) whether it is heard or not (`GameAudioService.UpdateMusic`). The directors hold their tracks in one shared `MusicVoicePool`, one mixer voice per track: characters that want the same track (the same zone and slot) share a voice, and every held track keeps playing, the ones not heard faded to silence (`AudioMixer.FadeVoice`, which fades without stopping, so the position keeps advancing). Only the heard character's director is audible and sets the music bus volume (server 0x060 volume, event master).
 - Switching between characters on the same track does not touch the music: it plays on without a restart.
@@ -143,12 +143,49 @@ Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target me
 
 `FootstepTracker` (App), each frame, for every drawn actor within 30 yalms of the listener whose animation is a gait (walk, run, combat and strafe moves) and not an action:
 
-1. **When:** a step at the start and at the middle of each gait clip cycle (`EntityAnimationState.CurrentClip` phase crossing 0 or 0.5). Provisional: retail fires on the model's foot-landing state (xi-tools `docs/sounds/footsteps.md`, after xim), which GordianXI does not detect yet.
+1. **When:** the footfall hook `FootfallDetector` (Core), which the footprints share ([particles.md](../rendering/particles.md#footprints-and-foot-effects-40)): a step at the start and at the middle of each gait clip cycle (`EntityAnimationState.CurrentClip` phase crossing 0 or 0.5). Provisional: retail fires on the model's foot-landing state (xi-tools `docs/sounds/footsteps.md`, after xim), which GordianXI does not detect yet. A change to when a foot lands (a mount's gait, a real landing rule) goes there once for both.
 2. **Surface:** the collision terrain under the actor (`ZoneCollisionMesh.TryGetGround(position, 1, 2)`, `GroundHit.Terrain`), `Object` when there is no ground.
-3. **Footwear:** `FootwearInfo` reads the first Info section (0x45) of the feet item's DAT (a character: race from the face word, `CharacterEquipmentResolver` feet file) or of the creature's own model DAT: byte 1 is the move digit (base 36, 0xFF = `0`), byte 2 the shake. Read on a worker and cached per file; the default `1`, 0 until then. Checked: all 360 feet DATs of Hume male, Taru female and Galka 0-119 read, digits `11` x99, `12` x97, `10` x94, `21`, `20`, `22`, and every one names a pointer Southern San d'Oria has (`FootwearInfoTests`).
-4. **Sound:** the zone's pointer `0<terrain hex><move><shake + 1>` from `fser` while running, else `fses` (`ZoneSoundTable.FootstepSound`), played positionally on the Effects bus (full volume within 4 yalms, silent at 30; provisional).
+3. **Footwear:** `FootwearInfo` reads the first Info section (0x45) of the feet item's DAT (a character: race from the face word, `CharacterEquipmentResolver` feet file) or of the creature's own model DAT: byte 0 the movement type (for the footprints), byte 1 the move digit (base 36, 0xFF = `0`), byte 2 the shake. Read on a worker and cached per file in `FootwearCache` (Core, shared with the footprints); the default `1`, 0 until then. Checked: all 360 feet DATs of Hume male, Taru female and Galka 0-119 read, digits `11` x99, `12` x97, `10` x94, `21`, `20`, `22`, and every one names a pointer Southern San d'Oria has (`FootwearInfoTests`).
+4. **Sound:** the zone's pointer `0<terrain hex><move><shake + 1>` from `fser` in rain or squall, else `fses` (`ZoneSoundTable.FootstepSound`, `ZoneSoundTable.IsWetWeather`), played positionally on the Effects bus (full volume within 4 yalms, silent at 30; provisional). Walking and running play the same pointer: the sound id has no gait digit (xi-tools §3).
 
-Not done: sand / snow footprints (the global `fmrk` decal from `ROM/0/0.DAT` and the zone's `fses/fefs` foot effects are rendering work). The config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) gates the footprint rendering only, not the step sounds (the maintainer's retail answer on #40, 2026-10-07: turning it off draws less, for low-end graphics); it applies once footprints are drawn.
+**`fser` is the rain set, not a running set (#342, 2026-10-20).** South Gustaberg's dirt sounded like a marsh in the 2026-10-10 in-game test: its floors are Path and Stone (floor area by terrain, `SoundPointerRetailTests.Retail_SouthGustabergDirt_PlaysTheDryPathStep`; no shallow water), and the Path step running played `fser`'s 100011 instead of `fses`'s 100001. The data shows what `fser` is: its foot effects (`fser/fefr`) are wet ground where `fses/fefs` has dust (the path root `0100` is the flat ripple mesh `asi2` with the water splash `c804` in `fefr`, a dust puff `hi11` in `fefs`; `fefr` has a wet-grass `0200` in 281 zones, `fefs` in 11), and its water steps equal the dry set's. The decoded clips fit: 100001 (dry path) is a 130 ms thud, the shallow-water 100004 a 1.4 s splash. Retail picks the set by weather; GordianXI takes rain (6) and squall (7) as wet. Provisional: thunder (14) and thunderstorms (15) count as dry (Carpenters' Landing's `weat/thdr` has lightning and fireflies, no rain generator), and whether an indoor area or a roof keeps the dry set is not known. **Beyond xi-tools:** the rain set (xim reads only `fses`).
+
+**Surface-to-sound mapping** (default footwear `11`, the same ids in every zone that has the terrain; census of zones 0-299, 2026-10-20; other footwear moves the block, `0<t><m><s>` → 100xxx-115xxx):
+
+| Terrain | Dry (`fses`) | Rain (`fser`) | Zones | Foot effect (`fefs` / `fefr` root) |
+|---|---|---|---|---|
+| 0 Object | none | none | | none |
+| 1 Path | 100001 | 100011 | 280 | dust in 70 / ripple in 288 |
+| 2 Grass | 100006 | 100015 | 280 (+18 with 141001 / 141004) | 11 / 281 |
+| 3 Sand | 100008 | 100016 | 28 | puff in 299 / 297, plus the footprint |
+| 4 Snow | 100009 | 100017 | 24 | powder in 299 / 297, plus the footprint |
+| 5 Stone | 100005 | 100014 | 298 | none |
+| 6 Metal | 100003 | 100013 | 282 (+16 with 141002 / 141003) | 16 / 16 |
+| 7 Wood | 100002 | 100012 | 298 | none |
+| 8 Shallow water | 100004 | 100004 | 289 | 292 / 290 |
+| 9 Deep water | 100007 | 100007 | 289 | 299 / 297 |
+| 10 | 100010 | 100018 | 298 | none |
+
+An Object floor (130k of South Gustaberg's 347k floor triangles) has no pointer in any zone, so it is silent, as in xim. Not compared with Windower zone by zone yet: the in-game checks in the lane report cover dirt, stone, sand, snow, wood and rain.
+
+Footprints and foot effects (sand and snow prints, the dust and water splashes) are drawn by the renderer from the same footfalls: [particles.md](../rendering/particles.md#footprints-and-foot-effects-40). The config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) turns those off, not the step sounds (the maintainer's retail answer on #40, 2026-10-07: turning it off draws less, for low-end graphics).
+
+## Title music (#378)
+
+The character lobby (title menu, character list, creation) plays the title music on the Music bus: `VeldridViewportControl`'s lobby frames call `GameAudioService.UpdateWithoutWorld(..., titleMusic: true)`, which creates the audio device on a first launch, holds the title track in the `MusicVoicePool` as the heard track while no character is, and fades it in over 1 s; when a character is chosen (`LobbyScreen.Entering`), on the black screen of a Log Out and when the lobby closes it fades out over 1.5 s (both provisional), and the character's zone music follows. The track comes from the lobby Config window's Title Music choice (`GameAudioService.TitleMusicChoice`, `TitleMusic`; labels read from the retail `ROM/97/36` entries 251-257 and 270, 2026-10-20):
+
+| Choice (ROM/97/36) | Track |
+|---|---|
+| 251 most recent version installed (default) | 58 "A New Direction" (all expansions installed) |
+| 252 "Vana'diel March" (base game, Rise of the Zilart) | 108 |
+| 253 "Unity" (Chains of Promathia) | 242 |
+| 254 "Vana'diel March #4" (Treasures of Aht Urhgan) | 179 |
+| 255 "Wings of the Goddess" | 140 |
+| 256 "A New Direction" (Seekers of Adoulin) | 58 |
+| 257 at random among the installed versions' songs | one of the five, drawn once per lobby visit |
+| 270 "We Are Vana'diel" | not offered: no reference gives its track id |
+
+Track ids referenced from LandSandBoat `docs/MusicIDs.txt` ("Title Screen 1 (Original+Zilart)" 108 ... "Title Screen 5 (Seekers)" 58); xi-tools found no sound reference in the title scene `ROM/0/23` or the title UI DATs, so the client picks it. Provisional, for a retail check: which choice is the default and what "most recent version" plays with every expansion installed (listen in the lobby, compare with `/playmusic 58` and the others). Open: the lobby Config window that sets the choice and the title volume (`lobycwin`, [character-lobby.md](character-lobby.md)), and the character-creation race themes and nation-selection march (LandSandBoat lists 130-133, 165-168 and 120 as creation music; not checked in retail).
 
 ## Zone effect audio (#39)
 
@@ -241,7 +278,8 @@ Provisional: a random choice is uniform; reactions play their routine from its s
 - [x] Zone effect audio: the auto-run sound generators with range, path and time-of-day volume (#39, above).
 - [x] Cross-platform audio backend: OpenAL Soft as the output device (#37, above).
 - [x] Clean-room decode of the retail sound files (#38, above, ATRAC3 included).
-- [x] Footstep sounds from the gait, collision terrain and footwear (#40, above; footprints open).
+- [x] Footstep sounds from the gait, collision terrain, footwear and weather (#40, #342, above); footprints and foot effects in [particles.md](../rendering/particles.md#footprints-and-foot-effects-40).
+- [x] Lobby title music (#378, above; the lobby Config window's choice open).
 - [x] Combat and action sounds from the actors' motion routines (#41, above), the shared `ROM/0/0` hit routines and the presentations' audio generators (#328).
 - [x] Event music and volume opcodes (#167, above).
 - [x] Ambient zone loops & BGM playback (#42, #114, above).

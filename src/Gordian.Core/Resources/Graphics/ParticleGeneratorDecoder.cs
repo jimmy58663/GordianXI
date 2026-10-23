@@ -102,6 +102,16 @@ namespace Gordian.Core.Resources.Graphics
     {
         public ParticleBillBoardType BillBoardType { get; set; } = ParticleBillBoardType.None;
         public bool ScaleBeforeRotate { get; set; }
+
+        /// <summary>
+        /// Setup flag 0x0200: the particle's rotation applies X, then Y, then Z (Z-Y-X); without it Z, then Y, then X
+        /// (column form Rx * Ry * Rz). Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// ui/js/particle/ops/initializers.js StandardParticleSetup and runtime.js computeParticleSpaceOrientationTransform,
+        /// after xim). 32,591 of the 133,469 generators in zone DATs 0-299 and ROM/0/0 set it; 1,946 without it rotate about
+        /// two or more axes (census 2026-10-20), among them the footprint fmrk (-90 degrees about X, 90 about Z: turned, then
+        /// laid flat).
+        /// </summary>
+        public bool RotationOrderZyx { get; set; }
         public bool FollowCamera { get; set; }
         public bool LocalPositionInCameraSpace { get; set; }
         public bool DepthMask { get; set; }
@@ -192,6 +202,24 @@ namespace Gordian.Core.Resources.Graphics
         public ParticleBlendFunc BlendFunc { get; set; } = ParticleBlendFunc.SrcOneAdd;
         public byte? AlphaOverride { get; set; }
         public bool IgnoreTextureAlpha { get; set; }
+
+        /// <summary>
+        /// Section 2 op 0x8F (no arguments): the particle's colour multiplies the ground behind it. *Inference* from the
+        /// retail data: no reference names the op (xi-model-viewer's initializer table skips it), and a census of zone DATs
+        /// 0-299 and <c>ROM/0/0</c> (2026-10-20) finds it on 11,759 generators, every one in a zone's foot-effect directories
+        /// <c>fses/fefs</c> (5,655) and <c>fser/fefr</c> (6,104), and on 7 in <c>ROM/0/0</c>: the footprint <c>fbib/fmrk</c>
+        /// and six ground hits (<c>rica</c>, <c>hit2</c>, <c>hit8</c>, <c>sb07</c>). In the maintainer's retail capture
+        /// (Footprints_Sand.mp4, 2026-10-16, 5.4 s) each print is a soft dark oval in the lavender sand's own hue (the
+        /// footprint's white texture <c>fmk1</c> carries only a soft alpha, its colour a dark 0x14 grey), inside a pale
+        /// lavender ring with sparkles that soon goes (the sand puff, whose authored colour is a dark additive 0x26).
+        /// </summary>
+        public bool GroundColored { get; set; }
+
+        /// <summary>
+        /// Section 2 op 0x8E (FootMark, xi-model-viewer <c>FootMarkEffectSetup</c>, after xim): the particle is a footprint.
+        /// Only <c>ROM/0/0</c>'s <c>fbib/fmrk</c> carries it (census of 2026-10-20).
+        /// </summary>
+        public bool FootMark { get; set; }
 
         /// <summary>
         /// Initial particle rotation in radians, raw DAT axes (Section 2 Opcode 0x09).
@@ -524,6 +552,7 @@ namespace Gordian.Core.Resources.Graphics
                         setup.FollowCamera = (billboardFlags & 0x0004) != 0;
                         setup.LocalPositionInCameraSpace = (billboardFlags & 0x000C) == 0x000C;
                         setup.DepthMask = (billboardFlags & 0x1000) != 0;
+                        setup.RotationOrderZyx = (billboardFlags & 0x0200) != 0;
 
                         if ((billboardFlags & 0x00C0) == 0x00C0) setup.BillBoardType = ParticleBillBoardType.Camera;
                         else if ((billboardFlags & 0x0081) == 0x0081) setup.BillBoardType = ParticleBillBoardType.Movement;
@@ -617,6 +646,14 @@ namespace Gordian.Core.Resources.Graphics
                             def.IgnoreTextureAlpha = true;
                         }
                     }
+                    break;
+
+                case 0x8E: // FootMark (xi-model-viewer FootMarkEffectSetup)
+                    def.FootMark = true;
+                    break;
+
+                case 0x8F: // ground colour (no reference names it; see GroundColored)
+                    def.GroundColored = true;
                     break;
             }
         }

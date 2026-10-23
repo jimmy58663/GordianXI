@@ -174,6 +174,8 @@ Server weather numbers (S2C 0x00A login, S2C 0x057, event opcode 0x77) are held 
 
 Ids above 19 fall back to `fine`. The fallback is used only when a zone authors no directory for the exact weather.
 
+Rain (6) and squall (7) wet the ground: the footstep sounds and foot effects use the zone's rain sets `fser` / `fser/fefr` (`ZoneSoundTable.IsWetWeather`, #342, [audio.md](../design/audio.md#footsteps-40)). Thunder (14) and thunderstorms (15) are read as dry (provisional).
+
 The client's English weather name table (`ROM/165/79`, `DMsgCategory.WeatherNames`, read for the forecast lines, [#125](https://github.com/jimmy58663/GordianXI/issues/125)) lists the same ids in order, each row a noun and an adjective: 0 "fine patches" / "fine", 1 "sunshine" / "sunny", 2 "clouds" / "cloudy", 3 "fog" / "foggy", 4 "hot spells" / "hot", 6 "rain" / "rainy", 10 "winds" / "windy" ... 19 "darkness" / "dark" (some adjectives repeat the noun: "sand storms", "gales", "thunderstorms", "auroras", "stellar glare"). **Differs from LandSandBoat / xi-tools:** they call id 0 none; the client's table names it fine weather, which fits GordianXI's `fine` directory for 0 (the Japanese table `ROM/165/65` has 40 rows, the 20 names followed by rows starting `fine`, `suny`). The weather forecast files ([events/vm.md](../events/vm.md#weather-forecast-0x72)) use ids 1-19 and 0xFF for an empty slot.
 
 ## Server animation status
@@ -274,6 +276,24 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTYPE` in `battle_entity.h`; `StockUiItems.Target*`): 0x001 self, 0x002 party, 0x004 enemy, 0x008 alliance, 0x010 player, 0x020 dead player, 0x040 NPC, 0x080 party (Pianissimo), 0x100 pet. 0 means the item cannot be used (the Items window greys Use).
 
 DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing. Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
+
+## Collision terrain types (`CollisionTriangle.Terrain`)
+
+The terrain of a collision triangle, from bit 3 of each of its four index words' top nibbles (xi-tools `docs/sounds/footsteps.md` §1, after xim `TerrainType`). It names the footstep pointer `0<terrain><move><shake+1>` and the foot effect `0<terrain hex>00` (#40, #342); the sound ids and the census of foot effects per terrain are in [audio.md](../design/audio.md#footsteps-40).
+
+| Index | xim name | Footprint (`ROM/0/0` `fmrk`) | GordianXI |
+|---|---|---|---|
+| 0 | Object | no | silent: no zone has an `00xx` pointer |
+| 1 | Path | no | dirt steps; dust (`fefs`) in 70 zones, a ripple in the rain |
+| 2 | Grass | no | |
+| 3 | Sand | yes | sand puff and print |
+| 4 | Snow | yes | powder puff and print |
+| 5 | Stone | no | |
+| 6 | Metal | no | moving platforms report Metal (`MovingPlatforms`) |
+| 7 | Wood | no | |
+| 8 | ShallowWater | no | splash |
+| 9 | DeepWater | no | splash |
+| 10 | (Unk0xA) | no | has pointers (`0a11` → 100010) in 298 zones |
 
 ## Particle attach types (Section 0x05 `attachFlags & 0x0F`)
 
