@@ -296,6 +296,14 @@ namespace Gordian.Core.Network
             };
             ActionService.Menus.TellTargetSelected = name => Chat.Input.TellTarget = name;
             ActionService.Menus.HasLinkshell = slot => Party.HasLinkshell(slot);
+            // The main menu's Party entry (#397): the list that fits the party state, and Disband / leaving.
+            ActionService.Menus.PartyContext = () =>
+            {
+                var members = Party.Members;
+                uint self = LocalPlayer.ServerId;
+                return new Gordian.Core.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeaderOf(self), members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0));
+            };
+            ActionService.Menus.PartyDisbandRequested = leader => ActionService.DisbandOrLeavePartyAsync(leader);
             // Unity membership (#65): the Unity leader (1-11) in S2C 0x061's unity_info; 0 = not in a Unity.
             ActionService.Menus.HasUnity = () => LocalPlayer.UnityFaction != 0;
             ChatModule.LinkshellMessageReceived += msg =>

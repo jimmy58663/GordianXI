@@ -249,6 +249,29 @@ namespace Gordian.Core.Actions
                 case StockUiSettingKey.SystemMessageFilterLevel:
                     _ = SendSystemMessageFilterLevelAsync(value);
                     break;
+                case StockUiSettingKey.StyleLock:
+                    _ = SendStyleLockSettingAsync(value != 0);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Config > Misc. 3 > Style Lock changed by the player: Static sends C2S 0x053 Enable and Normal sends Disable, and
+        /// <see cref="StyleLock"/> follows (XiPackets world/client/0x0053). Loading the saved setting never raises the change.
+        /// </summary>
+        private async Task SendStyleLockSettingAsync(bool locked)
+        {
+            var module = InventoryModule;
+            if (module == null) return;
+            var mode = locked ? LockstyleMode.Enable : LockstyleMode.Disable;
+            try
+            {
+                await module.SetLockstyleAsync(mode).ConfigureAwait(false);
+                NoteStyleLockSent(mode);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"Style lock {mode} could not be sent: {ex.Message}");
             }
         }
 
@@ -674,7 +697,7 @@ namespace Gordian.Core.Actions
             var combat = Combat;
             bool engaged = combat?.IsEngaged == true;
             var party = _partyModule.State;
-            bool canInvite = !party.IsInParty || party.IsLeader;
+            bool canInvite = !party.IsInParty || party.IsLeaderOf(_localPlayer.ServerId);
             if (canInvite)
             {
                 foreach (var member in party.Members)
@@ -1559,6 +1582,12 @@ namespace Gordian.Core.Actions
 
             return sb.ToString().TrimEnd();
         }
+
+        /// <summary>
+        /// The Party menu's Disband: the leader breaks the party up (C2S 0x070, every member returns to Solo play) and a member
+        /// leaves it (C2S 0x06F).
+        /// </summary>
+        public Task DisbandOrLeavePartyAsync(bool leader) => leader ? _partyModule.DisbandPartyAsync() : _partyModule.LeavePartyAsync();
 
         #region Style Lock & Key Items
 

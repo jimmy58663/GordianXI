@@ -40,6 +40,24 @@ namespace Gordian.App.Graphics
     {
         public const float TextScale = 0.875f;
 
+        /// <summary>
+        /// The pending-invite icon at the party window's top-left corner while an invite waits (S2C 0x0DC; #397; the maintainer's
+        /// round 1 note and retail image-18): a small version of the Seek Party icon, a black circle with a silvery outline and a
+        /// green "!" (the <c>fontshp</c> icon <see cref="SeekPartyIconIndex"/>, the name plate's seeking-party icon, 16 x 16),
+        /// drawn at <see cref="InviteIconScale"/>. <b>Provisional:</b> its exact size and place on retail.
+        /// </summary>
+        public static void DrawInviteIcon(StockUiRenderer renderer, UiFont font, StockUiPlacement placement)
+        {
+            if (SeekPartyIconIndex >= font.Group.Images.Count) return;
+            var image = font.Group.Images[SeekPartyIconIndex];
+            if (image.Parts.Count == 0) return;
+            float s = placement.Scale;
+            renderer.DrawImage(image, placement.X + InviteIconX * s, placement.Y + InviteIconY * s, s * InviteIconScale);
+        }
+
+        public const int SeekPartyIconIndex = 113;
+        public const float InviteIconX = -4, InviteIconY = -5, InviteIconScale = 0.7f;
+
         /// <summary>Right edge of the "(zone)" text on a party row's second line, from the row origin: the MP number's (layout pixels).</summary>
         public const float ZoneTextRight = 96;
 

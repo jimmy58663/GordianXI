@@ -285,6 +285,7 @@ namespace Gordian.Core.Tests.Network
             byte[] payload = new byte[36 + ((nameSize + 3) / 4 * 4) + 4];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), uniqueNo);
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 1234); // Hp
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(16, 4), 0x04); // GAttr: the leader flag (a flagless list with no roster is the "not in a party" notice)
             payload[25] = 80; // Hpp
             Encoding.ASCII.GetBytes(name.Substring(0, nameSize)).CopyTo(payload.AsSpan(36));
             return payload;
@@ -534,8 +535,40 @@ namespace Gordian.Core.Tests.Network
             parser.Dispatcher.Dispatch(new PacketHeader(0x00A, 1, (ushort)login.Length), login);
 
             Assert.Equal(101, parser.World.CurrentZoneId);
-            Assert.False(parser.Party.IsInParty);
-            Assert.Equal(0x00012345u, parser.Party.Members.Single().ServerId);
+            Assert.False(parser.Party.IsInParty); // a party of Trusts is gone with them: back to Solo (#397)
+            Assert.Empty(parser.Party.Members);
+        }
+
+        [Fact]
+        public void LeavingOrDisbanding_EmptyTableThenFlaglessSelfListIsSolo_ButAPartyOfOneKeepsItsLeaderFlag()
+        {
+            var party = new PartyState();
+            var dispatcher = new PacketDispatcher();
+            new PartyPacketModule(party, (_, _) => Task.CompletedTask).Register(dispatcher);
+            void Send(ushort id, byte[] payload) => dispatcher.Dispatch(new PacketHeader(id, (ushort)(payload.Length + 4), 1), payload);
+            byte[] SelfList(uint attributes)
+            {
+                byte[] payload = NameSizedGroupList(1001, "Gordian");
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(16, 4), attributes);
+                return payload;
+            }
+
+            // A party of two, then the server breaks it up: LandSandBoat sends GROUP_TBL(nullptr), 20 empty slots, and a
+            // member list for the character alone with every flag clear (the 2026-10-22 log: "Group table received with 20
+            // members" then one "Group member update").
+            Send(S2C_0x0C8_GroupTbl.PacketId, GroupTable((1001, 0x04), (1002, 0)));
+            Send(0x0DD, SelfList(0x04));
+            Assert.True(party.IsInParty);
+            Send(S2C_0x0C8_GroupTbl.PacketId, GroupTable());
+            Send(0x0DD, SelfList(0));
+            Assert.False(party.IsInParty);
+            Assert.Empty(party.Members);
+
+            // A party of one: the table lists the character with the leader flag, so it stays a party.
+            Send(S2C_0x0C8_GroupTbl.PacketId, GroupTable((1001, 0x04)));
+            Send(0x0DD, SelfList(0x04));
+            Assert.True(party.IsInParty);
+            Assert.True(party.IsLeaderOf(1001));
         }
 }
 }
