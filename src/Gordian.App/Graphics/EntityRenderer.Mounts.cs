@@ -66,10 +66,12 @@ namespace Gordian.App.Graphics
 
             var rider = character != null ? RiderOrSelf(entity, character, resources) : null;
             bool riding = rider != null && !ReferenceEquals(rider, character);
-            float scale = riding ? resources.GetMountScale(rider!) : 1f;
-            var seat = MountModels.SeatPoint(mount, pose);
+            // The pack's chocobo is scaled by the race; the mount by the race and its own size (round 3).
+            float raceScale = riding ? resources.GetMountScale(rider!) : 1f;
+            float scale = raceScale * MountModels.MountBaseScale(entity.Mount);
+            var seat = MountModels.SeatPoint(mount, pose) + new Vector3(MountModels.SeatShift(entity.Mount), 0f, 0f);
             var offset = Vector3.Zero;
-            float thicker = 0f;
+            float back = 0f;
             if (riding && !entity.Mount.RidesChocobo && resources.TryLoadMountModel(RidingChocobo, out var chocobo) && chocobo != null)
             {
                 var animation = entity.Animation;
@@ -80,12 +82,17 @@ namespace Gordian.App.Graphics
                         expected, animation.BlendWeight);
                 }
                 // Model space is Y-down: a higher back moves the rider to -Y.
-                thicker = resources.GetBackHeight(mount) - resources.GetBackHeight(chocobo);
-                offset = scale * (seat - expected - new Vector3(0f, thicker, 0f));
+                // Model space is Y-down: the back's height over the seat raises the rider (-Y). The pack expects the chocobo's
+                // seat and back at the race scale; this mount's are at its own scale.
+                back = resources.GetBackHeight(mount, MountModels.SeatShift(entity.Mount));
+                var mountBack = scale * (seat - new Vector3(0f, back, 0f));
+                var chocoboBack = raceScale * (expected - new Vector3(0f, resources.GetBackHeight(chocobo), 0f));
+                offset = mountBack - chocoboBack;
             }
-            // The name plate (round 2 H12): the rider's own overhead point over its seat, about a yalm over a seated head as in
-            // retail (image-9.png), so the seat's height (with the lift of a thick back) is added to the rider's.
-            return new MountRide(mount, gpuModel, palette, key, scale, offset, scale * (-seat.Y + thicker));
+            // The name plate: the rider's own overhead point raised by half its seat's height (round 3 H17; the full height,
+            // round 2, sat a little too high against retail's image-9.png). For another mount the seat is its back as placed.
+            float seatHeight = riding && !entity.Mount.RidesChocobo ? raceScale * MountModels.ChocoboRestSeatHeight - offset.Y : scale * -seat.Y;
+            return new MountRide(mount, gpuModel, palette, key, scale, offset, 0.5f * seatHeight);
         }
 
         /// <summary>

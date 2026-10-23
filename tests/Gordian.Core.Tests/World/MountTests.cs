@@ -295,7 +295,26 @@ namespace Gordian.Core.Tests.World
             }
             Assert.InRange(Back(MountAppearance.FromWire(5, 0, 1)), 0.18f, 0.25f);   // chocobo
             Assert.InRange(Back(MountAppearance.FromWire(85, 2, 2)), 0.24f, 0.32f);  // raptor
-            Assert.InRange(Back(MountAppearance.FromWire(85, 10, 3)), 0.95f, 1.10f); // Fenrir
+            Assert.InRange(Back(MountAppearance.FromWire(85, 10, 3)), 0.95f, 1.10f); // Fenrir at its hip joint: the shoulder fur
+            // Round 3 H15: Fenrir's riders sit 0.6 further back, on its flat mid-back.
+            Assert.True(rm.TryLoadMountModel(MountAppearance.FromWire(85, 10, 3), out var fenrir));
+            Assert.InRange(MountModels.BackHeight(fenrir!, MountModels.SeatShift(MountAppearance.FromWire(85, 10, 3))), 0.30f, 0.45f);
+        }
+
+        /// <summary>
+        /// Round 3 (image-12.png, image-13.png): each mount's own size against the riding chocobo, on top of the race scale.
+        /// </summary>
+        [Fact]
+        public void MountBaseScales_AndSeatShifts()
+        {
+            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(5, 0, 2)));        // chocobo
+            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(5, 34, 4)));       // Noble Chocobo
+            Assert.Equal(0.85f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 2, 2)));    // raptor
+            Assert.Equal(0.85f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 31, 7)));   // red raptor
+            Assert.Equal(0.65f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 10, 3)));   // Fenrir
+            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 3, 3)));       // tiger, not measured
+            Assert.Equal(-0.6f, MountModels.SeatShift(MountAppearance.FromWire(85, 10, 3)));
+            Assert.Equal(0f, MountModels.SeatShift(MountAppearance.FromWire(85, 2, 2)));
         }
 
         /// <summary>Of the retail mounts only Fenrir (id 9) carries a blur aura (Section 0x5E), drawn as on the avatar.</summary>

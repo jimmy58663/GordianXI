@@ -216,6 +216,9 @@ namespace Gordian.Core.Resources
         /// </summary>
         public const float ReferenceRiderHips = 1.7802f;
 
+        /// <summary>The chocobo's seat height (reference 1 in its idle, yalms), for the name plate over another mount.</summary>
+        public const float ChocoboRestSeatHeight = 1.44f;
+
         /// <summary>The skeleton reference the rider sits on: reference 1, the body joint of the chocobo and of every mount.</summary>
         public const int SeatReference = 1;
 
@@ -234,6 +237,45 @@ namespace Gordian.Core.Resources
             float hips = -SkeletonPoseEvaluator.EvaluatePose(skeleton, seated, 0f, true).Translations[2].Y;
             return hips > 0.1f ? hips / ReferenceRiderHips : 1f;
         }
+
+        /// <summary>
+        /// The mount's own size against the chocobo the riding packs are authored on, applied on top of the rider's
+        /// <see cref="MountScale"/> (#87, round 3: "mount sizing is too large", while the chocobo under an Elvaan looked
+        /// right). Measured from the maintainer's retail shots of every race riding side by side (2026-10-23):
+        /// <list type="bullet">
+        /// <item>The raptor (ids 1 and 30) is 0.85. On image-12.png the rider's head stands 1.27 (Galka), 1.22 (Elvaan,
+        /// Hume), 1.18 (Hume female) times its raptor's top over the ground; these fit 0.84-0.86 of the race scale for every
+        /// race (the Tarutaru 0.96, under a hat).</item>
+        /// <item>Fenrir (id 9) is 0.65. On image-13.png, against the Galka's seated hips-to-head (1.06 yalms) as the ruler, the
+        /// Fenrir under it stands 2.23 yalms to its spikes and its back meets the Galka's hips at about 1.9: 0.61 of the race
+        /// scale; the Elvaan's gives 0.70.</item>
+        /// <item>The chocobo and every mount not measured are 1 (PROVISIONAL for the others).</item>
+        /// </list>
+        /// </summary>
+        public static float MountBaseScale(in MountAppearance mount)
+        {
+            if (mount.RidesChocobo) return 1f;
+            return mount.MountId switch
+            {
+                1 or 30 => RaptorBaseScale,
+                9 => FenrirBaseScale,
+                _ => 1f,
+            };
+        }
+
+        /// <summary>The raptor's and Fenrir's size against the riding chocobo (<see cref="MountBaseScale"/>).</summary>
+        public const float RaptorBaseScale = 0.85f, FenrirBaseScale = 0.65f;
+
+        /// <summary>
+        /// How far the rider's seat is moved along the mount from its seat reference (model units, + forward), for a mount
+        /// whose reference 1 is not under the riding spot (#87, round 3 H15). Fenrir's back is flat at 1.80-1.86 from 1.0 to
+        /// 0.0 behind its reference and climbs to 2.45-2.5 over the shoulders from 0.4 ahead, where the pack's 0.27 put the
+        /// riders (too high and too far forward against image-13.png, where the Galka sits mid-back): 0.6 back. Others: 0.
+        /// </summary>
+        public static float SeatShift(in MountAppearance mount) => !mount.RidesChocobo && mount.MountId == 9 ? FenrirSeatShift : 0f;
+
+        /// <summary>Fenrir's seat shift (<see cref="SeatShift"/>).</summary>
+        public const float FenrirSeatShift = -0.6f;
 
         /// <summary>
         /// The seat point (<see cref="SeatReference"/>) of <paramref name="model"/> in its model space (Y down, unscaled) for
@@ -272,14 +314,14 @@ namespace Gordian.Core.Resources
         /// its hip joint). The rider is raised by the difference from the chocobo's (round 2 H11: on Fenrir the riders sank
         /// into the body). 0 when the patch has no vertex.
         /// </summary>
-        public static float BackHeight(EntityModel mount)
+        public static float BackHeight(EntityModel mount, float seatShift = 0f)
         {
             if (mount.Skeleton is not { Count: > 0 } skeleton) return 0f;
             var pose = mount.Animations.TryGetValue("idl", out var idle)
                 ? SkeletonPoseEvaluator.EvaluatePose(skeleton, idle, 0f, true)
                 : SkeletonPoseEvaluator.ComputeBindPose(skeleton);
             var seat = SeatPoint(mount, pose);
-            float x = seat.X + SeatForward;
+            float x = seat.X + SeatForward + seatShift;
             float top = float.MinValue;
             foreach (var p in SkinnedPoints(mount, pose))
             {

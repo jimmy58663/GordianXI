@@ -55,7 +55,8 @@ namespace Gordian.Core.Resources
         private ConditionalWeakTable<EntityModel, StrongBox<float>> _backHeights = new();
 
         /// <summary>How high the mount's back stands over its seat reference (#87, <see cref="MountModels.BackHeight"/>), computed once per mount.</summary>
-        public float GetBackHeight(EntityModel mount) => _backHeights.GetValue(mount, m => new StrongBox<float>(MountModels.BackHeight(m))).Value;
+        public float GetBackHeight(EntityModel mount, float seatShift = 0f) =>
+            _backHeights.GetValue(mount, m => new StrongBox<float>(MountModels.BackHeight(m, seatShift))).Value;
 
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()
