@@ -142,6 +142,12 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The vessel ZoneDef's collision block (the deck); null when it has none.</summary>
         public World.Collision.ZoneCollisionMesh? Collision { get; set; }
 
+        /// <summary>
+        /// A voyage zone's vessel doors (its <c>_</c> placements), in the passengers' frame; they are also in the zone's
+        /// <see cref="ZoneGeometry.DoorLeaves"/>, where the renderer draws them without the scenery transform.
+        /// </summary>
+        public Dictionary<string, List<DoorLeaf>> DoorLeaves { get; } = new(StringComparer.Ordinal);
+
         /// <summary>The scenery Routes the vessel follows (<c>mode/cNNN</c>), in file order; empty at a dock zone.</summary>
         public List<Events.CameraRoute> Routes { get; } = new();
 

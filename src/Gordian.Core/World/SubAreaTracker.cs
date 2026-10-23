@@ -90,7 +90,7 @@ namespace Gordian.Core.World
                     }
                 }
                 if (changed) Volatile.Write(ref _nearSnapshot, _near.ToArray());
-                RequestInteriors(zone);
+                RequestInteriors(zone, volumes);
             }
             if (Interlocked.Exchange(ref _active, active) != active)
             {
@@ -105,17 +105,25 @@ namespace Gordian.Core.World
             position.Z >= interior.MinBounds.Z - margin && position.Z <= interior.MaxBounds.Z + margin &&
             position.Y >= interior.MinBounds.Y - 1f - margin && position.Y <= interior.MaxBounds.Y + 1f + margin;
 
-        /// <summary>Loads the near interiors' collision in the background and merges what is near once it is all there.</summary>
-        private void RequestInteriors(ZoneCollisionMesh zone)
+        /// <summary>
+        /// Loads every interior's collision of the zone in the background (the first update after a zone change), so each
+        /// room's floor bounds are known before the player gets there: walking into a shop through its wall (collision
+        /// walls off) found it only once the player had come near its doorway volume (round 2: "the shops load after a few
+        /// seconds inside"). Lower Jeuno's 13 come to about 70,000 triangles. Then merges what is near once it is all there.
+        /// </summary>
+        private void RequestInteriors(ZoneCollisionMesh zone, IReadOnlyList<Gordian.Core.Resources.Graphics.ZoneInteraction> volumes)
         {
             var loader = InteriorCollisionLoader;
             if (loader == null) return;
+            foreach (var volume in volumes) Load(volume.Param);
             bool allLoaded = true;
             foreach (int id in _near)
             {
-                if (_interiors.ContainsKey(id)) continue;
-                allLoaded = false;
-                if (!_loading.Add(id)) continue;
+                if (!_interiors.ContainsKey(id)) allLoaded = false;
+            }
+            void Load(int id)
+            {
+                if (_interiors.ContainsKey(id) || !_loading.Add(id)) return;
                 int generation = _generation;
                 Task.Run(() =>
                 {

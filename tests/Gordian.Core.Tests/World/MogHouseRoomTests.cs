@@ -67,7 +67,7 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
-        public void Room_IsWalkable_AndItsDoorIsTheExit()
+        public void Room_IsWalkable_AndItsDoorIsATargetableClosedDoor()
         {
             if (!Directory.Exists(GameDirectory)) return;
             ushort key = MogHouseRooms.ZoneKey(0x121);
@@ -76,16 +76,23 @@ namespace Gordian.Core.Tests.World
             Assert.True(rm.TryLoadZone(key, out var room, out _));
             Assert.True(room!.MeshGroups.Count > 0);
             Assert.NotNull(room.Collision);
-            var exit = Assert.Single(room.Collision!.ZoneLineVolumes);
-            Assert.Equal(ZoneLines.MogHouseExitId, exit.Id);
-            Assert.True(ZoneLines.IsRequestable(exit.Id));
-            Assert.True(exit.Size.Z >= MogHouseRooms.ExitVolumeDepth);
+            // No walk-in exit: the door is talked to (round 2).
+            Assert.Empty(room.Collision!.ZoneLineVolumes);
+
+            // The room's collision brings the client's own door entity: closed, so it blocks, and targetable.
+            var world = new WorldState();
+            world.UpdateZoneLoginInfo(Login(true, 0x121));
+            world.Collision = room.Collision;
+            Assert.True(world.TryGetByServerId(MogHouseRooms.ExitDoorServerId, out var door));
+            Assert.Equal(EntityType.Door, door!.Type);
+            Assert.Equal("_720", door.TransportId);
+            Assert.Single(ZoneDoors.EvaluateClosed(world.Collision, world));
 
             var headless = new ResourceManager(GameDirectory);
             headless.InitializeFileTable();
             var collision = headless.TryLoadZoneCollision(key);
             Assert.Equal(room.Collision.TriangleCount, collision!.TriangleCount);
-            Assert.Equal(ZoneLines.MogHouseExitId, Assert.Single(collision.ZoneLineVolumes).Id);
+            Assert.Empty(collision.ZoneLineVolumes);
 
             // The city keeps its own lines, the entrance among them.
             Assert.Contains(headless.TryLoadZoneCollision(230)!.ZoneLineVolumes, l => l.Id == "zmr0");

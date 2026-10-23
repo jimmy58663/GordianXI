@@ -213,6 +213,26 @@ namespace Gordian.Core.Resources
             return routes && vesselDef.HasValue ? vesselDef : zoneDef;
         }
 
+        /// <summary>
+        /// Whether a voyage zone's generator sits on its vessel though it is declared with the scenery's effects: the
+        /// Manaclipper's wake and bow waves (<c>s_pa/effe/nami/yk*</c>, 0.8-26 yalms from the origin) and its manta
+        /// (<c>mant</c>) are authored in the vessel's frame, where every scenery effect is hundreds of yalms out (round 2:
+        /// the water around the boat was missing). Within the vessel's footprint plus 10 yalms counts.
+        /// </summary>
+        private static bool IsOnVessel(ZoneVessel? vessel, Vector3 position)
+        {
+            if (vessel is not { IsVoyage: true } || vessel.MeshGroups.Count == 0) return false;
+            var min = new Vector3(float.MaxValue);
+            var max = new Vector3(float.MinValue);
+            foreach (var group in vessel.MeshGroups)
+            {
+                min = Vector3.Min(min, group.MinBounds);
+                max = Vector3.Max(max, group.MaxBounds);
+            }
+            const float margin = 10f;
+            return position.X >= min.X - margin && position.X <= max.X + margin && position.Z >= min.Z - margin && position.Z <= max.Z + margin;
+        }
+
         /// <summary>Whether a directory path (<c>s_ju/mode/ship</c>) is in a ship zone's vessel directory (#403).</summary>
         private static bool IsVesselPath(string path)
         {
@@ -228,9 +248,10 @@ namespace Gordian.Core.Resources
         /// zone's. Every part is drawn static with the vessel (its doors and lifts are not animated yet).
         /// </summary>
         private static ZoneVessel ParseVessel(ReadOnlySpan<byte> datBytes, DatSectionHeader header, ReadOnlySpan<byte> table1,
-            ZoneMeshTemplates vesselTemplates, ZoneMeshTemplates zoneTemplates)
+            ZoneMeshTemplates vesselTemplates, ZoneMeshTemplates zoneTemplates, bool voyage)
         {
             var vessel = new ZoneVessel();
+            var doorLeafCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             byte[] payload = datBytes.Slice(header.DataOffset, header.DataSizeBytes).ToArray();
             int nodeCount = ZoneDefDecoder.DecryptZoneObjects(payload, table1);
             vessel.Collision = ZoneCollisionDecoder.Decode(payload);
@@ -241,13 +262,25 @@ namespace Gordian.Core.Resources
                                ?? ZoneDefDecoder.ResolveTemplate(placement.MeshId, zoneTemplates.Templates, zoneTemplates.RealNames);
                 if (template == null) continue;
                 var trs = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+                // A voyage zone's vessel doors swing with their door entities (the ships' cabin doors _640-_645, round 2 J9):
+                // their leaves go to the door list, in the passengers' frame. A ship model drawn at a dock keeps them shut.
+                List<MeshGroup>? doorLeaf = null;
+                if (voyage && placement.IsDoorPart)
+                {
+                    doorLeafCounts.TryGetValue(placement.BlockId, out int part);
+                    doorLeafCounts[placement.BlockId] = part + 1;
+                    if (!vessel.DoorLeaves.TryGetValue(placement.BlockId, out var leaves)) vessel.DoorLeaves[placement.BlockId] = leaves = new List<DoorLeaf>();
+                    doorLeaf = new List<MeshGroup>();
+                    leaves.Add(new DoorLeaf(part, placement, doorLeaf));
+                }
                 foreach (var submesh in template)
                 {
                     var instantiated = ZoneDefDecoder.InstantiateSubmesh(submesh, trs, placement.MeshId);
                     instantiated.EnvironmentId = placement.EnvironmentId;
-                    vessel.MeshGroups.Add(instantiated);
+                    (doorLeaf ?? vessel.MeshGroups).Add(instantiated);
                 }
             }
+            foreach (var leaves in vessel.DoorLeaves.Values) OrderDoorParts(leaves);
             return vessel;
         }
 
@@ -1181,8 +1214,9 @@ namespace Gordian.Core.Resources
 
                 if (vesselDefHeader.HasValue)
                 {
-                    zone.Vessel = ParseVessel(datBytes, vesselDefHeader.Value, table1, vesselTemplates, meshTemplates);
+                    zone.Vessel = ParseVessel(datBytes, vesselDefHeader.Value, table1, vesselTemplates, meshTemplates, voyage: sceneryRoutes.Count > 0);
                     zone.Vessel.Routes.AddRange(sceneryRoutes);
+                    foreach (var (doorId, leaves) in zone.Vessel.DoorLeaves) zone.DoorLeaves.TryAdd(doorId, leaves);
                     // In a voyage zone the passengers walk the deck; the scenery moving past has no collision of its own.
                     if (zone.Vessel.IsVoyage) zone.Collision = zone.Vessel.Collision;
                 }
@@ -1327,7 +1361,7 @@ namespace Gordian.Core.Resources
                     effect.AttachType = gen.AttachType;
                 }
                 effect.OwnerDoorId = ownerDoor;
-                effect.OnVessel = IsVesselPath(genPath);
+                effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;
                 if (!actorEffects && !isWeather && effect.Emitter != null)

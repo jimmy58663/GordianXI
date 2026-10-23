@@ -147,6 +147,25 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void VoyageZones_KeepTheirVesselsEffectsAndDoorsOnBoard()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            // The Manaclipper's wake (s_pa/effe/nami) is authored at the vessel's origin; the rocks' surf is not.
+            Assert.True(rm.TryLoadZone(3, out var clipper, out _));
+            Assert.Contains(clipper!.EffectLayers, l => l.Name == "ykf1" && l.OnVessel);
+            Assert.Contains(clipper.EffectLayers, l => l.Name == "skb1" && !l.OnVessel);
+            // The Selbina ship's cabin doors swing with their door entities.
+            Assert.True(rm.TryLoadZone(220, out var ship, out _));
+            foreach (string id in new[] { "_640", "_641", "_642", "_643" })
+            {
+                Assert.True(ship!.Vessel!.DoorLeaves.ContainsKey(id), id);
+                Assert.True(ship.DoorLeaves.ContainsKey(id), id);
+            }
+        }
+
+        [Fact]
         public void DockZones_HaveNoVesselOfTheirOwn()
         {
             if (!Directory.Exists(GameDirectory)) return;

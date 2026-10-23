@@ -71,6 +71,8 @@ namespace Gordian.Core.World
                 _collision = value;
                 _subAreaCollision = null;
                 SubAreas.Reset();
+                // A Mog House room's door is the client's own entity (#354): it comes with the room's collision.
+                if (value != null && MogHouseRoom != 0 && MogHouseRooms.CreateExitDoor(value) is { } door) UpsertEntity(door);
             }
         }
 

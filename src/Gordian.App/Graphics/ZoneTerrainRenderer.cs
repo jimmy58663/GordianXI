@@ -57,6 +57,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         private Matrix4x4 _sceneryTransform = Matrix4x4.Identity;
         private readonly BoundingFrustum _sceneryFrustum = new();
+        private BoundingFrustum? _cameraFrustum;
 
         /// <summary>
         /// Pins a voyage zone's clock (Earth seconds since the Vana'diel epoch) instead of the session's server clock: offscreen
@@ -1375,6 +1376,7 @@ namespace Gordian.App.Graphics
 
             // The scenery's bounds are in its own frame: cull them with the frustum carried into it.
             var frustum = camera.Frustum;
+            _cameraFrustum = camera.Frustum;
             if (!_sceneryTransform.IsIdentity)
             {
                 _sceneryFrustum.Update(_sceneryTransform * camera.ViewMatrix * camera.ProjectionMatrix);
@@ -1877,8 +1879,10 @@ namespace Gordian.App.Graphics
             Vector4 textureFactor = ComputeSkyTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
             if (textureFactor.W <= 0.001f) return false;
 
-            // Generator effects advance at 60 frames per second.
-            float frames = _cloudAccumulatedTime * 60.0f;
+            // Generator effects advance at 60 frames per second; a ship zone's clouds, which ride the viewer (attach type 5,
+            // Phanauet Channel's weat/*/cld1, clod...), at half that: round 2 in game saw them scroll about twice as fast as
+            // retail at 60 (*inference*: an actor's generators step with the actor, at 30 frames a second).
+            float frames = _cloudAccumulatedTime * (skyMesh.AttachType == ParticleAttachType.SourceActorTargetFacing && !layer.IsWorldEffect ? 30.0f : 60.0f);
 
             // Sun and moon generators ride the celestial orbit 900 yalms out; the moon is opposite the sun.
             Vector3 lightDirection = skyMesh.AttachType == ParticleAttachType.Moon ? -sunDir : sunDir;
@@ -2370,6 +2374,8 @@ namespace Gordian.App.Graphics
             var frame = new ZoneParticleFrame(ToDisplay(eye), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
                 ToDisplay(forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
                 IsViewerInSubEnvironment(camera.Position));
+            // The vessel's own emitters (its wake, lamps, the sea around it) see the eye where it is.
+            var vesselFrame = _sceneryTransform.IsIdentity ? frame : frame with { CameraRawPosition = ToDisplay(camera.Position), CameraRawForward = ToDisplay(camera.Forward) };
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
             // Lightning strikes and other short weather routines start their generators at random.
             _weatherRoutines?.Update(_emittersWarm ? emitterFrames : 0.0f, _effectWeather,
@@ -2409,7 +2415,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 if (emitter.IsRetiring) emitter.Resume();
-                emitter.Update(emitterFrames, frame);
+                emitter.Update(emitterFrames, emitterLayer.OnVessel ? vesselFrame : frame);
             }
             _emittersWarm = true;
             _lastEmitterFrame = frame;
@@ -2792,8 +2798,10 @@ namespace Gordian.App.Graphics
                 var world = pose == DoorLeafPose.Shut
                     ? Matrix4x4.Identity
                     : DisplayFlip * DoorAnimator.LeafTransform(submesh.DoorPlacement, pose) * DisplayFlip;
+                // A vessel's doors stay in the passengers' frame (#403 round 2); the scenery's move with it.
+                bool vesselDoor = LoadedZone?.Vessel?.DoorLeaves.ContainsKey(submesh.DoorId) == true;
                 TransformBounds(submesh.MinBounds, submesh.MaxBounds, world, out var min, out var max);
-                if (!frustum.IntersectsBox(min, max))
+                if (!(vesselDoor ? _cameraFrustum ?? frustum : frustum).IntersectsBox(min, max))
                 {
                     culled++;
                     continue;
@@ -2803,7 +2811,7 @@ namespace Gordian.App.Graphics
                 var buffer = sub ? _subEnvironmentScenes[submesh.EnvironmentId].Buffer : _sceneUniformBuffer;
                 var baseUniform = sub && _subEnvironmentUniforms.TryGetValue(submesh.EnvironmentId, out var subUniform) ? subUniform : sceneUniform;
                 var moved = baseUniform;
-                moved.World = world * _sceneryTransform;
+                moved.World = vesselDoor ? world : world * _sceneryTransform;
                 _commandList.UpdateBuffer(buffer, 0, ref moved);
 
                 _commandList.SetPipeline(ForSubmesh(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline, submesh.NoCull));

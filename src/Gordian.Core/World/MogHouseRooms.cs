@@ -41,38 +41,53 @@ namespace Gordian.Core.World
         public static ushort ZoneKey(int myroomMapNumber) => (ushort)(KeyFlag | myroomMapNumber);
 
         /// <summary>
-        /// The exit prompt the client shows when the player walks into the room's door: "Moogle: Heading outside, kupo?",
-        /// Yes / No with No under the cursor (<c>Retail Captures/Mog_House.mp4</c>, 2026-10-17, Aht Urhgan Whitegate, at
-        /// 2:32; the string is in the client's XISTRING table, file 52, beside "Exit your Mog House?"). Yes sends C2S 0x05E
-        /// with the exit id <c>zmrq</c>.
+        /// The exit prompt the client shows when the player targets the room's door and presses Confirm: "Moogle: Heading
+        /// outside, kupo?", Yes / No with No under the cursor (<c>Retail Captures/Mog_House.mp4</c>, 2026-10-17, Aht Urhgan
+        /// Whitegate, at 2:32; the string is in the client's XISTRING table, file 52, beside "Exit your Mog House?"; round 2
+        /// in game: retail asks on Confirm at the targeted door, not on walking up). Yes sends C2S 0x05E with the exit id
+        /// <c>zmrq</c>.
         /// </summary>
         public const string ExitQuestion = "Moogle: Heading outside, kupo?";
 
-        /// <summary>The depth (yalms) the door's exit volume is given: the door record is a 0.2-yalm sheet in the doorway.</summary>
-        public const float ExitVolumeDepth = 1.2f;
-
         /// <summary>
-        /// The room's way out (#354): the room DATs have no zone line, only their door's Section 0x36 record (<c>_720</c> in
-        /// every room, a 2.0-2.3 x 2.4-3.0 x 0.2 sheet 7.7-8.4 yalms from the room's centre). Walking into it is the exit, so
-        /// each door record becomes a zone-line volume with the exit id <c>zmrq</c>, thickened to
-        /// <see cref="ExitVolumeDepth"/>; nothing else of the room is a zone line.
-        /// </summary>
-        public static IReadOnlyList<ZoneInteraction> ExitVolumes(IEnumerable<ZoneInteraction> interactions)
-        {
-            var exits = new List<ZoneInteraction>();
-            foreach (var record in interactions)
-            {
-                if (!record.IsDoor || record.Size.X <= 0f || record.Size.Y <= 0f) continue;
-                exits.Add(record with { Id = Collision.ZoneLines.MogHouseExitId, Size = new Vector3(record.Size.X, record.Size.Y, MathF.Max(record.Size.Z, ExitVolumeDepth)) });
-            }
-            return exits;
-        }
-
-        /// <summary>
-        /// The zone-line volumes of a zone or a room: a room's door exits (<see cref="ExitVolumes"/>), else the zone's lines.
+        /// The zone-line volumes of a zone or a room: none in a room (its door is talked to, <see cref="ExitDoorServerId"/>),
+        /// else the zone's lines.
         /// </summary>
         public static IReadOnlyList<ZoneInteraction> ZoneLineVolumes(int zoneId, IEnumerable<ZoneInteraction> interactions) =>
-            TryGetRoomOfKey(zoneId, out _) ? ExitVolumes(interactions) : Collision.ZoneLines.Select(interactions);
+            TryGetRoomOfKey(zoneId, out _) ? Array.Empty<ZoneInteraction>() : Collision.ZoneLines.Select(interactions);
+
+        /// <summary>
+        /// The server id of the room's door entity, which the client makes itself: the server sends no door for a room
+        /// (LandSandBoat spawns only the moogle and the orchestrion's curator there), yet retail lets the player target the
+        /// door, Confirm on it asks <see cref="ExitQuestion"/>, and it blocks while shut (round 2 in game). Above every
+        /// server id LandSandBoat gives out (NPCs 0x01xxxxxx, dynamic entities 0x0700-0x08FF indices).
+        /// </summary>
+        public const uint ExitDoorServerId = 0x7FFF0720;
+
+        /// <summary>The door entity's target index (outside the server's 0-0x8FF range).</summary>
+        public const ushort ExitDoorTargetIndex = 0x7FF0;
+
+        /// <summary>Whether an entity is the room's exit door (<see cref="ExitDoorServerId"/>).</summary>
+        public static bool IsExitDoor(WorldEntity? entity) => entity != null && entity.ServerId == ExitDoorServerId;
+
+        /// <summary>
+        /// The room's door entity for its first door record (<c>_720</c>): a closed door (status 9) at the record's centre,
+        /// named "Door", so it is targetable, blocks (<see cref="ZoneDoors.EvaluateClosed"/>) and holds its leaves shut. Null
+        /// when the room has no door record.
+        /// </summary>
+        public static WorldEntity? CreateExitDoor(Collision.ZoneCollisionMesh? room)
+        {
+            if (room == null || room.Doors.Count == 0) return null;
+            var door = room.Doors[0];
+            return new WorldEntity(ExitDoorServerId, ExitDoorTargetIndex, EntityType.Door)
+            {
+                Name = "Door",
+                Position = door.Center,
+                TransportId = door.Id,
+                AnimationState = Collision.ZoneDoors.StatusClosed,
+                IsSpawned = true,
+            };
+        }
 
         /// <summary>The room number of a map zone key; false for a real zone id.</summary>
         public static bool TryGetRoomOfKey(int zoneKey, out int myroomMapNumber)

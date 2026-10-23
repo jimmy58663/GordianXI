@@ -482,6 +482,16 @@ namespace Gordian.Core.Network
                 }
                 EnsureLocalPlayerEntity(PositionX, PositionY, PositionZ, Direction, TargetIndex);
                 CurrentState = SessionState.ActiveInWorld;
+                // In the Mog House the room's NPCs (the moogle, the orchestrion's curator) come only after the client says its
+                // resources are loaded: C2S 0x01A SendResRdy (0x14), which LandSandBoat answers with SpawnConditionalNPCs
+                // (packets/c2s/0x01a_action.cpp); XiPackets world/client/0x001A "Set SendResRdy Flag". Without it no moogle
+                // ever appeared in a room (#354 round 2). Elsewhere LandSandBoat spawns NPCs on its own, so it is sent only here.
+                if (_parser.World.MogHouseRoom != 0)
+                {
+                    _ = _parser.CombatModule.RequestActionAsync(CliActionId.SendResRdy, CharacterId, TargetIndex).ContinueWith(
+                        t => GordianLog.Warning("NET", $"SendResRdy failed: {t.Exception?.GetBaseException().Message}"), TaskContinuationOptions.OnlyOnFaulted);
+                    GordianLog.Debug("NET", "Mog House zone-in: sent C2S 0x01A SendResRdy.");
+                }
             };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
             {
@@ -490,6 +500,14 @@ namespace Gordian.Core.Network
                 {
                     _positionUpdatesSuspended = false;
                     GordianLog.Debug("NET", "S2C 0x00A login received: resuming C2S 0x015 position updates.");
+                }
+                // A zone-in answers the zone-line request whatever the zone: into or out of the Mog House the zone id stays the
+                // city's, so the monitor never saw a zone change, kept the request pending and held every 0x015 until its
+                // 15 s timeout; LandSandBoat sent 0x008 only then, and the connection icon went red meanwhile (#354 round 2).
+                if (_zoneLines.PendingId != null)
+                {
+                    GordianLog.Debug("NET", $"S2C 0x00A login answers zone line '{_zoneLines.PendingId}'.");
+                    _zoneLines.Reset();
                 }
                 PositionX = x;
                 PositionY = y;
@@ -797,11 +815,6 @@ namespace Gordian.Core.Network
 
         private readonly World.Collision.ZoneLineMonitor _zoneLines = new();
 
-        /// <summary>
-        /// Shows the Mog House exit prompt when the player walks into the room's door (#354); null sends the exit at once.
-        /// The answer's Yes calls <see cref="RequestMogHouseExitAsync"/>.
-        /// </summary>
-        public Action? MogHouseExitPrompt { get; set; }
         private int _zoneLineCorrectionMark;
 
         /// <summary>The zone-line request state of this session (#350).</summary>
@@ -830,14 +843,6 @@ namespace Gordian.Core.Network
             if (line is not { } crossing) return;
             _zoneLineCorrectionMark = _parser.LocalPlayer.PositionCorrectionCount;
 
-            // The Mog House door asks first (#354): Yes sends the exit, No leaves the player in the room until they walk in again.
-            if (crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId && MogHouseExitPrompt is { } prompt)
-            {
-                _zoneLines.CancelPending();
-                GordianLog.Info("ZONE", $"Walked into the Mog House door at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); asking before leaving.");
-                prompt();
-                return;
-            }
             GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
             Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
                 ? RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom)
