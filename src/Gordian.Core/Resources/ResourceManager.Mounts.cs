@@ -52,6 +52,18 @@ namespace Gordian.Core.Resources
         /// <summary>How much the mount is scaled under <paramref name="rider"/> (#87, <see cref="MountModels.MountScale"/>), computed once per rider.</summary>
         public float GetMountScale(EntityModel rider) => _mountScales.GetValue(rider, r => new StrongBox<float>(MountModels.MountScale(r))).Value;
 
+        private readonly ConcurrentDictionary<string, float> _mountBaseScales = new();
+
+        /// <summary>The mount's own size from its model's Info section (#87, <see cref="MountModels.MountBaseScale"/>), read once per mount.</summary>
+        public float GetMountBaseScale(in MountAppearance mount)
+        {
+            var key = MountModels.CacheKey(mount);
+            if (_mountBaseScales.TryGetValue(key, out float cached)) return cached;
+            float scale = MountModels.MountBaseScale(mount, LoadDatBytes, LoadDatBytesByFileId);
+            _mountBaseScales[key] = scale;
+            return scale;
+        }
+
         private ConditionalWeakTable<EntityModel, StrongBox<float>> _backHeights = new();
 
         /// <summary>How high the mount's back stands over its seat reference (#87, <see cref="MountModels.BackHeight"/>), computed once per mount.</summary>
@@ -62,6 +74,7 @@ namespace Gordian.Core.Resources
         private void ClearMountCaches()
         {
             _riderPacks.Clear();
+            _mountBaseScales.Clear();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();
             _mountScales = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
             _backHeights = new ConditionalWeakTable<EntityModel, StrongBox<float>>();

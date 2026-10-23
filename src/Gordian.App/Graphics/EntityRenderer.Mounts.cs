@@ -66,9 +66,9 @@ namespace Gordian.App.Graphics
 
             var rider = character != null ? RiderOrSelf(entity, character, resources) : null;
             bool riding = rider != null && !ReferenceEquals(rider, character);
-            // The pack's chocobo is scaled by the race; the mount by the race and its own size (round 3).
+            // The pack's chocobo is scaled by the race; the mount by the race and its own size, its model's Info scale (round 4).
             float raceScale = riding ? resources.GetMountScale(rider!) : 1f;
-            float scale = raceScale * MountModels.MountBaseScale(entity.Mount);
+            float scale = raceScale * resources.GetMountBaseScale(entity.Mount);
             var seat = MountModels.SeatPoint(mount, pose) + new Vector3(MountModels.SeatShift(entity.Mount), 0f, 0f);
             var offset = Vector3.Zero;
             float back = 0f;

@@ -302,17 +302,44 @@ namespace Gordian.Core.Tests.World
         }
 
         /// <summary>
-        /// Round 3 (image-12.png, image-13.png): each mount's own size against the riding chocobo, on top of the race scale.
+        /// Round 4: each mount's own size is its model's Info byte 10 (xim / xi-model-viewer "Scale"), on top of the race
+        /// scale: the chocobo race 100, the raptor 85 (round 3's hand fit), Fenrir 60 (round 3 measured 0.61 under the Galka),
+        /// and every other mount its own value.
         /// </summary>
         [Fact]
-        public void MountBaseScales_AndSeatShifts()
+        public void RetailMountBaseScales_ComeFromTheModelsInfoScale()
         {
-            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(5, 0, 2)));        // chocobo
-            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(5, 34, 4)));       // Noble Chocobo
-            Assert.Equal(0.85f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 2, 2)));    // raptor
-            Assert.Equal(0.85f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 31, 7)));   // red raptor
-            Assert.Equal(0.65f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 10, 3)));   // Fenrir
-            Assert.Equal(1f, MountModels.MountBaseScale(MountAppearance.FromWire(85, 3, 3)));       // tiger, not measured
+            var rm = Retail();
+            if (rm == null) return;
+            Assert.Equal(1.00f, rm.GetMountBaseScale(MountAppearance.FromWire(5, 0, 2)), 3);   // chocobo (ROM/169/11)
+            Assert.Equal(1.00f, rm.GetMountBaseScale(MountAppearance.FromWire(5, 34, 4)), 3);  // Noble Chocobo: the chocobo
+            Assert.Equal(0.85f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 2, 2)), 3);  // raptor
+            Assert.Equal(0.85f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 31, 7)), 3); // red raptor
+            Assert.Equal(0.60f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 10, 3)), 3); // Fenrir
+            Assert.Equal(0.50f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 13, 6)), 3); // Magic Pot
+            Assert.Equal(1.30f, rm.GetMountBaseScale(MountAppearance.FromWire(85, 11, 4)), 3); // Beetle
+        }
+
+        [Fact]
+        public void InfoScale_ReadsByteTenOfTheInfoSection()
+        {
+            // A 0x45 "info" section (16-byte header + 16-byte body) with byte 10 = 85, and a "moun" one that must be skipped.
+            var dat = new byte[64];
+            void Section(int at, string id, byte scale)
+            {
+                System.Text.Encoding.ASCII.GetBytes(id).CopyTo(dat, at);
+                BinaryPrimitives.WriteUInt32LittleEndian(dat.AsSpan(at + 4), 0x45 | ((32u / 16) << 7));
+                dat[at + 16 + 10] = scale;
+            }
+            Section(0, "moun", 0x40);
+            Section(32, "info", 85);
+            Assert.Equal(0.85f, MountModels.InfoScale(dat), 3);
+            Assert.Equal(1f, MountModels.InfoScale(new byte[8]));
+        }
+
+        [Fact]
+        public void SeatShifts()
+        {
             Assert.Equal(-0.6f, MountModels.SeatShift(MountAppearance.FromWire(85, 10, 3)));
             Assert.Equal(0f, MountModels.SeatShift(MountAppearance.FromWire(85, 2, 2)));
         }

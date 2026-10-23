@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
@@ -240,31 +241,45 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// The mount's own size against the chocobo the riding packs are authored on, applied on top of the rider's
-        /// <see cref="MountScale"/> (#87, round 3: "mount sizing is too large", while the chocobo under an Elvaan looked
-        /// right). Measured from the maintainer's retail shots of every race riding side by side (2026-10-23):
+        /// <see cref="MountScale"/> (#87, round 4): the model's Info section (0x45 <c>info</c>) byte 10, a percentage, which
+        /// xi-model-viewer (https://github.com/vekien/xi-model-viewer) <c>ui/js/dat/inspect.js</c> names "Scale" after xim's
+        /// InfoSection. The chocobo race (<c>ROM/169/11</c>) carries 100. Read from every retail mount (2026-10-23):
         /// <list type="bullet">
-        /// <item>The raptor (ids 1 and 30) is 0.85. On image-12.png the rider's head stands 1.27 (Galka), 1.22 (Elvaan,
-        /// Hume), 1.18 (Hume female) times its raptor's top over the ground; these fit 0.84-0.86 of the race scale for every
-        /// race (the Tarutaru 0.96, under a hat).</item>
-        /// <item>Fenrir (id 9) is 0.65. On image-13.png, against the Galka's seated hips-to-head (1.06 yalms) as the ruler, the
-        /// Fenrir under it stands 2.23 yalms to its spikes and its back meets the Galka's hips at about 1.9: 0.61 of the race
-        /// scale; the Elvaan's gives 0.70.</item>
-        /// <item>The chocobo and every mount not measured are 1 (PROVISIONAL for the others).</item>
+        /// <item>85: the raptor, tiger, crabs and most others</item>
+        /// <item>60: Fenrir and Dhalmel</item>
+        /// <item>50: Magic Pot; 65: Phuabo; 70: Xzomit; 95: Hippogryph</item>
+        /// <item>100: Moogle, Tulfaire, Spheroid, Coeurl, Ixion, Alicorn</item>
+        /// <item>105: Goobbue; 115: the bombs and Levitus; 120: Omega; 130: Beetle</item>
         /// </list>
+        /// The retail shots agree with the hand fits it replaces: image-12.png fitted the raptor at 0.84-0.86 for every race,
+        /// image-13.png Fenrir at 0.61 under the Galka. **Beyond xi-model-viewer**: that the mount is drawn at this scale times
+        /// the race's riding scale. 1 when the file has no Info section or the byte is 0xFF (unset).
         /// </summary>
-        public static float MountBaseScale(in MountAppearance mount)
+        public static float InfoScale(ReadOnlySpan<byte> dat)
         {
-            if (mount.RidesChocobo) return 1f;
-            return mount.MountId switch
+            foreach (var header in DatSectionWalker.ReadHeaders(dat))
             {
-                1 or 30 => RaptorBaseScale,
-                9 => FenrirBaseScale,
-                _ => 1f,
-            };
+                if (header.TypeCode != DatSectionType.Info || header.DatId.StartsWith("moun", StringComparison.Ordinal)) continue;
+                if (header.DataSizeBytes < 11 || header.DataOffset + 11 > dat.Length) return 1f;
+                byte scale = dat[header.DataOffset + InfoScaleByte];
+                return scale is 0 or 0xFF ? 1f : scale / 100f;
+            }
+            return 1f;
         }
 
-        /// <summary>The raptor's and Fenrir's size against the riding chocobo (<see cref="MountBaseScale"/>).</summary>
-        public const float RaptorBaseScale = 0.85f, FenrirBaseScale = 0.65f;
+        /// <summary>The Info section byte that holds the model's scale (<see cref="InfoScale"/>).</summary>
+        public const int InfoScaleByte = 10;
+
+        /// <summary>
+        /// The mount's own size (<see cref="InfoScale"/> of its model DAT; the chocobo race's for a chocobo or the Noble
+        /// Chocobo). 1 when the file is missing.
+        /// </summary>
+        public static float MountBaseScale(in MountAppearance mount, Func<string, byte[]?> datByPath, Func<int, byte[]?> datByFileId)
+        {
+            if (!mount.IsMounted) return 1f;
+            byte[]? dat = mount.RidesChocobo ? datByPath(ChocoboSkeletonPath) : datByFileId(MountFileId(mount.MountId));
+            return dat == null || dat.Length == 0 ? 1f : InfoScale(dat);
+        }
 
         /// <summary>
         /// How far the rider's seat is moved along the mount from its seat reference (model units, + forward), for a mount
