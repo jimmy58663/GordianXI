@@ -52,7 +52,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 | 5E Tier 3: ImGui overlays, UI suppression API, perf overlay | ⏳ ImGui layer, performance overlay (Ctrl+F12 / `/perf`) and the stock UI visibility API (`/stockui`) done; open: ImGui input #380, Vulkan GPU timings #381 | [ui/stock-ui.md](docs/ui/stock-ui.md), [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5F World collision & ground physics (blocking) | ✅ | [world/collision-and-physics.md](docs/world/collision-and-physics.md) |
 | 5G Character lobby, creation & deletion (blocking) | ✅ | [design/character-lobby.md](docs/design/character-lobby.md) |
-| 5H Audio (non-blocking) | ⏳ music, ambience, zone and event sound, footsteps and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; sound controls, combat / action sounds, shared hit routines, spell and ability sounds and dual-wield sounds done; open: footprints #40 | [design/audio.md](docs/design/audio.md) |
+| 5H Audio (non-blocking) | ✅ music (including the lobby title music), ambience, zone and event sound, footsteps on the dry and rain sets with footprints and foot effects, and UI cues play through OpenAL Soft, with a clean-room ATRAC3 decoder; sound controls, combat / action sounds, shared hit routines, spell and ability sounds and dual-wield sounds done | [design/audio.md](docs/design/audio.md) |
 
 ### 🚀 Post-MVP (Phases 6-10)
 Design intent for each is in [docs/design/post-mvp.md](docs/design/post-mvp.md); issues are opened when a phase starts.

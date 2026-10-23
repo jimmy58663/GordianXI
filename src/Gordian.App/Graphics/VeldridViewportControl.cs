@@ -898,7 +898,7 @@ namespace Gordian.App.Graphics
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
                 {
-                    SilenceWorldAudio(deltaSeconds);
+                    SilenceWorldAudio(deltaSeconds, lobby);
                     RenderLobbyFrame(lobby, deltaSeconds);
                     ThrottleFrame(frameStart, mode, cancellationToken);
                     continue;
@@ -909,7 +909,7 @@ namespace Gordian.App.Graphics
                 // same window, which the lobby then fades in over.
                 if (HoldBlack)
                 {
-                    SilenceWorldAudio(deltaSeconds);
+                    SilenceWorldAudio(deltaSeconds, null);
                     RenderBlackFrame();
                     if (mode == ViewportRenderMode.Background) ThrottleFrame(frameStart, mode, cancellationToken);
                     else Thread.Sleep(15);
@@ -970,6 +970,9 @@ namespace Gordian.App.Graphics
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
                             shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Core.Ui.StockUiSettingKey.Shadows);
+                        // Config "Footstep Effects" draws the footprints and foot effects or not (#40).
+                        if (_activeSession?.ActionService.UiSettings is { } footSettings)
+                            _renderer.EnableFootEffects = footSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.FootstepEffects);
                     }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {
@@ -1460,7 +1463,7 @@ namespace Gordian.App.Graphics
             }
             if (Lobby != null || HoldBlack)
             {
-                SilenceWorldAudio(deltaSeconds);
+                SilenceWorldAudio(deltaSeconds, Lobby);
                 return;
             }
             try
@@ -1570,13 +1573,15 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// The lobby and the black screen of a Log Out show no world, so the last zone's music, ambience and sounds stop
         /// there (#368) when this viewport is the one heard; before, the render loop skipped the audio update on those
-        /// frames and the zone music played on in the character select screen.
+        /// frames and the zone music played on in the character select screen. The lobby's screens play the title music
+        /// (#378) until a character is chosen.
         /// </summary>
-        private void SilenceWorldAudio(float deltaSeconds)
+        private void SilenceWorldAudio(float deltaSeconds, Gordian.Core.Ui.Lobby.LobbyController? lobby)
         {
             try
             {
-                Audio.GameAudioService.UpdateWithoutWorldIfCreated(this, Camera, deltaSeconds);
+                bool titleMusic = lobby is { Screen: not (Gordian.Core.Ui.Lobby.LobbyScreen.Entering or Gordian.Core.Ui.Lobby.LobbyScreen.Closed) };
+                Audio.GameAudioService.UpdateWithoutWorld(this, Camera, deltaSeconds, titleMusic);
             }
             catch (Exception ex)
             {
