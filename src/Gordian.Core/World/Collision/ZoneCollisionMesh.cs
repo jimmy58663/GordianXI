@@ -125,24 +125,46 @@ namespace Gordian.Core.World.Collision
 
         public ReadOnlySpan<CollisionTriangle> Triangles => _triangles;
 
+        private static bool InsideAnyFootprint(in CollisionTriangle triangle, IReadOnlyList<ZoneCollisionMesh> interiors)
+        {
+            var centroid = (triangle.A + triangle.B + triangle.C) / 3f;
+            foreach (var interior in interiors)
+            {
+                if (interior._triangles.Length == 0) continue;
+                var min = interior.MinBounds;
+                var max = interior.MaxBounds;
+                if (centroid.X > min.X + InteriorFootprintInset && centroid.X < max.X - InteriorFootprintInset &&
+                    centroid.Z > min.Z + InteriorFootprintInset && centroid.Z < max.Z - InteriorFootprintInset &&
+                    centroid.Y > min.Y - 1f && centroid.Y < max.Y + 1f &&
+                    // Only where the interior has its own floor: an interior's bounds can reach over the street beside it.
+                    interior.TryGetNearestGround(centroid.X, centroid.Z, centroid.Y, out _)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>How far inside an interior's bounds (yalms, horizontally) the zone's own triangles give way to the interior's.</summary>
+        public const float InteriorFootprintInset = 0.5f;
+
         /// <summary>
-        /// A zone's collision with building interiors added (#68): the zone's triangles first (their indices are kept), then
-        /// each interior's, and the zone's platforms, doors, zone lines and sub-area volumes.
+        /// A zone's collision with building interiors added (#68): the zone's triangles, except those inside an interior's
+        /// footprint, then each interior's, and the zone's platforms, doors, zone lines and sub-area volumes. Inside the
+        /// footprint (the interior's bounds, <see cref="InteriorFootprintInset"/> in from its sides, between its floor and
+        /// ceiling with a yalm to spare) the zone's own collision is the closed building's shell: Lower Jeuno's chocobo
+        /// stables have zone walls running through the room the interior opens (round 3: blocked at (-87.19, -0.10,
+        /// -186.15) where the stables interior has floor), so collision switches with the drawing, as the issue's format
+        /// notes say it must. Walls on the footprint's edge (the shop fronts, the doorway) stay, and so does anything over
+        /// ground the interior has no floor for.
         /// </summary>
         public static ZoneCollisionMesh Merge(ZoneCollisionMesh zone, IReadOnlyList<ZoneCollisionMesh> interiors)
         {
             ArgumentNullException.ThrowIfNull(zone);
             ArgumentNullException.ThrowIfNull(interiors);
-            int count = zone._triangles.Length;
-            foreach (var interior in interiors) count += interior._triangles.Length;
-            var triangles = new CollisionTriangle[count];
-            zone._triangles.CopyTo(triangles, 0);
-            int at = zone._triangles.Length;
-            foreach (var interior in interiors)
+            var triangles = new List<CollisionTriangle>(zone._triangles.Length + 8192);
+            foreach (var triangle in zone._triangles)
             {
-                interior._triangles.CopyTo(triangles, at);
-                at += interior._triangles.Length;
+                if (!InsideAnyFootprint(triangle, interiors)) triangles.Add(triangle);
             }
+            foreach (var interior in interiors) triangles.AddRange(interior._triangles);
             return new ZoneCollisionMesh(triangles)
             {
                 MovingPlatforms = zone.MovingPlatforms,

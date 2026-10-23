@@ -76,15 +76,24 @@ namespace Gordian.Core.Tests.World
             Assert.Equal("c003", docked.Route.Name);
             Assert.Equal(1f, docked.Progress);
 
-            // The Manaclipper's last leg runs past the end of its 1728 s cycle.
+            // The Manaclipper's last leg runs past the end of its day.
             var clipper = new ZoneGeometry { ZoneId = 3, Vessel = new ZoneVessel() };
             foreach (string name in new[] { "c000", "c001", "c002", "c003" })
             {
                 clipper.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
             }
-            Assert.True(VoyageSchedule.TryGetPosition(clipper, 1728 * 7.0 + 10, out var wrapped));
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 10, out var wrapped));
             Assert.Equal("c003", wrapped.Route.Name);
             Assert.InRange(wrapped.Progress, 0.9f, 1f);
+
+            // Its morning tour (Dhalmel Rock) and afternoon tour (Maliyakaleya Reef) take different loops (round 3).
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 400, out var morning));
+            Assert.Equal("c001", morning.Route.Name);
+            // Vana'diel 14:19 (the first Maliyakaleya Reef shot) is 2061.6 s into the day.
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2061.6, out var afternoon));
+            Assert.Equal("c000", afternoon.Route.Name);
+            Assert.False(afternoon.Reversed);
+            Assert.InRange(afternoon.Progress, 0.33f, 0.4f);
         }
 
         [Fact]

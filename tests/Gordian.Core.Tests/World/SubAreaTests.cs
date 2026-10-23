@@ -109,6 +109,56 @@ namespace Gordian.Core.Tests.World
             }
         }
 
+        private static CollisionTriangle Wall(float x, float minZ, float maxZ, float bottom, float top) =>
+            new(new Vector3(x, bottom, minZ), new Vector3(x, top, minZ), new Vector3(x, bottom, maxZ), Vector3.UnitX, true, default, false);
+
+        [Fact]
+        public void Merge_DropsTheZonesWallsInsideAnInteriorsRoom_AndKeepsTheRest()
+        {
+            // The interior: a floor from x = 2 to 20 at y = 0.5 under a ceiling at y = -4 (up is -Y).
+            var room = new List<CollisionTriangle>(Floor(2, -5, 20, 5, 0.5f).Triangles.ToArray())
+            {
+                new(new Vector3(2, -4, -5), new Vector3(2, -4, 5), new Vector3(20, -4, -5), Vector3.UnitY, false, default, false),
+            };
+            var interior = new ZoneCollisionMesh(room);
+            // The zone: its street floor, a wall through the middle of the room (Lower Jeuno's stables, round 3), one on the
+            // room's side (a shop front) and one out in the street.
+            var zone = new ZoneCollisionMesh(new List<CollisionTriangle>(Floor(-50, -50, 50, 50).Triangles.ToArray())
+            {
+                Wall(11, -1, 1, 0, -3),
+                Wall(2, -1, 1, 0, -3),
+                Wall(-10, -1, 1, 0, -3),
+            });
+
+            var merged = ZoneCollisionMesh.Merge(zone, new[] { interior });
+            Assert.Equal(zone.TriangleCount - 1 + interior.TriangleCount, merged.TriangleCount);
+            Assert.DoesNotContain(merged.Triangles.ToArray(), t => t.A.X == 11f);
+            Assert.Contains(merged.Triangles.ToArray(), t => t.A.X == 2f && t.Normal == Vector3.UnitX);
+            Assert.Contains(merged.Triangles.ToArray(), t => t.A.X == -10f);
+        }
+
+        [Fact]
+        public void LowerJeuno_StablesRoom_HasNoZoneWallWhereTheMaintainerWasBlocked()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var zone = rm.TryLoadZoneCollision(245)!;
+            var interiors = zone.SubAreaVolumes.Select(v => v.Param).Distinct()
+                .Select(id => rm.TryLoadSubAreaCollision(id)).OfType<ZoneCollisionMesh>().ToList();
+            var merged = ZoneCollisionMesh.Merge(zone, interiors);
+            // !pos -87.19 -0.10 -186.15 245: every wall within 1.5 yalms there is an interior's own.
+            var at = new Vector3(-87.19f, -0.10f, -186.15f);
+            var interiorWalls = new HashSet<CollisionTriangle>(interiors.SelectMany(i => i.Triangles.ToArray()));
+            foreach (var triangle in merged.Triangles)
+            {
+                if (MathF.Abs(triangle.Normal.Y) > 0.5f) continue;
+                var centroid = (triangle.A + triangle.B + triangle.C) / 3f;
+                if (Vector2.Distance(new Vector2(centroid.X, centroid.Z), new Vector2(at.X, at.Z)) > 1.5f || MathF.Abs(centroid.Y - at.Y) > 2f) continue;
+                Assert.Contains(triangle, interiorWalls);
+            }
+        }
+
         [Fact]
         public void UnencryptedInteriors_KeepTheirNames_AndStayInTheirRoom()
         {

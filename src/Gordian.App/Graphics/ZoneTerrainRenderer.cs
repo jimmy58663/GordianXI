@@ -64,6 +64,9 @@ namespace Gordian.App.Graphics
         /// renders and tests of a given moment of the voyage. Null uses the clock.
         /// </summary>
         public double? VoyageClockOverride { get; set; }
+
+        /// <summary>Pins a voyage zone's Route, progress and direction (offscreen comparisons with retail); null uses the timetable.</summary>
+        public (string Route, float Progress, bool Reversed)? VoyagePositionOverride { get; set; }
         private DoorAnimator? _doorAnimator;
         private static readonly double TimestampSeconds = 1.0 / System.Diagnostics.Stopwatch.Frequency;
 
@@ -1265,7 +1268,10 @@ namespace Gordian.App.Graphics
             };
 
             // A voyage zone moves its scenery past the vessel (#403); everything drawn with the scene uniform's World moves with it.
-            _sceneryTransform = LoadedZone?.Vessel is { IsVoyage: true }
+            _sceneryTransform = LoadedZone?.Vessel is { IsVoyage: true } vesselZone && VoyagePositionOverride is { } pinned &&
+                                vesselZone.Routes.Find(r => r.Name == pinned.Route) is { } pinnedRoute
+                ? VoyageSchedule.SceneryTransform(new VoyagePosition(pinnedRoute, pinned.Progress, pinned.Reversed))
+                : LoadedZone?.Vessel is { IsVoyage: true }
                 ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
