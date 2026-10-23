@@ -1,4 +1,5 @@
 // tests/Gordian.App.Tests/Graphics/StockUiVitalsWindowTests.cs
+using System;
 using Gordian.App.Graphics;
 using Gordian.Core.Ui;
 using Xunit;
@@ -39,6 +40,22 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(StockUiVitalsWindow.TpGaugeColor, StockUiVitalsWindow.TpColorAt(999, 0.3));
             Assert.Equal(StockUiVitalsWindow.TpGaugeColor, StockUiVitalsWindow.TpColorAt(1000, 0));
             Assert.Equal(StockUiVitalsWindow.TpFlashColor, StockUiVitalsWindow.TpColorAt(3000, StockUiVitalsWindow.TpFlashPeriod / 2));
+        }
+
+        [Fact]
+        public void TpPulseIsASmoothLowFrequencyEase()
+        {
+            Assert.True(1 / StockUiVitalsWindow.TpFlashPeriod < 3);
+            // No step between neighbouring frames (60 fps) and a bounded swing.
+            int previous = StockUiVitalsWindow.TpColorAt(3000, 0).B, max = 0;
+            for (double t = 1.0 / 60; t < 2; t += 1.0 / 60)
+            {
+                int b = StockUiVitalsWindow.TpColorAt(3000, t).B;
+                max = Math.Max(max, Math.Abs(b - previous));
+                previous = b;
+            }
+            Assert.True(max <= 8, $"largest per-frame step {max}");
+            Assert.True(StockUiVitalsWindow.TpFlashColor.B - StockUiVitalsWindow.TpGaugeColor.B <= 0x70);
         }
 
         [Fact]

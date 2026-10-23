@@ -37,8 +37,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         public const int WeaponSkillTp = 1000;
 
+        /// <remarks>
+        /// A smooth cosine ease, not a hard flash: 1.25 cycles a second (well under the 3 flashes a second photosensitivity
+        /// guidance such as WCAG 2.3.1 allows) and a modest swing from the steady tint to the brighter one, between the
+        /// round 2 and round 3 values the maintainer tried.
+        /// </remarks>
         public const double TpFlashPeriod = 0.8;
-        public static readonly UiColor TpFlashColor = new(0xA0, 0xCC, 0xFF, 0x80);
+        public static readonly UiColor TpFlashColor = new(0x8C, 0xB6, 0xE4, 0x80);
 
         /// <summary>The TP gauge's colour at <paramref name="seconds"/>: steady below <see cref="WeaponSkillTp"/>, pulsing above.</summary>
         public static UiColor TpColorAt(int tp, double seconds)
