@@ -491,6 +491,8 @@ namespace Gordian.App.Graphics
                 }
                 else
                 {
+                    // The player keeps the event's placement as its own position (#338); the next event starts from there.
+                    _eventPoses.Remove(entity.ServerId);
                     entity.RenderHeadingRadians = entity.HeadingRadians;
                 }
                 if (!entity.IsDrawn) continue;
@@ -820,11 +822,15 @@ namespace Gordian.App.Graphics
             if (other != null)
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
-                target.X = HeadLook.TargetYaw(heading, position, otherPosition);
-                if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
+                // A target further round than the look limit is not followed (#402): the head eases back to straight ahead.
+                if (HeadLook.TryTargetYaw(heading, position, otherPosition, out float yaw))
                 {
-                    float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
-                    target.Y = HeadLook.TargetPitch(own, theirs, distance);
+                    target.X = yaw;
+                    if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
+                    {
+                        float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
+                        target.Y = HeadLook.TargetPitch(own, theirs, distance);
+                    }
                 }
             }
             var next = new Vector2(HeadLook.Ease(current.X, target.X, deltaSeconds), HeadLook.Ease(current.Y, target.Y, deltaSeconds));

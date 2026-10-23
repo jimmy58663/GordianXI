@@ -19,3 +19,10 @@
 
 - **One session per account.** LandSandBoat (like retail) denies a second login on an account and drops the first, so `MainWindowViewModel.GetLaunchSkipReason` refuses to launch a profile whose account already has a live session (`SessionRegistry.TryGetActiveAccountSession`): "Account 'X' already has a character in game (Knot). Skipped.". This is the only launch path (Launch selected). Online status and Terminate stay per profile. Detecting the first session being dropped by the server is not handled yet (separate issue).
 - **Saving keeps the position.** Editing a profile without changing its folder puts it back at its old index in its folder (or the tree root) and in `Profiles`; a folder change appends it to the new folder.
+
+## Viewport window shell (#319, #320, #302, #380)
+
+- **Graphics backend:** chosen once, when the first viewport window creates the shared device. Settings > Display and the floating pill's **Graphics** drop-down change the saved choice; **Reopen viewport to apply** (shown only when the choice differs from the running backend) closes and reopens the main window and the pop-outs with the sessions connected. Details: [viewport-and-terrain.md](../rendering/viewport-and-terrain.md) (backend selection).
+- **Floating pill:** its header has minimise and close buttons for the viewport window (useful in borderless and full-screen modes, which have no title bar). Closing leaves the sessions connected; Settings > Open Viewport Window reopens it.
+- **PiP deck:** live thumbnails of the background characters ([viewport-and-terrain.md](../rendering/viewport-and-terrain.md#live-pip-thumbnails-302)).
+- **ImGui input:** interactive Tier 3 overlays get the mouse and keyboard when visible; Ctrl+Shift+F11 shows a test window.

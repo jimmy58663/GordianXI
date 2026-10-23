@@ -184,6 +184,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public List<Gordian.Core.Graphics.WeatherRoutineVariant> ActorRoutines { get; } = new();
 
+        /// <summary>
+        /// The zone's foot effects (#40): the <c>fses/fefs</c> and <c>fser/fefr</c> generators started where a foot lands,
+        /// by terrain. Null when the zone has none (or for an actor's effect DAT).
+        /// </summary>
+        public Gordian.Core.Graphics.ZoneFootEffects? FootEffects { get; set; }
+
         public int TotalVertices
         {
             get

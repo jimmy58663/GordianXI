@@ -17,6 +17,10 @@ namespace Gordian.App.Graphics
         public const int DefaultZoneCacheBudgetMb = 1536;
 
         private static volatile int s_backgroundFrameRate = DefaultBackgroundFrameRate;
+        /// <summary>Default frame rate of a live PiP thumbnail (#302).</summary>
+        public const int DefaultPipThumbnailFrameRate = 5;
+
+        private static volatile int s_pipThumbnailFrameRate = DefaultPipThumbnailFrameRate;
         private static volatile int s_zoneCacheBudgetMb = DefaultZoneCacheBudgetMb;
         private static volatile bool s_vsync = true;
         private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
@@ -45,6 +49,13 @@ namespace Gordian.App.Graphics
         {
             get => s_backgroundFrameRate;
             set => s_backgroundFrameRate = ClampFrameRate(value);
+        }
+
+        /// <summary>Frames per second of a live PiP thumbnail (#302; clamped to 1-30): a small picture, not a second game window.</summary>
+        public static int PipThumbnailFrameRate
+        {
+            get => s_pipThumbnailFrameRate;
+            set => s_pipThumbnailFrameRate = Math.Clamp(value, 1, 30);
         }
 
         /// <summary>
@@ -80,6 +91,7 @@ namespace Gordian.App.Graphics
         {
             ArgumentNullException.ThrowIfNull(settings);
             BackgroundFrameRate = settings.BackgroundFrameRate;
+            PipThumbnailFrameRate = settings.PipThumbnailFrameRate;
             ZoneCacheBudgetMb = settings.ZoneCacheBudgetMb;
             VsyncEnabled = settings.IsVsyncEnabled;
             PerformanceOverlay = settings.PerformanceOverlay;

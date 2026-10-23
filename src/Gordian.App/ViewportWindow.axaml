@@ -223,9 +223,17 @@
                         Background="#F2161820" BorderBrush="#512BD4" BorderThickness="1"
                         CornerRadius="12" Padding="8">
                     <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="*, Auto" Margin="4,0,4,2">
-                            <TextBlock Text="Switch Character View" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0"/>
-                            <TextBlock Grid.Column="1" Text="Ctrl+Tab" FontSize="11" Foreground="#A9AFBD"/>
+                        <Grid ColumnDefinitions="*, Auto, Auto, Auto" Margin="4,0,4,2">
+                            <TextBlock Text="Switch Character View" FontWeight="Bold" FontSize="12" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="Ctrl+Tab" FontSize="11" Foreground="#A9AFBD" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <Button x:Name="PillMinimizeButton" Grid.Column="2" Content="&#x2013;" Focusable="False"
+                                    ToolTip.Tip="Minimize the viewport window"
+                                    Background="#2A2E3B" Foreground="#E6E8EE" Padding="8,0" Width="28" Height="22" CornerRadius="4" BorderThickness="0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="13"/>
+                            <Button x:Name="PillCloseButton" Grid.Column="3" Content="&#x2715;" Focusable="False" Margin="4,0,0,0"
+                                    ToolTip.Tip="Close the viewport window (the character stays connected; reopen it from Settings)"
+                                    Background="#5A2A30" Foreground="#E6E8EE" Padding="8,0" Width="28" Height="22" CornerRadius="4" BorderThickness="0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" FontSize="11"/>
                         </Grid>
                         <Border Height="1" Background="#2A2E3B"/>
                         <ItemsControl ItemsSource="{Binding CharacterTabs}">
@@ -266,6 +274,17 @@
                                 <TextBlock Text="{Binding ActiveCameraMode}" FontSize="12" Foreground="#E5C07B" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+                        <Grid ColumnDefinitions="Auto, *" Margin="0,2,0,0">
+                            <TextBlock Text="Graphics:" FontSize="11" Foreground="#A9AFBD" VerticalAlignment="Center" Margin="4,0,8,0"/>
+                            <ComboBox x:Name="PillBackendCombo" Grid.Column="1" ItemsSource="{Binding AvailableBackends}"
+                                      SelectedItem="{Binding SelectedBackend, Mode=TwoWay}"
+                                      HorizontalAlignment="Stretch" FontSize="12" Focusable="False"
+                                      ToolTip.Tip="Graphics backend; a change applies when the viewport is reopened"/>
+                        </Grid>
+                        <Button Command="{Binding ReopenViewportCommand}" IsVisible="{Binding BackendReopenNeeded}" Focusable="False"
+                                Background="#3A3220" Foreground="#E5C07B" Padding="8,3" CornerRadius="6" BorderThickness="0"
+                                HorizontalAlignment="Left" FontSize="12" Content="Reopen viewport to apply"
+                                ToolTip.Tip="Closes and reopens the viewport window and any pop-outs; the characters stay connected"/>
                     </StackPanel>
                 </Border>
             </Panel>
@@ -287,14 +306,14 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ViewportCharacterTabViewModel">
-                        <!-- A status card per background character until the thumbnails render the scene (#302) -->
-                        <Border Width="170" Height="100"
+                        <!-- One card per background character: a live thumbnail of its scene (#302), or status text when live thumbnails are off -->
+                        <Border Width="170" Height="122"
                                 Background="#141620"
                                 BorderBrush="#512BD4"
                                 BorderThickness="1.5"
                                 CornerRadius="6"
                                 ClipToBounds="True">
-                            <Grid RowDefinitions="Auto, *">
+                            <Grid RowDefinitions="Auto, *, Auto">
                                 <Border Grid.Row="0" Background="#1E202C" Padding="6,2">
                                     <Grid ColumnDefinitions="*, Auto, Auto">
                                         <TextBlock Grid.Column="0" Text="{Binding CharacterName}" FontSize="12" FontWeight="Bold" Foreground="#FFFFFF"/>
@@ -312,10 +331,21 @@
                                 </Border>
 
                                 <Border Grid.Row="1" Background="#0C0E14">
-                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="3">
-                                        <TextBlock Text="{Binding JobDisplay}" FontSize="11" Foreground="#C3C8D4" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding VitalsSummary}" FontSize="11" Foreground="#98C379" FontFamily="Consolas, monospace" HorizontalAlignment="Center"/>
-                                    </StackPanel>
+                                    <Panel>
+                                        <gfx:PipThumbnailControl Session="{Binding LiveSession}" IsVisible="{Binding ShowLiveThumbnail}"/>
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="3" IsVisible="{Binding ShowStatusFill}">
+                                            <TextBlock Text="{Binding JobDisplay}" FontSize="11" Foreground="#C3C8D4" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding VitalsSummary}" FontSize="11" Foreground="#98C379" FontFamily="Consolas, monospace" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Panel>
+                                </Border>
+
+                                <!-- Status under the picture (a native surface cannot be drawn over) -->
+                                <Border Grid.Row="2" Background="#1E202C" Padding="6,2" IsVisible="{Binding ShowLiveThumbnail}">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="{Binding JobDisplay}" FontSize="10" Foreground="#C3C8D4"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding VitalsSummary}" FontSize="10" Foreground="#98C379" FontFamily="Consolas, monospace"/>
+                                    </Grid>
                                 </Border>
                             </Grid>
                         </Border>

@@ -872,9 +872,10 @@ namespace Gordian.Core.Graphics
         {
             var setup = parent.Definition?.Setup;
             float yMul = parent.NegateRotationY ? -1f : 1f;
-            // Column-form Rx * Ry * Rz (X-Y-Z order) as a row-vector matrix.
-            var rotation = Matrix4x4.CreateRotationZ(parent.Rotation.Z) * Matrix4x4.CreateRotationY(yMul * parent.Rotation.Y) *
-                           Matrix4x4.CreateRotationX(parent.Rotation.X);
+            // Column-form Rx * Ry * Rz (X-Y-Z order) as a row-vector matrix; Rz * Ry * Rx with setup flag 0x0200.
+            var rotation = setup?.RotationOrderZyx == true
+                ? Matrix4x4.CreateRotationX(parent.Rotation.X) * Matrix4x4.CreateRotationY(yMul * parent.Rotation.Y) * Matrix4x4.CreateRotationZ(parent.Rotation.Z)
+                : Matrix4x4.CreateRotationZ(parent.Rotation.Z) * Matrix4x4.CreateRotationY(yMul * parent.Rotation.Y) * Matrix4x4.CreateRotationX(parent.Rotation.X);
             var scale = Matrix4x4.CreateScale(parent.Scale);
             var oriented = setup?.ScaleBeforeRotate == true ? rotation * scale : scale * rotation;
 

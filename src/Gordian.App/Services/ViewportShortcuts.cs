@@ -21,6 +21,9 @@ namespace Gordian.App.Services
 
         /// <summary>Ctrl+Shift+F12: shows every stock UI element hidden at run time again (#29), e.g. after <c>/stockui hide chat</c>.</summary>
         RestoreStockUi,
+
+        /// <summary>Ctrl+Shift+F11: shows or hides the interactive ImGui input test window (#380).</summary>
+        ToggleImGuiTestWindow,
     }
 
     /// <summary>
@@ -37,6 +40,7 @@ namespace Gordian.App.Services
             return key switch
             {
                 Key.Tab when ctrl => shift ? ViewportShortcut.PreviousCharacter : ViewportShortcut.NextCharacter,
+                Key.F11 when ctrl && shift => ViewportShortcut.ToggleImGuiTestWindow,
                 Key.F11 => ViewportShortcut.ToggleFullscreen,
                 Key.F12 when ctrl => shift ? ViewportShortcut.RestoreStockUi : ViewportShortcut.CyclePerformanceOverlay,
                 Key.F10 when ctrl => ViewportShortcut.ToggleFog,

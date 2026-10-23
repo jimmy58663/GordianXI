@@ -22,6 +22,7 @@ namespace Gordian.App.ViewModels
         private bool _autoLaunchOnConnect = true;
         private bool _isPipEnabled = false;
         private int _maxPipStreams = 5;
+        private bool _livePipThumbnails = true;
         private string _activeBackend = "Detecting...";
         private string _gpuName = "Detecting GPU...";
         private double _fps = 0.0;
@@ -62,6 +63,7 @@ namespace Gordian.App.ViewModels
                 _settings.AutoLaunchOnConnect = _autoLaunchOnConnect;
                 _settings.IsPipEnabled = _isPipEnabled;
                 _settings.MaxPipStreams = _maxPipStreams;
+                _settings.LivePipThumbnails = _livePipThumbnails;
                 _settings.IsVsyncEnabled = _isVsyncEnabled;
                 _settings.BackgroundFrameRate = _backgroundFrameRate;
                 _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
@@ -76,6 +78,12 @@ namespace Gordian.App.ViewModels
         }
 
         public ICommand LaunchViewportCommand { get; }
+
+        /// <summary>Closes and reopens the viewport windows so a changed graphics backend applies (#319, #320).</summary>
+        public ICommand ReopenViewportCommand { get; }
+
+        /// <summary>Raised on the primary view model when <see cref="ReopenViewportCommand"/> runs (the manager handles it).</summary>
+        public event EventHandler? ViewportReopenRequested;
         public ICommand ToggleCameraModeCommand { get; }
         public ICommand ToggleFreeCamCommand { get; }
 
@@ -103,6 +111,7 @@ namespace Gordian.App.ViewModels
             _autoLaunchOnConnect = _settings.AutoLaunchOnConnect;
             _isPipEnabled = _settings.IsPipEnabled;
             _maxPipStreams = _settings.MaxPipStreams;
+            _livePipThumbnails = _settings.LivePipThumbnails;
             _isVsyncEnabled = _settings.IsVsyncEnabled;
             _backgroundFrameRate = ViewportRenderSettings.ClampFrameRate(_settings.BackgroundFrameRate);
             _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
@@ -116,6 +125,7 @@ namespace Gordian.App.ViewModels
             }
 
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
+            ReopenViewportCommand = new RelayCommand(() => (SwitchTarget ?? this).ViewportReopenRequested?.Invoke(this, EventArgs.Empty));
             ToggleCameraModeCommand = new RelayCommand(() =>
             {
                 ActiveCameraMode = ActiveCameraMode switch
@@ -215,9 +225,32 @@ namespace Gordian.App.ViewModels
                 if (SetProperty(ref _selectedBackend, value))
                 {
                     OnPropertyChanged(nameof(BackendStatus));
+                    RefreshBackendState();
                     AutoSaveSettings();
+                    // A pop-out's drop-down (the floating pill, #320) sets the choice for the whole app.
+                    if (!IsPrimary && SwitchTarget != null) SwitchTarget.SelectedBackend = value;
                 }
             }
+        }
+
+        private bool _backendReopenNeeded;
+
+        /// <summary>
+        /// The selected backend differs from the one the open viewport device runs (#319): the viewport windows have to be
+        /// reopened for the choice to apply. False while no viewport is open (the next one uses the selection).
+        /// </summary>
+        public bool BackendReopenNeeded
+        {
+            get => _backendReopenNeeded;
+            private set => SetProperty(ref _backendReopenNeeded, value);
+        }
+
+        /// <summary>Recomputes <see cref="BackendReopenNeeded"/> and <see cref="BackendStatus"/> from the open device.</summary>
+        public void RefreshBackendState()
+        {
+            var device = SharedGraphicsDevice.Current;
+            BackendReopenNeeded = device != null
+                && SharedGraphicsDevice.ReopenNeeded(_selectedBackend, device.RequestedPreference, device.Device.BackendType);
         }
 
         public ViewportDisplayMode SelectedDisplayMode
@@ -289,6 +322,20 @@ namespace Gordian.App.ViewModels
                 if (SetProperty(ref _isPipEnabled, value))
                 {
                     RaiseSwitcherVisibility();
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>Whether the PiP cards render the background characters' scenes (#302) rather than show status only.</summary>
+        public bool LivePipThumbnails
+        {
+            get => _livePipThumbnails;
+            set
+            {
+                if (SetProperty(ref _livePipThumbnails, value))
+                {
+                    RefreshPipThumbnails();
                     AutoSaveSettings();
                 }
             }
@@ -568,10 +615,20 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public void RefreshPipThumbnails()
         {
-            PipThumbnails.Clear();
-            foreach (var tab in CharacterTabs.Where(t => t != ActiveTab && !t.IsPoppedOut).Take(MaxPipStreams))
+            // Cards that stay keep their live thumbnail (a new one starts a render loop and a swapchain), so only the
+            // difference is applied.
+            var wanted = CharacterTabs.Where(t => t != ActiveTab && !t.IsPoppedOut).Take(MaxPipStreams).ToList();
+            for (int i = PipThumbnails.Count - 1; i >= 0; i--)
             {
-                PipThumbnails.Add(tab);
+                if (!wanted.Contains(PipThumbnails[i])) PipThumbnails.RemoveAt(i);
+            }
+            for (int i = 0; i < wanted.Count; i++)
+            {
+                wanted[i].ShowLiveThumbnail = _livePipThumbnails;
+                if (i < PipThumbnails.Count && ReferenceEquals(PipThumbnails[i], wanted[i])) continue;
+                int at = PipThumbnails.IndexOf(wanted[i]);
+                if (at >= 0) PipThumbnails.Move(at, i);
+                else PipThumbnails.Insert(i, wanted[i]);
             }
             OnPropertyChanged(nameof(ShowPipDeck));
         }

@@ -15,6 +15,13 @@ namespace Gordian.App.Graphics
         private readonly ViewportPerformanceStats _perfStats = new();
         private ImGuiOverlayLayer? _overlayLayer;
         private bool _overlayLayerFailed;
+
+        /// <summary>
+        /// Input for the interactive ImGui overlays (#380) and ImGui's answer: whether it wants the mouse or keyboard. The
+        /// hosting window feeds it every event while an overlay is visible and keeps an event from the game when ImGui
+        /// wants it.
+        /// </summary>
+        public ImGuiInputBridge ImGuiInput { get; } = new();
         private GpuPassTimer? _gpuTimer;
         private PerformanceOverlayMode _frameOverlayMode;
         private long _perfFrameStart;
@@ -30,7 +37,7 @@ namespace Gordian.App.Graphics
         private void RecordPerformanceFrame(long frameStart)
         {
             var before = _frameOverlayMode;
-            _frameOverlayMode = ViewportRenderSettings.PerformanceOverlay;
+            _frameOverlayMode = IsThumbnail ? PerformanceOverlayMode.Hidden : ViewportRenderSettings.PerformanceOverlay;
             // Shown again: start the graph afresh rather than from frames recorded before it was hidden.
             if (before == PerformanceOverlayMode.Hidden && _frameOverlayMode != PerformanceOverlayMode.Hidden) _perfStats.ResetFrames();
             long previous = _perfLastFrameStart;
@@ -88,12 +95,14 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Tier 3: the ImGui overlays (the performance overlay; addon canvases later), drawn over the stock UI. Nothing runs
-        /// while every overlay is hidden.
+        /// Tier 3: the ImGui overlays (the performance overlay and the registered interactive ones), drawn over the stock
+        /// UI. Nothing runs while every overlay is hidden, and a hidden overlay captures no input.
         /// </summary>
         private void RenderTier3_ImGuiOverlays()
         {
-            if (_frameOverlayMode == PerformanceOverlayMode.Hidden || _overlayLayerFailed) return;
+            bool interactive = ImGuiOverlayRegistry.AnyVisible;
+            if (!interactive) ImGuiInput.Reset();
+            if ((_frameOverlayMode == PerformanceOverlayMode.Hidden && !interactive) || _overlayLayerFailed) return;
             var gd = _deviceManager.Device;
             var framebuffer = _deviceManager.Framebuffer;
             if (gd == null || framebuffer == null) return;
@@ -118,7 +127,13 @@ namespace Gordian.App.Graphics
 
             var info = new PerformanceOverlayInfo(_frameOverlayMode, _perfStats, _activeBackendName, _gpuDeviceName,
                 framebuffer.Width, framebuffer.Height, _swapchainVsync);
-            _overlayLayer.Render(framebuffer, _perfFrameSeconds, info, PerformanceOverlay.Draw);
+            _overlayLayer.Render(framebuffer, _perfFrameSeconds, info, DrawTier3, interactive ? ImGuiInput : null);
+        }
+
+        private static void DrawTier3(PerformanceOverlayInfo info)
+        {
+            if (info.Mode != PerformanceOverlayMode.Hidden) PerformanceOverlay.Draw(info);
+            ImGuiOverlayRegistry.DrawAll();
         }
 
         /// <summary>Releases the overlay layer and the GPU timer (call under the GPU lock, before the device goes).</summary>
