@@ -97,10 +97,10 @@ namespace Gordian.App.Graphics
                 ? MountModels.ReferencePoint(mount, pose, seatReference)
                 : MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference));
             if (!riding) return new MountRide(mount, gpuModel, palette, key, scale, Vector3.Zero, 0f);
-            // Whatever the pose (a straddle, standing on the Magic Pot, a chair), the rider's hips go on the race's seat: the
-            // references sit just over the raptor's back at one height for every race, and on the Magic Pot by each race's
-            // standing hip height over the lid. Model space is Y-down: heights are -Y.
-            var offset = seat - resources.GetRiderHips(rider!);
+            // Whatever the pose (a straddle, standing on the Magic Pot, a chair), the rider's own seat (its reference 107, just
+            // under the hips) goes on the race's seat: the references sit just over the raptor's back at one height for every
+            // race, and on the Magic Pot by each race's standing hip height over the lid. Model space is Y-down: heights are -Y.
+            var offset = seat - resources.GetRiderSeat(rider!);
             // The name plate rides with the rider: raised by how far its origin moved, plus half the seat's height for a
             // straddle (round 3 H17), whose origin is the ground under a chocobo.
             float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? 0.5f * raceScale * MountModels.ChocoboRestSeatHeight : 0f);

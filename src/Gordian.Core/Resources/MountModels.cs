@@ -251,13 +251,24 @@ namespace Gordian.Core.Resources
             && (skeleton.References[reference].Index != 0 || skeleton.References[reference].Offset != System.Numerics.Vector3.Zero);
 
         /// <summary>
-        /// Where the rider's hips (joint 2) are in its idle's first frame (model space, Y down): what sits on the mount's seat
-        /// reference (<see cref="MountSeating.SeatReference"/>; #87, round 5). Zero without a skeleton or an idle.
+        /// The rider's own seat: skeleton reference 107, on the hip joint, below the hips by each race's own amount (Tarutaru
+        /// 0.08, Hume male 0.15, Elvaan male 0.19, Galka 0.29 + its pose; about 0.05-0.1 above the bottom of the seated body
+        /// in every pose). It is what goes on the mount's seat reference (#87, round 6: with the hips there, every rider sank
+        /// slightly, backsides into the raptor and feet into the Magic Pot's lid). *Inference* from the data: no reference
+        /// names r107.
         /// </summary>
-        public static System.Numerics.Vector3 RiderHips(EntityModel rider)
+        public const int RiderSeatReference = 107;
+
+        /// <summary>
+        /// Where the rider's seat (<see cref="RiderSeatReference"/>, else the hips, joint 2) is in its idle's first frame
+        /// (model space, Y down): what sits on the mount's seat reference (<see cref="MountSeating.SeatReference"/>). Zero
+        /// without a skeleton or an idle.
+        /// </summary>
+        public static System.Numerics.Vector3 RiderSeat(EntityModel rider)
         {
             if (rider.Skeleton is not { Count: > 2 } skeleton || !rider.Animations.TryGetValue("chi", out var seated)) return System.Numerics.Vector3.Zero;
-            return SkeletonPoseEvaluator.EvaluatePose(skeleton, seated, 0f, true).Translations[2];
+            var pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, seated, 0f, true);
+            return HasReference(rider, RiderSeatReference) ? ReferencePoint(rider, pose, RiderSeatReference) : pose.Translations[2];
         }
 
         private static bool IsFootMotion(string name)

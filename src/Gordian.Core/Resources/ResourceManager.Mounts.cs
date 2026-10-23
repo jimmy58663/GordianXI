@@ -85,9 +85,9 @@ namespace Gordian.Core.Resources
 
         private ConditionalWeakTable<EntityModel, StrongBox<System.Numerics.Vector3>> _riderHips = new();
 
-        /// <summary>Where <paramref name="rider"/>'s hips are in its pose (#87 round 5, <see cref="MountModels.RiderHips"/>), computed once per rider.</summary>
-        public System.Numerics.Vector3 GetRiderHips(EntityModel rider) =>
-            _riderHips.GetValue(rider, r => new StrongBox<System.Numerics.Vector3>(MountModels.RiderHips(r))).Value;
+        /// <summary>Where <paramref name="rider"/>'s own seat is in its pose (#87 round 6, <see cref="MountModels.RiderSeat"/>), computed once per rider.</summary>
+        public System.Numerics.Vector3 GetRiderSeat(EntityModel rider) =>
+            _riderHips.GetValue(rider, r => new StrongBox<System.Numerics.Vector3>(MountModels.RiderSeat(r))).Value;
 
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()

@@ -346,6 +346,12 @@ namespace Gordian.Core.Network.Packets
         public byte MountIndex => (byte)((Flags6 >> 4) & 0xFF);
 
         /// <summary>
+        /// Whether the packet is long enough to carry Flags6 (#87): LandSandBoat sends short updates (position only, 62
+        /// bytes) whose other fields are left over from the last full one, so a mount must not be read from them.
+        /// </summary>
+        public bool HasFlags6 => _payload.Length >= 0x44;
+
+        /// <summary>
         /// The name plate flags: flags1 LfgFlag (11), AnonymousFlag (12), YellFlag (13), AwayFlag (14), PlayOnelineFlag
         /// (16), LinkShellFlag (17), LinkDeadFlag (18), BazaarFlag (31); flags2 GmIconFlag (28), AutoPartyFlag (31);
         /// flags3 LfgMasterFlag (1), NewCharacterFlag (23), MentorFlag (24); flags4 TrialFlag (1), JobMasterFlag (6).

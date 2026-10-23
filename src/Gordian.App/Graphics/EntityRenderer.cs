@@ -519,10 +519,10 @@ namespace Gordian.App.Graphics
                     ? entity.RenderHeadingRadians
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
-                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); a rider
-                // is not: its mount is scaled for its race instead (#87, MountModels.MountScale), the pack seating it on that.
+                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); mounted, the
+                // rider and its mount together (#87 round 6, PROVISIONAL: the mount differs between riders beyond its race data).
                 bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
-                var sizeScale = entity.Type == EntityType.Player && !mounted ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
+                var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
                 // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
                 _actorAnchors.TryGetValue(entity.ServerId, out var previousAnchor);
@@ -597,7 +597,7 @@ namespace Gordian.App.Graphics
                     ? PrepareMount(cl, entity, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
                     : null;
                 var seatShift = ride is { } seated && !isFallback ? Matrix4x4.CreateTranslation(seated.RiderOffset) : Matrix4x4.Identity;
-                if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos) };
+                if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
                 var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
@@ -685,11 +685,11 @@ namespace Gordian.App.Graphics
                     hiddenWeapons = entity.Animation.HiddenWeaponSlots;
                 }
 
-                float sizeFactor = entity.Type == EntityType.Player && !isFallback && !mounted ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+                float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
                 float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
                 // A rider's name plate (#87, round 2 H12): its own overhead point over the mount's seat, about a yalm over the
                 // seated head as in retail (image-9.png), not over the head itself.
-                if (ride is { } plated && isSkinned) overheadHeight += plated.PlateLift;
+                if (ride is { } plated && isSkinned) overheadHeight += plated.PlateLift * sizeFactor;
                 var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
@@ -709,7 +709,7 @@ namespace Gordian.App.Graphics
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
                     draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 }
-                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, headingRot, pos, faded, isLocalEntity);
+                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, sizeScale * headingRot, pos, faded, isLocalEntity);
             }
 
             draws += DrawBlurAuras(cl, deltaSeconds);

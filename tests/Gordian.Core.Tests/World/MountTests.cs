@@ -122,6 +122,47 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(MountKind.Chocobo, other.Mount.Kind);
         }
 
+        /// <summary>
+        /// Round 6: another player on a Beetle (mount 10, wire 11) draws the Beetle, and a short update (LandSandBoat's
+        /// position-only 0x00D, its other fields left from the last full one) or a General one without Flags6 keeps it, not
+        /// "status 85, mount 0" (a chocobo).
+        /// </summary>
+        [Fact]
+        public void CharPc_KeepsAnotherPlayersMountAcrossShortUpdates()
+        {
+            var world = new WorldState();
+            var local = new LocalPlayerState { ServerId = 0x01000001 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, local, (_, _) => Task.CompletedTask).Register(dispatcher);
+            void Send(byte[] p) => dispatcher.Dispatch(new PacketHeader(0x00D, (ushort)(p.Length + 4), 1), p);
+
+            Send(CharPc(85, 11, 3));
+            Assert.True(world.TryGetByServerId(0x01000002, out var rider));
+            Assert.Equal((MountKind.Mount, (byte)10), (rider!.Mount.Kind, rider.Mount.MountId));
+
+            // A position-only update, 62 bytes, its status byte left at 85 and no Flags6.
+            var shortUpdate = CharPc(85, 0, 3).AsSpan(0, 0x3A).ToArray();
+            shortUpdate[6] = (byte)EntityUpdateFlags.Position;
+            Send(shortUpdate);
+            Assert.Equal((MountKind.Mount, (byte)10), (rider.Mount.Kind, rider.Mount.MountId));
+
+            // First seen from a short update (no spawn packet seen first): no mount yet, not a chocobo; the next full update has it.
+            var world2 = new WorldState();
+            var dispatcher2 = new PacketDispatcher();
+            new EntityPacketModule(world2, local, (_, _) => Task.CompletedTask).Register(dispatcher2);
+            dispatcher2.Dispatch(new PacketHeader(0x00D, (ushort)(shortUpdate.Length + 4), 1), shortUpdate);
+            Assert.True(world2.TryGetByServerId(0x01000002, out var seen));
+            Assert.False(seen!.Mount.IsMounted);
+            var full = CharPc(85, 11, 3);
+            dispatcher2.Dispatch(new PacketHeader(0x00D, (ushort)(full.Length + 4), 2), full);
+            Assert.Equal((MountKind.Mount, (byte)10), (seen.Mount.Kind, seen.Mount.MountId));
+
+            // A General update cut before Flags6: the status is read, the mount number kept.
+            var noFlags6 = CharPc(85, 0, 3).AsSpan(0, 0x40).ToArray();
+            Send(noFlags6);
+            Assert.Equal((MountKind.Mount, (byte)10), (rider.Mount.Kind, rider.Mount.MountId));
+        }
+
         [Fact]
         public void LocomotionController_RunsMountedAtTwiceTheServerSpeed()
         {
@@ -378,7 +419,10 @@ namespace Gordian.Core.Tests.World
             Assert.True(-Seat(12, CharacterRace.TaruMale).Y < -Seat(12, CharacterRace.HumeMale).Y - 1f);
         }
 
-        /// <summary>The mount rider packs (<c>ROM/351/61</c> + 3 per race) carry the poses: standing (5) puts a Mithra's hips at its standing height.</summary>
+        /// <summary>
+        /// The mount rider packs (<c>ROM/351/61</c> + 3 per race) carry the poses: standing (5) puts a Mithra's hips at its
+        /// standing height; its own seat (reference 107) is just under them (round 6).
+        /// </summary>
         [Fact]
         public void RetailPoseRiders_HoldTheMountsPose()
         {
@@ -386,9 +430,9 @@ namespace Gordian.Core.Tests.World
             if (rm == null) return;
             var mithra = EntityModelLoader.AssembleCharacter(CharacterRace.Mithra, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
             Assert.True(rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 5, out var standing));
-            Assert.InRange(-rm.GetRiderHips(standing!).Y, 0.9f, 1.1f);
+            Assert.InRange(-rm.GetRiderSeat(standing!).Y, 0.8f, 0.95f); // its reference 107, 0.11 under the hips at 0.99
             Assert.True(rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 6, out var straddling));
-            Assert.InRange(-rm.GetRiderHips(straddling!).Y, 1.7f, 1.8f); // the chocobo pack's straddle
+            Assert.InRange(-rm.GetRiderSeat(straddling!).Y, 1.6f, 1.7f); // the chocobo pack's straddle: hips at 1.75
             Assert.Same(standing, rm.TryGetPoseRiderModel(mithra, CharacterRace.Mithra, 5, out var again) ? again : null);
             Assert.Equal((System.IO.Path.Combine("ROM", "351", "79.DAT"), System.IO.Path.Combine("ROM", "351", "80.DAT")), MountSeating.PackPaths(CharacterRace.Galka));
         }
