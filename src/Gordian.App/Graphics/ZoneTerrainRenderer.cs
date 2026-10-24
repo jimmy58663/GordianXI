@@ -2224,7 +2224,7 @@ namespace Gordian.App.Graphics
                 foreach (var (layer, emitter) in instance.Emitters)
                 {
                     if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
-                    Vector3 joint = ActorEffectInstance.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
+                    Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
                         ActorEffectInstance.GetJointReference(emitter.Template.Definition));
                     Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
                     foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
@@ -2365,7 +2365,7 @@ namespace Gordian.App.Graphics
                         var definition = emitter.Template.Definition;
                         Vector3 joint = definition.AttachType == ParticleAttachType.None || anchor is not { } posed
                             ? Vector3.Zero
-                            : ActorEffectInstance.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
+                            : Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
                                 ActorEffectInstance.GetJointReference(definition));
                         frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * slot.ModelToWorld;
                     }

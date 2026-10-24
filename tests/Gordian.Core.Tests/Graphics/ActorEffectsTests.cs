@@ -121,14 +121,14 @@ namespace Gordian.Core.Tests.Graphics
             var rotations = new[] { Quaternion.Identity, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f) };
             var scales = new[] { Vector3.One, new Vector3(2f) };
 
-            Vector3 point = ActorEffectInstance.ResolveJointReference(skeleton, translations, rotations, scales, 1);
+            Vector3 point = Skeleton.ResolveJointReference(skeleton, translations, rotations, scales, 1);
 
             // Offset (1, 0, 0) scaled by 2 and turned 90 degrees about Y lands at (0, 0, -2), from the joint at (0, -2, 0).
             Assert.Equal(0f, point.X, 4);
             Assert.Equal(-2f, point.Y, 4);
             Assert.Equal(-2f, point.Z, 4);
-            Assert.Equal(Vector3.Zero, ActorEffectInstance.ResolveJointReference(skeleton, translations, rotations, scales, 7));
-            Assert.Equal(Vector3.Zero, ActorEffectInstance.ResolveJointReference(null, translations, rotations, scales, 1));
+            Assert.Equal(Vector3.Zero, Skeleton.ResolveJointReference(skeleton, translations, rotations, scales, 7));
+            Assert.Equal(Vector3.Zero, Skeleton.ResolveJointReference(null, translations, rotations, scales, 1));
         }
             // ── retail model DATs (#257) ─────────────────────────────────────────────
 

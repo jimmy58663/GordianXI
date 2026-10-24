@@ -489,7 +489,7 @@ namespace Gordian.Core.Resources
         /// <summary>
         /// Parses an entire Zone DAT container buffer into structured ZoneGeometry and DecodedTextures.
         /// <paramref name="actorEffects"/> reads a model or scene DAT's generators as an actor's effects (see
-        /// <see cref="Gordian.Core.Graphics.ActorEffectLoader"/>); <paramref name="cameraEffects"/> keeps its
+        /// <see cref="Gordian.Core.Resources.Graphics.ActorEffectLoader"/>); <paramref name="cameraEffects"/> keeps its
         /// camera-following generators too (a cutscene scene DAT's screen overlays).
         /// </summary>
         public static ZoneGeometry ParseZoneContainer(
@@ -1305,9 +1305,9 @@ namespace Gordian.Core.Resources
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
                 if (skyGenerators.Contains(gen)) continue;
                 if (!actorEffects && generatorPaths.TryGetValue(gen, out string? footPath) &&
-                    Gordian.Core.Graphics.ZoneFootEffects.IsFootEffectDirectory(footPath, out bool footRain))
+                    Gordian.Core.Resources.Graphics.ZoneFootEffects.IsFootEffectDirectory(footPath, out bool footRain))
                 {
-                    int footTerrain = Gordian.Core.Graphics.ZoneFootEffects.TerrainOfRoot(genId);
+                    int footTerrain = Gordian.Core.Resources.Graphics.ZoneFootEffects.TerrainOfRoot(genId);
                     if (footTerrain >= 0 && BuildEffectLayer(genId, genWeather, footPath, gen, isEmitter: true, null, 0, childOnly: false, sharedMeshes: true) is { } footLayer)
                     {
                         (footRain ? footWet : footDry).TryAdd(footTerrain, footLayer);
@@ -1433,7 +1433,7 @@ namespace Gordian.Core.Resources
                     Position = new Vector3(-rawBase.X, -rawBase.Y, rawBase.Z),
                     FollowCamera = false,
                     PointLightSlot = lightSlot,
-                    Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, lightPath, envData),
+                    Emitter = new Gordian.Core.Resources.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, lightPath, envData),
                         schedule, scheduleLoop, 0, childOnly: false, isWeather: !string.IsNullOrEmpty(genWeather))
                 };
                 ApplyGeneratorRenderState(light, gen, genWeather, envData, authoredOrder);
@@ -1452,40 +1452,40 @@ namespace Gordian.Core.Resources
             {
                 foreach (var (routinePath, routineWeather, routine) in zoneRoutines)
                 {
-                    var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
+                    var spawns = new List<Gordian.Core.Resources.Graphics.WeatherRoutineSpawn>();
                     foreach (var spawn in routine.Spawns)
                     {
                         var layer = zone.EffectLayers.FirstOrDefault(l =>
                             l.Emitter != null && string.Equals(l.Name, spawn.GeneratorId, StringComparison.OrdinalIgnoreCase) &&
                             layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routinePath, StringComparison.OrdinalIgnoreCase));
-                        if (layer != null) spawns.Add(new Gordian.Core.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
+                        if (layer != null) spawns.Add(new Gordian.Core.Resources.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
                     }
-                    zone.ActorRoutines.Add(new Gordian.Core.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
+                    zone.ActorRoutines.Add(new Gordian.Core.Resources.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
                 }
             }
 
             // Short weather routines (lightning strikes) become groups the renderer plays one random routine at a time.
-            var sporadicGroups = new Dictionary<(string Weather, string? Dir), Gordian.Core.Graphics.WeatherRoutineGroup>();
+            var sporadicGroups = new Dictionary<(string Weather, string? Dir), Gordian.Core.Resources.Graphics.WeatherRoutineGroup>();
             foreach (var (routinePath, routineWeather, routine) in zoneRoutines)
             {
                 if (actorEffects || routineWeather == null || !IsSporadicWeatherRoutine(routineWeather, routine)) continue;
-                var spawns = new List<Gordian.Core.Graphics.WeatherRoutineSpawn>();
+                var spawns = new List<Gordian.Core.Resources.Graphics.WeatherRoutineSpawn>();
                 foreach (var spawn in routine.Spawns)
                 {
                     var layer = zone.EffectLayers.FirstOrDefault(l =>
                         l.Emitter != null && string.Equals(l.Name, spawn.GeneratorId, StringComparison.OrdinalIgnoreCase) &&
                         layerDirectories.TryGetValue(l, out var dir) && string.Equals(dir, routinePath, StringComparison.OrdinalIgnoreCase) &&
                         l.WeatherIds.Contains(routineWeather));
-                    if (layer != null) spawns.Add(new Gordian.Core.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
+                    if (layer != null) spawns.Add(new Gordian.Core.Resources.Graphics.WeatherRoutineSpawn(layer.Emitter!, spawn.StartFrame, spawn.Duration));
                 }
                 if (spawns.Count == 0) continue;
                 if (!sporadicGroups.TryGetValue((routineWeather, routinePath), out var group))
                 {
-                    group = new Gordian.Core.Graphics.WeatherRoutineGroup(routineWeather, routinePath);
+                    group = new Gordian.Core.Resources.Graphics.WeatherRoutineGroup(routineWeather, routinePath);
                     sporadicGroups[(routineWeather, routinePath)] = group;
                     zone.WeatherRoutineGroups.Add(group);
                 }
-                group.Routines.Add(new Gordian.Core.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
+                group.Routines.Add(new Gordian.Core.Resources.Graphics.WeatherRoutineVariant(routine.DatId, routine.TotalFrames, spawns));
             }
 
             // Child generators (0x3C once at birth, 0x44 / 0x53 / 0x6A for the parent's life, expiration 0x01 on death):
@@ -1551,12 +1551,12 @@ namespace Gordian.Core.Resources
                         {
                             string name = group.TextureName.Trim();
                             if (name.Length > 0 && !footTextures.ContainsKey(name) &&
-                                Gordian.Core.Graphics.ActorEffectLoader.FindTexture(outTextures, name) is { } texture) footTextures[name] = texture;
+                                Gordian.Core.Resources.Graphics.ActorEffectLoader.FindTexture(outTextures, name) is { } texture) footTextures[name] = texture;
                         }
                     }
                 }
-                zone.FootEffects = new Gordian.Core.Graphics.ZoneFootEffects(
-                    new Gordian.Core.Graphics.ActorEffectSet(footLayers, Array.Empty<Gordian.Core.Graphics.WeatherRoutineVariant>(), footTextures),
+                zone.FootEffects = new Gordian.Core.Resources.Graphics.ZoneFootEffects(
+                    new Gordian.Core.Resources.Graphics.ActorEffectSet(footLayers, Array.Empty<Gordian.Core.Resources.Graphics.WeatherRoutineVariant>(), footTextures),
                     footDry, footWet);
             }
 
@@ -1644,7 +1644,7 @@ namespace Gordian.Core.Resources
                 effect.WeightedMesh = weightedMesh;
                 if (isEmitter || isSprite)
                 {
-                    effect.Emitter = new Gordian.Core.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
+                    effect.Emitter = new Gordian.Core.Resources.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
                         schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly, isWeather: !string.IsNullOrEmpty(genWeather));
                     // Paths (0x54 names a point list at +16): the generator's directory and its parents, then anywhere.
                     foreach (var op in gen.Initializers)

@@ -1,8 +1,8 @@
-// src/Gordian.Core/Audio/SoundEffectPointer.cs
+// src/Gordian.Core/Resources/Containers/SoundEffectPointer.cs
 using System;
 using System.Buffers.Binary;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Core.Resources.Containers
 {
     /// <summary>
     /// Decodes a DAT section of type <c>0x3D</c> (SoundEffectPointer): the 8-byte magic <c>"SeSep  "</c> followed by a

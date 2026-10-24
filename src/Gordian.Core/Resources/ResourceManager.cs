@@ -37,8 +37,8 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
-        private readonly ConcurrentDictionary<uint, Gordian.Core.Graphics.ActorEffectSet?> _actorEffectCache = new();
-        private readonly ConcurrentDictionary<int, Gordian.Core.Graphics.ActorEffectSet?> _sceneEffectCache = new();
+        private readonly ConcurrentDictionary<uint, Gordian.Core.Resources.Graphics.ActorEffectSet?> _actorEffectCache = new();
+        private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _sceneEffectCache = new();
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
         private SharedEffectResources? _sharedEffects;
@@ -800,14 +800,14 @@ namespace Gordian.Core.Resources
         /// The particle effects an NPC or monster model's DAT carries for its actor (e.g. the Home Point crystal, model 51),
         /// or null when the model has none. Cached per model id, including models without effects.
         /// </summary>
-        public Gordian.Core.Graphics.ActorEffectSet? GetActorEffects(uint modelId)
+        public Gordian.Core.Resources.Graphics.ActorEffectSet? GetActorEffects(uint modelId)
         {
             if (modelId == 0) return null;
             return _actorEffectCache.GetOrAdd(modelId, id =>
             {
                 int fileId = CharacterEquipmentResolver.GetMonsterFileId(id);
                 var bytes = LoadDatBytesByFileId(fileId);
-                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(fileId));
+                return bytes == null ? null : Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(fileId));
             });
         }
 
@@ -816,13 +816,13 @@ namespace Gordian.Core.Resources
         /// <see cref="Events.EventSceneResource"/>), camera-following generators included, or null when it has none.
         /// Cached per file id.
         /// </summary>
-        public Gordian.Core.Graphics.ActorEffectSet? GetSceneEffects(int fileId)
+        public Gordian.Core.Resources.Graphics.ActorEffectSet? GetSceneEffects(int fileId)
         {
             if (fileId <= 0) return null;
             return _sceneEffectCache.GetOrAdd(fileId, id =>
             {
                 var bytes = LoadDatBytesByFileId(id);
-                return bytes == null ? null : Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true);
+                return bytes == null ? null : Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true);
             });
         }
 
@@ -855,7 +855,7 @@ namespace Gordian.Core.Resources
             return null;
         }
 
-        private (Events.EventSceneResource Routines, Gordian.Core.Graphics.ActorEffectSet Effects)? _sharedRoutineEffects;
+        private (Events.EventSceneResource Routines, Gordian.Core.Resources.Graphics.ActorEffectSet Effects)? _sharedRoutineEffects;
         private bool _sharedRoutineEffectsLoaded;
 
         /// <summary>
@@ -863,7 +863,7 @@ namespace Gordian.Core.Resources
         /// (#132: the chant circles <c>ner1</c> / <c>ner2</c> / <c>nefa</c>, the release flashes <c>eis3</c> / <c>eis4</c>, the
         /// weapon skill flash <c>eis1</c>, the stops <c>stwh</c> / <c>stbk</c>), or null when it cannot be read. Loaded once.
         /// </summary>
-        public (Events.EventSceneResource Routines, Gordian.Core.Graphics.ActorEffectSet Effects)? GetSharedRoutineEffects()
+        public (Events.EventSceneResource Routines, Gordian.Core.Resources.Graphics.ActorEffectSet Effects)? GetSharedRoutineEffects()
         {
             if (Volatile.Read(ref _sharedRoutineEffectsLoaded)) return _sharedRoutineEffects;
             lock (_lock)
@@ -872,7 +872,7 @@ namespace Gordian.Core.Resources
                 {
                     string sharedPath = Path.Combine("ROM", "0", "0.DAT");
                     byte[]? bytes = LoadDatBytes(sharedPath);
-                    var effects = bytes is { Length: > 0 } ? Gordian.Core.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), sharedPath, cameraEffects: true) : null;
+                    var effects = bytes is { Length: > 0 } ? Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), sharedPath, cameraEffects: true) : null;
                     _sharedRoutineEffects = effects != null ? (Events.EventSceneResource.Parse(bytes), effects) : null;
                     Volatile.Write(ref _sharedRoutineEffectsLoaded, true);
                 }

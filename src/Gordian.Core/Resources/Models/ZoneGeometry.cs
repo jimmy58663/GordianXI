@@ -215,7 +215,7 @@ namespace Gordian.Core.Resources.Models
         /// <summary>
         /// Short weather routines (lightning strikes) grouped by directory, played one random routine at a time.
         /// </summary>
-        public List<Gordian.Core.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();
+        public List<Gordian.Core.Resources.Graphics.WeatherRoutineGroup> WeatherRoutineGroups { get; } = new();
 
         /// <summary>
         /// The zone's routines outside the weather directories with the emitters they start, which the client plays when a
@@ -223,19 +223,19 @@ namespace Gordian.Core.Resources.Models
         /// directories' routines are in it by path only (<see cref="DoorDirectories"/>): a map scheduler's name never
         /// starts a door's <c>open</c>.
         /// </summary>
-        public Gordian.Core.Graphics.ZoneRoutineLibrary MapRoutines { get; } = new();
+        public Gordian.Core.Resources.Graphics.ZoneRoutineLibrary MapRoutines { get; } = new();
 
         /// <summary>
         /// For an actor's effect DAT (<c>actorEffects</c> parse), its Section 0x07 routines by name, each with the effect
         /// layers it starts; the client plays them on the actor (e.g. the Home Point's <c>bind</c>).
         /// </summary>
-        public List<Gordian.Core.Graphics.WeatherRoutineVariant> ActorRoutines { get; } = new();
+        public List<Gordian.Core.Resources.Graphics.WeatherRoutineVariant> ActorRoutines { get; } = new();
 
         /// <summary>
         /// The zone's foot effects (#40): the <c>fses/fefs</c> and <c>fser/fefr</c> generators started where a foot lands,
         /// by terrain. Null when the zone has none (or for an actor's effect DAT).
         /// </summary>
-        public Gordian.Core.Graphics.ZoneFootEffects? FootEffects { get; set; }
+        public Gordian.Core.Resources.Graphics.ZoneFootEffects? FootEffects { get; set; }
 
         public int TotalVertices
         {

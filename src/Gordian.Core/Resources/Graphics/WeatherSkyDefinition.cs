@@ -266,7 +266,7 @@ namespace Gordian.Core.Resources.Graphics
         /// For a finite-life particle emitter (e.g. shoreline surf), the generator to simulate; its particles supply
         /// position, orientation, scale, color and UV per frame. Null for static layers.
         /// </summary>
-        public Gordian.Core.Graphics.ZoneEmitterTemplate? Emitter { get; set; }
+        public Gordian.Core.Resources.Graphics.ZoneEmitterTemplate? Emitter { get; set; }
 
         /// <summary>
         /// For a point-light generator (linked type 0x47): its zero-based slot in the ZoneDef light table, whose placements

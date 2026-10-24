@@ -1,10 +1,10 @@
-// src/Gordian.Core/Graphics/ZoneFootEffects.cs
+// src/Gordian.Core/Resources/Graphics/ZoneFootEffects.cs
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Core.Resources.Graphics
 {
     /// <summary>
     /// A zone's foot effects (#40): the generators the client starts where a foot lands, by the terrain under it. Each

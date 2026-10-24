@@ -507,7 +507,7 @@ namespace Gordian.Core.Resources.Events
                 }
                 else if (header.RawTypeCode == 0x3D)
                 {
-                    if (Audio.SoundEffectPointer.TryDecode(payload, out int soundId)) sounds.TryAdd(header.DatId, soundId);
+                    if (Gordian.Core.Resources.Containers.SoundEffectPointer.TryDecode(payload, out int soundId)) sounds.TryAdd(header.DatId, soundId);
                 }
                 else if (header.RawTypeCode == 0x05)
                 {

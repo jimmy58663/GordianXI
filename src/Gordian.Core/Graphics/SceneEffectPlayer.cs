@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.Graphics
 {

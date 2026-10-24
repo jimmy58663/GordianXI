@@ -243,7 +243,7 @@ namespace Gordian.Core.Resources
 
         /// <summary>The position of skeleton reference <paramref name="reference"/> of <paramref name="model"/> in model space (Y down, unscaled) for <paramref name="pose"/>.</summary>
         public static System.Numerics.Vector3 ReferencePoint(EntityModel model, in SkeletonPoseEvaluator.EvaluatedPose pose, int reference) =>
-            Gordian.Core.Graphics.ActorEffectInstance.ResolveJointReference(model.Skeleton, pose.Translations, pose.Rotations, pose.Scales, reference);
+            Skeleton.ResolveJointReference(model.Skeleton, pose.Translations, pose.Rotations, pose.Scales, reference);
 
         /// <summary>Whether <paramref name="model"/> carries skeleton reference <paramref name="reference"/> on a joint (a mount's seat references r48-r55).</summary>
         public static bool HasReference(EntityModel model, int reference) =>

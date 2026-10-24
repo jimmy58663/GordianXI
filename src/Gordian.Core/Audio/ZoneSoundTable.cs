@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Gordian.Core.Resources.Containers;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.Audio
 {
