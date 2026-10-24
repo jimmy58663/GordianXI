@@ -10,7 +10,7 @@ namespace Gordian.Core.Animation
     /// <summary>
     /// An event motion DAT (<c>mot_</c>): the gesture routines (Section 0x07: <c>tlk0</c>, <c>itl0</c>, <c>pas0</c>, ...)
     /// and the clips they play (Section 0x2B) that an event loads onto an entity with opcode 0x5B before playing one of
-    /// them (XiEvents OpCodes/0x005B, ReadEventMotionRes; file ids in <see cref="Events.EventVm.MotionBankFileId"/>). The
+    /// them (XiEvents OpCodes/0x005B, ReadEventMotionRes; file ids in <see cref="MotionBankFileId"/>). The
     /// clips are authored for the skeleton of the models the event gives them to.
     /// </summary>
     public sealed class EventMotionBank
@@ -254,7 +254,7 @@ namespace Gordian.Core.Animation
         /// The DATs that may hold 0x66 motion package <paramref name="package"/> (XiEvents OpCodes/0x005B,
         /// ReadTpcEventMotionRes), in the order to try them: for 0-69 the first and second tables
         /// (<see cref="PackageFileIds"/>), for 70-279 the three race sets tables (<see cref="RaceSetFileId"/>). From 280
-        /// on the scripts' numbers are 0x5B bank numbers (<see cref="Events.EventVm.MotionBankFileId"/>): the nine
+        /// on the scripts' numbers are 0x5B bank numbers (<see cref="MotionBankFileId"/>): the nine
         /// such packages in zones 0-299 (337, 483, 627, 1310, 1443, 2134, 2158, 2161, 2404; 25 uses) name routines that
         /// eight of those bank files hold, several of them rare (1443's <c>tla0</c> / <c>tla1</c> / <c>tlb0</c> / <c>tlb1</c>
         /// at 57788, 2158's <c>sai1</c> at 61897, 627's <c>won2</c> / <c>wof2</c> at 49762). Whether retail plays them or
@@ -268,11 +268,24 @@ namespace Gordian.Core.Animation
                 var (withWaist, withoutWaist) = PackageFileIds(package);
                 return [withWaist, withoutWaist];
             }
-            return package < RaceSetPackageEnd ? [RaceSetFileId(package)] : [Events.EventVm.MotionBankFileId(package)];
+            return package < RaceSetPackageEnd ? [RaceSetFileId(package)] : [MotionBankFileId(package)];
         }
 
         /// <summary>How many 60 Hz frames a routine of the bank plays (one pass of a looping one), 0 when it has none.</summary>
         public int GetRoutineFrames(string name) =>
             Routines.TryGetValue(name, out var routine) ? EntityAnimationState.OnePassTicks(routine) : 0;
+
+        /// <summary>
+        /// The event motion DAT of 0x5B's resource number (XiEvents OpCodes/0x005B, ReadEventMotionRes): 32104 + n below
+        /// 512, then 49135 + n, 56345 + n (from 1024), 59739 + n (from 2048) and 66339 + n (from 3072).
+        /// </summary>
+        public static int MotionBankFileId(int resource) => resource switch
+        {
+            < 512 => resource + 32104,
+            < 1024 => resource + 49135,
+            < 2048 => resource + 56345,
+            < 3072 => resource + 59739,
+            _ => resource + 66339,
+        };
     }
 }

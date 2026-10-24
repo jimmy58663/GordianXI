@@ -471,7 +471,7 @@ namespace Gordian.Core.Tests.Events
         [InlineData(2100, 61839)]
         [InlineData(3100, 69439)]
         public void MotionBankFileIds_FollowTheClientBands(int resource, int fileId) =>
-            Assert.Equal(fileId, EventVm.MotionBankFileId(resource));
+            Assert.Equal(fileId, Gordian.Core.Animation.EventMotionBank.MotionBankFileId(resource));
 
         [Fact]
         public void OwnMotion_And_Stop()

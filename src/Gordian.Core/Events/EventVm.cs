@@ -1231,7 +1231,7 @@ namespace Gordian.Core.Events
                 case 0x5B:
                 case 0x66:
                     // Both yield a frame after starting the motion (RetFlag = 1).
-                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, MotionBankFileId(GetWork(1)), 3);
+                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, Animation.EventMotionBank.MotionBankFileId(GetWork(1)), 3);
                     else ExecEntityMotion(EventMotionSource.Package, GetWork(1), 3);
                     _pc += 15;
                     _retFlag = true;
@@ -1725,19 +1725,6 @@ namespace Gordian.Core.Events
             }
             return new string(chars[..length]);
         }
-
-        /// <summary>
-        /// The event motion DAT of 0x5B's resource number (XiEvents OpCodes/0x005B, ReadEventMotionRes): 32104 + n below
-        /// 512, then 49135 + n, 56345 + n (from 1024), 59739 + n (from 2048) and 66339 + n (from 3072).
-        /// </summary>
-        public static int MotionBankFileId(int resource) => resource switch
-        {
-            < 512 => resource + 32104,
-            < 1024 => resource + 49135,
-            < 2048 => resource + 56345,
-            < 3072 => resource + 59739,
-            _ => resource + 66339,
-        };
 
         /// <summary>
         /// 0x45 (CodeLOADSCHEDULER): <c>op p:u16 actor:u32 target:u32 routine:u32 value:u16</c>. Plays routine

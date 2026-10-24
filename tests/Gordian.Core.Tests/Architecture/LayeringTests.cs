@@ -18,7 +18,14 @@ namespace Gordian.Core.Tests.Architecture
     {
         private enum Layer { Data = 0, Core = 1, Engine = 2 }
 
-        /// <summary>The layer of each top-level area (the namespace segment after <c>Gordian.&lt;Assembly&gt;</c>).</summary>
+        /// <summary>The root namespace of the engine layer: everything under it is <see cref="Layer.Engine"/>.</summary>
+        private const string EngineRoot = "Gordian.Engine";
+
+        /// <summary>
+        /// The layer of each top-level area of <c>Gordian.Core</c> (the namespace segment after it). Animation holds the
+        /// per-entity animation state and motion data that <c>WorldEntity</c> carries and the renderer reads; the playback
+        /// that drives it is in <c>Gordian.Engine.Animation</c>.
+        /// </summary>
         private static readonly Dictionary<string, Layer> Layers = new(StringComparer.Ordinal)
         {
             ["Resources"] = Layer.Data,
@@ -30,8 +37,9 @@ namespace Gordian.Core.Tests.Architecture
             ["Profiles"] = Layer.Core,
             ["World"] = Layer.Core,
 
+            ["Animation"] = Layer.Core,
+
             ["Actions"] = Layer.Engine,
-            ["Animation"] = Layer.Engine,
             ["Audio"] = Layer.Engine,
             ["Events"] = Layer.Engine,
             ["Graphics"] = Layer.Engine,
@@ -47,18 +55,15 @@ namespace Gordian.Core.Tests.Architecture
         private static readonly HashSet<string> KnownViolations = new(StringComparer.Ordinal)
         {
             "Network.CharacterSession -> Actions",
-            "Network.CharacterSession -> Animation",
             "Network.CharacterSession -> Events",
             "Network.CharacterSession -> Input",
             "Network.CharacterSession -> Macros",
             "Network.CharacterSession -> Ui",
             "Network.PacketParser -> Actions",
-            "Network.PacketParser -> Animation",
             "Network.Packets.CombatLogFormatter -> Actions",
             "Network.Packets.CombatLogFormatter -> Events",
             "Network.Packets.StandardMessages -> Ui",
             "Network.SessionNetworkManager -> Actions",
-            "Network.SessionNetworkManager -> Animation",
             "Resources.EntityModelLoader -> Audio",
             "Resources.EntityModelLoader -> Diagnostics",
             "Resources.Events.EventSceneResource -> Audio",
@@ -85,17 +90,16 @@ namespace Gordian.Core.Tests.Architecture
             "Resources.ZoneDataLoader -> Diagnostics",
             "Resources.ZoneDataLoader -> Graphics",
             "Resources.ZoneDataLoader -> World",
-            "World.ActorEffectRequest -> Animation",
-            "World.WorldEntity -> Animation",
         };
 
-        private static Assembly[] ScannedAssemblies => new[] { typeof(Gordian.Core.Config.GordianStorage).Assembly };
+        internal static Assembly[] ScannedAssemblies => new[] { typeof(Gordian.Core.Config.GordianStorage).Assembly };
 
         [Fact]
         public void EveryAreaHasALayer()
         {
             var unknown = ScannedAssemblies
                 .SelectMany(a => a.GetTypes())
+                .Where(t => !IsUnder(t.Namespace, EngineRoot))
                 .Select(AreaOf)
                 .Where(a => a != null && !Layers.ContainsKey(a))
                 .Distinct()
@@ -122,53 +126,54 @@ namespace Gordian.Core.Tests.Architecture
         internal static IEnumerable<string> FindViolations(Assembly assembly)
         {
             return TypeDependencyScanner.Scan(assembly)
-                .Select(e => (e.From, FromArea: AreaOf(e.From), ToArea: AreaOf(e.To)))
-                .Where(e => e.FromArea != null && e.ToArea != null
-                    && Layers.TryGetValue(e.FromArea, out var from)
-                    && Layers.TryGetValue(e.ToArea, out var to)
-                    && to > from)
-                .Select(e => $"{ShortName(e.From)} -> {e.ToArea}")
+                .Select(e => (e.From, e.To, FromLayer: LayerOf(e.From), ToLayer: LayerOf(e.To)))
+                .Where(e => e.FromLayer != null && e.ToLayer != null && e.ToLayer > e.FromLayer)
+                .Select(e => $"{ShortName(e.From)} -> {QualifiedArea(e.To)}")
                 .Distinct();
         }
 
-        /// <summary>
-        /// The area of a GordianXI type: the namespace segment after <c>Gordian.&lt;Assembly&gt;</c>
-        /// (<c>Gordian.Core.Network.Packets</c> is <c>Network</c>), "(root)" for types directly in
-        /// it, or null for types outside the scanned libraries.
-        /// </summary>
-        private static string? AreaOf(Type type)
+        private static Layer? LayerOf(Type type)
         {
-            string? ns = type.Namespace;
-            if (ns == null || !IsScannedRoot(ns, out int rootLength)) return null;
-            if (ns.Length == rootLength) return "(root)";
-            string rest = ns.Substring(rootLength + 1);
+            if (IsUnder(type.Namespace, EngineRoot)) return Layer.Engine;
+            if (!IsUnder(type.Namespace, CoreRoot)) return null;
+            return Layers.TryGetValue(AreaOf(type)!, out var layer) ? layer : null;
+        }
+
+        private const string CoreRoot = "Gordian.Core";
+
+        private static bool IsUnder(string? ns, string root) =>
+            ns != null && (ns == root || ns.StartsWith(root + ".", StringComparison.Ordinal));
+
+        /// <summary>
+        /// The area of a GordianXI type, prefixed with "Engine." under <see cref="EngineRoot"/> so the two halves of a
+        /// split area read apart: the namespace segment after the root (<c>Gordian.Core.Network.Packets</c> is
+        /// <c>Network</c>), "(root)" for types directly in it, or null for types outside both roots.
+        /// </summary>
+        private static string? QualifiedArea(Type type)
+        {
+            if (IsUnder(type.Namespace, EngineRoot)) return "Engine." + AreaUnder(type.Namespace!, EngineRoot);
+            return AreaOf(type);
+        }
+
+        private static string? AreaOf(Type type) =>
+            IsUnder(type.Namespace, CoreRoot) ? AreaUnder(type.Namespace!, CoreRoot)
+            : IsUnder(type.Namespace, EngineRoot) ? AreaUnder(type.Namespace!, EngineRoot)
+            : null;
+
+        private static string AreaUnder(string ns, string root)
+        {
+            if (ns.Length == root.Length) return "(root)";
+            string rest = ns.Substring(root.Length + 1);
             int dot = rest.IndexOf('.');
             return dot < 0 ? rest : rest.Substring(0, dot);
         }
 
-        private static bool IsScannedRoot(string ns, out int rootLength)
-        {
-            foreach (var asm in ScannedAssemblies)
-            {
-                string root = asm.GetName().Name!;
-                if (ns == root || ns.StartsWith(root + ".", StringComparison.Ordinal))
-                {
-                    rootLength = root.Length;
-                    return true;
-                }
-            }
-            rootLength = 0;
-            return false;
-        }
-
+        /// <summary>The type's full name without its root, prefixed with "Engine." under <see cref="EngineRoot"/>.</summary>
         private static string ShortName(Type type)
         {
             string name = type.FullName ?? type.Name;
-            foreach (var asm in ScannedAssemblies)
-            {
-                string prefix = asm.GetName().Name + ".";
-                if (name.StartsWith(prefix, StringComparison.Ordinal)) return name.Substring(prefix.Length);
-            }
+            if (name.StartsWith(EngineRoot + ".", StringComparison.Ordinal)) return "Engine." + name.Substring(EngineRoot.Length + 1);
+            if (name.StartsWith(CoreRoot + ".", StringComparison.Ordinal)) return name.Substring(CoreRoot.Length + 1);
             return name;
         }
     }
