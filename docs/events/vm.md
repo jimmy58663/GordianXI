@@ -8,7 +8,7 @@ Related references:
 - [schedulers-and-motions.md](schedulers-and-motions.md): the scene tasks, motion packages and clip names the scripts name.
 - [message-codes.md](message-codes.md): the control codes inside dialog strings.
 
-Formats and semantics are referenced from XiEvents (https://github.com/atom0s/XiEvents) and xi-tools (https://github.com/vekien/xi-tools), restated in our own words; the code is clean-room C# in `Gordian.Core.Events`, `Resources/Events` and `Resources/Tables`.
+Formats and semantics are referenced from XiEvents (https://github.com/atom0s/XiEvents) and xi-tools (https://github.com/vekien/xi-tools), restated in our own words; the code is clean-room C# in `Gordian.Engine.Events`, `Resources/Events` and `Resources/Tables`.
 
 ## Event files
 

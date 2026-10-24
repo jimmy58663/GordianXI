@@ -12,26 +12,29 @@ GordianXI is a 64-bit cross-platform custom client for Final Fantasy XI built fr
 ---
 
 ## 🏗️ Repository Architecture & Dependency Rules
-The solution uses a single-repo Monorepo structure with four strictly decoupled project layers. AI tools MUST respect these boundary rules:
+The solution uses a single-repo Monorepo structure with five strictly decoupled project layers (details and placement rules: `docs/architecture.md`). AI tools MUST respect these boundary rules:
 
 ```text
 Dependency Tree:
+Gordian.App ──► Gordian.Engine ──► Gordian.Core
 Gordian.App ──► Gordian.Addons ──► Gordian.Core
 Gordian.App ──► Gordian.Automation ──► Gordian.Core
 ```
 
-1.  `src/Gordian.Core/` (Class Library): High-performance networking core. Manages TcpClient streams, Blowfish key handshakes, binary array slicing, and acts as a passive, neutral shared state data bus. Has ZERO awareness of automation or addons.
-2.  `src/Gordian.Automation/` (Class Library): The Gambit and group-coordination engine. Pulls state updates from Core and handles positional tracking. Is an OPTIONAL, separate passenger module.
-3.  `src/Gordian.Addons/` (Class Library): Sandboxed Lua scripting runtime layer. Hosts a dedicated native Lua 5.4 virtual machine (via KeraLua P/Invoke) per addon, executing all scripts inside an allowlist-only `_ENV` exposing exclusively the curated addon API surface — CLR reflection, raw filesystem APIs (`io.*`/`os.*`), process, and arbitrary OS access are never reachable from script code. Addons instead get a scoped storage API confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory` for config and logs.
-4.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
+1.  `src/Gordian.Core/` (Class Library): Protocol, session and state. Network (login, Blowfish, framing, packet decoders and builders, packet modules, `SessionNetworkManager`), world and entity state (including collision and the per-entity animation state the renderer reads), DAT resources and the VFS, config (`FeatureRestrictions`), diagnostics and account profiles. A passive, neutral shared state data bus with ZERO awareness of the engine, automation or addons.
+2.  `src/Gordian.Engine/` (Class Library): Everything that plays, presents or takes input on top of Core's state: the action service, animation playback, audio, the event VM and dialog, CPU-side graphics (particles, effects, camera), input, macros, stock UI state, and `Sessions` (`CharacterSession`, the per-character composition root, and `SessionRegistry`). Reacts to Core's state events; Core never calls into it.
+3.  `src/Gordian.Automation/` (Class Library): The Gambit and group-coordination engine. Pulls state updates from Core and handles positional tracking. Is an OPTIONAL, separate passenger module.
+4.  `src/Gordian.Addons/` (Class Library): Sandboxed Lua scripting runtime layer. Hosts a dedicated native Lua 5.4 virtual machine (via KeraLua P/Invoke) per addon, executing all scripts inside an allowlist-only `_ENV` exposing exclusively the curated addon API surface — CLR reflection, raw filesystem APIs (`io.*`/`os.*`), process, and arbitrary OS access are never reachable from script code. Addons instead get a scoped storage API confined to a per-addon subdirectory under `GordianStorage.AddonsDirectory` for config and logs.
+5.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
 
 *   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Addons` and `Gordian.Automation` must NEVER reference each other. They are completely decoupled. Automation must remain entirely optional and blockable.
+*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Core` must NEVER reference `Gordian.Engine`, and `Gordian.Addons` / `Gordian.Automation` reference `Gordian.Core` only, never the engine. Core's `InternalsVisibleTo` lists only `Gordian.Engine` and the test projects. `LayeringTests` and the Addons / Automation sanity tests check this.
 
 ---
 
 ## 🔒 Security & Server Kill-Switch Policy
 *   `Gordian.Core` exposes an internal write-once configuration flag: `internal set FeatureRestrictions FeatureRestrictions`.
-*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag.
+*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag: the setter is internal and Core shows its internals only to `Gordian.Engine` and the tests (`LayeringTests.FeatureRestrictionsCannotBeSetOutsideCore`).
 *   If a private server transmits an automation restriction packet, the authenticated `PacketParser` inside `Gordian.Core` flips this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep.
 
 ---
@@ -105,7 +108,7 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 ---
 
 ## 🛑 AI Assistant Prohibitions (NEVER DO THIS)
-1.  **NO Cross-Reference Corruption:** Do not link `Gordian.Addons` directly to `Gordian.Automation`.
+1.  **NO Cross-Reference Corruption:** Do not link `Gordian.Addons` directly to `Gordian.Automation`, and do not reference `Gordian.Engine` from Core, Addons or Automation.
 2.  **NO Windows-only code in class libraries:** Keep class libraries cross-platform agnostic. Guard OS-specific calls behind `OperatingSystem.IsWindows()`.
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.

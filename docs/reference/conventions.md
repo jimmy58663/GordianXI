@@ -70,7 +70,7 @@ Notes:
 
 ## Byte and bit order
 
-- Every multi-byte field is little-endian. `src/Gordian.Core` reads and writes only through `BinaryPrimitives.*LittleEndian`; there is no big-endian read in the tree.
+- Every multi-byte field is little-endian. `src/Gordian.Core` and `src/Gordian.Engine` read and write only through `BinaryPrimitives.*LittleEndian`; there is no big-endian read in the tree.
 - Bit fields count from bit 0 of the lowest byte, as XiPackets' and LandSandBoat's C bitfields do on x86. "Bit n of word W" in these docs means `(W >> n) & 1` of the u32 read little-endian. "Bit n of packet byte B" is used where a source writes single bytes (LandSandBoat `ref<uint8>(0x28) |= 0x45`); byte B of a word at offset O holds bits `8 · (B - O)` and up.
 - Exceptions: the linkshell name in S2C 0x0CC is an MSB-first stream of 6-bit values (`LinkshellNameCodec`); DAT section headers and the file table pack fields into dwords (`DatSectionHeader`, `FileTableResolver`, see [world/world-state-and-resources.md](../world/world-state-and-resources.md#dat-decoders)).
 - Text is CP932 (Shift-JIS) unless a doc says otherwise; fixed name fields are NUL-padded.
