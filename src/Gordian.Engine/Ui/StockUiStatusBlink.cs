@@ -6,7 +6,7 @@ namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// Expiring status icons blink (#17, the last item of Tier 2 chunk 3). The status bar lists the icons of S2C 0x037;
-    /// their end times come from S2C 0x063 type 0x09 (<see cref="World.LocalPlayerState.GetStatusIconTimers"/>), which
+    /// their end times come from S2C 0x063 type 0x09 (<see cref="Gordian.Core.World.LocalPlayerState.GetStatusIconTimers"/>), which
     /// LandSandBoat fills from the same effect list in the same order, skipping effects without an icon, so the n-th
     /// shown icon is matched to the n-th timer of the same id (<see cref="MatchRemaining"/>; the two packets can arrive
     /// apart, so an id that does not line up is matched to the first unused timer of that id).

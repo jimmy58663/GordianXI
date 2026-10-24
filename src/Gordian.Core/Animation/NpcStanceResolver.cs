@@ -18,7 +18,7 @@ namespace Gordian.Core.Animation
         /// <summary>
         /// Whether the model's stance follows its state routines: it has the idle-state routine <c>ids0</c> (the furnaces'
         /// <c>init</c> links <c>mse0</c>, which picks <c>ids0</c>-<c>ids3</c> by the actor's state; each sets the stance with
-        /// op 0x8C: 0 <c>idl</c>, 1 <c>1dl</c>, 2 <c>2dl</c>, 3 <c>3dl</c>). See <see cref="Graphics.ActorEffectSet.StateTriggered"/>.
+        /// op 0x8C: 0 <c>idl</c>, 1 <c>1dl</c>, 2 <c>2dl</c>, 3 <c>3dl</c>). See <see cref="Resources.Graphics.ActorEffectSet.StateTriggered"/>.
         /// </summary>
         public static bool IsStateDriven(EntityModel model) => model.RawMotionRoutines.ContainsKey(Gordian.Core.Resources.Graphics.ActorEffectSet.IdleStateRoutine);
 

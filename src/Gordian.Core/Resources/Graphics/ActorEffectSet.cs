@@ -75,7 +75,7 @@ namespace Gordian.Core.Resources.Graphics
     {
         /// <summary>
         /// Returns the model's effects, or null when it has no generator that draws anything. With
-        /// <paramref name="cameraEffects"/> (a cutscene scene DAT, played by <see cref="SceneEffectPlayer"/>) the
+        /// <paramref name="cameraEffects"/> (a cutscene scene DAT, played by <c>SceneEffectPlayer</c>) the
         /// camera-following generators are kept as well: the scene draws them in front of the camera.
         /// </summary>
         public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null, bool cameraEffects = false)

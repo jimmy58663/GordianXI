@@ -15,7 +15,7 @@ namespace Gordian.Engine.Graphics
     /// <para>
     /// The command meanings were read from the retail scene DATs (2026-10-02, #192: files 51402, 51327 and 51328 of Port
     /// Jeuno event 324): op 0x02 starts a generator emitting for the command's duration (the effect routine command,
-    /// <see cref="Resources.Graphics.EffectRoutineDecoder"/>); 0x1E names one generator and appears only in the
+    /// <see cref="Gordian.Core.Resources.Graphics.EffectRoutineDecoder"/>); 0x1E names one generator and appears only in the
     /// <c>kill</c> routine after <c>bl00</c> started that generator, so it is read as killing it; 0x3F names two, the
     /// first always one an earlier routine left running (the black card, the open eyelid) and the second the next stage of
     /// it, so it is read as replacing the first with the second; 0x03 names another routine of the file (<c>mai2</c>

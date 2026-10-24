@@ -6,7 +6,7 @@ namespace Gordian.Engine.Input
     /// <summary>
     /// The user's input profile (key bindings, mouse and gamepad settings, the gamepad button map), shared by every
     /// multi-boxed character (#314). The desktop shell loads it from <c>input_profile.json</c> and publishes it here;
-    /// each <see cref="Network.CharacterSession"/> runs on its own copy (<see cref="CreateSessionCopy"/>) because a
+    /// each <see cref="Sessions.CharacterSession"/> runs on its own copy (<see cref="CreateSessionCopy"/>) because a
     /// session also applies its server-stored config choices (the Mouse/Cam. page's axis inversion) to its profile, and
     /// one character's config page must not change the others'. When the profile is edited (Controls &amp; Input, or the
     /// in-game gamepad key-assignment list) <see cref="Changed"/> is raised and every session takes a fresh copy.

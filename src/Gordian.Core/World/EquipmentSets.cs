@@ -27,7 +27,7 @@ namespace Gordian.Core.World
     /// <summary>
     /// One slot of an equipment set: an item (the container and index it was in when it was put in the set, and its id) or
     /// a "Remove piece" mark. The same fields as XiPackets' <c>equipsetrequestitem_t</c> (C2S 0x052, S2C 0x116), which is
-    /// also how the retail client stores a slot in its <c>es&lt;n&gt;.dat</c> files (<see cref="Ui.RetailEquipSets"/>).
+    /// also how the retail client stores a slot in its <c>es&lt;n&gt;.dat</c> files (<c>RetailEquipSets</c>).
     /// Structure referenced from XiPackets (https://github.com/atom0s/XiPackets), world/client 0x0052.
     /// </summary>
     public readonly record struct EquipmentSetPiece(EquipmentSetPieceKind Kind, ContainerId Container, byte Index, ushort ItemId)
@@ -57,7 +57,7 @@ namespace Gordian.Core.World
     {
         public const int SlotCount = 16;
 
-        /// <summary>The name field is 16 bytes in the retail files, NUL-terminated (<see cref="Ui.RetailEquipSets"/>).</summary>
+        /// <summary>The name field is 16 bytes in the retail files, NUL-terminated (<c>RetailEquipSets</c>).</summary>
         public const int MaxNameLength = 15;
 
         private readonly EquipmentSetPiece[] _pieces;

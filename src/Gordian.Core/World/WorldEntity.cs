@@ -791,7 +791,7 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// Whether the server's state lets the entity be targeted: not hidden, invisible, asleep (SleepFlag), TargetOff,
-        /// auto-target only, or a dead monster. Targeting also needs a name and a spawned entity (<see cref="Input.TargetCycling"/>).
+        /// auto-target only, or a dead monster. Targeting also needs a name and a spawned entity (<c>TargetCycling</c>).
         /// </summary>
         public bool IsServerTargetable =>
             !IsHidden && !IsInvisible && !IsSleeping && !IsTargetOff && !IsAutoTargetOnly && !IsDeadBattleEntity;
@@ -838,7 +838,7 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// The head turn speed a running event set (opcode 0x59 sub 2 / 3, retail <c>TurnSpeedHead</c>), or 0 for the
-        /// default. Read by the renderer for a fixed look axis (<see cref="Animation.HeadLook.AxisStep"/>). Cleared when the
+        /// default. Read by the renderer for a fixed look axis (<c>HeadLook.AxisStep</c>). Cleared when the
         /// event ends.
         /// </summary>
         public int EventHeadTurnSpeed
@@ -884,7 +884,7 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// How many event message lines the entity has spoken: each one moves its mouth once (the renderer watches the count
-        /// change; see <see cref="FaceMotion"/>).
+        /// change; see <c>FaceMotion</c>).
         /// </summary>
         public int SpokenLines => Volatile.Read(ref _spokenLines);
 

@@ -35,7 +35,7 @@ namespace Gordian.Engine.Graphics
 
     /// <summary>
     /// Plays a zone's on-demand routines (<see cref="ZoneRoutineLibrary"/>) on the zone's emitters when a trigger names
-    /// them: a map scheduler from the server (S2C 0x039, <see cref="World.WorldState.PostMapScheduler"/>), e.g. the
+    /// them: a map scheduler from the server (S2C 0x039, <see cref="Gordian.Core.World.WorldState.PostMapScheduler"/>), e.g. the
     /// Alzadaal Runic Portals' idle glow <c>1pa1</c>, activation <c>1pa2</c> and end <c>1pak</c>, or an event's zone
     /// scheduler opcodes 0x2D / 0x60 sub 2 (start) and 0x51 (<see cref="Stop"/>) through the same queue (#226).
     /// <para>

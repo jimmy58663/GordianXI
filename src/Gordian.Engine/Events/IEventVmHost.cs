@@ -168,7 +168,7 @@ namespace Gordian.Engine.Events
         /// <summary>Opcode 0x75: whether the zone is still reading room data (every sub then waits). Default: never.</summary>
         bool IsReadingRoomData => false;
 
-        /// <summary>Opcode 0x75 sub 0: opens an indoor room of the zone without telling the server (<see cref="World.SubMapState.IndoorRoom"/>).</summary>
+        /// <summary>Opcode 0x75 sub 0: opens an indoor room of the zone without telling the server (<see cref="Gordian.Core.World.SubMapState.IndoorRoom"/>).</summary>
         void OpenIndoorRoom(int room)
         {
         }

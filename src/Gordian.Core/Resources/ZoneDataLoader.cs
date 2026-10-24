@@ -1904,7 +1904,7 @@ namespace Gordian.Core.Resources
         /// routine with the third-list loop runs at its own length; a routine of 0 frames runs once; a routine with op
         /// 0x52 (in a weather directory or not) replays on its timer inside its Vana'diel clock windows (#81,
         /// <see cref="RoutineReplayTimer"/>, carried on each start as <see cref="EffectRoutineSpawn.Timer"/>). Every
-        /// other routine waits for a trigger (<see cref="Gordian.Engine.Graphics.ZoneRoutinePlayer"/>). Directories are
+        /// other routine waits for a trigger (<c>ZoneRoutinePlayer</c>). Directories are
         /// full paths (<see cref="DirectoryPath"/>). With <paramref name="actorEffects"/> (a model DAT) every routine is
         /// listed as before; actors play their routines by name.
         /// </summary>

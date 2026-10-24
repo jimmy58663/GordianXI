@@ -6,7 +6,7 @@ namespace Gordian.Core.Resources.Containers
 {
     /// <summary>
     /// Decodes a DAT section of type <c>0x3D</c> (SoundEffectPointer): the 8-byte magic <c>"SeSep  "</c> followed by a
-    /// <c>u32</c> sound effect id, which <see cref="FfxiSoundLocator.FindEffect"/> resolves to a <c>.spw</c> file.
+    /// <c>u32</c> sound effect id, which <c>FfxiSoundLocator.FindEffect</c> resolves to a <c>.spw</c> file.
     /// </summary>
     /// <remarks>
     /// Layout referenced from xi-tools <c>docs/audio/refs.md</c> (https://github.com/vekien/xi-tools). The section's own

@@ -7,7 +7,7 @@ namespace Gordian.Core.Network.Packets
 {
     /// <summary>
     /// Packet domain module for the actor and magic scheduler packets: S2C 0x038 and 0x03A are decoded into
-    /// <see cref="SchedulerState"/>, which <see cref="Animation.SchedulerPlayback"/> plays (#311; S2C 0x039 map schedulers
+    /// <see cref="SchedulerState"/>, which <c>SchedulerPlayback</c> plays (#311; S2C 0x039 map schedulers
     /// are handled by <see cref="EntityPacketModule"/>).
     /// </summary>
     public sealed class SchedulerPacketModule

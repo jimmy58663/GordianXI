@@ -28,7 +28,7 @@ namespace Gordian.Core.Animation
     /// rocks back onto its back and stands up; Tarutaru's <c>rx2</c> does exactly that (the head joint drops from 0.43 to
     /// 0.12 yalms and 0.59 behind the root at 0.4-0.5 s, then rises to the standing 0.62), and <c>rx0</c> lowers the head
     /// from 0.63 to 0.44 between 0.3 and 0.5 s. The raised right hand holding the crystal is the race's <c>ri0?</c>, which the synthesis
-    /// effect file's <c>frst</c> plays (<see cref="SynthesisAnimationController"/>).
+    /// effect file's <c>frst</c> plays (<c>SynthesisAnimationController</c>).
     /// </para>
     /// </summary>
     public static class RestPosture

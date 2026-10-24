@@ -10,7 +10,7 @@ namespace Gordian.Engine.Graphics
     /// Plays a door entity's own effect routines (#227) as its status changes, the way <see cref="DoorAnimator"/> plays
     /// its leaves: <c>intc</c> when the door is first seen closed, <c>into</c> when first seen open, <c>open</c> when
     /// the status turns to open (8) and <c>clos</c> when it leaves it. The routines are the ones of the door's directory
-    /// (<c>&lt;zone code&gt;/door/&lt;door id&gt;</c>, <see cref="Resources.Models.ZoneGeometry.DoorDirectories"/>),
+    /// (<c>&lt;zone code&gt;/door/&lt;door id&gt;</c>, <see cref="Gordian.Core.Resources.Models.ZoneGeometry.DoorDirectories"/>),
     /// played through the zone's <see cref="ZoneRoutinePlayer"/> with the door entity as both actors, so generators that
     /// ride an actor (ZoneActor0xA in Alzadaal's <c>_20t</c>) are placed on the door.
     /// <para>

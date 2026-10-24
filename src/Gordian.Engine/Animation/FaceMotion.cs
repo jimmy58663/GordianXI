@@ -18,9 +18,9 @@ namespace Gordian.Engine.Animation
     /// <item><c>eye3</c>: the eyelid joints (Elvaan male 33 and 42) close over the eyeball and open again in 4-11
     /// frames (about 0.17 s).</item>
     /// </list>
-    /// Each event line the actor speaks (<see cref="World.WorldEntity.SpokenLines"/>) flaps the mouth a number of times
+    /// Each event line the actor speaks (<see cref="Gordian.Core.World.WorldEntity.SpokenLines"/>) flaps the mouth a number of times
     /// set by the line's length (<see cref="FlapsFor"/>, <c>mou4</c> looped one flap at a time), and the player's Confirm
-    /// stops it at once (<see cref="World.WorldEntity.SpeechStops"/>; retail 0x23 calls <c>SpeakStop</c>, XiEvents
+    /// stops it at once (<see cref="Gordian.Core.World.WorldEntity.SpeechStops"/>; retail 0x23 calls <c>SpeakStop</c>, XiEvents
     /// OpCodes/0x0023). Counted against retail (2026-10-03, #198): Joachim's lines in Port Jeuno 324 flap 3 / 3 / 6 / 6 /
     /// 8 / 5 times for 45 / 34 / 98 / 107 / ~141 / 97 characters, Deraquien's "Intruders!" once, and his 220-character
     /// line flaps 12 times and stops by itself. Looping for as long as retail's <c>NpcSpeechFrame</c> stays set was far too

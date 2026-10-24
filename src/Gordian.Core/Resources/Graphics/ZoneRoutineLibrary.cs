@@ -25,7 +25,7 @@ namespace Gordian.Core.Resources.Graphics
         public void AddRoutine(string directory, SceneRoutine routine) => AddRoutine(directory, routine, byName: true);
 
         /// <summary>
-        /// Adds a routine; with <paramref name="byName"/> false only a command or <see cref="ZoneRoutinePlayer.PlayAt"/>
+        /// Adds a routine; with <paramref name="byName"/> false only a command or <c>ZoneRoutinePlayer.PlayAt</c>
         /// reaches it by its directory, never a map scheduler's name (a door's <c>open</c>, #227).
         /// </summary>
         public void AddRoutine(string directory, SceneRoutine routine, bool byName)

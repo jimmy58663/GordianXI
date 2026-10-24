@@ -8,7 +8,7 @@ using Gordian.Core.World;
 namespace Gordian.Engine.Animation
 {
     /// <summary>
-    /// The head look of an event (<see cref="World.EventLook"/>, opcodes 0x1E / 0x4A / 0x79): the entity's head turns
+    /// The head look of an event (<see cref="Gordian.Core.World.EventLook"/>, opcodes 0x1E / 0x4A / 0x79): the entity's head turns
     /// toward the entity it looks at while its body keeps its heading, as the maintainer's retail recording of the Southern
     /// San d'Oria intro shows (Ceraule's head turns to the player as they walk up, 2026-10-01). The head is the joint of
     /// skeleton reference 5: on every race skeleton and the fixed NPC models checked (Curilla 69, Trion 64) it is the joint
@@ -49,7 +49,7 @@ namespace Gordian.Engine.Animation
                 : -1;
 
         /// <summary>
-        /// The head's turn (radians, in the heading convention of <see cref="World.WorldEntity.HeadingOf"/>) for an entity
+        /// The head's turn (radians, in the heading convention of <see cref="Gordian.Core.World.WorldEntity.HeadingOf"/>) for an entity
         /// at <paramref name="from"/> with body heading <paramref name="heading"/> looking at <paramref name="to"/>. False
         /// when the target is more than <see cref="MaxYaw"/> round from the body's heading (#402): the head then looks
         /// straight ahead, turning back at the usual ease rather than snapping. Positions use the internal axes (X, Y =

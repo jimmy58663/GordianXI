@@ -233,7 +233,7 @@ namespace Gordian.Core.Resources.Events
     /// </summary>
     public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "", float Factor = 1f)
     {
-        /// <summary>Whether the command runs a particle generator or a routine (what <see cref="Gordian.Engine.Graphics.SceneEffectPlayer"/> plays).</summary>
+        /// <summary>Whether the command runs a particle generator or a routine (what <c>SceneEffectPlayer</c> plays).</summary>
         public bool IsEffect => Kind is SceneCommandKind.SpawnGenerator or SceneCommandKind.KillGenerator or SceneCommandKind.ReplaceGenerator
             or SceneCommandKind.StartRoutine or SceneCommandKind.LoopRoutine or SceneCommandKind.StopRoutine or SceneCommandKind.StopGenerator;
     }
@@ -265,7 +265,7 @@ namespace Gordian.Core.Resources.Events
     /// Effect commands (#192, read from Port Jeuno event 324's files 51402, 51327 and 51328): op 0x72 has 0x0F's layout
     /// with a colour added over the scene at full scale (the <c>who?</c> / <c>whi?</c> white fades of 30905); ops 0x02,
     /// 0x1E, 0x03, 0x73 and 0x5F name a generator or routine FourCC at +8, op 0x3F two (at +8 and +16). What each does is
-    /// in <see cref="Gordian.Engine.Graphics.SceneEffectPlayer"/>.
+    /// in <c>SceneEffectPlayer</c>.
     /// </para>
     /// </summary>
     public sealed class SceneRoutine

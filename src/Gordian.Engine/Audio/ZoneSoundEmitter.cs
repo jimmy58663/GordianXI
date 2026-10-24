@@ -31,7 +31,7 @@ namespace Gordian.Engine.Audio
         /// <summary>
         /// Whether a routine started in <paramref name="routineDirectory"/> reaches this generator by name: it sits in that
         /// directory, one of its parents, or (a door's routines) its <c>door</c> sub-directory, as
-        /// <see cref="Graphics.ZoneRoutineLibrary.TryResolveRoutine"/> resolves.
+        /// <see cref="Gordian.Core.Resources.Graphics.ZoneRoutineLibrary.TryResolveRoutine"/> resolves.
         /// </summary>
         public bool IsReachedFrom(string routineDirectory)
         {

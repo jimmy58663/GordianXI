@@ -8,12 +8,12 @@ namespace Gordian.Core.World
     /// look mode 2 instead, a fixed look axis with no target (<see cref="Axis"/>, made by <see cref="Fixed"/>).
     /// </summary>
     /// <param name="TargetServerId">The entity looked at (<see cref="uint.MaxValue"/> for a fixed axis).</param>
-    /// <param name="SpeechFrame">Retail's <c>NpcSpeechFrame</c> (6 from 0x1E / 0x4A / 0x79 sub 0, a work value from sub 1); kept, but not drawn: the mouth moves per spoken line instead (<see cref="Animation.FaceMotion"/>).</param>
+    /// <param name="SpeechFrame">Retail's <c>NpcSpeechFrame</c> (6 from 0x1E / 0x4A / 0x79 sub 0, a work value from sub 1); kept, but not drawn: the mouth moves per spoken line instead (<c>FaceMotion</c>).</param>
     public sealed record EventLook(uint TargetServerId, int SpeechFrame)
     {
         /// <summary>
         /// The fixed look axis of 0x79 sub 2 (retail <c>LookAxisX</c> / <c>LookAxisY</c>, two work values), or null for a
-        /// look at <see cref="TargetServerId"/>. How the renderer reads it is <see cref="Animation.HeadLook.AxisAngles"/>.
+        /// look at <see cref="TargetServerId"/>. How the renderer reads it is <c>HeadLook.AxisAngles</c>.
         /// </summary>
         public LookAxis? Axis { get; init; }
 
