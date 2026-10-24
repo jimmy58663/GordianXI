@@ -43,11 +43,18 @@ namespace Gordian.Core.Resources
         /// <summary>The straddle pose (the chocobo pack's): its origin is on the ground under the chocobo.</summary>
         public const byte StraddlePose = 6;
 
-        /// <summary>A mount's ride data: its size per build (Info bytes 10-13) and its rider pose per race (<c>moun</c> bytes 8-15).</summary>
+        /// <summary>A mount's ride data: its Info bytes 10-13 as fractions (byte 10 its size) and its rider pose per race (<c>moun</c> bytes 8-15).</summary>
         public sealed record RideData(float[] Scales, byte[] Poses)
         {
-            /// <summary>The size under <paramref name="race"/>: Hume, Mithra and Tarutaru byte 10, Elvaan 11, Galka 12.</summary>
-            public float ScaleFor(CharacterRace race) => Scales[ScaleGroup(race)];
+            /// <summary>
+            /// The mount's size before the rider's race (Info byte 10, xi-model-viewer's "Scale"; #87 round 7). The renderer
+            /// multiplies it by the race's chocobo factor (<see cref="MountModels.MountScale"/>). Round 5 read bytes 11-12 as
+            /// the Elvaan and Galka sizes: that left Fenrir (60 / 60 / 60) one size under every race, where retail's grows from
+            /// the Tarutaru to the Galka (image-13.png), and the raptor's 0.85 x factor fits image-12.png's per-race sizes
+            /// (Elvaan 1.04, Galka 1.11) better than 100 / 115 did. *Inference*; bytes 11-13 are not decoded (raptor
+            /// 100 / 115 / 140, Fenrir 60 / 60 / 100).
+            /// </summary>
+            public float BaseScale => Scales.Length > 0 ? Scales[0] : 1f;
 
             /// <summary>The pose <paramref name="race"/> holds; the straddle when the mount does not say.</summary>
             public byte PoseFor(CharacterRace race)
@@ -56,14 +63,6 @@ namespace Gordian.Core.Resources
                 return index >= 0 && index < Poses.Length && Poses[index] != 0 ? Poses[index] : StraddlePose;
             }
         }
-
-        /// <summary>The Info scale byte a race reads: 0 Hume, Mithra, Tarutaru; 1 Elvaan; 2 Galka.</summary>
-        public static int ScaleGroup(CharacterRace race) => race switch
-        {
-            CharacterRace.ElvaanMale or CharacterRace.ElvaanFemale => 1,
-            CharacterRace.Galka => 2,
-            _ => 0,
-        };
 
         /// <summary>The seat reference of <paramref name="race"/> (48 + its retail race index); -1 for a race without one.</summary>
         public static int SeatReference(CharacterRace race)

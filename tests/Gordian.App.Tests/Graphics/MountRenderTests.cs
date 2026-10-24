@@ -118,10 +118,13 @@ namespace Gordian.App.Tests.Graphics
                     }
                 }
                 _out.WriteLine($"body pixels {string.Join(", ", pixels)}; top rows {string.Join(", ", top)}");
-                for (int c = 1; c < 5; c++)
+                // The Hume riders and the Galka cover more than the standing Hume; the Tarutaru's raptor is a little smaller than
+                // a Hume's (0.85 x its race factor 0.955, round 7), the pair about a standing Hume's size.
+                foreach (int c in new[] { 1, 2, 4 })
                 {
                     Assert.True(pixels[c] > pixels[0], $"mounted column {c} should cover more than the standing rider ({pixels[c]} vs {pixels[0]})");
                 }
+                Assert.True(pixels[3] > pixels[0] * 4 / 5, $"the Tarutaru on its raptor ({pixels[3]} vs {pixels[0]})");
                 // The Hume rider sits higher on the chocobo and the raptor than the standing Hume's head.
                 Assert.True(top[1] < top[0] && top[2] < top[0], $"rider tops {top[1]}, {top[2]} vs standing {top[0]}");
                 renderer.Dispose();

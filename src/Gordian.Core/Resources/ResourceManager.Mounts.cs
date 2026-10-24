@@ -71,7 +71,14 @@ namespace Gordian.Core.Resources
         /// <summary>How much the chocobo is scaled under <paramref name="rider"/> (#87, <see cref="MountModels.MountScale"/>), computed once per rider.</summary>
         public float GetMountScale(EntityModel rider) => _mountScales.GetValue(rider, r => new StrongBox<float>(MountModels.MountScale(r))).Value;
 
-        /// <summary>A mount's ride data (size per build, pose per race; #87 round 5, <see cref="MountSeating.Read"/>), read once per mount; null for the chocobo.</summary>
+        /// <summary>
+        /// The race factor every mount is scaled by under <paramref name="character"/> (#87 round 7): the chocobo's, the
+        /// <see cref="MountModels.MountScale"/> of its race's chocobo riding pack; 1 for a race without a pack.
+        /// </summary>
+        public float GetRaceMountScale(EntityModel character, CharacterRace race) =>
+            TryGetRiderModel(character, race, out var chocoboRider) && chocoboRider != null ? GetMountScale(chocoboRider) : 1f;
+
+        /// <summary>A mount's ride data (size, pose per race; #87 round 5, <see cref="MountSeating.Read"/>), read once per mount; null for the chocobo.</summary>
         public MountSeating.RideData? GetRideData(in MountAppearance mount)
         {
             if (!mount.IsMounted || mount.RidesChocobo) return null;

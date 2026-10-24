@@ -50,7 +50,7 @@ namespace Gordian.App.Graphics
         /// <list type="bullet">
         /// <item>A chocobo is scaled by the rider's race (<see cref="MountModels.MountScale"/>) and the chocobo riding pack fits it
         /// as authored.</item>
-        /// <item>Any other mount is drawn at its own size for the rider's build (Info bytes 10-12). The rider holds the pose the
+        /// <item>Any other mount is drawn at its own size (Info byte 10) times the race's chocobo factor (round 7). The rider holds the pose the
         /// mount gives its race, its hips on the race's seat reference (r48 + race) in the mount's current pose, so it bobs with
         /// the mount.</item>
         /// </list>
@@ -89,8 +89,11 @@ namespace Gordian.App.Graphics
                 return new MountRide(mount, gpuModel, palette, key, raceScale, Vector3.Zero, 0.5f * raceScale * -chocoboSeat.Y);
             }
 
+            // Every mount takes the chocobo's race factor (round 7: retail's Fenrir grows from the Tarutaru to the Galka,
+            // image-13.png) times its own size (Info byte 10).
             var data = resources.GetRideData(entity.Mount);
-            float scale = data?.ScaleFor(race) ?? 1f;
+            float raceFactor = character is { IsCharacter: true } ? resources.GetRaceMountScale(character, race) : 1f;
+            float scale = (data?.BaseScale ?? 1f) * raceFactor;
             byte riderPose = data?.PoseFor(race) ?? MountSeating.StraddlePose;
             int seatReference = MountSeating.SeatReference(race);
             var seat = scale * (MountModels.HasReference(mount, seatReference)

@@ -326,27 +326,28 @@ namespace Gordian.Core.Tests.World
             rm.GetRideData(MountAppearance.FromWire(85, (byte)(mountId + 1), 1))!;
 
         /// <summary>
-        /// Round 5: each mount's size per build is its Info bytes 10-12 (Hume, Mithra, Tarutaru; Elvaan; Galka). The raptor's
-        /// 85 / 100 / 115 match image-12.png's fits; Fenrir is 60 under every race (image-13.png's five Fenrirs alike); the
-        /// chocobo has no ride data (the pack's race scale sizes it).
+        /// Round 7: each mount's size is its Info byte 10 (raptor 85, Fenrir 60, Magic Pot 50, Beetle 130) times the rider's
+        /// race factor, the chocobo's: Tarutaru &lt; Mithra &lt; Hume &lt; Elvaan &lt; Galka, as retail's Fenrirs (image-13.png).
+        /// The chocobo has no ride data (the pack's race scale sizes it).
         /// </summary>
         [Fact]
-        public void RetailRideData_SizesPerBuild()
+        public void RetailRideData_BaseSizeTimesTheRaceFactor()
         {
             var rm = Retail();
             if (rm == null) return;
             Assert.Null(rm.GetRideData(MountAppearance.FromWire(5, 0, 1)));
-            var raptor = Ride(rm, 1);
-            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.HumeMale), 3);
-            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.Mithra), 3);
-            Assert.Equal(0.85f, raptor.ScaleFor(CharacterRace.TaruFemale), 3);
-            Assert.Equal(1.00f, raptor.ScaleFor(CharacterRace.ElvaanFemale), 3);
-            Assert.Equal(1.15f, raptor.ScaleFor(CharacterRace.Galka), 3);
-            var fenrir = Ride(rm, 9);
-            Assert.All(new[] { CharacterRace.HumeMale, CharacterRace.ElvaanMale, CharacterRace.Galka, CharacterRace.TaruMale },
-                race => Assert.Equal(0.60f, fenrir.ScaleFor(race), 3));
-            Assert.Equal(0.50f, Ride(rm, 12).ScaleFor(CharacterRace.Mithra), 3); // Magic Pot
-            Assert.Equal(1.30f, Ride(rm, 10).ScaleFor(CharacterRace.Mithra), 3); // Beetle
+            Assert.Equal(0.85f, Ride(rm, 1).BaseScale, 3); // raptor
+            Assert.Equal(0.60f, Ride(rm, 9).BaseScale, 3); // Fenrir
+            Assert.Equal(0.50f, Ride(rm, 12).BaseScale, 3); // Magic Pot
+            Assert.Equal(1.30f, Ride(rm, 10).BaseScale, 3); // Beetle
+            float Factor(CharacterRace race) => rm.GetRaceMountScale(
+                EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!, race);
+            float taru = Factor(CharacterRace.TaruMale), mithra = Factor(CharacterRace.Mithra), hume = Factor(CharacterRace.HumeMale),
+                elvaan = Factor(CharacterRace.ElvaanMale), galka = Factor(CharacterRace.Galka);
+            Assert.True(taru < mithra && mithra < hume && hume < elvaan && elvaan < galka);
+            Assert.Equal(1f, hume, 2);
+            Assert.InRange(0.85f * elvaan, 1.02f, 1.07f); // image-12.png's raptor fits: Elvaan 1.04, Galka 1.11
+            Assert.InRange(0.85f * galka, 1.08f, 1.13f);
         }
 
         /// <summary>
@@ -389,7 +390,7 @@ namespace Gordian.Core.Tests.World
             new byte[] { 6, 3, 6, 3, 3, 3, 3, 6 }.CopyTo(dat, 48 + 8);
             var data = MountSeating.Read(dat)!;
             Assert.Equal(new[] { 0.85f, 1.00f, 1.15f, 1.40f }, data.Scales);
-            Assert.Equal(1.15f, data.ScaleFor(CharacterRace.Galka));
+            Assert.Equal(0.85f, data.BaseScale);
             Assert.Equal(3, data.PoseFor(CharacterRace.Mithra));
             Assert.Null(MountSeating.Read(new byte[8]));
             Assert.Equal(48, MountSeating.SeatReference(CharacterRace.HumeMale));
