@@ -54,7 +54,7 @@ Each line goes through the chat's own submit (`StockUiChat.SubmitAsync` with the
 
 ## Windows (stock UI, Tier 2)
 
-Found in the English menu DAT by name and read with `GORDIAN_UI_DUMP_MENUS=mcr*,macro` (help ids and titles from ROM/165/75-76). `StockUiMacroMenus` (Core) names them and composes the palette editor; `StockUiMenuController.Macros.cs` drives them; `StockUiMacroWindow` (App) draws their client content.
+Found in the English menu DAT by name and read with `GORDIAN_UI_DUMP_MENUS=mcr*,macro` (help ids and titles from ROM/165/75-76). `StockUiMacroMenus` (Engine) names them and composes the palette editor; `StockUiMenuController.Macros.cs` drives them; `StockUiMacroWindow` (App) draws their client content.
 
 | Window | Frame | Buttons | Use |
 |---|---|---|---|

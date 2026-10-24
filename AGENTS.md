@@ -28,14 +28,23 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 5.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
 
 *   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Addons` and `Gordian.Automation` must NEVER reference each other. They are completely decoupled. Automation must remain entirely optional and blockable.
-*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Core` must NEVER reference `Gordian.Engine`, and `Gordian.Addons` / `Gordian.Automation` reference `Gordian.Core` only, never the engine. Core's `InternalsVisibleTo` lists only `Gordian.Engine` and the test projects. `LayeringTests` and the Addons / Automation sanity tests check this.
+*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Core` must NEVER reference `Gordian.Engine`, and `Gordian.Addons` / `Gordian.Automation` reference `Gordian.Core` only, never the engine. Core's `InternalsVisibleTo` lists only `Gordian.Engine` and the test projects; never add `Gordian.App`, `Gordian.Addons` or `Gordian.Automation` to it. `LayeringTests` (`tests/Gordian.Core.Tests/Architecture`) and the Addons / Automation sanity tests check this; the layering allowlist is empty and must stay empty.
+*   **Where new code goes** (full rules: `docs/architecture.md`):
+    *   State the server tells us about, or that the renderer reads every frame, goes in **Core**. Packet modules write it; the engine and the App read it directly.
+    *   Code that reacts to that state by playing, presenting, printing or sending goes in the **Engine**, subscribing to Core's state events. Core never calls into playback.
+    *   Device code (GPU, audio output, SDL input, ImGui, Avalonia) goes in the **App**. Core and Engine stay plain .NET with no GPU, audio or UI packages.
+    *   A type in the wrong layer is moved, not hidden behind an interface. A constant a lower layer needs lives in that layer, and the higher layer's name for it refers to it (e.g. `EntityGrounding.StepUpHeight`).
+    *   Handler order is construction order: `CharacterSession` builds `ActionPlaybackQueue`, `SchedulerPlayback` and `PlayerActionService` first so their handlers run before chat, menus and the App's view models. Keep that order when adding subscribers.
+    *   A Core doc comment cannot `cref` an engine type; write `<c>TypeName</c>` instead.
+    *   Engine code is namespaced `Gordian.Engine.*` and lives under `src/Gordian.Engine`; its tests currently live in `tests/Gordian.Core.Tests`.
 
 ---
 
 ## 🔒 Security & Server Kill-Switch Policy
-*   `Gordian.Core` exposes an internal write-once configuration flag: `internal set FeatureRestrictions FeatureRestrictions`.
-*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag: the setter is internal and Core shows its internals only to `Gordian.Engine` and the tests (`LayeringTests.FeatureRestrictionsCannotBeSetOutsideCore`).
-*   If a private server transmits an automation restriction packet, the authenticated `PacketParser` inside `Gordian.Core` flips this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep.
+*   `Gordian.Core` holds the server's restriction flags on `SessionProfile.FeatureRestrictions` (`src/Gordian.Core/Config/SessionConfig.cs`): a public getter and an `internal set`.
+*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag: the setter is internal and Core shows its internals only to `Gordian.Engine` and the tests (`LayeringTests.FeatureRestrictionsCannotBeSetOutsideCore`). Never widen the setter, add a public way to set it, or add a project to Core's `InternalsVisibleTo` list to get at it.
+*   If a private server transmits an automation restriction packet (S2C 0x0EE), the authenticated packet pipeline inside `Gordian.Core` (`LifecyclePacketModule`, dispatched by `PacketParser`) sets this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep. Only that handler may set it.
+*   The flag is meant to be write-once from the server. Today it is internal-set only, which keeps the App and addons out but not code inside Core or the engine.
 
 ---
 
@@ -43,6 +52,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 *   **Target Framework:** .NET 10 (`net10.0`). Leverage C# 14 language features natively.
 *   **Memory Efficiency:** Avoid allocations in the performance-critical packet pipeline. Use `Span<byte>`, `ReadOnlySpan<byte>`, and `ref struct` schemas for packet manipulation to prevent Garbage Collection overhead.
 *   **Server GC:** The project uses concurrent Server GC profiles to manage heavy 64-bit HD texture streaming without causing frame stutters.
+*   **GPU-free core:** `Gordian.Core` and `Gordian.Engine` take no GPU, audio-device, input-device or UI packages; those belong to `Gordian.App` only, so a headless client can be built on Core and the engine.
 *   **Cross-Platform Agnosticism:** The codebase must natively support Windows, Linux, and macOS. 
     *   NEVER hardcode directory paths using string slashes. Always use `Path.Combine()`.
     *   Enforce absolute string casing for file system lookups to prevent crashes on case-sensitive Unix systems.

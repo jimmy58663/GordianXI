@@ -41,40 +41,43 @@ Every scene below is rendered by GordianXI itself from the retail `.dat` files o
 
 ## 🏗️ Repository Architecture
 
-GordianXI is organized as a unified monorepo solution workspace consisting of 4 decoupled .NET 10 projects:
+GordianXI is organized as a monorepo of five layered .NET 10 assemblies plus the small native handoff proxy. Each layer references only the ones below it, and tests enforce the boundaries (see [docs/architecture.md](docs/architecture.md)):
+
+```text
+Gordian.App ──► Gordian.Engine ──► Gordian.Core
+Gordian.App ──► Gordian.Addons ──► Gordian.Core
+Gordian.App ──► Gordian.Automation ──► Gordian.Core
+```
 
 ```text
 GordianXI/
-├── GordianXI.sln          # Central .NET Solution configuration compiler
-└── src/
-    ├── Gordian.Core/       # Class Library: Pure Network Bus (Blowfish, Sockets, Slicing)
-    ├── Gordian.Automation/ # Class Library: Optional Logic Layer (Gambits, Pathing, Target Sync)
-    ├── Gordian.Addons/     # Class Library: Pure Sandbox Layer (Lua/JS Runtime Environments)
-    └── Gordian.App/        # Avalonia UI App: View Layer (Desktop Forms, Viewports, ImGui Canvas)
+├── GordianXI.slnx          # Solution
+├── src/
+│   ├── Gordian.Core/       # Class Library: protocol, session, world and entity state, DAT resources, config, diagnostics
+│   ├── Gordian.Engine/     # Class Library: playback, events, audio, input, macros, stock UI state, per-character sessions
+│   ├── Gordian.Automation/ # Class Library: optional automation (Gambits, pathing, target sync)
+│   ├── Gordian.Addons/     # Class Library: sandboxed Lua 5.4 addon runtime
+│   ├── Gordian.App/        # Avalonia UI app: desktop shell, GPU renderer, audio output, input devices, ImGui
+│   └── Gordian.Proxy/      # Native FFXiMain.dll proxy for the bootloader session handoff (Windows)
+├── tests/                  # One test project per assembly (Core.Tests also covers the engine for now)
+└── docs/                   # How each subsystem works (index: docs/README.md)
 ```
 
-*   **`Gordian.Core`:** The backbone of the application. Manages raw network streams (`TcpClient`), slices binary packet fragments safely via `Span<byte>`, and maintains a neutral, shared memory table of active player telemetry states.
-*   **`Gordian.Automation`:** The tactical logic engine. Houses the FFXII-style Gambit queues, positional multi-box tracking loops, and automation threads. It loops through `Gordian.Core` data profiles as an optional passenger module.
-*   **`Gordian.Addons`:** The extension ecosystem sandbox. Isolates community-built scripts and modules, ensuring that an error or infinite loop inside a user script can never freeze the main client loop or crash the engine.
-*   **`Gordian.App`:** The graphical user interface built with **Avalonia UI** and **FluentAvalonia**. Handles true desktop-level window scaling, pop-out layout configurations for background characters, and hosts the underlying GPU-accelerated graphics viewport.
+*   **`Gordian.Core`:** The backbone of the application, and plain .NET with no GPU, audio or UI packages. Manages the network streams, Blowfish, UDP framing and the zero-allocation packet decoders (`Span<byte>`), and holds the neutral shared state everything else reads: world and entity state (including collision and per-entity animation state), DAT resources and the VFS, and config, including the server's `FeatureRestrictions` kill-switch. It knows nothing about the layers above it.
+*   **`Gordian.Engine`:** Everything that plays, presents or takes input on top of Core's state: action and animation playback, the event VM and NPC dialog, retail sound decoding, CPU-side particles and effects, the camera, input and macros, the stock UI's state and text, and `CharacterSession`, which builds and wires one character's client. Still no GPU, audio or UI packages, so it runs headless.
+*   **`Gordian.Automation`:** The tactical logic engine. Houses the FFXII-style Gambit queues, positional multi-box tracking loops, and automation threads. It reads `Gordian.Core` state as an optional passenger module and never references the engine or the addon runtime.
+*   **`Gordian.Addons`:** The extension ecosystem sandbox. Isolates community-built scripts and modules, ensuring that an error or infinite loop inside a user script can never freeze the main client loop or crash the engine. Like Automation, it references `Gordian.Core` only.
+*   **`Gordian.App`:** The graphical user interface built with **Avalonia UI**. Handles desktop windows and pop-out layouts for background characters, and hosts the device-facing pieces: the GPU renderer (NeoVeldrid on Direct3D 11 / Vulkan), OpenAL output, SDL gamepad input and the Dear ImGui overlay.
 
 ---
 
 ## 🗺️ Roadmap & Phase Strategy
 
-To maintain a sustainable, incremental implementation velocity, development follows a strict minimum viable product (MVP) lifecycle:
+Development follows a minimum viable product (MVP) lifecycle. Live status is in **[ROADMAP.md](ROADMAP.md)**, and open work is in [GitHub Issues](https://github.com/jimmy58663/GordianXI/issues), grouped by milestone.
 
-*   **Phase 1: The Headless Multi-Bot (Current Focus)**
-    *   Establish raw C# `TcpClient` logic to communicate directly with LandSandBoat private servers.
-    *   Implement type-safe binary slicing arrays to process the core Blowfish packet encryption handshake.
-    *   Simultaneously sustain a stable, 6-character text-based network connection state loop without loading graphics.
-*   **Phase 2: The Modular Automation Bus**
-    *   Build the `Gordian.Automation` Gambit engine to sync combat triggers, pathing, and movements across entities.
-    *   Implement the internal write-once Server Policy flag to allow network-enforced automation kill-switches.
-*   **Phase 3: The Graphical Viewport**
-    *   Introduce Avalonia window layouts and separate pop-out dashboard panels.
-    *   Integrate a high-performance 3D graphics backend canvas to read and display local game asset `.dat` directories.
-    *   Bind Dear ImGui (Hexa.NET.ImGui) hooks to expose a modern, stylized visual presentation overlay to the addon layer.
+*   **Phases 1-4 (done):** the foundation and desktop shell, bootloader handoff and direct LandSandBoat login, the full packet engine with zone transitions, and world state with the DAT resource pipeline and VFS.
+*   **Phase 5 (current focus, MVP):** the 3D viewport (zone terrain, sky and weather, entity models, skeletal and combat animation), collision, the character lobby, audio, and the retail stock UI, the last of which is still being finished.
+*   **Phases 6-10 (post-MVP):** the sandboxed Lua addon runtime, the Gambit automation engine with the server kill-switch, multi-instance shell features, self-updating cross-platform packaging, and the GordianXI MCP server.
 
 ---
 
@@ -89,14 +92,17 @@ To open, compile, and run this solution locally, you require:
 
 ### Getting Started
 
-Clone the repository and compile the initial project workspace solution files using the native CLI:
+Clone the repository, then build, test and run it with the .NET CLI:
 
 ```bash
-git clone https://github.com
+git clone https://github.com/jimmy58663/GordianXI.git
 cd GordianXI
-dotnet restore
 dotnet build
+dotnet test
+dotnet run --project src/Gordian.App/Gordian.App.csproj
 ```
+
+Some tests read the local game data and are skipped when no Final Fantasy XI install is found.
 
 ---
 

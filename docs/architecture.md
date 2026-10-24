@@ -18,6 +18,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 The GPU, audio and UI packages (Avalonia, NeoVeldrid, SDL3, OpenAL, Hexa.NET.ImGui) are referenced by `Gordian.App` only; Core and Engine are plain .NET.
 
 ## Where new code goes
+- **Per-entity animation state stays in Core** (confirmed by the maintainer, 2026-10-24): `WorldEntity` carries it and the renderer reads it every frame, and the engine and the App reading Core state directly is the intended direction. A side table in the engine would cost a lookup per entity per frame.
 - **State the server tells us about, or that a renderer reads every frame, goes in Core.** Packet modules write it; the engine and the renderer read it directly (no per-entity events per frame).
 - **Anything that reacts to that state by playing, drawing, printing or sending goes in the engine.** The engine subscribes to Core's state events (`CombatState.ActionExecuted`, `SchedulerState.ActorSchedulerPosted`, ...); Core never calls into playback.
 - **Handler order is construction order.** `CharacterSession` builds `ActionPlaybackQueue`, `SchedulerPlayback` and `PlayerActionService` first, so their handlers run before the chat, menus and the App's view models, as they did when the parser built them.
@@ -26,10 +27,10 @@ The GPU, audio and UI packages (Avalonia, NeoVeldrid, SDL3, OpenAL, Hexa.NET.ImG
 
 ## Enforcement
 - **The compiler.** Core has no reference to Engine, and Addons and Automation reference Core only.
-- **`InternalsVisibleTo`.** Core shows its internals to `Gordian.Engine` and the test projects only. The App and the addon runtime see only Core's public surface, so `SessionProfile.FeatureRestrictions` (internal setter) can't be set from either. The engine shows its internals to the test projects only.
+- **`InternalsVisibleTo`.** Core shows its internals to `Gordian.Engine` and the test projects only. The App and the addon runtime see only Core's public surface, so `SessionProfile.FeatureRestrictions` (internal setter) can't be set from either. Only the S2C 0x0EE handler (`LifecyclePacketModule`) sets it. It is not yet write-once: code inside Core or the engine could still set it. The engine shows its internals to the test projects only.
 - **Tests.** `tests/Gordian.Core.Tests/Architecture/LayeringTests.cs` scans the IL of both assemblies for references from a type to a higher layer (with an allowlist, now empty, that may only shrink). It also gives every Core area a layer, keeps engine namespaces in the engine assembly, and checks the `FeatureRestrictions` setter. `AddonsProjectSanityTests` and `AutomationProjectSanityTests` fail if `Gordian.Engine.dll` is copied next to them, which means the project picked up a reference to the engine. The IL scan can't see inlined constants or default parameter values; the assembly split catches those.
 
 ## Not split (yet)
-- **No separate data assembly.** Resources' loaders (`ResourceManager`, `ZoneDataLoader`) build world, collision and entity state and log through `Diagnostics`. A BCL-only `Gordian.Data` would need the logger and the collision types moved below it and the loaders moved above it.
+- **No separate data assembly** (confirmed by the maintainer, 2026-10-24). Resources' loaders (`ResourceManager`, `ZoneDataLoader`) build world, collision and entity state and log through `Diagnostics`. A BCL-only `Gordian.Data` would need the logger and the collision types moved below it and the loaders moved above it.
 - **One test project for both assemblies.** `Gordian.Core.Tests` references Core and Engine; the engine's tests can move to their own project later.
 - **No curated addon surface yet.** Addons see all of Core's public types. The narrow UI interface the addon API needs is designed when Phase 6 starts.
