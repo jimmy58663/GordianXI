@@ -228,6 +228,15 @@ namespace Gordian.Core.Resources.Graphics
         public bool IgnoreTextureAlpha { get; set; }
 
         /// <summary>
+        /// The generator takes its colour from the ground behind it (<see cref="ParticleGeneratorDefinition.GroundColored"/>,
+        /// Section 2 op 0x8F): its colour multiplies the ground instead of covering it. An alpha-blended one is drawn as a
+        /// modulate-2x decal (the footprint <c>fmrk</c>: its dark colour darkens the ground in its own hue, in the shape of
+        /// the texture's soft alpha), an additive one brightens the ground by the ground's own colour times the generator's
+        /// (the foot puffs of <c>fses/fefs</c>).
+        /// </summary>
+        public bool GroundColored { get; set; }
+
+        /// <summary>
         /// Fixed texture-factor alpha (0-255) from the generator's blend opcode (Section 2 Opcode 0x1E, bit 0x20),
         /// replacing the authored colour's alpha; null when the generator has none.
         /// </summary>
@@ -278,6 +287,12 @@ namespace Gordian.Core.Resources.Graphics
         /// actor-attached one that auto-runs rides that door entity (#227).
         /// </summary>
         public string? OwnerDoorId { get; set; }
+
+        /// <summary>
+        /// A ship zone's vessel effect (its generator is under <c>mode/ship</c>, Phanauet Channel's paddle wheel <c>su00</c>):
+        /// it rides the vessel, not the scenery moving past it (#403).
+        /// </summary>
+        public bool OnVessel { get; set; }
 
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";

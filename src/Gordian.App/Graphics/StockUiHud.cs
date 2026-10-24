@@ -266,6 +266,11 @@ namespace Gordian.App.Graphics
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
+                if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0)
+                {
+                    DrawPartyHelpBar(renderer, library, session, width, height);
+                    DrawVitals(renderer, library, session, width, height);
+                }
             }
             if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
@@ -333,6 +338,33 @@ namespace Gordian.App.Graphics
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The help bar over the Party menu (#397, the maintainer's captures 2026-10-16): "Party" or "Party Leader" and the
+        /// selected entry's help line.
+        /// </summary>
+        private void DrawPartyHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (StockUiParty.TitleOf(top.Name) is not { } title) return;
+            string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// Your own HP / MP / TP block at the top left while engaged (#391). It gives way to any window opened over that corner
+        /// (the menus' left-hand lists, the macro editor) and to the macro palette's own room: the palette sits to its right.
+        /// </summary>
+        private void DrawVitals(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font || session.ActionService.Combat?.IsEngaged != true) return;
+            var menus = session.ActionService.Menus;
+            if (!menus.Suspended && menus.OpenMenus.Any(m => !m.IsCommandMenu && m.Menu.Frame.Anchor == UiAnchor.TopLeft && m.Menu.Frame.X < 144 && m.Menu.Frame.Y < 92)) return;
+            var local = session.LocalPlayer;
+            StockUiVitalsWindow.Draw(renderer, library, font, local.CurrentHp, local.MaxHp, local.CurrentMp, local.MaxMp, local.CurrentTp,
+                Layout.Scale, width, height, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         }
 
         /// <summary>
@@ -622,7 +654,7 @@ namespace Gordian.App.Graphics
         private static PartyGroups GroupParty(CharacterSession session)
         {
             var members = session.Party.Members;
-            if (members.Count <= 1) return new PartyGroups(false, Array.Empty<PartyMember>(), Array.Empty<IReadOnlyList<PartyMember>>());
+            if (members.Count == 0) return new PartyGroups(false, Array.Empty<PartyMember>(), Array.Empty<IReadOnlyList<PartyMember>>());
 
             uint localId = session.LocalPlayer.ServerId;
             byte ownParty = members.FirstOrDefault(m => m.ServerId == localId)?.PartyNumber ?? 0;
@@ -1028,6 +1060,7 @@ namespace Gordian.App.Graphics
             if (placement.Hidden) return result;
             renderer.DrawMenu(menu, placement, includeButtons: false);
             Drag.Register(StockUiWindowIds.Party, menu.Frame, placement);
+            if (session.Party.HasPendingInvite && _font is { } inviteFont) StockUiPartyWindow.DrawInviteIcon(renderer, inviteFont, placement);
 
             var font = _font;
             if (font == null) return result;

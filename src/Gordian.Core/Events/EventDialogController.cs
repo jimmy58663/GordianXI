@@ -765,12 +765,46 @@ namespace Gordian.Core.Events
             _info = null;
             CloseQueryMenu();
             ReleaseParticipants();
+            KeepPlayerEventPlacement();
             ClearStaging();
             EndEventSound();
             if (_player != null) _player.IsMovementLocked = false;
             // The end value is the shared work zone's, unless a query was cancelled.
             if (info != null) SendEnd(info, scene.EndParameter);
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The player stays where the event left it (#338): a script that walks the player (opcode 0x1F, Port Jeuno's
+        /// "Door:Arrivals Entrance" event 54 walking the player through the customs door) or turns it moves the player's own
+        /// position, which the locomotion loop then reports to the server (C2S 0x015), as retail does. Settled onto the floor
+        /// there, since an event's heights are drawn on the floor below them. Not for an event dropped by a zone change.
+        /// </summary>
+        private void KeepPlayerEventPlacement()
+        {
+            var player = _player;
+            if (player == null || _world == null || !_world.TryGetByServerId(player.ServerId, out var self)) return;
+            KeepEventPlacement(player, self);
+        }
+
+        /// <summary>Queues the player's move to its event pose, if it has one (<see cref="KeepPlayerEventPlacement"/>).</summary>
+        internal static void KeepEventPlacement(LocalPlayerState player, WorldEntity self)
+        {
+            if (self.EventPose is not { } pose) return;
+
+            byte direction = DirectionOf(pose.Heading);
+            bool moved = Vector3.DistanceSquared(pose.Position, self.Position) > 0.0001f;
+            if (!moved && direction == self.Direction) return;
+            player.RequestPositionCorrection(moved ? pose.Position : null, direction);
+            if (moved) player.RequestGroundSettle();
+            GordianLog.Info("EVENT", $"Player kept at the event's placement ({pose.Position.X:F2}, {pose.Position.Y:F2}, {pose.Position.Z:F2}), direction {direction}.");
+        }
+
+        /// <summary>The wire direction (256 steps, 0 = East) of a heading in radians.</summary>
+        internal static byte DirectionOf(float heading)
+        {
+            int steps = (int)MathF.Round(heading / MathF.Tau * 256.0f);
+            return (byte)(((steps % 256) + 256) % 256);
         }
 
         private void DropEvent()

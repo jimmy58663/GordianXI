@@ -91,6 +91,7 @@ namespace Gordian.Core.Resources
             // (xi-model-viewer initializers.js: StandardSetup flag and BlendFuncInitializer.apply).
             layer.IgnoreTextureAlpha = (gen.Setup?.IgnoreTextureAlpha ?? false) || gen.IgnoreTextureAlpha;
             layer.AlphaOverride = gen.AlphaOverride;
+            layer.GroundColored = gen.GroundColored;
             layer.AuthoredOrder = authoredOrder.TryGetValue(gen, out int order) ? order : int.MaxValue;
             layer.DayOfWeekColors = gen.DayOfWeekColors;
             layer.MoonPhaseColors = gen.MoonPhaseColors;
@@ -170,6 +171,118 @@ namespace Gordian.Core.Resources
             var (right, left) = (leaves[0], leaves[1]);
             leaves[0] = left with { Part = right.Part };
             leaves[1] = right with { Part = left.Part };
+        }
+
+        /// <summary>
+        /// Whether a ship zone's vessel directory (<c>&lt;zone code&gt;/mode/ship</c>) is open: its ZoneDef and meshes are the
+        /// vessel's (#403). Dock zones carry only an empty 0x2E mesh section named <c>ship</c>, not a directory.
+        /// </summary>
+        private static bool IsInVesselDirectory(Stack<string> dirStack)
+        {
+            foreach (string dir in dirStack)
+            {
+                if (string.Equals(dir, "ship", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The ZoneDef whose collision the player walks (#403): the zone's first ZoneDef outside a vessel directory, except in
+        /// a voyage zone (a vessel ZoneDef and scenery Routes under <c>mode</c>), where it is the vessel's. Null when none.
+        /// </summary>
+        public static DatSectionHeader? FindCollisionZoneDef(ReadOnlySpan<byte> datBytes)
+        {
+            DatSectionHeader? zoneDef = null, vesselDef = null;
+            bool routes = false;
+            var dirStack = new Stack<string>();
+            foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
+            {
+                switch (header.TypeCode)
+                {
+                    case DatSectionType.Directory: dirStack.Push(header.DatId); break;
+                    case DatSectionType.End: if (dirStack.Count > 0) dirStack.Pop(); break;
+                    case DatSectionType.Route:
+                        if (dirStack.Count > 0 && string.Equals(dirStack.Peek(), "mode", StringComparison.OrdinalIgnoreCase)) routes = true;
+                        break;
+                    case DatSectionType.ZoneDef:
+                        if (header.DataOffset + header.DataSizeBytes > datBytes.Length) break;
+                        if (IsInVesselDirectory(dirStack)) vesselDef ??= header;
+                        else zoneDef ??= header;
+                        break;
+                }
+            }
+            return routes && vesselDef.HasValue ? vesselDef : zoneDef;
+        }
+
+        /// <summary>
+        /// Whether a voyage zone's generator sits on its vessel though it is declared with the scenery's effects: the
+        /// Manaclipper's wake and bow waves (<c>s_pa/effe/nami/yk*</c>, 0.8-26 yalms from the origin) and its manta
+        /// (<c>mant</c>) are authored in the vessel's frame, where every scenery effect is hundreds of yalms out (round 2:
+        /// the water around the boat was missing). Within the vessel's footprint plus 10 yalms counts.
+        /// </summary>
+        private static bool IsOnVessel(ZoneVessel? vessel, Vector3 position)
+        {
+            if (vessel is not { IsVoyage: true } || vessel.MeshGroups.Count == 0) return false;
+            var min = new Vector3(float.MaxValue);
+            var max = new Vector3(float.MinValue);
+            foreach (var group in vessel.MeshGroups)
+            {
+                min = Vector3.Min(min, group.MinBounds);
+                max = Vector3.Max(max, group.MaxBounds);
+            }
+            const float margin = 10f;
+            return position.X >= min.X - margin && position.X <= max.X + margin && position.Z >= min.Z - margin && position.Z <= max.Z + margin;
+        }
+
+        /// <summary>Whether a directory path (<c>s_ju/mode/ship</c>) is in a ship zone's vessel directory (#403).</summary>
+        private static bool IsVesselPath(string path)
+        {
+            foreach (var part in path.Split('/'))
+            {
+                if (string.Equals(part, "ship", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Places a ship zone's vessel ZoneDef (#403): its meshes resolve the vessel directory's own meshes first, then the
+        /// zone's. Every part is drawn static with the vessel (its doors and lifts are not animated yet).
+        /// </summary>
+        private static ZoneVessel ParseVessel(ReadOnlySpan<byte> datBytes, DatSectionHeader header, ReadOnlySpan<byte> table1,
+            ZoneMeshTemplates vesselTemplates, ZoneMeshTemplates zoneTemplates, bool voyage)
+        {
+            var vessel = new ZoneVessel();
+            var doorLeafCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            byte[] payload = datBytes.Slice(header.DataOffset, header.DataSizeBytes).ToArray();
+            int nodeCount = ZoneDefDecoder.DecryptZoneObjects(payload, table1);
+            vessel.Collision = ZoneCollisionDecoder.Decode(payload);
+            foreach (var placement in ZoneDefDecoder.ParseZonePlacements(payload, nodeCount))
+            {
+                if (ZoneDefDecoder.IsSkyMesh(placement.MeshId)) continue;
+                var template = ZoneDefDecoder.ResolveTemplate(placement.MeshId, vesselTemplates.Templates, vesselTemplates.RealNames)
+                               ?? ZoneDefDecoder.ResolveTemplate(placement.MeshId, zoneTemplates.Templates, zoneTemplates.RealNames);
+                if (template == null) continue;
+                var trs = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+                // A voyage zone's vessel doors swing with their door entities (the ships' cabin doors _640-_645, round 2 J9):
+                // their leaves go to the door list, in the passengers' frame. A ship model drawn at a dock keeps them shut.
+                List<MeshGroup>? doorLeaf = null;
+                if (voyage && placement.IsDoorPart)
+                {
+                    doorLeafCounts.TryGetValue(placement.BlockId, out int part);
+                    doorLeafCounts[placement.BlockId] = part + 1;
+                    if (!vessel.DoorLeaves.TryGetValue(placement.BlockId, out var leaves)) vessel.DoorLeaves[placement.BlockId] = leaves = new List<DoorLeaf>();
+                    doorLeaf = new List<MeshGroup>();
+                    leaves.Add(new DoorLeaf(part, placement, doorLeaf));
+                }
+                foreach (var submesh in template)
+                {
+                    var instantiated = ZoneDefDecoder.InstantiateSubmesh(submesh, trs, placement.MeshId);
+                    instantiated.EnvironmentId = placement.EnvironmentId;
+                    (doorLeaf ?? vessel.MeshGroups).Add(instantiated);
+                }
+            }
+            foreach (var leaves in vessel.DoorLeaves.Values) OrderDoorParts(leaves);
+            return vessel;
         }
 
         /// <summary>
@@ -267,6 +380,8 @@ namespace Gordian.Core.Resources
         /// </summary>
         public static int GetZoneModelFileId(int zoneId)
         {
+            // A Mog House room's map zone key (#354, World.MogHouseRooms).
+            if (World.MogHouseRooms.TryGetRoomOfKey(zoneId, out int room) && World.MogHouseRooms.TryGetRoomFileId(room, out int roomFile)) return roomFile;
             if (zoneId < 256)
             {
                 return 100 + zoneId;
@@ -412,6 +527,9 @@ namespace Gordian.Core.Resources
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
             DatSectionHeader? zoneDefHeader = null;
+            DatSectionHeader? vesselDefHeader = null;
+            var vesselTemplates = new ZoneMeshTemplates();
+            var sceneryRoutes = new List<Events.CameraRoute>();
 
             for (int i = 0; i < headers.Count; i++)
             {
@@ -479,6 +597,12 @@ namespace Gordian.Core.Resources
                             }
 
                             meshTemplates.Register(primaryName, submeshes, ZoneMeshTemplates.NameRank);
+                            // A ship zone's vessel meshes (under mode/ship) resolve its vessel ZoneDef first (#403).
+                            if (IsInVesselDirectory(dirStack))
+                            {
+                                vesselTemplates.Register(primaryName, submeshes, ZoneMeshTemplates.NameRank);
+                                vesselTemplates.Register(header.DatId, submeshes, ZoneMeshTemplates.SectionIdRank);
+                            }
 
                             int spaceIdx = primaryName.LastIndexOf(' ');
                             if (spaceIdx >= 0 && spaceIdx < primaryName.Length - 1)
@@ -642,7 +766,20 @@ namespace Gordian.Core.Resources
 
                     case DatSectionType.ZoneDef:
                     {
-                        zoneDefHeader ??= header;
+                        // A ship zone's second ZoneDef, under mode/ship, is its vessel (#403); the first other one is the zone.
+                        if (IsInVesselDirectory(dirStack)) vesselDefHeader ??= header;
+                        else zoneDefHeader ??= header;
+                        break;
+                    }
+
+                    case DatSectionType.Route:
+                    {
+                        // A ship zone's scenery paths (mode/c000-c003), the vessel's place along its voyage (#403).
+                        if (!actorEffects && dirStack.Count > 0 && string.Equals(dirStack.Peek(), "mode", StringComparison.OrdinalIgnoreCase) &&
+                            Events.CameraRoute.Decode(payload, header.DatId) is { } route)
+                        {
+                            sceneryRoutes.Add(route);
+                        }
                         break;
                     }
 
@@ -870,7 +1007,11 @@ namespace Gordian.Core.Resources
             {
                 if (string.IsNullOrEmpty(genWeather) || !string.Equals(parentDir, genWeather, StringComparison.OrdinalIgnoreCase)) continue;
                 var setup = gen.Setup;
-                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh || !setup.FollowCamera) continue;
+                // A ship zone's clouds ride the source actor (the viewer) instead of following the camera: Phanauet Channel's
+                // weat/fine/cld1 and cld2 (attach type 5, follow-camera clear). Drawn as camera-following shells (#403 round 1:
+                // no clouds over the channel).
+                if (setup == null || setup.LinkedDataType != ParticleLinkedDataType.StaticMesh ||
+                    !(setup.FollowCamera || gen.AttachType == ParticleAttachType.SourceActorTargetFacing)) continue;
 
                 if (!zoneMeshSections.TryGetValue($"{genWeather}/{setup.LinkedDataId}", out var cloudMeshes) &&
                     !zoneMeshSections.TryGetValue(setup.LinkedDataId, out cloudMeshes)) continue;
@@ -1037,6 +1178,7 @@ namespace Gordian.Core.Resources
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
                         instantiated.PointLightSlots = placement.PointLightSlots ?? Array.Empty<int>();
+                        instantiated.SubAreaLink = placement.FileIdLink;
                         if (doorLeaf != null)
                         {
                             doorLeaf.Add(instantiated);
@@ -1071,11 +1213,21 @@ namespace Gordian.Core.Resources
                     if (doorLeafCounts.TryGetValue(doorId, out int counted) && counted == leaves.Count) OrderDoorParts(leaves);
                 }
 
+                if (vesselDefHeader.HasValue)
+                {
+                    zone.Vessel = ParseVessel(datBytes, vesselDefHeader.Value, table1, vesselTemplates, meshTemplates, voyage: sceneryRoutes.Count > 0);
+                    zone.Vessel.Routes.AddRange(sceneryRoutes);
+                    foreach (var (doorId, leaves) in zone.Vessel.DoorLeaves) zone.DoorLeaves.TryAdd(doorId, leaves);
+                    // In a voyage zone the passengers walk the deck; the scenery moving past has no collision of its own.
+                    if (zone.Vessel.IsVoyage) zone.Collision = zone.Vessel.Collision;
+                }
+
                 if (zone.Collision != null)
                 {
                     zone.Collision.MovingPlatforms = CreateMovingPlatforms(placements, zone.MovingPlatformGroups, zone.Collision, allInteractions);
                     zone.Collision.Doors = ZoneDoors.CreateBlockers(interactions);
-                    zone.Collision.ZoneLineVolumes = ZoneLines.Select(allInteractions);
+                    zone.Collision.ZoneLineVolumes = World.MogHouseRooms.ZoneLineVolumes(zoneId, allInteractions);
+                    zone.Collision.SubAreaVolumes = ZoneSubAreas.Select(allInteractions);
                 }
             }
 
@@ -1138,6 +1290,12 @@ namespace Gordian.Core.Resources
             {
                 foreach (string childId in ChildGeneratorIds(parentGen)) childGeneratorIds.Add(childId);
             }
+            // The foot effects (#40): a zone's fses/fefs (dry) and fser/fefr (rain) roots, started where a foot lands on
+            // their terrain. They ride no routine, so they are kept apart from the zone's effect layers.
+            var footLayers = new List<WeatherSkyLayer>();
+            var footDry = new Dictionary<int, WeatherSkyLayer>();
+            var footWet = new Dictionary<int, WeatherSkyLayer>();
+            var footLayerSet = new HashSet<WeatherSkyLayer>(ReferenceEqualityComparer.Instance);
             foreach (var (genId, genWeather, parentDir, gen) in generatorPlacements)
             {
                 var setup = gen.Setup;
@@ -1146,6 +1304,19 @@ namespace Gordian.Core.Resources
                 bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
                 if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
                 if (skyGenerators.Contains(gen)) continue;
+                if (!actorEffects && generatorPaths.TryGetValue(gen, out string? footPath) &&
+                    Gordian.Core.Graphics.ZoneFootEffects.IsFootEffectDirectory(footPath, out bool footRain))
+                {
+                    int footTerrain = Gordian.Core.Graphics.ZoneFootEffects.TerrainOfRoot(genId);
+                    if (footTerrain >= 0 && BuildEffectLayer(genId, genWeather, footPath, gen, isEmitter: true, null, 0, childOnly: false, sharedMeshes: true) is { } footLayer)
+                    {
+                        (footRain ? footWet : footDry).TryAdd(footTerrain, footLayer);
+                        footLayers.Add(footLayer);
+                        footLayerSet.Add(footLayer);
+                        layerDirectories[footLayer] = footPath;
+                    }
+                    continue;
+                }
                 // In a zone DAT, a generator attached to an actor rides the entity its routine names (#232); one placed by
                 // TargetActorSourceFacing is drawn where the zone puts it (IsZonePlaced, #121).
                 bool actorAttached = !actorEffects && IsActorAttached(gen.AttachType);
@@ -1210,6 +1381,7 @@ namespace Gordian.Core.Resources
                     effect.AttachType = gen.AttachType;
                 }
                 effect.OwnerDoorId = ownerDoor;
+                effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;
                 if (!actorEffects && !isWeather && effect.Emitter != null)
@@ -1319,7 +1491,7 @@ namespace Gordian.Core.Resources
             // Child generators (0x3C once at birth, 0x44 / 0x53 / 0x6A for the parent's life, expiration 0x01 on death):
             // each gets a child-only emitter layer that its parents spawn into, resolved from the parent's directory first.
             var childLayers = new Dictionary<ParticleGeneratorDefinition, WeatherSkyLayer>(ReferenceEqualityComparer.Instance);
-            var pendingParents = new Queue<WeatherSkyLayer>(zone.EffectLayers.Where(l => l.Emitter != null));
+            var pendingParents = new Queue<WeatherSkyLayer>(zone.EffectLayers.Concat(footLayers).Where(l => l.Emitter != null));
             while (pendingParents.Count > 0)
             {
                 var parentLayer = pendingParents.Dequeue();
@@ -1343,7 +1515,8 @@ namespace Gordian.Core.Resources
                     if (!childLayers.TryGetValue(child.Generator, out var childLayer))
                     {
                         generatorPaths.TryGetValue(child.Generator, out string? childPath);
-                        var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true);
+                        var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true,
+                            sharedMeshes: footLayerSet.Contains(parentLayer));
                         if (built == null) continue;
                         // A child takes its parent's place (xi-tools docs/fx/effect_system.md "Child generators"), so it
                         // rides the parent's actor.
@@ -1353,11 +1526,38 @@ namespace Gordian.Core.Resources
                         childLayer = built;
                         childLayers[child.Generator] = childLayer;
                         layerDirectories[childLayer] = childPath;
-                        zone.EffectLayers.Add(childLayer);
+                        // A foot effect's children are foot effects too: they play only where a foot lands.
+                        if (footLayerSet.Contains(parentLayer))
+                        {
+                            footLayers.Add(childLayer);
+                            footLayerSet.Add(childLayer);
+                        }
+                        else zone.EffectLayers.Add(childLayer);
                         pendingParents.Enqueue(childLayer);
                     }
                     parentTemplate.Children[childId] = childLayer.Emitter!;
                 }
+            }
+
+            if (footLayers.Count > 0)
+            {
+                // The textures the foot effects sample (sprite sheets from ROM/0/0 included), under the names the draw looks up.
+                var footTextures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+                if (outTextures != null)
+                {
+                    foreach (var layer in footLayers)
+                    {
+                        foreach (var group in layer.MeshGroups)
+                        {
+                            string name = group.TextureName.Trim();
+                            if (name.Length > 0 && !footTextures.ContainsKey(name) &&
+                                Gordian.Core.Graphics.ActorEffectLoader.FindTexture(outTextures, name) is { } texture) footTextures[name] = texture;
+                        }
+                    }
+                }
+                zone.FootEffects = new Gordian.Core.Graphics.ZoneFootEffects(
+                    new Gordian.Core.Graphics.ActorEffectSet(footLayers, Array.Empty<Gordian.Core.Graphics.WeatherRoutineVariant>(), footTextures),
+                    footDry, footWet);
             }
 
             WeatherSkyLayer? BuildEffectLayer(
@@ -1368,7 +1568,8 @@ namespace Gordian.Core.Resources
                 bool isEmitter,
                 List<EffectRoutineSpawn>? schedule,
                 int scheduleLoop,
-                bool childOnly)
+                bool childOnly,
+                bool sharedMeshes = false)
             {
                 var setup = gen.Setup;
                 if (setup == null) return null;
@@ -1395,6 +1596,18 @@ namespace Gordian.Core.Resources
                 }
                 if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                 if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
+                // A foot effect's mesh may live only in the shared effects DAT (ROM/0/0 syst/effe hit7, asi1, asi2).
+                if (effectMeshes == null && sharedMeshes && sharedEffects != null && sharedEffects.ParticleMeshes.TryGetValue(linkId, out var sharedMeshGroups))
+                {
+                    effectMeshes = sharedMeshGroups;
+                    if (outTextures != null)
+                    {
+                        foreach (var group in sharedMeshGroups)
+                        {
+                            if (sharedEffects.Textures.TryGetValue(group.TextureName, out var sharedTexture)) outTextures.TryAdd(group.TextureName, sharedTexture);
+                        }
+                    }
+                }
                 if (effectMeshes == null)
                 {
                     isParticleMesh = false;

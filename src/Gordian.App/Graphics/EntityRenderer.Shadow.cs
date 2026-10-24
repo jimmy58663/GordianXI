@@ -104,14 +104,33 @@ namespace Gordian.App.Graphics
             _ => true
         };
 
+        /// <summary>
+        /// How fast an actor's shadow follows a change of its light (seconds to close about two thirds of the way): walking
+        /// into or out of a building swaps the light from the street's sun to the room's, and retail eases the shadow's
+        /// length between them (#68 round 1: ours snapped).
+        /// </summary>
+        public const float ShadowLightEaseSeconds = 0.6f;
+
+        private readonly Dictionary<uint, Vector3> _shadowLights = new();
+
+        /// <summary>Eases an actor's shadow light toward <paramref name="target"/> (both unit length).</summary>
+        internal static Vector3 EaseShadowLight(Vector3 current, Vector3 target, float deltaSeconds)
+        {
+            float t = 1.0f - MathF.Exp(-Math.Max(0.0f, deltaSeconds) / ShadowLightEaseSeconds);
+            var eased = Vector3.Lerp(current, target, t);
+            return eased.LengthSquared() > 1e-8f ? Vector3.Normalize(eased) : target;
+        }
+
         private void QueueShadow(in ZoneSceneUniform uniform, ResourceSet? palette, GpuEntityModel model, int hiddenWeapons,
-            Vector3 feet, bool isLocalPlayer, float actorHeight)
+            Vector3 feet, bool isLocalPlayer, float actorHeight, uint serverId, float deltaSeconds)
         {
             if (!EnableActorShadows) return;
             bool? silhouette = CastsSilhouette(ShadowMode, isLocalPlayer);
             if (silhouette == null) return;
             var shadow = uniform;
             var l = ShadowLightDirection(new Vector3(uniform.SunDirection.X, uniform.SunDirection.Y, uniform.SunDirection.Z));
+            if (_shadowLights.TryGetValue(serverId, out var previous)) l = EaseShadowLight(previous, l, deltaSeconds);
+            _shadowLights[serverId] = l;
             shadow.SunDirection = new Vector4(l, feet.Y);
             if (silhouette == true && palette != null)
             {

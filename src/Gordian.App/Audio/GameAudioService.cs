@@ -50,9 +50,6 @@ namespace Gordian.App.Audio
         private int _ambientToken;
         private uint _cueTarget;
         private readonly FootstepTracker _footsteps = new();
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, FootwearInfo> _footwear = new();
-        /// <summary>ResourceManager.CacheGeneration <see cref="_footwear"/> was read under; a VFS reload reads it again (#374).</summary>
-        private int _footwearGeneration;
         private readonly System.Collections.Generic.List<FootstepEvent> _steps = new();
         private Vector3 _listenerPosition;
         private int _appliedMusicVolume = -1;
@@ -183,7 +180,10 @@ namespace Gordian.App.Audio
         /// <summary>
         /// Per-frame update from the owning viewport's render loop: the listener (camera), the zone, music and ambience.
         /// </summary>
-        public void Update(object owner, CharacterSession? session, ViewportCamera camera, double deltaSeconds)
+        public void Update(object owner, CharacterSession? session, ViewportCamera camera, double deltaSeconds) =>
+            Update(owner, session, camera, deltaSeconds, titleMusic: false);
+
+        private void Update(object owner, CharacterSession? session, ViewportCamera camera, double deltaSeconds, bool titleMusic)
         {
             // The multi-box policy (#265): a viewport showing the preferred character takes the sound.
             SoundControlSettings controls = SoundControls.Current;
@@ -200,6 +200,7 @@ namespace Gordian.App.Audio
             }
 
             _heardIsPreferred = preferred;
+            _titleWanted = titleMusic && session is null;
             ApplyControls(controls);
 
             if (!ReferenceEquals(session, _session))
@@ -217,7 +218,7 @@ namespace Gordian.App.Audio
             ApplyVolumes(session.ActionService.UiSettings);
             ApplyEventVolumes(world.EventSoundVolumes);
             UpdateListener(camera);
-            ushort zone = world.CurrentZoneId;
+            ushort zone = world.MapZoneId;
             if (zone != _zoneId)
             {
                 _zoneId = zone;
@@ -246,20 +247,54 @@ namespace Gordian.App.Audio
 
         /// <summary>
         /// Per-frame update from a viewport that shows no world: the character lobby, or the black screen between a Log Out
-        /// and the lobby (#368). The zone's music, ambience, zone sounds and the last character's sound effects fade out,
-        /// leaving the lobby as quiet as on the first launch (its title music is not played yet, #378). Does nothing
-        /// while the service was never created (a first launch's lobby opens no audio device) or another viewport is heard.
+        /// and the lobby (#368). The zone's music, ambience, zone sounds and the last character's sound effects fade out.
+        /// With <paramref name="titleMusic"/> (the lobby's screens, #378) the title music plays (<see cref="TitleMusicChoice"/>),
+        /// creating the service on a first launch; without it (the black screen, a character entering the world) the title
+        /// music fades out and nothing is created. Does nothing while another viewport is heard.
         /// </summary>
-        public static void UpdateWithoutWorldIfCreated(object owner, ViewportCamera camera, double deltaSeconds)
+        public static void UpdateWithoutWorld(object owner, ViewportCamera camera, double deltaSeconds, bool titleMusic)
         {
-            if (_created)
+            if (titleMusic || _created)
             {
-                _instance.Value.Update(owner, null, camera, deltaSeconds);
+                _instance.Value.Update(owner, null, camera, deltaSeconds, titleMusic);
+            }
+        }
+
+        /// <summary>The lobby's Title Music choice (#378); the lobby Config window that sets it is not built yet.</summary>
+        public static TitleMusicOption TitleMusicChoice { get; set; } = TitleMusicOption.Latest;
+
+        /// <summary>The title music fades in over this when the lobby opens (provisional).</summary>
+        public const float TitleFadeInSeconds = 1f;
+
+        /// <summary>The title music fades out over this when a character enters the world or the lobby closes (provisional).</summary>
+        public const float TitleFadeOutSeconds = 1.5f;
+
+        private readonly object _titleOwner = new();
+        private readonly Random _titleRandom = new();
+        private bool _titleWanted;
+        private int _titleTrack;
+
+        /// <summary>
+        /// Holds the title track while the lobby wants it (the pool plays it as the heard track while no character is),
+        /// and lets it go, fading, when the lobby stops wanting it. A Random choice is drawn once per lobby visit.
+        /// </summary>
+        private void UpdateTitleMusic(bool wanted)
+        {
+            if (wanted && _titleTrack == 0)
+            {
+                _titleTrack = TitleMusic.Track(TitleMusicChoice, _titleRandom);
+                _musicPool.Acquire(_titleOwner, _titleTrack);
+                GordianLog.Info("AUDIO", $"Title music: track {_titleTrack} ({TitleMusicChoice}).");
+            }
+            else if (!wanted && _titleTrack != 0)
+            {
+                _musicPool.Release(_titleOwner, _titleTrack, TitleFadeOutSeconds);
+                _titleTrack = 0;
             }
         }
 
         /// <summary>
-        /// Moves the sound to another session (or to none: <see cref="UpdateWithoutWorldIfCreated"/>). Everything the last
+        /// Moves the sound to another session (or to none: <see cref="UpdateWithoutWorld"/>). Everything the last
         /// one was playing fades: ambience, zone sounds, scene sounds and sound effects. The music is not stopped: each
         /// character's director keeps its track playing, and <see cref="UpdateMusic"/> crossfades to the new one's (or keeps
         /// playing when both are on the same track).
@@ -334,9 +369,10 @@ namespace Gordian.App.Audio
                 }
             }
 
+            UpdateTitleMusic(heard is null && _titleWanted);
             if (heard is null)
             {
-                _musicPool.SetAudible(0, 1f, 0f);
+                _musicPool.SetAudible(_titleTrack, 1f, TitleFadeInSeconds);
             }
 
             DateTime now = DateTime.UtcNow;
@@ -379,65 +415,9 @@ namespace Gordian.App.Audio
 
         /// <summary>
         /// The footstep digits of an actor: a character's feet item, else a creature's own model DAT (xi-tools
-        /// <c>docs/sounds/footsteps.md</c> §3). Unknown until its DAT is read on a worker; meanwhile the default.
+        /// <c>docs/sounds/footsteps.md</c> §3), shared with the footprints (<see cref="FootwearCache"/>).
         /// </summary>
-        private FootwearInfo FootwearOf(WorldEntity entity)
-        {
-            if (_resources is null)
-            {
-                return FootwearInfo.Default;
-            }
-            int generation = _resources.CacheGeneration;
-            if (generation != _footwearGeneration)
-            {
-                _footwearGeneration = generation;
-                _footwear.Clear();
-            }
-
-            int fileId;
-            ushort face = entity.Appearance.FaceModel;
-            var race = (Gordian.Core.Resources.Tables.CharacterRace)((face >> 8) & 0xFF);
-            if (race != Gordian.Core.Resources.Tables.CharacterRace.Unknown)
-            {
-                ushort feet = (ushort)(entity.Appearance.Feet & 0x0FFF);
-                if (!Gordian.Core.Resources.Tables.CharacterEquipmentResolver.TryResolveGearFileId(race, Gordian.Core.Resources.Tables.CharacterSlot.Feet, feet, out fileId))
-                {
-                    return FootwearInfo.Default;
-                }
-            }
-            else if (entity.Appearance.ModelId != 0)
-            {
-                fileId = Gordian.Core.Resources.Tables.CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId);
-                if (fileId <= 0)
-                {
-                    return FootwearInfo.Default;
-                }
-            }
-            else
-            {
-                return FootwearInfo.Default;
-            }
-
-            if (_footwear.TryGetValue(fileId, out FootwearInfo known))
-            {
-                return known;
-            }
-
-            if (_footwear.TryAdd(fileId, FootwearInfo.Default))
-            {
-                ResourceManager resources = _resources;
-                _ = Task.Run(() =>
-                {
-                    byte[]? dat = resources.LoadDatBytesByFileId(fileId);
-                    if (dat is not null && FootwearInfo.TryRead(dat, out FootwearInfo info))
-                    {
-                        _footwear[fileId] = info;
-                    }
-                });
-            }
-
-            return FootwearInfo.Default;
-        }
+        private FootwearInfo FootwearOf(WorldEntity entity) => FootwearCache.Shared.Of(entity, _resources);
 
         /// <summary>Range of a cutscene sound command played at its actor (provisional; generators carry their own range).</summary>
         public static readonly (float Near, float Far) SceneSoundRange = (15f, 60f);
@@ -637,13 +617,14 @@ namespace Gordian.App.Audio
         private void UpdateFootsteps(WorldState world, uint localPlayerId)
         {
             ZoneSoundTable sounds = _zoneSounds;
-            if (sounds.WalkSteps.Count == 0)
+            if (sounds.DrySteps.Count == 0)
             {
                 return;
             }
 
             _steps.Clear();
-            _footsteps.Update(world.Entities, localPlayerId, _listenerPosition, world.Collision, sounds, _steps, FootwearOf);
+            _footsteps.Update(world.Entities, localPlayerId, _listenerPosition, world.Collision, sounds, _steps, FootwearOf,
+                wet: ZoneSoundTable.IsWetWeather(world.WeatherId));
             foreach (FootstepEvent step in _steps)
             {
                 PlayEffect(step.SoundId, AudioCategory.Effects, 1f, new AudioEmitter(step.Position, FootstepRange.Near, FootstepRange.Far));
@@ -988,7 +969,7 @@ namespace Gordian.App.Audio
                     {
                         _zoneSounds = table;
                         _pendingEmitters = emitters;
-                        GordianLog.Info("AUDIO", $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.WalkSteps.Count} footsteps, {table.Doors.Count} doors, {emitters.Count} sound generators.");
+                        GordianLog.Info("AUDIO", $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.DrySteps.Count} footsteps ({table.WetSteps.Count} in the rain), {table.Doors.Count} doors, {emitters.Count} sound generators.");
                     }
                 }
                 catch (Exception ex)

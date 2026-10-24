@@ -378,6 +378,7 @@ namespace Gordian.App.Graphics
         {
             _entityEnvironments.Clear();
             _actorAnchors.Clear();
+            _shadowLights.Clear();
         }
 
         public void RenderEntities(
@@ -492,6 +493,8 @@ namespace Gordian.App.Graphics
                 }
                 else
                 {
+                    // The player keeps the event's placement as its own position (#338); the next event starts from there.
+                    _eventPoses.Remove(entity.ServerId);
                     entity.RenderHeadingRadians = entity.HeadingRadians;
                 }
                 if (!entity.IsDrawn) continue;
@@ -700,7 +703,7 @@ namespace Gordian.App.Graphics
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
                 if (!faded && !isFallback && !entity.HidesShadow)
-                    QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y);
+                    QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y, entity.ServerId, deltaSeconds);
                 if (faded)
                 {
                     // The depth pass above; now the colour, blended, only where the body is nearest.
@@ -709,7 +712,7 @@ namespace Gordian.App.Graphics
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
                     draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 }
-                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, sizeScale * headingRot, pos, faded, isLocalEntity);
+                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, sizeScale * headingRot, pos, faded, isLocalEntity, deltaSeconds);
             }
 
             draws += DrawBlurAuras(cl, deltaSeconds);
@@ -839,11 +842,15 @@ namespace Gordian.App.Graphics
             if (other != null)
             {
                 var otherPosition = other.EventPose?.Position ?? other.Position;
-                target.X = HeadLook.TargetYaw(heading, position, otherPosition);
-                if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
+                // A target further round than the look limit is not followed (#402): the head eases back to straight ahead.
+                if (HeadLook.TryTargetYaw(heading, position, otherPosition, out float yaw))
                 {
-                    float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
-                    target.Y = HeadLook.TargetPitch(own, theirs, distance);
+                    target.X = yaw;
+                    if (HeadHeight(entity.ServerId) is float own && LookHeight(other, otherPosition) is float theirs)
+                    {
+                        float distance = new Vector2(otherPosition.X - position.X, otherPosition.Z - position.Z).Length();
+                        target.Y = HeadLook.TargetPitch(own, theirs, distance);
+                    }
                 }
             }
             var next = new Vector2(HeadLook.Ease(current.X, target.X, deltaSeconds), HeadLook.Ease(current.Y, target.Y, deltaSeconds));

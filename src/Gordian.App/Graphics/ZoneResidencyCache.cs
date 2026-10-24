@@ -238,7 +238,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>The distinct zones of the characters in the world.</summary>
         internal static List<int> SessionZones(IEnumerable<CharacterSession> sessions) =>
-            SessionZones(sessions.Select(session => (session.State, (int)session.World.CurrentZoneId)));
+            SessionZones(sessions.Select(session => (session.State, (int)session.World.MapZoneId)));
 
         /// <summary>The distinct zones of the characters in the world, in order (state and zone of each character).</summary>
         internal static List<int> SessionZones(IEnumerable<(SessionState State, int ZoneId)> characters)

@@ -817,6 +817,9 @@ namespace Gordian.Core.Input
                 CancelKnockback(); // a server placement ends any slide
             }
 
+            // Building interiors near the player are drawn and walked (#68).
+            _world.SubAreas.Update(localEnt.Position);
+
             // Zone-in (S2C 0x00A): stand on the floor under the arrival position once the zone's collision is there.
             if (_localPlayer.GroundSettlePending && _world.Collision != null)
             {

@@ -481,11 +481,9 @@ namespace Gordian.Core.Resources
             World.Collision.ZoneCollisionMesh? collision = null;
             if (datBytes != null && _keyTable1 != null)
             {
-                var headers = DatSectionWalker.ReadHeaders(datBytes);
-                for (int i = 0; i < headers.Count; i++)
+                // A voyage zone's player walks its vessel's deck (#403); every other zone its first ZoneDef.
+                if (ZoneDataLoader.FindCollisionZoneDef(datBytes) is { } header)
                 {
-                    var header = headers[i];
-                    if (header.TypeCode != DatSectionType.ZoneDef || header.DataOffset + header.DataSizeBytes > datBytes.Length) continue;
                     byte[] payload = datBytes.AsSpan(header.DataOffset, header.DataSizeBytes).ToArray();
                     int nodeCount = ZoneDefDecoder.DecryptZoneObjects(payload, _keyTable1);
                     collision = ZoneCollisionDecoder.Decode(payload);
@@ -497,9 +495,9 @@ namespace Gordian.Core.Resources
                         collision.MovingPlatforms = ZoneDataLoader.CreateMovingPlatforms(datBytes, _keyTable1, _keyTable2 ?? Array.Empty<byte>(), placements, collision,
                                                                                          allInteractions);
                         collision.Doors = World.Collision.ZoneDoors.CreateBlockers(ZoneInteractionDecoder.DecodeDoorTablesFromDat(datBytes));
-                        collision.ZoneLineVolumes = World.Collision.ZoneLines.Select(allInteractions);
+                        collision.ZoneLineVolumes = MogHouseRooms.ZoneLineVolumes(zoneId, allInteractions);
+                        collision.SubAreaVolumes = World.Collision.ZoneSubAreas.Select(allInteractions);
                     }
-                    break;
                 }
             }
 
@@ -559,6 +557,50 @@ namespace Gordian.Core.Resources
                 GordianLog.Warning("RES", $"ReadZoneModelDat({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
             }
             return datBytes;
+        }
+
+        private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)?> _interiorCache = new();
+        private readonly ConcurrentDictionary<int, World.Collision.ZoneCollisionMesh?> _interiorCollisionCache = new();
+
+        /// <summary>
+        /// Loads (once) a building interior's DAT (<see cref="World.Collision.ZoneSubAreas.InteriorFileId"/>, #68): a small zone
+        /// DAT already in its parent zone's space. Its point-light references name its own light table (the renderer moves them
+        /// into free slots of the zone's). False when the file is missing or holds nothing.
+        /// </summary>
+        public bool TryLoadSubAreaInterior(int subAreaId, [NotNullWhen(true)] out ZoneGeometry? interior, out Dictionary<string, DecodedTexture> textures)
+        {
+            var entry = _interiorCache.GetOrAdd(subAreaId, id =>
+            {
+                EnsureKeyTables();
+                int fileId = World.Collision.ZoneSubAreas.InteriorFileId(id);
+                byte[]? datBytes = LoadDatBytesByFileId(fileId);
+                if (datBytes == null || datBytes.Length == 0 || _keyTable1 == null) return null;
+                var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+                var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
+                    GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId));
+                _interiorCollisionCache.TryAdd(id, geometry.Collision);
+                GordianLog.Info("RES", $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
+                return (geometry, decoded);
+            });
+            interior = entry?.Geometry;
+            textures = entry?.Textures ?? new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            return interior != null && interior.MeshGroups.Count > 0;
+        }
+
+        /// <summary>A building interior's collision mesh alone (headless sessions walk into shops too, #68); null when none.</summary>
+        public World.Collision.ZoneCollisionMesh? TryLoadSubAreaCollision(int subAreaId)
+        {
+            if (_interiorCollisionCache.TryGetValue(subAreaId, out var cached)) return cached;
+            EnsureKeyTables();
+            World.Collision.ZoneCollisionMesh? collision = null;
+            byte[]? datBytes = LoadDatBytesByFileId(World.Collision.ZoneSubAreas.InteriorFileId(subAreaId));
+            if (datBytes != null && _keyTable1 != null && ZoneDataLoader.FindCollisionZoneDef(datBytes) is { } header)
+            {
+                byte[] payload = datBytes.AsSpan(header.DataOffset, header.DataSizeBytes).ToArray();
+                ZoneDefDecoder.DecryptZoneObjects(payload, _keyTable1);
+                collision = ZoneCollisionDecoder.Decode(payload);
+            }
+            return _interiorCollisionCache.GetOrAdd(subAreaId, collision);
         }
 
         /// <summary>A zone already loaded by <see cref="TryLoadZone"/>, without loading anything; null otherwise.</summary>
@@ -858,6 +900,8 @@ namespace Gordian.Core.Resources
             }
             _zoneCache.Clear();
             _collisionCache.Clear();
+            _interiorCache.Clear();
+            _interiorCollisionCache.Clear();
             _entityModelCache.Clear();
             ClearMountCaches();
             _actorEffectCache.Clear();

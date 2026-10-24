@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Containers;
+using Gordian.Core.Resources.Models;
 
 namespace Gordian.Core.Resources.Graphics
 {
@@ -21,6 +22,13 @@ namespace Gordian.Core.Resources.Graphics
         public Dictionary<string, DecodedTexture> Textures { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// The Section 0x1F particle meshes, colours as authored (the shared DAT is not a zone resource). Only the zone's
+        /// foot effects fall back to them (#40: Bibiki Bay's sand root <c>fses/fefs/0300</c> links <c>hit7</c>, the rain
+        /// path <c>fser/fefr/0100</c> the ripple <c>asi2</c>, both only in <c>ROM/0/0</c>'s <c>syst/effe</c>).
+        /// </summary>
+        public Dictionary<string, List<MeshGroup>> ParticleMeshes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Decodes the sprite sheets and textures of a shared effects DAT. The first section with a given DatId wins.
         /// </summary>
         public static SharedEffectResources Parse(ReadOnlySpan<byte> datBytes, string? datSource = null)
@@ -35,6 +43,11 @@ namespace Gordian.Core.Resources.Graphics
                 {
                     var sheet = SpriteSheetDecoder.Decode(payload, header.DatId);
                     if (sheet != null) shared.SpriteSheets[header.DatId] = sheet;
+                }
+                else if (header.TypeCode == DatSectionType.ParticleMesh && !shared.ParticleMeshes.ContainsKey(header.DatId))
+                {
+                    var meshes = ParticleMeshDecoder.Decode(payload, header.DatId, zoneResource: false);
+                    if (meshes is { Count: > 0 }) shared.ParticleMeshes[header.DatId] = meshes;
                 }
                 else if (header.TypeCode == DatSectionType.Texture)
                 {

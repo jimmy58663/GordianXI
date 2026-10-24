@@ -164,6 +164,14 @@ namespace Gordian.Core.World
         public const float StopCatchUpRate = 0.2f;
 
         /// <summary>
+        /// How fast (fraction of real time) a move's clock origin may shift between samples, either way. The move counter only
+        /// bounds when a sample was taken (never after it arrived), so the origin moves toward the freshest bound at most this
+        /// fast, which follows a counter running up to this far off real time without speeding playback up or slowing it down
+        /// by more. Captured counters ran up to about 2% off real time (#59).
+        /// </summary>
+        public const double MoveClockDriftAllowance = 0.05;
+
+        /// <summary>
         /// Monotonic clock (seconds) shared by the network thread when timestamping position samples and the render thread
         /// when playing them back.
         /// </summary>
@@ -179,6 +187,7 @@ namespace Gordian.Core.World
         private bool _moveSessionActive;
         private double _moveSessionOrigin;
         private ushort _moveSessionLastMovTime;
+        private double _moveSessionLastArrival;
         private float _targetPlaybackDelay = DefaultPlaybackDelaySeconds;
         private float _playbackDelay = DefaultPlaybackDelaySeconds;
         private volatile bool _hasMotionTimeline;
@@ -225,6 +234,14 @@ namespace Gordian.Core.World
             lock (_motionLock)
             {
                 double renderTime = now - _playbackDelay;
+
+                // Samples already played are dropped here too: an entity of a session not on screen is not played back,
+                // and its timeline would otherwise grow for as long as it keeps moving.
+                while (_samples.Count > 2 && _samples[1].Time <= renderTime)
+                {
+                    _samples.RemoveAt(0);
+                }
+
                 bool hadSamples = _samples.Count > 0;
                 Vector3 lastPos = hadSamples ? _samples[^1].Position : _position;
                 byte lastDirection = hadSamples ? _samples[^1].Direction : Direction;
@@ -240,6 +257,7 @@ namespace Gordian.Core.World
                     _moveSessionActive = isMoving && movTime > 0;
                     _moveSessionOrigin = now - (movTime / MovTimeTicksPerSecond);
                     _moveSessionLastMovTime = movTime;
+                    _moveSessionLastArrival = now;
                     _hasMotionTimeline = true;
                     SnapToTargetPending = true;
                     TargetPosition = newPos;
@@ -254,9 +272,16 @@ namespace Gordian.Core.World
                     bool continuing = _moveSessionActive && movTime > _moveSessionLastMovTime;
                     if (continuing)
                     {
-                        // Every sample of one move is stamped from the same origin, so their spacing is exact. If the first
-                        // packet was stale the whole move merely plays a constant amount later, which the adaptive
-                        // delay absorbs.
+                        // Every sample of one move is stamped from one origin, so their spacing follows the counter. A sample
+                        // was taken no later than it arrived, so each one bounds the origin from above: the origin moves
+                        // toward the tightest bound (the freshest packet), but by at most the drift allowance of real time
+                        // either way, so one fresh packet after stale ones does not squeeze a segment into a sprint.
+                        // A fixed origin from the first packet let a counter running fast push the stamps further into the
+                        // future the longer the move lasted: a follower running for minutes fell ever further behind (#59).
+                        double bound = now - sinceMoveStart;
+                        double allowance = MoveClockDriftAllowance * Math.Max(0.0, now - _moveSessionLastArrival);
+                        double target = Math.Min(bound, _moveSessionOrigin + allowance);
+                        _moveSessionOrigin = Math.Max(target, _moveSessionOrigin - allowance);
                         measureDelay = true;
                     }
                     else
@@ -280,6 +305,7 @@ namespace Gordian.Core.World
                         _moveSessionActive = true;
                     }
                     _moveSessionLastMovTime = movTime;
+                    _moveSessionLastArrival = now;
                     sampleTime = _moveSessionOrigin + sinceMoveStart;
                 }
                 else if (isMoving)
@@ -980,6 +1006,11 @@ namespace Gordian.Core.World
         /// empty otherwise.
         /// </summary>
         public string TransportId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// For a ship (0x00E SubKind 4): its ship number, which names the vessel model (<see cref="ShipModels"/>); 0 otherwise.
+        /// </summary>
+        public uint ShipNumber { get; set; }
 
         /// <summary>
         /// For an elevator or ship: the Earth second since the Vana'diel epoch its current leg started.

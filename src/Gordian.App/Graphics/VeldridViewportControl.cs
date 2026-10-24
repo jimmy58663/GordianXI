@@ -165,8 +165,8 @@ namespace Gordian.App.Graphics
                     if (ShouldDeferSwitch(value))
                     {
                         _deferredSince = Stopwatch.GetTimestamp();
-                        PrepareZone(value!.World.CurrentZoneId);
-                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.CurrentZoneId} is not on the GPU yet; showing the current view while it loads.");
+                        PrepareZone(value!.World.MapZoneId);
+                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.MapZoneId} is not on the GPU yet; showing the current view while it loads.");
                         return;
                     }
                     ShowSession(value);
@@ -188,7 +188,7 @@ namespace Gordian.App.Graphics
                 {
                     if (_activeSession != null)
                     {
-                        _activeSession.World.ZoneChanged -= OnWorldZoneChanged;
+                        _activeSession.World.MapZoneChanged -= OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
                             _activeSession.Locomotion.CameraUpdated -= OnLocomotionCameraUpdated;
@@ -208,7 +208,7 @@ namespace Gordian.App.Graphics
                     if (_activeSession != null)
                     {
                         _activeSession.IsRendering3D = true;
-                        _activeSession.World.ZoneChanged += OnWorldZoneChanged;
+                        _activeSession.World.MapZoneChanged += OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
                             Camera.Pitch = _activeSession.Locomotion.CameraPitch;
@@ -217,9 +217,9 @@ namespace Gordian.App.Graphics
                             Camera.Mode = _activeSession.Locomotion.Camera.Mode;
                             _activeSession.Locomotion.CameraUpdated += OnLocomotionCameraUpdated;
                         }
-                        if (_activeSession.World.CurrentZoneId != 0)
+                        if (_activeSession.World.MapZoneId != 0)
                         {
-                            OnWorldZoneChanged(_activeSession.World.CurrentZoneId);
+                            OnWorldZoneChanged(_activeSession.World.MapZoneId);
                         }
                     }
                 }
@@ -241,7 +241,7 @@ namespace Gordian.App.Graphics
         {
             if (next == null || _activeSession == null || _renderer == null || Lobby != null || HoldBlack) return false;
             if (next.State != SessionState.ActiveInWorld) return false;
-            ushort zone = next.World.CurrentZoneId;
+            ushort zone = next.World.MapZoneId;
             return zone != 0 && zone != _loadedZoneId && !IsZoneResident(zone);
         }
 
@@ -303,15 +303,15 @@ namespace Gordian.App.Graphics
             if (ReferenceEquals(requested, _activeSession)) return;
             bool ready = requested == null
                          || requested.State != SessionState.ActiveInWorld
-                         || requested.World.CurrentZoneId == 0
-                         || requested.World.CurrentZoneId == _loadedZoneId
-                         || IsZoneResident(requested.World.CurrentZoneId)
+                         || requested.World.MapZoneId == 0
+                         || requested.World.MapZoneId == _loadedZoneId
+                         || IsZoneResident(requested.World.MapZoneId)
                          || Stopwatch.GetElapsedTime(_deferredSince) >= DeferredSwitchTimeout;
             if (!ready) return;
             lock (_sessionGate)
             {
                 if (!ReferenceEquals(requested, _requestedSession)) return;
-                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.CurrentZoneId}).");
+                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.MapZoneId}).");
                 ShowSession(requested);
             }
         }
@@ -326,15 +326,15 @@ namespace Gordian.App.Graphics
                 {
                     if (_worldState != null)
                     {
-                        _worldState.ZoneChanged -= OnWorldZoneChanged;
+                        _worldState.MapZoneChanged -= OnWorldZoneChanged;
                     }
                     _worldState = value;
                     if (_worldState != null)
                     {
-                        _worldState.ZoneChanged += OnWorldZoneChanged;
-                        if (_worldState.CurrentZoneId != 0)
+                        _worldState.MapZoneChanged += OnWorldZoneChanged;
+                        if (_worldState.MapZoneId != 0)
                         {
-                            OnWorldZoneChanged(_worldState.CurrentZoneId);
+                            OnWorldZoneChanged(_worldState.MapZoneId);
                         }
                     }
                 }
@@ -379,7 +379,7 @@ namespace Gordian.App.Graphics
             if (zone?.Collision == null || loaded == 0) return;
             foreach (var world in new[] { _activeSession?.World, _worldState })
             {
-                if (world != null && world.CurrentZoneId == loaded) world.Collision = zone.Collision;
+                if (world != null && world.MapZoneId == loaded) world.Collision = zone.Collision;
             }
         }
 
@@ -415,7 +415,7 @@ namespace Gordian.App.Graphics
         private bool ZoneSwapPending(Gordian.Core.Network.CharacterSession session)
         {
             ushort scene = session.World.SceneZoneId;
-            ushort wanted = scene != 0 ? scene : session.World.CurrentZoneId;
+            ushort wanted = scene != 0 ? scene : session.World.MapZoneId;
             if (_ungatedZoneSwap)
             {
                 // The switched-to session's zone is on screen already (or it has none yet): later swaps fade again.
@@ -461,13 +461,13 @@ namespace Gordian.App.Graphics
             if (session == null || !_loadingScreen.IsLoading || _loadingScreen.IsFullyBlack)
             {
                 _presentationHeld = false;
-                if (session != null) _fadeStartZone = session.World.CurrentZoneId;
+                if (session != null) _fadeStartZone = session.World.MapZoneId;
                 return false;
             }
             if (!_presentationHeld)
             {
                 _presentationHeld = session.State != SessionState.ActiveInWorld || session.NetworkManager.PositionUpdatesSuspended
-                    || session.World.CurrentZoneId != _fadeStartZone || ZoneSwapPending(session);
+                    || session.World.MapZoneId != _fadeStartZone || ZoneSwapPending(session);
             }
             return _presentationHeld;
         }
@@ -636,6 +636,25 @@ namespace Gordian.App.Graphics
         private IntPtr _childHwnd = IntPtr.Zero;
         private IntPtr _arrowCursor = IntPtr.Zero;
 
+        private static IntPtr ImGuiSystemCursor(Hexa.NET.ImGui.ImGuiMouseCursor cursor)
+        {
+            if (!OperatingSystem.IsWindows()) return IntPtr.Zero;
+            int id = cursor switch
+            {
+                Hexa.NET.ImGui.ImGuiMouseCursor.None => 0,
+                Hexa.NET.ImGui.ImGuiMouseCursor.TextInput => 32513,
+                Hexa.NET.ImGui.ImGuiMouseCursor.ResizeAll => 32646,
+                Hexa.NET.ImGui.ImGuiMouseCursor.ResizeNs => 32645,
+                Hexa.NET.ImGui.ImGuiMouseCursor.ResizeEw => 32644,
+                Hexa.NET.ImGui.ImGuiMouseCursor.ResizeNesw => 32643,
+                Hexa.NET.ImGui.ImGuiMouseCursor.ResizeNwse => 32642,
+                Hexa.NET.ImGui.ImGuiMouseCursor.Hand => 32649,
+                Hexa.NET.ImGui.ImGuiMouseCursor.NotAllowed => 32648,
+                _ => 32512,
+            };
+            return id == 0 ? IntPtr.Zero : Win32ChildWindowHelper.LoadSystemCursor(id);
+        }
+
         // Every window's frames and zone uploads share the device's lock (#300): one frame is recorded, submitted and
         // presented at a time across all viewport windows.
         private object _renderLock => _deviceManager.GpuLock;
@@ -659,7 +678,12 @@ namespace Gordian.App.Graphics
                         StockUiPointerArt.HotspotX, StockUiPointerArt.HotspotY);
                 }
                 // The stock arrow over the viewport; hidden while the HUD draws the hover pointer over a menu entry.
-                Win32ChildWindowHelper.SetCursorQuery(_childHwnd, () => StockUi.PointerDrawn ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null);
+                Win32ChildWindowHelper.SetCursorQuery(_childHwnd, () =>
+                {
+                    // Over an interactive ImGui window (#380) the cursor is the shape it asks for.
+                    if (ImGuiInput.WantCaptureMouse) return ImGuiSystemCursor(ImGuiInput.MouseCursor);
+                    return StockUi.PointerDrawn ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null;
+                });
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
                 // One swapchain per window on the process's shared device (#300); the first window creates the device.
@@ -682,7 +706,7 @@ namespace Gordian.App.Graphics
                         _renderer = new ZoneTerrainRenderer(sharedDevice.Resources, outputs);
                         _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, outputs);
 
-                        ushort initialZone = _activeSession?.World.CurrentZoneId ?? _worldState?.CurrentZoneId ?? 0;
+                        ushort initialZone = _activeSession?.World.MapZoneId ?? _worldState?.MapZoneId ?? 0;
                         if (initialZone != 0)
                         {
                             OnWorldZoneChanged(initialZone);
@@ -855,7 +879,7 @@ namespace Gordian.App.Graphics
                 // covered one not at all (its game logic still ticks).
                 var mode = EffectiveRenderMode();
                 ApplyDeferredSession();
-                PreloadSessionZones();
+                if (!IsThumbnail) PreloadSessionZones();
                 if (mode == ViewportRenderMode.Paused)
                 {
                     TickWhilePaused(deltaSeconds);
@@ -874,7 +898,7 @@ namespace Gordian.App.Graphics
                 // The character lobby takes the viewport while it is open (#32): its screens and the preview model.
                 if (Lobby is { } lobby)
                 {
-                    SilenceWorldAudio(deltaSeconds);
+                    SilenceWorldAudio(deltaSeconds, lobby);
                     RenderLobbyFrame(lobby, deltaSeconds);
                     ThrottleFrame(frameStart, mode, cancellationToken);
                     continue;
@@ -885,7 +909,7 @@ namespace Gordian.App.Graphics
                 // same window, which the lobby then fades in over.
                 if (HoldBlack)
                 {
-                    SilenceWorldAudio(deltaSeconds);
+                    SilenceWorldAudio(deltaSeconds, null);
                     RenderBlackFrame();
                     if (mode == ViewportRenderMode.Background) ThrottleFrame(frameStart, mode, cancellationToken);
                     else Thread.Sleep(15);
@@ -904,7 +928,7 @@ namespace Gordian.App.Graphics
                     isLocalPlayerEngaged = _activeSession.Combat.IsEngaged;
 
                     // Shows the hits of actions whose actor is not animated this frame (off screen, no model).
-                    _activeSession.ActionPlayback.Update();
+                    if (!IsThumbnail) _activeSession.ActionPlayback.Update();
                 }
 
                 // The shown character's camera, then the cameras of the characters not on screen, kept up to date so a
@@ -920,16 +944,19 @@ namespace Gordian.App.Graphics
                 Vector3 playerPos = cameraFrame.PlayerPosition;
                 bool hasPlayerPos = cameraFrame.HasPlayerPosition;
                 Vector3? displayPlayerPos = cameraFrame.DisplayPlayerPosition;
-                TickHiddenCameras(aspect);
+                if (!IsThumbnail) TickHiddenCameras(aspect);
 
-                // Sound follows the viewport that last had focus (Phase 5H); never let it break a frame.
-                try
+                // Sound follows the viewport that last had focus (Phase 5H); never let it break a frame. A thumbnail has none.
+                if (!IsThumbnail)
                 {
-                    Audio.GameAudioService.Instance.Update(this, _activeSession, Camera, deltaSeconds);
-                }
-                catch (Exception ex)
-                {
-                    GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                    try
+                    {
+                        Audio.GameAudioService.Instance.Update(this, _activeSession, Camera, deltaSeconds);
+                    }
+                    catch (Exception ex)
+                    {
+                        GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                    }
                 }
 
                 lock (_renderLock)
@@ -943,6 +970,9 @@ namespace Gordian.App.Graphics
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
                             shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Core.Ui.StockUiSettingKey.Shadows);
+                        // Config "Footstep Effects" draws the footprints and foot effects or not (#40).
+                        if (_activeSession?.ActionService.UiSettings is { } footSettings)
+                            _renderer.EnableFootEffects = footSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.FootstepEffects);
                     }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {
@@ -985,7 +1015,7 @@ namespace Gordian.App.Graphics
                             // Zoning (#36), worked out before the scene so this frame already hides the placeholder: black while the session connects or zones and until its zone and the player's
                             // own model are on screen.
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
-                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.CurrentZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
+                                ? _loadingScreen.Update(loadingSession.State, loadingSession.World.MapZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
                                     loadingSession.NetworkManager.ZoneLines.PendingId != null, ZoneSwapPending(loadingSession),
                                     loadingSession.World.EventZoneId != 0 && !loadingSession.Events.Presentation.TryGetCamera(out _))
@@ -1023,12 +1053,12 @@ namespace Gordian.App.Graphics
 
                             EndPerformancePass(ViewportPass.Scene);
 
-                            // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState)
-                            RenderTier2_StockUi();
+                            // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState); a thumbnail shows the scene only
+                            if (!IsThumbnail) RenderTier2_StockUi();
                             EndPerformancePass(ViewportPass.StockUi);
 
                             // Tier 3: ImGui Overlays & Addons Pass
-                            RenderTier3_ImGuiOverlays();
+                            if (!IsThumbnail) RenderTier3_ImGuiOverlays();
                             EndPerformancePass(ViewportPass.Overlay);
                             EndPerformanceFrame();
 
@@ -1344,6 +1374,15 @@ namespace Gordian.App.Graphics
         private volatile ViewportRenderMode _renderMode = ViewportRenderMode.Full;
 
         /// <summary>
+        /// A small live view of one background character, in a PiP deck card (#302; see <see cref="PipThumbnailControl"/>).
+        /// It draws only the 3D scene, at <see cref="ViewportRenderSettings.PipThumbnailFrameRate"/>, without VSync, and
+        /// leaves the game logic the main viewport already ticks for background characters (their cameras, action
+        /// playback, zone preload) and the sound to it, so nothing is run or drawn twice. Set before the control is shown;
+        /// its owner sets <see cref="RenderMode"/> to Background while it shows a character and Paused otherwise.
+        /// </summary>
+        public bool IsThumbnail { get; set; }
+
+        /// <summary>
         /// How often this viewport draws (#301), set by its window from focus and window state
         /// (<see cref="ViewportRenderPolicy.Resolve"/>). A background window that other windows fully cover pauses too.
         /// </summary>
@@ -1408,6 +1447,7 @@ namespace Gordian.App.Graphics
         private void TickWhilePaused(float deltaSeconds)
         {
             CheckAndLoadPendingZone();
+            if (IsThumbnail) return;
             var session = _activeSession;
             session?.ActionPlayback.Update();
             float aspect = Math.Max(0.1f, (float)_deviceManager.CurrentWidth / Math.Max(1, _deviceManager.CurrentHeight));
@@ -1423,7 +1463,7 @@ namespace Gordian.App.Graphics
             }
             if (Lobby != null || HoldBlack)
             {
-                SilenceWorldAudio(deltaSeconds);
+                SilenceWorldAudio(deltaSeconds, Lobby);
                 return;
             }
             try
@@ -1462,7 +1502,8 @@ namespace Gordian.App.Graphics
                 Thread.Sleep(1);
                 return;
             }
-            WaitForNextFrame(frameStart, ViewportRenderPolicy.FrameInterval(ViewportRenderSettings.BackgroundFrameRate), cancellationToken);
+            int rate = IsThumbnail ? ViewportRenderSettings.PipThumbnailFrameRate : ViewportRenderSettings.BackgroundFrameRate;
+            WaitForNextFrame(frameStart, ViewportRenderPolicy.FrameInterval(rate), cancellationToken);
         }
 
         private static void WaitForNextFrame(long frameStart, TimeSpan interval, CancellationToken cancellationToken)
@@ -1532,13 +1573,15 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// The lobby and the black screen of a Log Out show no world, so the last zone's music, ambience and sounds stop
         /// there (#368) when this viewport is the one heard; before, the render loop skipped the audio update on those
-        /// frames and the zone music played on in the character select screen.
+        /// frames and the zone music played on in the character select screen. The lobby's screens play the title music
+        /// (#378) until a character is chosen.
         /// </summary>
-        private void SilenceWorldAudio(float deltaSeconds)
+        private void SilenceWorldAudio(float deltaSeconds, Gordian.Core.Ui.Lobby.LobbyController? lobby)
         {
             try
             {
-                Audio.GameAudioService.UpdateWithoutWorldIfCreated(this, Camera, deltaSeconds);
+                bool titleMusic = lobby is { Screen: not (Gordian.Core.Ui.Lobby.LobbyScreen.Entering or Gordian.Core.Ui.Lobby.LobbyScreen.Closed) };
+                Audio.GameAudioService.UpdateWithoutWorld(this, Camera, deltaSeconds, titleMusic);
             }
             catch (Exception ex)
             {

@@ -130,7 +130,7 @@ namespace Gordian.App.Graphics
         /// its blur aura (only Fenrir has one). Returns the draw calls made.
         /// </summary>
         private int DrawMount(CommandList cl, WorldEntity entity, in MountRide ride, in ZoneSceneUniform riderUniform,
-            Matrix4x4 headingRot, Vector3 pos, bool faded, bool isLocalPlayer)
+            Matrix4x4 headingRot, Vector3 pos, bool faded, bool isLocalPlayer, float deltaSeconds)
         {
             var uniform = riderUniform;
             uniform.World = Matrix4x4.CreateScale(ride.Scale) * EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
@@ -150,7 +150,7 @@ namespace Gordian.App.Graphics
             }
             else if (!entity.HidesShadow)
             {
-                QueueShadow(uniform, ride.Palette.Set, ride.Gpu, 0, pos, isLocalPlayer, CursorHeight(ride.Mount) * ride.Scale);
+                QueueShadow(uniform, ride.Palette.Set, ride.Gpu, 0, pos, isLocalPlayer, CursorHeight(ride.Mount) * ride.Scale, ride.Key, deltaSeconds);
             }
             return draws;
         }

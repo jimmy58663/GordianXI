@@ -72,6 +72,11 @@ namespace Gordian.Core.Resources.Graphics
                 }
             }
 
+            // A ZoneDef of mode 0x1A or below is not encrypted at all, its names included (xi-tools src/xi/zone/xi_decrypt.py
+            // decrypt_zone_objects). Port Jeuno's shop interior (file 569, mode 0x1A) had its names "unmasked" into garbage
+            // and its records read at the prototype stride, which threw parts kilometres out as flat brown walls (#68 round 1).
+            if (mode <= 0x1A) return nodeCount;
+
             // Names are still XOR-masked here; detection must unmask them or '_' (0x0A masked) reads as a control byte.
             int stride = DetectObjectStride(payload, nodeCount, namesMasked: true);
 
@@ -183,9 +188,11 @@ namespace Gordian.Core.Resources.Graphics
                 string blockId = b + 0x38 <= payload.Length ? ReadCString(payload.Slice(b + 0x34, 4)) : string.Empty;
                 string environmentId = string.Empty;
                 int[] lightSlots = Array.Empty<int>();
+                int fileIdLink = 0;
                 if (stride >= StrideModern && b + 0x64 <= payload.Length)
                 {
                     environmentId = ReadCString(payload.Slice(b + 0x4C, 4));
+                    fileIdLink = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(b + 0x50, 4));
                     lightSlots = ReadLightReferences(payload.Slice(b + 0x54, 16));
                 }
 
@@ -197,7 +204,8 @@ namespace Gordian.Core.Resources.Graphics
                     drawDist,
                     environmentId,
                     lightSlots,
-                    blockId
+                    blockId,
+                    fileIdLink
                 ));
             }
 

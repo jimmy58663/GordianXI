@@ -1,4 +1,5 @@
 // tests/Gordian.Core.Tests/Audio/SoundPointerRetailTests.cs
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Gordian.Core.Audio;
@@ -63,8 +64,8 @@ namespace Gordian.Core.Tests.Audio
             Assert.True(resolved >= pointers.Count * 9 / 10);
 
             ZoneSoundTable table = ZoneSoundTable.Read(root);
-            Assert.Equal(100001, table.FootstepSound(1, '1', 0, running: false));
-            Assert.Equal(100011, table.FootstepSound(1, '1', 0, running: true));
+            Assert.Equal(100001, table.FootstepSound(1, '1', 0, wet: false));
+            Assert.Equal(100011, table.FootstepSound(1, '1', 0, wet: true));
             if (zoneId == 4)
             {
                 Assert.Equal(1013, table.AmbientSound("suny", 7 * 60));
@@ -87,7 +88,48 @@ namespace Gordian.Core.Tests.Audio
                 }
             }
         }
-            /// <summary>Doors' own open / close sounds come from their routines' op 0x0B (round 5 E2).</summary>
+        /// <summary>The rain sets apply in rain and squall only (#342).</summary>
+        [Theory]
+        [InlineData("rain", true)]
+        [InlineData("SQUL", true)]
+        [InlineData("fine", false)]
+        [InlineData("thdr", false)]
+        [InlineData("snow", false)]
+        [InlineData(null, false)]
+        public void WetWeather_IsRainAndSquall(string? weather, bool wet) => Assert.Equal(wet, ZoneSoundTable.IsWetWeather(weather));
+
+        /// <summary>
+        /// South Gustaberg's dirt (#342): its floors are mostly Path and Stone, and a dry Path step plays the dry set's
+        /// 100001 whether walking or running; the rain set's 100011 (wet) only in the rain. Before, running took fser and
+        /// played the wet step on dry dirt.
+        /// </summary>
+        [Fact]
+        public void Retail_SouthGustabergDirt_PlaysTheDryPathStep()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            byte[]? dat = rm.LoadDatBytesByFileId(ZoneDataLoader.GetZoneModelFileId(107));
+            if (dat == null) return;
+            ZoneSoundTable table = ZoneSoundTable.Read(DatDirectoryTree.Build(dat));
+            Assert.Equal(100001, table.FootstepSound((int)Gordian.Core.World.Collision.CollisionTerrain.Path, '1', 0, wet: false));
+            Assert.Equal(100011, table.FootstepSound((int)Gordian.Core.World.Collision.CollisionTerrain.Path, '1', 0, wet: true));
+            // Water steps are the same in both sets.
+            Assert.Equal(table.FootstepSound(8, '1', 0, wet: false), table.FootstepSound(8, '1', 0, wet: true));
+
+            var collision = rm.TryLoadZoneCollision(107)!;
+            var area = new Dictionary<Gordian.Core.World.Collision.CollisionTerrain, float>();
+            foreach (var t in collision.Triangles)
+            {
+                if (t.IsWall || t.Normal.Y > -0.5f) continue;
+                area[t.Terrain] = area.GetValueOrDefault(t.Terrain) + System.Numerics.Vector3.Cross(t.B - t.A, t.C - t.A).Length() * 0.5f;
+            }
+            _output.WriteLine("South Gustaberg floor area by terrain: " + string.Join(", ", area.OrderByDescending(a => a.Value).Select(a => $"{a.Key} {a.Value:F0}")));
+            Assert.False(area.ContainsKey(Gordian.Core.World.Collision.CollisionTerrain.ShallowWater));
+            Assert.Contains(area.OrderByDescending(a => a.Value).First().Key, new[] { Gordian.Core.World.Collision.CollisionTerrain.Path, Gordian.Core.World.Collision.CollisionTerrain.Stone });
+        }
+
+        /// <summary>Doors' own open / close sounds come from their routines' op 0x0B (round 5 E2).</summary>
         [Theory]
         [InlineData(72, "_20d", 9229, 9230, 30f)]
         [InlineData(237, "_6l0", 9021, 9022, 10f)]

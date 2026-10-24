@@ -27,6 +27,12 @@ namespace Gordian.App.Graphics
         public bool AutoLaunchOnConnect { get; set; } = true;
         public bool IsPipEnabled { get; set; } = false;
         public int MaxPipStreams { get; set; } = 5;
+
+        /// <summary>The PiP deck's cards show a live render of each background character (#302); off shows status cards only.</summary>
+        public bool LivePipThumbnails { get; set; } = true;
+
+        /// <summary>Frames per second of a live PiP thumbnail (#302).</summary>
+        public int PipThumbnailFrameRate { get; set; } = ViewportRenderSettings.DefaultPipThumbnailFrameRate;
         public bool IsVsyncEnabled { get; set; } = true;
         public bool EnableOceanWaterPlane { get; set; }
 

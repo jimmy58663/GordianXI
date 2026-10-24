@@ -1,12 +1,14 @@
 // tests/Gordian.Core.Tests/Actions/PlayerActionServiceTests.cs
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.Core.Actions;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -472,6 +474,51 @@ namespace Gordian.Core.Tests.Actions
             Assert.Equal(0x053, header.PacketId);
             Assert.Equal(0, packet[4]); // no items
             Assert.Equal((byte)mode, packet[5]);
+        }
+
+        [Theory]
+        [InlineData(1, LockstyleMode.Enable, StyleLockStatus.On)]
+        [InlineData(0, LockstyleMode.Disable, StyleLockStatus.Off)]
+        public void ConfigStyleLock_ChangedByThePlayer_Sends0x053(int value, LockstyleMode mode, StyleLockStatus status)
+        {
+            var settings = new StockUiSettings();
+            settings.SetValue(StockUiSettingKey.StyleLock, 1 - value); // the stored value before the change; sends before the module exists are dropped
+            _actionService.UiSettings = settings;
+            _actionService.InventoryModule = new InventoryPacketModule(new InventoryState(), _localPlayer, (mem, _) =>
+            {
+                _sentChunks.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+
+            settings.SetValue(StockUiSettingKey.StyleLock, value);
+
+            byte[] packet = Assert.Single(_sentChunks);
+            Assert.True(PacketHeader.TryParse(packet, out var header));
+            Assert.Equal(0x053, header.PacketId);
+            Assert.Equal((byte)mode, packet[5]);
+            Assert.Equal(status, _actionService.StyleLock);
+        }
+
+        [Fact]
+        public void ConfigStyleLock_LoadedFromTheSavedFile_SendsNothing()
+        {
+            _actionService.InventoryModule = new InventoryPacketModule(new InventoryState(), _localPlayer, (mem, _) =>
+            {
+                _sentChunks.Add(mem.ToArray());
+                return Task.CompletedTask;
+            });
+            string path = Path.Combine(Path.GetTempPath(), $"gordian-style-lock-{Guid.NewGuid():N}.json");
+            try
+            {
+                File.WriteAllText(path, "{\"Values\":{\"StyleLock\":1}}");
+                _actionService.UiSettings = StockUiSettings.LoadOrDefault(path);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+
+            Assert.Empty(_sentChunks);
         }
 
         [Theory]
