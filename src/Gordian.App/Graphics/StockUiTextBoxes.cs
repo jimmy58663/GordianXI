@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/StockUiTextBoxes.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Ui;
 
@@ -11,21 +12,48 @@ namespace Gordian.App.Graphics
     /// font that draws them), drawn one under the other and clipped to the box, so no line of an item description, key item
     /// text or info window can run past its frame. The info windows use the log font (16 px lines) when it is loaded, the
     /// menu font otherwise.
+    /// <para>
+    /// An element icon in the text (<see cref="ElementGlyphs"/>: an item description's 0xEF 0x1F ... 0xEF 0x26) is drawn as the
+    /// element's own 16 x 16 icon from the UI DAT (<c>elfire</c>, <c>elice</c>, <c>elwind</c>, <c>elearth</c>, <c>elthunde</c>,
+    /// <c>elwater</c>, <c>elholy</c>, <c>eldark</c>) on the line, as retail draws "[icon]+20" (#417), and measured as
+    /// <see cref="IconAdvance"/> so the wrap leaves room for it.
+    /// </para>
     /// </summary>
     public static class StockUiTextBoxes
     {
         private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
-        /// <summary>The measure of the font text boxes draw with: the log font when loaded, else the menu font (layout px).</summary>
-        public static Func<string, float> Measure(UiFont font, StockUiLogFont? logFont) =>
-            logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
+        /// <summary>The element icon textures in <see cref="ElementGlyphs"/> order (Fire ... Dark).</summary>
+        private static readonly string[] ElementIconTextures = { "elfire", "elice", "elwind", "elearth", "elthunde", "elwater", "elholy", "eldark" };
+
+        /// <summary>
+        /// The pen advance of an element icon (layout px): the 16 px icon, a log row tall (PROVISIONAL: retail's spacing around
+        /// the icon is not measured yet).
+        /// </summary>
+        public const float IconAdvance = 16;
+
+        /// <summary>The measure of the font text boxes draw with: the log font when loaded, else the menu font (layout px), element icons included.</summary>
+        public static Func<string, float> Measure(UiFont font, StockUiLogFont? logFont) => t => MeasureLine(font, logFont, t);
 
         /// <summary>The line pitch of the font text boxes draw with (layout px).</summary>
         public static float LinePitch(UiFont font, StockUiLogFont? logFont) => logFont != null ? StockUiLogFont.CellHeight : font.LineHeight;
 
-        /// <summary>The width of one line in the font text boxes draw with (layout px).</summary>
-        public static float MeasureLine(UiFont font, StockUiLogFont? logFont, string text) =>
-            logFont != null ? logFont.MeasureWidth(text) : font.MeasureWidth(text);
+        /// <summary>The width of one line in the font text boxes draw with (layout px), element icons included.</summary>
+        public static float MeasureLine(UiFont font, StockUiLogFont? logFont, string text)
+        {
+            if (!ElementGlyphs.HasIcons(text)) return logFont != null ? logFont.MeasureWidth(text) : font.MeasureWidth(text);
+            float width = 0;
+            int start = 0;
+            for (int i = 0; i <= text.Length; i++)
+            {
+                if (i < text.Length && ElementGlyphs.ElementOf(text[i]) < 0) continue;
+                var run = text.AsSpan(start, i - start);
+                width += logFont != null ? logFont.MeasureWidth(run) : font.MeasureWidth(run);
+                if (i < text.Length) width += IconAdvance;
+                start = i + 1;
+            }
+            return width;
+        }
 
         /// <summary>
         /// Draws one line, unclipped, at (<paramref name="x"/>, <paramref name="y"/>) (screen px) in the log font when it is
@@ -34,8 +62,37 @@ namespace Gordian.App.Graphics
         public static void DrawLine(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float scale,
             UiColor? color = null)
         {
-            if (logFont != null) logFont.Draw(renderer, text, x, y, scale, color ?? White);
-            else renderer.DrawText(font, text, x, y, scale, color);
+            if (!ElementGlyphs.HasIcons(text))
+            {
+                DrawRun(renderer, font, logFont, text, x, y, scale, color);
+                return;
+            }
+            // Text runs between the icons, each icon drawn a row tall where the pen stands.
+            float pen = x;
+            int start = 0;
+            float rowHeight = LinePitch(font, logFont);
+            for (int i = 0; i <= text.Length; i++)
+            {
+                int element = i < text.Length ? ElementGlyphs.ElementOf(text[i]) : -1;
+                if (i < text.Length && element < 0) continue;
+                pen = DrawRun(renderer, font, logFont, text.AsSpan(start, i - start), pen, y, scale, color);
+                if (element >= 0)
+                {
+                    float size = Math.Min(IconAdvance, rowHeight);
+                    renderer.DrawTextureRect(ElementIconTextures[element], 0, 0, 16, 16, pen, y + (rowHeight - size) * 0.5f * scale,
+                        size * scale, size * scale, White);
+                    pen += IconAdvance * scale;
+                }
+                start = i + 1;
+            }
+        }
+
+        /// <summary>A run of plain text in the log font or the menu font; returns the pen after it.</summary>
+        private static float DrawRun(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, ReadOnlySpan<char> text, float x, float y, float scale,
+            UiColor? color)
+        {
+            if (text.IsEmpty) return x;
+            return logFont != null ? logFont.Draw(renderer, text, x, y, scale, color ?? White) : renderer.DrawText(font, text, x, y, scale, color);
         }
 
         /// <summary>
@@ -52,9 +109,7 @@ namespace Gordian.App.Graphics
             renderer.SetClip(x, y, width * scale, height * scale);
             for (int i = 0; i < fit; i++)
             {
-                float ly = y + i * pitch * scale;
-                if (logFont != null) logFont.Draw(renderer, lines[i], x, ly, scale, color ?? White);
-                else renderer.DrawText(font, lines[i], x, ly, scale, color);
+                DrawLine(renderer, font, logFont, lines[i], x, y + i * pitch * scale, scale, color);
             }
             renderer.ClearClip();
         }

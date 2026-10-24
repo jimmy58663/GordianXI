@@ -18,7 +18,6 @@ namespace Gordian.Core.Resources.Tables
     public sealed class DMsgStringTable
     {
         private const int DmsgMetaSize = 0x18;
-        private static readonly string[] ElementGlyphs = { "Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark" };
 
         static DMsgStringTable()
         {
@@ -225,9 +224,11 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
-        /// Decodes null-terminated Shift-JIS/CP932 text while converting FFXI custom elemental glyph codes.
+        /// Decodes null-terminated Shift-JIS/CP932 text while converting FFXI custom elemental glyph codes: to the element's
+        /// word ("Fire"), or with <paramref name="elementIcons"/> to its icon character (<see cref="ElementGlyphs.IconChar"/>)
+        /// for text the stock UI draws with the icons (item descriptions, #417).
         /// </summary>
-        public static string DecodeTextWithGlyphs(ReadOnlySpan<byte> span)
+        public static string DecodeTextWithGlyphs(ReadOnlySpan<byte> span, bool elementIcons = false)
         {
             int end = 0;
             while (end < span.Length && span[end] != 0)
@@ -248,7 +249,7 @@ namespace Gordian.Core.Resources.Tables
                 if (b == 0xEF && i + 1 < slice.Length)
                 {
                     byte next = slice[i + 1];
-                    int glyphIdx = next - 0x1F;
+                    int glyphIdx = next - ElementGlyphs.FirstCode;
 
                     // Flush prior text
                     if (i > runStart)
@@ -256,9 +257,10 @@ namespace Gordian.Core.Resources.Tables
                         sb.Append(DecodeCp932(slice.Slice(runStart, i - runStart)));
                     }
 
-                    if (glyphIdx >= 0 && glyphIdx < ElementGlyphs.Length)
+                    if (glyphIdx >= 0 && glyphIdx < ElementGlyphs.Names.Length)
                     {
-                        sb.Append(ElementGlyphs[glyphIdx]);
+                        if (elementIcons) sb.Append(ElementGlyphs.IconChar(glyphIdx));
+                        else sb.Append(ElementGlyphs.Names[glyphIdx]);
                     }
 
                     i++; // Skip glyph second byte

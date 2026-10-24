@@ -25,6 +25,21 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void DMsg_DecodeTextWithGlyphs_KeepsElementIconsWhenAsked()
+        {
+            // An item description's resistance line: [Fire]+15 [Dark]+15 (0xEF 0x1F, 0xEF 0x26), drawn as icons by the UI (#417).
+            byte[] textBytes = { 0xEF, 0x1F, (byte)'+', (byte)'1', (byte)'5', (byte)' ', 0xEF, 0x26, (byte)'+', (byte)'1', (byte)'5', 0x00 };
+
+            string decoded = DMsgStringTable.DecodeTextWithGlyphs(textBytes, elementIcons: true);
+            Assert.Equal($"{ElementGlyphs.IconChar(0)}+15 {ElementGlyphs.IconChar(7)}+15", decoded);
+            Assert.True(ElementGlyphs.HasIcons(decoded));
+            Assert.Equal(0, ElementGlyphs.ElementOf(decoded[0]));
+            Assert.Equal(-1, ElementGlyphs.ElementOf('F'));
+            Assert.Equal("Fire+15 Dark+15", ElementGlyphs.ToPlainText(decoded));
+            Assert.Equal("Fire+15 Dark+15", DMsgStringTable.DecodeTextWithGlyphs(textBytes));
+        }
+
+        [Fact]
         public void DMsg_Parse_FixedStride_WithXorDecryption()
         {
             // Construct a synthetic fixed-stride d_msg buffer

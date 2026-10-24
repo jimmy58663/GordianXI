@@ -91,7 +91,7 @@ namespace Gordian.App.Graphics
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
                     // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
-                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = StockUiTextBoxes.Measure(_font!, wrapFont);
                     _libraryGeneration = generation;
                     _library = library;
                 }
@@ -123,7 +123,7 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
                     // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
-                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = StockUiTextBoxes.Measure(_font!, wrapFont);
                     if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
