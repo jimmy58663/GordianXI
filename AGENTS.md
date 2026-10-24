@@ -28,7 +28,7 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
 5.  `src/Gordian.App/` (Avalonia UI Executable): Desktop shell interface container. Handles pop-out multi-window management, settings dashboards, and hosts the GPU rendering canvas.
 
 *   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Addons` and `Gordian.Automation` must NEVER reference each other. They are completely decoupled. Automation must remain entirely optional and blockable.
-*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Core` must NEVER reference `Gordian.Engine`, and `Gordian.Addons` / `Gordian.Automation` reference `Gordian.Core` only, never the engine. Core's `InternalsVisibleTo` lists only `Gordian.Engine` and the test projects; never add `Gordian.App`, `Gordian.Addons` or `Gordian.Automation` to it. `LayeringTests` (`tests/Gordian.Core.Tests/Architecture`) and the Addons / Automation sanity tests check this; the layering allowlist is empty and must stay empty.
+*   🛑 **CRITICAL ENFORCEMENT:** `Gordian.Core` must NEVER reference `Gordian.Engine`, and `Gordian.Addons` / `Gordian.Automation` reference `Gordian.Core` only, never the engine. Core's `InternalsVisibleTo` lists only `Gordian.Engine` and the test projects; never add `Gordian.App`, `Gordian.Addons` or `Gordian.Automation` to it. `LayeringTests` (`tests/Gordian.Engine.Tests/Architecture`), `CoreProjectSanityTests` and the Addons / Automation sanity tests check this; the layering allowlist is empty and must stay empty.
 *   **Where new code goes** (full rules: `docs/architecture.md`):
     *   State the server tells us about, or that the renderer reads every frame, goes in **Core**. Packet modules write it; the engine and the App read it directly.
     *   Code that reacts to that state by playing, presenting, printing or sending goes in the **Engine**, subscribing to Core's state events. Core never calls into playback.
@@ -36,15 +36,16 @@ Gordian.App ──► Gordian.Automation ──► Gordian.Core
     *   A type in the wrong layer is moved, not hidden behind an interface. A constant a lower layer needs lives in that layer, and the higher layer's name for it refers to it (e.g. `EntityGrounding.StepUpHeight`).
     *   Handler order is construction order: `CharacterSession` builds `ActionPlaybackQueue`, `SchedulerPlayback` and `PlayerActionService` first so their handlers run before chat, menus and the App's view models. Keep that order when adding subscribers.
     *   A Core doc comment cannot `cref` an engine type; write `<c>TypeName</c>` instead.
-    *   Engine code is namespaced `Gordian.Engine.*` and lives under `src/Gordian.Engine`; its tests currently live in `tests/Gordian.Core.Tests`.
+    *   Engine code is namespaced `Gordian.Engine.*` and lives under `src/Gordian.Engine`.
+*   **Tests mirror the layers.** `tests/Gordian.Core.Tests` covers Core alone and has no reference to the engine (`CoreProjectSanityTests` fails if one comes back). A test that touches any engine type goes in `tests/Gordian.Engine.Tests`, under the folder of the area it tests, even when its subject is a Core type. Test-data builders and helpers both projects need go in `tests/Gordian.Core.Tests/Shared` (namespace `Gordian.Tests.Shared`, compiled into both); never reference one test project from another.
 
 ---
 
 ## 🔒 Security & Server Kill-Switch Policy
-*   `Gordian.Core` holds the server's restriction flags on `SessionProfile.FeatureRestrictions` (`src/Gordian.Core/Config/SessionConfig.cs`): a public getter and an `internal set`.
-*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag: the setter is internal and Core shows its internals only to `Gordian.Engine` and the tests (`LayeringTests.FeatureRestrictionsCannotBeSetOutsideCore`). Never widen the setter, add a public way to set it, or add a project to Core's `InternalsVisibleTo` list to get at it.
-*   If a private server transmits an automation restriction packet (S2C 0x0EE), the authenticated packet pipeline inside `Gordian.Core` (`LifecyclePacketModule`, dispatched by `PacketParser`) sets this flag, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep. Only that handler may set it.
-*   The flag is meant to be write-once from the server. Today it is internal-set only, which keeps the App and addons out but not code inside Core or the engine.
+*   `Gordian.Core` holds the server's restriction flags on `SessionProfile.FeatureRestrictions` (`src/Gordian.Core/Config/SessionConfig.cs`). The flag is **write-once per bit**: the property has no setter, and the only writer, `internal ApplyServerRestrictions(in S2C_0x0EE_FeatureRestrictions)`, takes a decoded server packet and can only add restrictions. Nothing can clear a restriction for the life of the session; a server lifting one takes effect at the next login.
+*   User-facing script runtimes (`Gordian.Addons`) and graphical views (`Gordian.App`) physically lack compile-time rights to modify this flag: the writer is internal and Core shows its internals only to `Gordian.Engine` and the tests (`LayeringTests.FeatureRestrictionsCannotBeSetOutsideCore`).
+*   If a private server transmits an automation restriction packet (S2C 0x0EE), the authenticated packet pipeline inside `Gordian.Core` (`LifecyclePacketModule.HandleFeatureRestrictions`, dispatched by `PacketParser`) applies it, immediately forcing the execution loop inside `Gordian.Automation` to short-circuit and sleep. That handler is the only production caller: `LayeringTests.FeatureRestrictionsAreWrittenOnlyByTheServerPacket` scans the IL of Core and the engine and fails on any other.
+*   Never add a setter, a public or internal way to clear or overwrite the flags, another caller of the writer, or a project to Core's `InternalsVisibleTo` list. Tests put a profile under restrictions with the `Restrict` / `Restricted` helpers (`tests/Gordian.Core.Tests/Shared/SessionProfileTestExtensions.cs`), which go through the same decoded packet.
 
 ---
 

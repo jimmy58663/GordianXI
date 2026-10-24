@@ -1,0 +1,180 @@
+// tests/Gordian.Engine.Tests/Animation/HeadLookTests.cs
+using System;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+using Gordian.Core.Animation;
+using Gordian.Core.Resources;
+using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
+using Gordian.Core.World;
+using Gordian.Engine.Animation;
+using Xunit;
+
+namespace Gordian.Engine.Tests.Animation
+{
+    /// <summary>The event head look (#174). The data test is skipped without the game install.</summary>
+    public class HeadLookTests
+    {
+        private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+
+        // The renderer's model-to-display flip (EntityRenderer.EntityRotMatrix) and heading rotation.
+        private static readonly Matrix4x4 Flip = new(1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1);
+        private static Matrix4x4 HeadingRotation(float heading) => Matrix4x4.CreateRotationY(-heading - MathF.PI);
+
+        [Fact]
+        public void ModelRotation_TurnsLikeTheBodyTurningBySameAngle()
+        {
+            var point = new Vector3(0.3f, -1.6f, 0.2f);
+            const float heading = 1.1f, yaw = 0.7f;
+            var turnedHead = Vector3.Transform(Vector3.Transform(point, HeadLook.ModelRotation(yaw)), Flip * HeadingRotation(heading));
+            var turnedBody = Vector3.Transform(point, Flip * HeadingRotation(heading + yaw));
+            Assert.True(Vector3.Distance(turnedHead, turnedBody) < 1e-4f);
+        }
+
+        [Fact]
+        public void AxisAngles_XTurnsAndYTilts_InEventSteps_Clamped()
+        {
+            var small = HeadLook.AxisAngles(new LookAxis(256, -256)); // a sixteenth of a turn each way
+            Assert.Equal(MathF.Tau / 16, small.X, 4);
+            Assert.Equal(-MathF.Tau / 16, small.Y, 4);
+            var quarter = HeadLook.AxisAngles(new LookAxis(-1024, 1024)); // Port Jeuno 324's (0, 1024), and Joachim's 1024
+            Assert.Equal(-HeadLook.MaxYaw, quarter.X, 4);
+            Assert.Equal(HeadLook.MaxPitch, quarter.Y, 4);
+        }
+
+        [Fact]
+        public void AxisStep_MovesAtTheHeadTurnSpeed_AndStopsOnTheAxis()
+        {
+            var target = new Vector2(0f, HeadLook.MaxPitch);
+            var tenth = HeadLook.AxisStep(Vector2.Zero, target, 0, 0.1f);
+            Assert.Equal(HeadLook.DefaultAxisTurnSpeed * 0.1f * HeadLook.RadiansPerStep, tenth.Y, 4);
+            Assert.Equal(0f, tenth.X);
+            Assert.Equal(200 * HeadLook.RadiansPerStep, HeadLook.AxisStep(Vector2.Zero, target, 200, 1f).Y, 4);
+            Assert.Equal(target, HeadLook.AxisStep(Vector2.Zero, target, 1500, 1f));
+            Assert.Equal(-0.1f, HeadLook.AxisStep(new Vector2(-0.1f, 0f), new Vector2(-0.1f, 0f), 50, 1f).X);
+        }
+
+        [Fact]
+        public void TargetYaw_IsTheBearingLessTheHeading_Wrapped()
+        {
+            var from = Vector3.Zero;
+            var east = new Vector3(5, 0, 0);
+            Assert.True(HeadLook.TryTargetYaw(0f, from, east, out float yaw));
+            Assert.Equal(0f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(0.2f, from, east, out yaw));
+            Assert.Equal(-0.2f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(MathF.Tau - 0.1f, from, east, out yaw)); // across the wrap
+            Assert.Equal(0.1f, yaw, 4);
+            Assert.True(HeadLook.TryTargetYaw(1f, from, from, out yaw));
+            Assert.Equal(0f, yaw);
+        }
+
+        [Fact]
+        public void TargetYaw_BeyondFortyFiveDegrees_LooksAhead()
+        {
+            // #402: a target past about 45 degrees of the body's heading is not followed, not clamped to the limit.
+            Assert.Equal(MathF.PI / 4f, HeadLook.MaxYaw, 4);
+            Assert.Equal(40f * MathF.PI / 180f, HeadLook.MaxPitch, 4); // round 1: 45 degrees of tilt looked too high
+            var from = Vector3.Zero;
+            var east = new Vector3(5, 0, 0);
+            Assert.True(HeadLook.TryTargetYaw(0.7f, from, east, out float yaw)); // 40 degrees: followed
+            Assert.Equal(-0.7f, yaw, 4);
+            Assert.False(HeadLook.TryTargetYaw(0.9f, from, east, out yaw)); // 52 degrees: straight ahead
+            Assert.Equal(0f, yaw);
+            Assert.False(HeadLook.TryTargetYaw(WorldEntity.HeadingOf(0, 1), from, east, out _)); // a quarter turn
+            Assert.False(HeadLook.TryTargetYaw(MathF.PI, from, east, out _)); // behind
+        }
+
+        [Fact]
+        public void LookingAway_EasesBackToAhead_NotASnap()
+        {
+            // The head was turned 40 degrees; the target moves behind, so the target turn becomes 0 and the head eases there.
+            float turn = 0.7f;
+            float afterOneFrame = HeadLook.Ease(turn, 0f, 1f / 60f);
+            Assert.InRange(afterOneFrame, 0.55f, 0.69f);
+            for (int i = 0; i < 60; i++) turn = HeadLook.Ease(turn, 0f, 1f / 60f);
+            Assert.InRange(turn, 0f, 0.01f);
+        }
+
+        [Fact]
+        public void ModelRotation_PositivePitch_RaisesTheFace()
+        {
+            // A point in front of the head (+X in model space). Display space is Y up (EntityRenderer).
+            var face = new Vector3(0.1f, 0f, 0f);
+            const float heading = 0.8f;
+            var level = Vector3.Transform(face, Flip * HeadingRotation(heading));
+            var up = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0f, 0.5f)), Flip * HeadingRotation(heading));
+            var down = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0f, -0.5f)), Flip * HeadingRotation(heading));
+            Assert.True(up.Y > level.Y + 0.04f);
+            Assert.True(down.Y < level.Y - 0.04f);
+            // The tilt stays in the facing direction: no sideways swing.
+            var flatLevel = new Vector2(level.X, level.Z);
+            var flatUp = new Vector2(up.X, up.Z);
+            Assert.True(Vector2.Dot(Vector2.Normalize(flatLevel), Vector2.Normalize(flatUp)) > 0.9999f);
+            // With a turn, the tilt is taken about the turned head's side axis.
+            var turnedLevel = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0.6f)), Flip * HeadingRotation(heading));
+            var turnedUp = Vector3.Transform(Vector3.Transform(face, HeadLook.ModelRotation(0.6f, 0.5f)), Flip * HeadingRotation(heading));
+            Assert.True(Vector2.Dot(Vector2.Normalize(new Vector2(turnedLevel.X, turnedLevel.Z)), Vector2.Normalize(new Vector2(turnedUp.X, turnedUp.Z))) > 0.9999f);
+        }
+
+        [Fact]
+        public void TargetPitch_LooksUpAtATallerHead_Clamped()
+        {
+            // A Tarutaru head (~0.9) looking at a Galka head (~2.4) two yalms away (37 degrees); a yalm and a half away (45) is clamped to 40.
+            Assert.Equal(MathF.Atan2(1.5f, 2.0f), HeadLook.TargetPitch(0.9f, 2.4f, 2.0f), 4);
+            Assert.Equal(HeadLook.MaxPitch, HeadLook.TargetPitch(0.9f, 2.4f, 1.5f), 4);
+            Assert.True(HeadLook.TargetPitch(2.4f, 0.9f, 3f) < 0f);
+            Assert.Equal(HeadLook.MaxPitch, HeadLook.TargetPitch(0.9f, 2.4f, 0.1f), 4);
+            Assert.Equal(0f, HeadLook.TargetPitch(1.5f, 1.5f, 2f));
+        }
+
+        [Fact]
+        public void Apply_TurnsTheHeadAndWhatHangsFromIt_Only()
+        {
+            // root 0 -> spine 1 -> head 2 -> face 3; arm 4 under the spine.
+            var joints = new[]
+            {
+                new SkeletonJoint(-1, Quaternion.Identity, Vector3.Zero),
+                new SkeletonJoint(0, Quaternion.Identity, new Vector3(0, -1, 0)),
+                new SkeletonJoint(1, Quaternion.Identity, new Vector3(0, -0.5f, 0)),
+                new SkeletonJoint(2, Quaternion.Identity, new Vector3(0.1f, -0.1f, 0)),
+                new SkeletonJoint(1, Quaternion.Identity, new Vector3(0, 0, 0.3f)),
+            };
+            var refs = Enumerable.Range(0, 6).Select(i => new JointReference((ushort)(i == HeadLook.HeadReference ? 2 : 0), Vector3.Zero)).ToArray();
+            var skeleton = new Skeleton(joints, refs);
+            Assert.Equal(2, HeadLook.HeadJoint(skeleton));
+            var pose = SkeletonPoseEvaluator.ComputeBindPose(skeleton);
+            var before = pose.Translations.ToArray();
+            HeadLook.Apply(skeleton, pose, 2, MathF.PI / 2);
+            Assert.Equal(before[2], pose.Translations[2]); // the pivot
+            Assert.Equal(before[4], pose.Translations[4]); // the arm stays
+            Assert.Equal(before[1], pose.Translations[1]);
+            Assert.True(Vector3.Distance(before[3], pose.Translations[3]) > 0.05f); // the face swings round
+            Assert.Equal(Vector3.Distance(before[2], before[3]), Vector3.Distance(pose.Translations[2], pose.Translations[3]), 4);
+        }
+
+        /// <summary>Reference 5 is the joint the race's face mesh is bound to (most of its vertices).</summary>
+        [Theory]
+        [InlineData(CharacterRace.HumeMale, 52)]
+        [InlineData(CharacterRace.HumeFemale, 30)]
+        [InlineData(CharacterRace.ElvaanMale, 30)]
+        [InlineData(CharacterRace.ElvaanFemale, 57)]
+        [InlineData(CharacterRace.TaruMale, 7)]
+        [InlineData(CharacterRace.Mithra, 40)]
+        [InlineData(CharacterRace.Galka, 40)]
+        public void HeadJoint_IsTheFaceMeshJoint(CharacterRace race, int head)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var skeleton = EntityModelLoader.ParseDatContainer(rm.LoadDatBytes(CharacterEquipmentResolver.GetBaseSkeletonPath(race))!, "base").Skeleton!;
+            Assert.Equal(head, HeadLook.HeadJoint(skeleton));
+            Assert.True(CharacterEquipmentResolver.TryResolveGearFileId(race, CharacterSlot.Face, 1, out int faceFile));
+            var face = EntityModelLoader.ParseDatContainer(rm.LoadDatBytesByFileId(faceFile)!, "face");
+            int bound = face.Meshes.SelectMany(m => m.Vertices).GroupBy(v => v.Joint0).OrderByDescending(g => g.Count()).First().Key;
+            Assert.Equal(head, bound);
+        }
+    }
+}

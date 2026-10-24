@@ -17,11 +17,11 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Gordian.Tests.Shared" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gordian.Core\Gordian.Core.csproj" />
-    <ProjectReference Include="..\..\src\Gordian.Engine\Gordian.Engine.csproj" />
   </ItemGroup>
 
 </Project>

@@ -39,9 +39,9 @@ namespace Gordian.Core.Tests.Animation
         }
 
         private static (string, byte[]) Swing(string name, string clip, int total, int hitTick) =>
-            (name, MotionRoutineDecoderTests.Routine(total,
-                MotionRoutineDecoderTests.PlayClip(clip + "?", hitTick, total, 12, 20, 1),
-                MotionRoutineDecoderTests.Link(0x03, "dada", total - hitTick)));
+            (name, MotionRoutineBuilder.Routine(total,
+                MotionRoutineBuilder.PlayClip(clip + "?", hitTick, total, 12, 20, 1),
+                MotionRoutineBuilder.Link(0x03, "dada", total - hitTick)));
 
         private static ActionRequest Request(ActionMotion motion, IActionHitSink? sink = null, string routine = "", long? received = null) => new()
         {
@@ -65,7 +65,7 @@ namespace Gordian.Core.Tests.Animation
         public void EventMotion_PlaysFromTheBank_ReplacesTheAction_AndStopsByName()
         {
             var model = Model([("at0", 2f)], Swing("ati0", "at0", 120, 60));
-            var bankRoutine = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(40, MotionRoutineDecoderTests.PlayClip("tl1?", 0, 40, 4, 4, 1)), "tlk0")!;
+            var bankRoutine = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(40, MotionRoutineBuilder.PlayClip("tl1?", 0, 40, 4, 4, 1)), "tlk0")!;
             var bank = new EventMotionBank(32174, [Clip("tl10", 0.6f)], [bankRoutine]);
             Assert.Equal(40, bank.GetRoutineFrames("tlk0"));
 
@@ -99,11 +99,11 @@ namespace Gordian.Core.Tests.Animation
         public void EventMotion_LoopingLastClip_HoldsThePoseUntilTheNextGesture()
         {
             var model = Model([]);
-            var kneel = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(216,
-                MotionRoutineDecoderTests.PlayClip("sm0?", 104, 104, 30, 0, 1),
-                MotionRoutineDecoderTests.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
-            var getUp = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(108,
-                MotionRoutineDecoderTests.PlayClip("sm2?", 108, 108, 30, 0, 1)), "sha1")!;
+            var kneel = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(216,
+                MotionRoutineBuilder.PlayClip("sm0?", 104, 104, 30, 0, 1),
+                MotionRoutineBuilder.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
+            var getUp = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(108,
+                MotionRoutineBuilder.PlayClip("sm2?", 108, 108, 30, 0, 1)), "sha1")!;
             var bank = new EventMotionBank(32721, [Clip("sm00", 1.7f), Clip("sm10", 1.8f), Clip("sm20", 1.8f)], [kneel, getUp]);
             Assert.True(bank.Routines["sha0"].HoldsLastClip);
             Assert.Equal(216, bank.GetRoutineFrames("sha0"));
@@ -138,11 +138,11 @@ namespace Gordian.Core.Tests.Animation
         public void EventMotion_GivenOffScreen_CatchesUpInsteadOfBeingDropped()
         {
             var model = Model([]);
-            var kneel = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(216,
-                MotionRoutineDecoderTests.PlayClip("sm0?", 104, 104, 30, 0, 1),
-                MotionRoutineDecoderTests.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
-            var talk = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(52,
-                MotionRoutineDecoderTests.PlayClip("tl2?", 52, 52, 30, 0, 1)), "tlk1")!;
+            var kneel = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(216,
+                MotionRoutineBuilder.PlayClip("sm0?", 104, 104, 30, 0, 1),
+                MotionRoutineBuilder.PlayClip("sm1?", 112, 112, 30, 0, 0)), "sha0")!;
+            var talk = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(52,
+                MotionRoutineBuilder.PlayClip("tl2?", 52, 52, 30, 0, 1)), "tlk1")!;
             var bank = new EventMotionBank(32721, [Clip("sm00", 1.7f), Clip("sm10", 1.8f), Clip("tl20", 0.8f)], [kneel, talk]);
             long fiveSecondsAgo = Stopwatch.GetTimestamp() - 5 * Stopwatch.Frequency;
 
@@ -163,7 +163,7 @@ namespace Gordian.Core.Tests.Animation
         [Fact]
         public void Action_LoopingLastClip_EndsWithItsRoutine()
         {
-            var model = Model([("cor", 0.1f)], ("corp", MotionRoutineDecoderTests.Routine(2, MotionRoutineDecoderTests.PlayClip("cor?", 2, 2, 0, 0, 0))));
+            var model = Model([("cor", 0.1f)], ("corp", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PlayClip("cor?", 2, 2, 0, 0, 0))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Idle, 0, model);
             state.EnqueueAction(Request(ActionMotion.Routine, routine: "corp"));
@@ -274,8 +274,8 @@ namespace Gordian.Core.Tests.Animation
         public void Chant_LoopsUntilItsReleaseReplacesIt()
         {
             var model = Model([("mb0", 0.5f), ("mb1", 1f)],
-                ("cabk", MotionRoutineDecoderTests.Routine(33, MotionRoutineDecoderTests.PlayClip("mb0?", 0, 33, 16, 10, 63))),
-                ("shbk", MotionRoutineDecoderTests.Routine(60, MotionRoutineDecoderTests.PlayClip("mb1?", 0, 60, 10, 15, 1))));
+                ("cabk", MotionRoutineBuilder.Routine(33, MotionRoutineBuilder.PlayClip("mb0?", 0, 33, 16, 10, 63))),
+                ("shbk", MotionRoutineBuilder.Routine(60, MotionRoutineBuilder.PlayClip("mb1?", 0, 60, 10, 15, 1))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
 
@@ -294,7 +294,7 @@ namespace Gordian.Core.Tests.Animation
         public void Interrupt_EndsTheChant()
         {
             var model = Model([("mb0", 0.5f)],
-                ("cabk", MotionRoutineDecoderTests.Routine(33, MotionRoutineDecoderTests.PlayClip("mb0?", 0, 33, 16, 10, 63))));
+                ("cabk", MotionRoutineBuilder.Routine(33, MotionRoutineBuilder.PlayClip("mb0?", 0, 33, 16, 10, 63))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
             state.EnqueueAction(Request(ActionMotion.Routine, routine: "cabk"));
@@ -327,7 +327,7 @@ namespace Gordian.Core.Tests.Animation
         public void HitReaction_FlinchesTowardFrontOrBackDamagePose()
         {
             var model = Model([("dfm", 0f), ("dbm", 0f)],
-                ("damg", MotionRoutineDecoderTests.Routine(2, MotionRoutineDecoderTests.Flinch(24))));
+                ("damg", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.Flinch(24))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
 
@@ -378,7 +378,7 @@ namespace Gordian.Core.Tests.Animation
         public void Parry_FlashesTheParryPose()
         {
             var model = Model([("gdm", 0f), ("pym", 0f)],
-                ("pary", MotionRoutineDecoderTests.Routine(0, MotionRoutineDecoderTests.PoseFlash(1, 16))));
+                ("pary", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(1, 16))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
 
@@ -392,7 +392,7 @@ namespace Gordian.Core.Tests.Animation
         public void Counter_MakesTheTargetStrikeBack()
         {
             var model = Model([("at1", 1f)],
-                ("cni0", MotionRoutineDecoderTests.Routine(60, MotionRoutineDecoderTests.PlayClip("at1?", 0, 60, 10, 20, 1))));
+                ("cni0", MotionRoutineBuilder.Routine(60, MotionRoutineBuilder.PlayClip("at1?", 0, 60, 10, 20, 1))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Combat, 0, model);
 
@@ -407,8 +407,8 @@ namespace Gordian.Core.Tests.Animation
         {
             // "in" goes into battle (idle stance to battle stance), "out" out of it (#136).
             var model = Model([("ind", 1.2f), ("otd", 1.2f)],
-                ("in 0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("ind?", 36, 72, 8, 8, 1))),
-                ("out0", MotionRoutineDecoderTests.Routine(72, MotionRoutineDecoderTests.PlayClip("otd?", 36, 72, 8, 8, 1))));
+                ("in 0", MotionRoutineBuilder.Routine(72, MotionRoutineBuilder.PlayClip("ind?", 36, 72, 8, 8, 1))),
+                ("out0", MotionRoutineBuilder.Routine(72, MotionRoutineBuilder.PlayClip("otd?", 36, 72, 8, 8, 1))));
             var state = new EntityAnimationState();
             state.Advance(0f, AnimationCategory.Idle, 0, model);
             Assert.Null(state.WeaponGripOverride);

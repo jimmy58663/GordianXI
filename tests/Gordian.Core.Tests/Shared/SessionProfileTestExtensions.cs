@@ -1,9 +1,10 @@
 // tests/Gordian.Core.Tests/Shared/SessionProfileTestExtensions.cs
 using System;
 using System.Buffers.Binary;
+using Gordian.Core.Config;
 using Gordian.Core.Network.Packets;
 
-namespace Gordian.Core.Config
+namespace Gordian.Tests.Shared
 {
     /// <summary>
     /// Puts a session under server restrictions the way the server does: through a decoded S2C 0x0EE, which is the only way

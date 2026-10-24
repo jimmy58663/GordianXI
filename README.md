@@ -59,7 +59,7 @@ GordianXI/
 │   ├── Gordian.Addons/     # Class Library: sandboxed Lua 5.4 addon runtime
 │   ├── Gordian.App/        # Avalonia UI app: desktop shell, GPU renderer, audio output, input devices, ImGui
 │   └── Gordian.Proxy/      # Native FFXiMain.dll proxy for the bootloader session handoff (Windows)
-├── tests/                  # One test project per assembly (Core.Tests also covers the engine for now)
+├── tests/                  # One test project per assembly (Core, Engine, Automation, Addons, App)
 └── docs/                   # How each subsystem works (index: docs/README.md)
 ```
 
