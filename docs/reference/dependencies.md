@@ -70,13 +70,13 @@ Dependabot ([.github/dependabot.yml](../../.github/dependabot.yml)) checks NuGet
 
 ## Security scanning
 
-Three workflows check the code and its dependencies. Actions are pinned by version tag, like the rest of our workflows, and Dependabot keeps them current. How to report a vulnerability: [SECURITY.md](../../SECURITY.md).
+Three workflows check the code and its dependencies. Every action in every workflow is pinned to a full commit SHA with its release in a comment (`uses: actions/checkout@<sha> # v7.0.1`); Dependabot's `github-actions` updates move the SHA and the comment together (#441). Each workflow starts from `permissions: {}` and grants only what each job needs. How to report a vulnerability: [SECURITY.md](../../SECURITY.md).
 
 | Workflow | Runs on | What it does |
 |---|---|---|
 | [dependency-review.yml](../../.github/workflows/dependency-review.yml) (#280) | Every PR to `main` | Fails the PR if it adds or updates a dependency (NuGet package or action) with a known vulnerability of moderate severity or higher, or with a licence outside the allowlist below. A docs-only PR skips the review and passes, like `ci.yml`, so it can be a required check |
 | [codeql.yml](../../.github/workflows/codeql.yml) (#282) | PRs, pushes to `main`, Tuesdays | CodeQL for `csharp` (build mode `none`: no build needed; CodeQL supports C# 14, .NET 10 and `.slnx`), `c-cpp` (the proxy DLL, built with MSVC x86 by `build_proxy.bat` on `windows-latest`) and `actions` (the workflows). Results go to Security > Code scanning |
-| [scorecard.yml](../../.github/workflows/scorecard.yml) (#282) | Pushes to `main`, branch protection changes, Tuesdays | OpenSSF Scorecard: grades supply-chain practices and publishes the badge in README.md. It marks our tag-pinned actions down under Pinned-Dependencies; we accept that for now |
+| [scorecard.yml](../../.github/workflows/scorecard.yml) (#282) | Pushes to `main`, branch protection changes, Tuesdays | OpenSSF Scorecard: grades supply-chain practices and publishes the badge in README.md. Decisions on its findings are in the table below |
 
 **Licence allowlist** (dependency review, SPDX ids). Anything else fails, so GPL and AGPL code cannot come in (the action cannot combine an allowlist with a denylist). A dependency whose licence GitHub cannot detect is reported but does not fail: check it by hand.
 
@@ -90,3 +90,18 @@ Three workflows check the code and its dependencies. Actions are pinned by versi
 | LGPL-2.0-or-later, LGPL-2.1-or-later | OpenAL Soft (`Silk.NET.OpenAL.Soft.Native`), loaded dynamically. The package says LGPL-2.0-or-later; 2.1 is listed in case GitHub's licence data records it that way |
 
 `AvaloniaUI.DiagnosticsSupport` declares no licence (Debug builds only), so the review reports it as unknown. Licences were read from each package's nuspec on 2026-10-05.
+
+### Alert decisions
+
+The open code scanning alerts were reviewed for #441 (2026-10-24). A new alert gets a row here when it is dismissed or accepted rather than fixed.
+
+| Alert | Decision |
+|---|---|
+| CodeQL `cs/cleartext-storage-of-sensitive-information` (`GordianLog`) | **Fixed.** `LsbLoginClient` logged the LSB account id at login; it no longer does. Logs get attached to bug reports, so account ids, passwords and session hashes stay out of them |
+| Scorecard Pinned-Dependencies | **Fixed.** Actions pinned to commit SHAs (see above). The CycloneDX tool stays pinned by exact version (`CYCLONEDX_VERSION`) |
+| Scorecard Token-Permissions | **Fixed.** Top-level `permissions: {}` in every workflow; write scopes only on the jobs that use them: `checks: write` for the CI test report, `contents: write` for the release draft and the release uploads, and `id-token` / `attestations` / `artifact-metadata` for the release attestations. Scorecard may still note job-level `contents: write` in the two release workflows; that is what they are for |
+| Scorecard Binary-Artifacts (`src/Gordian.Proxy/FFXiMain.dll`) | **Accepted.** The checked-in DLL lets the app run on a machine without MSVC x86 tools. Releases no longer ship it: `package-release.yml` rebuilds it from `dllmain.cpp` with `build_proxy.bat`, and CodeQL builds it the same way. Rebuild and commit it with the source when `dllmain.cpp` changes |
+| Scorecard Code-Review, Branch-Protection | **Accepted.** One maintainer: `Protect_Main` requires a PR, squash merge and both CI checks but no approving review, and the maintainer can bypass it. Scorecard scores that down by design |
+| Scorecard Maintained | **Accepted.** Scorecard scores repositories younger than 90 days as 0; it clears on its own |
+| Scorecard CII-Best-Practices | **Accepted for now.** An OpenSSF Best Practices badge is optional; revisit with the Phase 9 release work |
+| Scorecard Fuzzing | **Accepted for now.** The packet decoders and DAT parsers read untrusted server and file input, so they are the candidates if fuzzing is added |

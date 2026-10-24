@@ -96,7 +96,9 @@ namespace Gordian.Engine.Tests.Events
             if (rm == null) return;
             var (runs, end) = RunAllBlocks(rm, 30035);
             var director = Assert.Single(runs, r => r.Host.Printed.Count > 0 || r.Host.Queries.Count > 0);
-            Assert.Equal(0x010E71B2u, director.Actor);
+            // The director's id moves with retail patches (0x010E71B2 when this was written, 0x010E71B3 since an
+            // update added an NPC before it), so only check that it is a Northern San d'Oria NPC.
+            Assert.Equal(NorthernSandoria, (int)((director.Actor >> 12) & 0xFFF));
             Assert.Equal(19402, Assert.Single(director.Host.Queries).Message); // "Start Rhapsodies of Vana'diel?"
             Assert.Equal(new uint[] { 0 }, director.Host.Updates);
             Assert.Equal(1u, end);

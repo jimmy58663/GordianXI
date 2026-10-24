@@ -1,4 +1,4 @@
-﻿name: Release Drafter
+name: Release Drafter
 
 on:
   pull_request:
@@ -7,16 +7,17 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: read
+permissions: {}
 
 jobs:
   update_release_draft:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # create and update the draft release
+      pull-requests: read
     steps:
       - name: Update release draft
-        uses: release-drafter/release-drafter@v7
+        uses: release-drafter/release-drafter@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
