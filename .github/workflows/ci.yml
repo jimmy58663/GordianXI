@@ -30,7 +30,7 @@ jobs:
     # docs-only PR (only docs/ and Markdown files changed) skips the build and tests and passes.
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -55,13 +55,13 @@ jobs:
 
       - name: Setup .NET SDK
         if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
       - name: Cache NuGet packages
         if: steps.changes.outputs.code == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
@@ -80,7 +80,7 @@ jobs:
         run: dotnet test --configuration Release --no-build --verbosity normal --results-directory "${{ github.workspace }}/TestResults" --logger "trx"
 
       - name: Publish Test Report
-        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
+        uses: dorny/test-reporter@v3
         if: ${{ !cancelled() && steps.changes.outputs.code == 'true' }}
         with:
           name: Test Results (${{ matrix.os }})

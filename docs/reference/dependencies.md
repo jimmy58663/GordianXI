@@ -70,7 +70,7 @@ Dependabot ([.github/dependabot.yml](../../.github/dependabot.yml)) checks NuGet
 
 ## Security scanning
 
-Three workflows check the code and its dependencies. Every action in every workflow is pinned to a full commit SHA with its release in a comment (`uses: actions/checkout@<sha> # v7.0.1`); Dependabot's `github-actions` updates move the SHA and the comment together (#441). Each workflow starts from `permissions: {}` and grants only what each job needs. How to report a vulnerability: [SECURITY.md](../../SECURITY.md).
+Three workflows check the code and its dependencies. Actions are pinned by major version tag (`actions/checkout@v7`), or by exact version where the action has no major tag (`ossf/scorecard-action`); Dependabot proposes each new major. An action that needs tighter control can go to a `major.minor` tag, not a commit SHA (#441). Each workflow starts from `permissions: {}` and grants only what each job needs. How to report a vulnerability: [SECURITY.md](../../SECURITY.md).
 
 | Workflow | Runs on | What it does |
 |---|---|---|
@@ -98,7 +98,7 @@ The open code scanning alerts were reviewed for #441 (2026-10-24). A new alert g
 | Alert | Decision |
 |---|---|
 | CodeQL `cs/cleartext-storage-of-sensitive-information` (`GordianLog`) | **Fixed.** `LsbLoginClient` logged the LSB account id at login; it no longer does. Logs get attached to bug reports, so account ids, passwords and session hashes stay out of them |
-| Scorecard Pinned-Dependencies | **Fixed.** Actions pinned to commit SHAs (see above). The CycloneDX tool stays pinned by exact version (`CYCLONEDX_VERSION`) |
+| Scorecard Pinned-Dependencies | **Accepted** (maintainer, 2026-10-24). Scorecard only credits full commit SHAs, and keeping SHAs current means a Dependabot PR for every patch release. Major tags take minor and patch fixes without that churn. The risk accepted: an action's owner, or someone who takes over its repo, can move a tag. Each job's token is limited to what it needs (Token-Permissions below), which limits what a moved tag could do. Pinned-Dependencies weighs 5 of Scorecard's 100 points, so this costs at most 0.5 of the overall score |
 | Scorecard Token-Permissions | **Fixed.** Top-level `permissions: {}` in every workflow; write scopes only on the jobs that use them: `checks: write` for the CI test report, `contents: write` for the release draft and the release uploads, and `id-token` / `attestations` / `artifact-metadata` for the release attestations. Scorecard may still note job-level `contents: write` in the two release workflows; that is what they are for |
 | Scorecard Binary-Artifacts (`src/Gordian.Proxy/FFXiMain.dll`) | **Accepted.** The checked-in DLL lets the app run on a machine without MSVC x86 tools. Releases no longer ship it: `package-release.yml` rebuilds it from `dllmain.cpp` with `build_proxy.bat`, and CodeQL builds it the same way. Rebuild and commit it with the source when `dllmain.cpp` changes |
 | Scorecard Code-Review, Branch-Protection | **Accepted.** One maintainer: `Protect_Main` requires a PR, squash merge and both CI checks but no approving review, and the maintainer can bypass it. Scorecard scores that down by design |

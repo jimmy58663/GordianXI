@@ -26,7 +26,7 @@ jobs:
     # and Markdown files changed) skips the review and passes, the same way ci.yml does.
     steps:
       - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
       #   LGPL-2.1-or-later   the same OpenAL Soft licence as some licence databases record it
       - name: Review dependency changes
         if: steps.changes.outputs.code == 'true'
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: moderate
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, ISC, LGPL-2.0-or-later, LGPL-2.1-or-later
