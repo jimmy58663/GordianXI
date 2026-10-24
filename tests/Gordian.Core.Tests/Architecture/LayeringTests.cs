@@ -7,16 +7,18 @@ using System.Reflection;
 namespace Gordian.Core.Tests.Architecture
 {
     /// <summary>
-    /// Keeps the client's namespaces layered (issue #433): data parsing at the bottom, then
-    /// protocol, session and world state, then the engine (playback, UI, input, audio) on
-    /// top. A type may refer to types in its own layer or a lower one, never a higher one.
+    /// Keeps the client's namespaces layered (issue #433): protocol, session and world state and
+    /// the DAT resources under them (Core), then the engine (playback, UI, input, audio) on top.
+    /// A type may refer to types in its own layer or a lower one, never a higher one. Resources
+    /// is not a layer of its own: its loaders build world and collision state and log through
+    /// Diagnostics, so a separate data layer would need those moved first (#433 phase 1 finding).
     /// References that break the rule today are listed in <see cref="KnownViolations"/>;
     /// fixing one means deleting its line, and the test fails on lines that no longer apply
     /// so the list only shrinks.
     /// </summary>
     public class LayeringTests
     {
-        private enum Layer { Data = 0, Core = 1, Engine = 2 }
+        private enum Layer { Core = 0, Engine = 1 }
 
         /// <summary>The root namespace of the engine layer: everything under it is <see cref="Layer.Engine"/>.</summary>
         private const string EngineRoot = "Gordian.Engine";
@@ -28,13 +30,12 @@ namespace Gordian.Core.Tests.Architecture
         /// </summary>
         private static readonly Dictionary<string, Layer> Layers = new(StringComparer.Ordinal)
         {
-            ["Resources"] = Layer.Data,
-
             ["(root)"] = Layer.Core,
             ["Config"] = Layer.Core,
             ["Diagnostics"] = Layer.Core,
             ["Network"] = Layer.Core,
             ["Profiles"] = Layer.Core,
+            ["Resources"] = Layer.Core,
             ["World"] = Layer.Core,
 
             ["Animation"] = Layer.Core,
@@ -59,25 +60,6 @@ namespace Gordian.Core.Tests.Architecture
             "Network.CharacterSession -> Input",
             "Network.CharacterSession -> Macros",
             "Network.CharacterSession -> Ui",
-            "Resources.EntityModelLoader -> Diagnostics",
-            "Resources.Graphics.SharedHitRoutines -> Network",
-            "Resources.Graphics.TextureDecoder -> Diagnostics",
-            "Resources.Graphics.ZoneCollisionDecoder -> World",
-            "Resources.Graphics.ZoneEnvironmentData -> World",
-            "Resources.Models.ZoneGeometry -> World",
-            "Resources.Models.ZoneVessel -> World",
-            "Resources.MountModels -> World",
-            "Resources.ResourceManager -> Animation",
-            "Resources.ResourceManager -> Diagnostics",
-            "Resources.ResourceManager -> World",
-            "Resources.Ui.UiResourceLibrary -> Diagnostics",
-            "Resources.Vfs.DatOverlayPack -> Diagnostics",
-            "Resources.Vfs.ModernAssetPack -> Diagnostics",
-            "Resources.Vfs.VfsConfig -> Diagnostics",
-            "Resources.Vfs.VfsHotReloadWatcher -> Diagnostics",
-            "Resources.Vfs.VirtualFileSystem -> Diagnostics",
-            "Resources.ZoneDataLoader -> Diagnostics",
-            "Resources.ZoneDataLoader -> World",
         };
 
         internal static Assembly[] ScannedAssemblies => new[] { typeof(Gordian.Core.Config.GordianStorage).Assembly };
