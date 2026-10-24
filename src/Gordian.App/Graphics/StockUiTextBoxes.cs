@@ -27,8 +27,8 @@ namespace Gordian.App.Graphics
         private static readonly string[] ElementIconTextures = { "elfire", "elice", "elwind", "elearth", "elthunde", "elwater", "elholy", "eldark" };
 
         /// <summary>
-        /// The pen advance of an element icon (layout px): the 16 px icon, a log row tall (PROVISIONAL: retail's spacing around
-        /// the icon is not measured yet).
+        /// The pen advance of an element icon (layout px): the 16 px icon, a log row tall (the Carrier's Sash matched retail
+        /// in-game, 2026-10-24).
         /// </summary>
         public const float IconAdvance = 16;
 
