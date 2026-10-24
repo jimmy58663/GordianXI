@@ -371,6 +371,36 @@ namespace Gordian.Core.Actions
         }
 
         /// <summary>
+        /// The action service for the session <paramref name="parser"/> decodes: its outgoing packets go through the
+        /// parser's packet modules and send callback (#433: the engine builds it on top of the protocol session).
+        /// </summary>
+        public static PlayerActionService ForParser(PacketParser parser)
+        {
+            ArgumentNullException.ThrowIfNull(parser);
+            return new PlayerActionService(
+                parser.Profile,
+                parser.World,
+                parser.LocalPlayer,
+                parser.CombatModule,
+                parser.ChatModule,
+                parser.PartyModule,
+                parser.EntityModule,
+                parser.LifecycleModule,
+                parser.SendChunk)
+            {
+                ConfigModule = parser.ConfigModule,
+                InventoryModule = parser.InventoryModule,
+                ProgressionModule = parser.ProgressionModule,
+                TreasureModule = parser.TreasureModule,
+                CraftingModule = parser.CraftingModule,
+                SocialModule = parser.SocialModule,
+                SearchService = parser.Search,
+                CommandModule = parser.CommandModule,
+                LoginDataModule = parser.LoginDataModule,
+            };
+        }
+
+        /// <summary>
         /// The server picked the character's target (S2C 0x058: the <c>/assist</c> answer, or a new battle target): the
         /// cursor moves to it, as XiPackets describes the client's handler. PROVISIONAL: whether retail also locks on is
         /// not checked (LandSandBoat's comments say "lock on to the new target"); the lock-on state is left as it is. An

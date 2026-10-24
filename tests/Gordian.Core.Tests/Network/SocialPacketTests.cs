@@ -526,9 +526,10 @@ namespace Gordian.Core.Tests.Network
         {
             var sent = new List<byte[]>();
             var parser = NewParser(out var dispatcher, sent);
+            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
             parser.Inventory.GetContainer(ContainerId.Inventory)._items[5] = new InventoryItem(4096, 12, 5, ContainerId.Inventory, 0, ItemLockFlag.Normal);
 
-            var task = parser.ActionService.ItemSearchAsync("Cure Potion");
+            var task = actions.ItemSearchAsync("Cure Potion");
             // The command subscribes to the answer and sends the request before its first real await, so the request is out
             // by now; answer at once. (A fixed delay here raced the command's reply timeout on a busy thread pool: the timeout
             // completes on the timer thread, while the delayed answer needed a pool thread to run.)
@@ -548,16 +549,17 @@ namespace Gordian.Core.Tests.Network
         {
             var sent = new List<byte[]>();
             var parser = NewParser(out var dispatcher, sent);
+            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
             Receive(dispatcher, 0x041, BlackListPage(0x03, (1, "Ayame"), (2, "Cybin")));
 
-            var added = await parser.ActionService.BlacklistAsync("add Zed");
+            var added = await actions.BlacklistAsync("add Zed");
             Assert.Contains("Zed", added.Message);
             Assert.Equal(0x03D, Header(sent[^1]).Id);
 
-            var listed = await parser.ActionService.BlacklistAsync("list");
+            var listed = await actions.BlacklistAsync("list");
             Assert.Contains("Ayame, Cybin", listed.Message);
 
-            var usage = await parser.ActionService.BlacklistAsync("add");
+            var usage = await actions.BlacklistAsync("add");
             Assert.Contains("Usage", usage.Message);
         }
     }

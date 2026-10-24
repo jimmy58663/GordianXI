@@ -151,12 +151,15 @@ namespace Gordian.Core.Network
         public CombatPacketModule CombatModule => NetworkManager.CombatModule;
 
         /// <summary>Bridge from S2C 0x028 actions to entity animation (swings, casts, hit reactions).</summary>
-        public Animation.ActionPlaybackQueue ActionPlayback => NetworkManager.ActionPlayback;
+        public Animation.ActionPlaybackQueue ActionPlayback { get; }
+
+        /// <summary>Plays S2C 0x038 / 0x03A on their actors as they arrive (#311).</summary>
+        public Animation.SchedulerPlayback SchedulerPlayback { get; }
 
         /// <summary>
         /// Gets the unified player action coordinator service.
         /// </summary>
-        public Actions.PlayerActionService ActionService => NetworkManager.ActionService;
+        public Actions.PlayerActionService ActionService { get; }
 
         /// <summary>
         /// Gets the instance-level input state tracking active keys, mouse buttons, and actions.
@@ -225,6 +228,12 @@ namespace Gordian.Core.Network
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
+            // The engine side of the session, built before anything else subscribes so its handlers run first, as they
+            // did when the parser built them (#433).
+            ActionPlayback = new Animation.ActionPlaybackQueue(Combat, World, Animation.ActionMotionLibrary.Shared);
+            SchedulerPlayback = new Animation.SchedulerPlayback(Scheduler, World, Animation.ActionMotionLibrary.Shared);
+            ActionService = Actions.PlayerActionService.ForParser(NetworkManager.Parser);
+            ActionService.LocalPlayerMoved += (pos, dir) => NetworkManager.SetLocalPosition(pos, dir);
             ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
             ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
             Macros = new Gordian.Core.Macros.MacroController(Gordian.Core.Macros.MacroStore.GetForCharacter(characterName));

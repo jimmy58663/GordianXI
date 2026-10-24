@@ -582,6 +582,7 @@ namespace Gordian.Core.Tests.Network
         private sealed class Session
         {
             public PacketParser Parser = null!;
+            public Gordian.Core.Actions.PlayerActionService Actions = null!;
             public PacketDispatcher Dispatcher = null!;
             public FakeTransport Transport = null!;
             public readonly List<byte[]> Sent = new();
@@ -597,6 +598,7 @@ namespace Gordian.Core.Tests.Network
             }, dispatcher: session.Dispatcher);
             session.Parser.Search.Transport = session.Transport;
             session.Parser.Search.Configure("search.test", 54002);
+            session.Actions = Gordian.Core.Actions.PlayerActionService.ForParser(session.Parser);
             return session;
         }
 
@@ -627,7 +629,7 @@ namespace Gordian.Core.Tests.Network
                 _ => Array.Empty<(byte[], int)>()
             });
             var service = session.Parser.Search;
-            session.Parser.ActionService.SearchService = service;
+            session.Actions.SearchService = service;
 
             // No group id answer: the party list is not fetched.
             service.GroupIdTimeout = TimeSpan.FromMilliseconds(50);
@@ -714,9 +716,9 @@ namespace Gordian.Core.Tests.Network
             {
                 (EntityAnswer(0, 2, true, false, ("Ayame", 230, 3, 4, 75, 37, 0, 1, 0), ("Hidden", 230, 0, 0, 0, 0, 0x4000, 2, 0)), 0)
             });
-            session.Parser.ActionService.SearchService = session.Parser.Search;
+            session.Actions.SearchService = session.Parser.Search;
 
-            var result = await session.Parser.ActionService.PlayerSearchAsync("all");
+            var result = await session.Actions.PlayerSearchAsync("all");
 
             Assert.Contains("Ayame (WhiteMage 75)", result.Message);
             Assert.Contains("Hidden", result.Message);
@@ -731,7 +733,7 @@ namespace Gordian.Core.Tests.Network
         public async Task PcmdAdd_InvitesAPlayerInAnotherZoneByCharacterId()
         {
             var session = NewSession(_ => new[] { (EntityAnswer(0, 1, true, false, ("Ayame", 230, 3, 4, 75, 37, 0, 0x1234, 0)), 0) });
-            var actions = session.Parser.ActionService;
+            var actions = session.Actions;
             actions.SearchService = session.Parser.Search;
 
             var result = await actions.ExecuteCommandAsync("/pcmd add Ayame");

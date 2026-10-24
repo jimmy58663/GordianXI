@@ -766,10 +766,11 @@ namespace Gordian.Core.Tests.Network
         public void WeaponSkillSkillchain_ReachesTheCombatLog()
         {
             var parser = NewParser(out var dispatcher);
+            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
             var chat = new Gordian.Core.Ui.StockUiChat();
             var lines = new List<string>();
             chat.Log.LineAdded += line => lines.Add(line.Text);
-            chat.Attach(parser.ChatModule, parser.Party, parser.Combat, parser.ActionService.Menus,
+            chat.Attach(parser.ChatModule, parser.Party, parser.Combat, actions.Menus,
                 id => id == 0x10001111 ? "Cybin" : id == 0x20002222 ? "Goblin" : null);
 
             // As LandSandBoat packs a weapon skill that closes a Liquefaction chain: proc kind 8, damage 412, message 287 + 8.

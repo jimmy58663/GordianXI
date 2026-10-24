@@ -474,6 +474,7 @@ namespace Gordian.Core.Tests.Network
         public void Assist_SelectsTheTargetTheServerPicked()
         {
             var parser = NewParser(out var dispatcher);
+            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
             const uint Goblin = 0x01001234;
             parser.World.UpsertEntity(new WorldEntity(Goblin, 0x234, EntityType.Monster) { Name = "Goblin Thug" });
             var p = new byte[12];
@@ -483,7 +484,7 @@ namespace Gordian.Core.Tests.Network
             Receive(dispatcher, 0x058, p);
 
             Assert.Equal(Goblin, parser.Combat.AssistTargetServerId);
-            Assert.Equal(Goblin, parser.ActionService.CurrentTarget?.ServerId);
+            Assert.Equal(Goblin, actions.CurrentTarget?.ServerId);
 
             // Another character's packet, and "no target", change nothing.
             var other = (byte[])p.Clone();
@@ -492,7 +493,7 @@ namespace Gordian.Core.Tests.Network
             Receive(dispatcher, 0x058, other);
             BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), 0);
             Receive(dispatcher, 0x058, p);
-            Assert.Equal(Goblin, parser.ActionService.CurrentTarget?.ServerId);
+            Assert.Equal(Goblin, actions.CurrentTarget?.ServerId);
         }
 
         // ---- the log lines ----

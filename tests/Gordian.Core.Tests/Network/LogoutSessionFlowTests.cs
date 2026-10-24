@@ -21,6 +21,7 @@ namespace Gordian.Core.Tests.Network
         {
             public List<byte[]> Sent { get; } = new();
             public SessionNetworkManager Net { get; }
+            public Gordian.Core.Actions.PlayerActionService Actions { get; }
 
             public Fixture()
             {
@@ -32,6 +33,7 @@ namespace Gordian.Core.Tests.Network
                         return Task.CompletedTask;
                     }
                 };
+                Actions = Gordian.Core.Actions.PlayerActionService.ForParser(Net.Parser);
             }
 
             public IEnumerable<ushort> SentOpcodes
@@ -238,7 +240,7 @@ namespace Gordian.Core.Tests.Network
         public async Task Commands_SendReqLogout(string input, int mode, int kind)
         {
             var f = new Fixture();
-            var result = await f.Net.ActionService.ExecuteCommandAsync(input);
+            var result = await f.Actions.ExecuteCommandAsync(input);
 
             Assert.True(result.Success);
             byte[] packet;
@@ -255,7 +257,7 @@ namespace Gordian.Core.Tests.Network
             SessionLogout? seen = null;
             f.Net.LoggedOut += l => seen = l;
 
-            await f.Net.ActionService.ExecuteCommandAsync("/shutdown");
+            await f.Actions.ExecuteCommandAsync("/shutdown");
             f.Receive0x00B(LogoutState.Logout);
 
             Assert.True(seen!.Value.IsShutdown);
