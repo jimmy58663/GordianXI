@@ -43,9 +43,29 @@ namespace Gordian.Core.Resources
         /// <summary>The straddle pose (the chocobo pack's): its origin is on the ground under the chocobo.</summary>
         public const byte StraddlePose = 6;
 
-        /// <summary>A mount's ride data: its Info bytes 10-13 as fractions (byte 10 its size) and its rider pose per race (<c>moun</c> bytes 8-15).</summary>
-        public sealed record RideData(float[] Scales, byte[] Poses)
+        /// <summary>
+        /// A mount's ride data: its Info bytes 10-13 as fractions (byte 10 its size), its rider pose per race (<c>moun</c> bytes
+        /// 8-15) and the rider's turn per race (<c>moun</c> bytes 0-7, <see cref="YawFor"/>).
+        /// </summary>
+        public sealed record RideData(float[] Scales, byte[] Poses, sbyte[] Yaws)
         {
+            /// <summary>Retail race order without any turn (the two-argument form tests and older callers use).</summary>
+            public RideData(float[] scales, byte[] poses) : this(scales, poses, new sbyte[8]) { }
+
+            /// <summary>
+            /// How far <paramref name="race"/>'s rider is turned on the mount about its seat, in radians clockwise seen from above
+            /// (#87 round 8). <c>moun</c> bytes 0-7 are signed, in 256ths of a turn like the wire heading. Most mounts carry zeros.
+            /// The tiger has 64 (a quarter turn, sidesaddle) only for the Hume female, Elvaan female and Mithra, which sit in its
+            /// chair pose. The Bomb and Golden Bomb have 127, the nearest a signed byte gets to half a turn. The Morbol has -20
+            /// for most races, so the Hume female turns slightly left, as in retail. *Inference* from the values; the sign is
+            /// taken from the wire heading's clockwise convention.
+            /// </summary>
+            public float YawFor(CharacterRace race)
+            {
+                int index = CharacterEquipmentResolver.GetRetailRaceIndex(race);
+                return index >= 0 && index < Yaws.Length ? Yaws[index] * (MathF.PI * 2f / 256f) : 0f;
+            }
+
             /// <summary>
             /// The mount's size before the rider's race (Info byte 10, xi-model-viewer's "Scale"; #87 round 7). The renderer
             /// multiplies it by the race's chocobo factor (<see cref="MountModels.MountScale"/>). Round 5 read bytes 11-12 as
@@ -76,6 +96,7 @@ namespace Gordian.Core.Resources
         {
             float[]? scales = null;
             var poses = new byte[8];
+            var yaws = new sbyte[8];
             foreach (var header in DatSectionWalker.ReadHeaders(dat))
             {
                 if (header.TypeCode != DatSectionType.Info || header.DataSizeBytes < 16 || header.DataOffset + 16 > dat.Length) continue;
@@ -83,6 +104,7 @@ namespace Gordian.Core.Resources
                 if (header.DatId.StartsWith("moun", StringComparison.Ordinal))
                 {
                     body.Slice(8, 8).CopyTo(poses);
+                    for (int i = 0; i < 8; i++) yaws[i] = (sbyte)body[i];
                 }
                 else
                 {
@@ -90,7 +112,7 @@ namespace Gordian.Core.Resources
                     for (int i = 0; i < 4; i++) scales[i] = body[10 + i] is 0 or 0xFF ? 1f : body[10 + i] / 100f;
                 }
             }
-            return scales == null ? null : new RideData(scales, poses);
+            return scales == null ? null : new RideData(scales, poses, yaws);
         }
 
         /// <summary>The race's mount rider pack: its motions and first waist part (<c>ROM/351/61</c> and <c>62</c> for Hume male).</summary>

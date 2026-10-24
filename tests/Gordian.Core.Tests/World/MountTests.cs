@@ -388,9 +388,12 @@ namespace Gordian.Core.Tests.World
             new byte[] { 85, 100, 115, 140 }.CopyTo(dat, 16 + 10);
             Section(32, "moun");
             new byte[] { 6, 3, 6, 3, 3, 3, 3, 6 }.CopyTo(dat, 48 + 8);
+            dat[48 + 1] = 0xEC; // Hume female -20
             var data = MountSeating.Read(dat)!;
             Assert.Equal(new[] { 0.85f, 1.00f, 1.15f, 1.40f }, data.Scales);
             Assert.Equal(0.85f, data.BaseScale);
+            Assert.Equal(0f, data.YawFor(CharacterRace.HumeMale));
+            Assert.Equal(-20 * MathF.PI * 2f / 256f, data.YawFor(CharacterRace.HumeFemale), 5);
             Assert.Equal(3, data.PoseFor(CharacterRace.Mithra));
             Assert.Null(MountSeating.Read(new byte[8]));
             Assert.Equal(48, MountSeating.SeatReference(CharacterRace.HumeMale));
@@ -418,6 +421,22 @@ namespace Gordian.Core.Tests.World
             Assert.InRange(-Seat(1, CharacterRace.Galka).Y, 1.40f, 1.55f);
             Assert.InRange(Seat(9, CharacterRace.Galka).X, -0.9f, -0.4f);
             Assert.True(-Seat(12, CharacterRace.TaruMale).Y < -Seat(12, CharacterRace.HumeMale).Y - 1f);
+        }
+
+        /// <summary>
+        /// Round 8: <c>moun</c> bytes 0-7 turn the rider, in 256ths of a turn. The tiger seats its chair-pose women sidesaddle
+        /// (64, a quarter turn); the Morbol turns the Hume female slightly left (-20); the raptor turns no one.
+        /// </summary>
+        [Fact]
+        public void RetailRideData_TurnsTheRiderPerRace()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            Assert.Equal(MathF.PI / 2f, Ride(rm, 2).YawFor(CharacterRace.HumeFemale), 3);
+            Assert.Equal(0f, Ride(rm, 2).YawFor(CharacterRace.HumeMale));
+            Assert.Equal(-20 * MathF.PI * 2f / 256f, Ride(rm, 7).YawFor(CharacterRace.HumeFemale), 3);
+            Assert.All(Enum.GetValues<CharacterRace>().Where(r => r is >= CharacterRace.HumeMale and <= CharacterRace.Galka),
+                race => Assert.Equal(0f, Ride(rm, 1).YawFor(race)));
         }
 
         /// <summary>

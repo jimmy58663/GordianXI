@@ -42,7 +42,15 @@ namespace Gordian.App.Graphics
         /// rider's name plate is raised.
         /// </summary>
         private readonly record struct MountRide(EntityModel Mount, GpuEntityModel Gpu, JointPaletteEntry Palette, uint Key, float Scale,
-            Vector3 RiderOffset, float PlateLift);
+            Matrix4x4 RiderShift, float PlateLift);
+
+        /// <summary>
+        /// How much of the seat's height a straddling rider's name plate is raised by, over its own overhead point (#87 round 8).
+        /// Measured against retail image-9.png, using each rider's chocobo as the scale: the Mithra's plate is about 1.3 yalms
+        /// over its standing overhead point and the Tarutaru's about 1.1, of a 1.4-yalm seat. Round 2 used the full seat (a
+        /// little too high) and round 3 half (too low, the Tarutaru's plate over its face).
+        /// </summary>
+        private const float StraddlePlateSeatFraction = 0.8f;
 
         /// <summary>
         /// Advances and poses the mount of a mounted entity (its own state, the rider's movement category) and works out the
@@ -84,9 +92,9 @@ namespace Gordian.App.Graphics
             var race = RaceOf(entity);
             if (entity.Mount.RidesChocobo)
             {
-                // The name plate: the rider's own overhead point raised by half its seat's height (round 3 H17).
+                // The name plate: the rider's own overhead point raised by most of its seat's height (round 8).
                 var chocoboSeat = MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference);
-                return new MountRide(mount, gpuModel, palette, key, raceScale, Vector3.Zero, 0.5f * raceScale * -chocoboSeat.Y);
+                return new MountRide(mount, gpuModel, palette, key, raceScale, Matrix4x4.Identity, StraddlePlateSeatFraction * raceScale * -chocoboSeat.Y);
             }
 
             // Every mount takes the chocobo's race factor (round 7: retail's Fenrir grows from the Tarutaru to the Galka,
@@ -99,15 +107,21 @@ namespace Gordian.App.Graphics
             var seat = scale * (MountModels.HasReference(mount, seatReference)
                 ? MountModels.ReferencePoint(mount, pose, seatReference)
                 : MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference));
-            if (!riding) return new MountRide(mount, gpuModel, palette, key, scale, Vector3.Zero, 0f);
+            if (!riding) return new MountRide(mount, gpuModel, palette, key, scale, Matrix4x4.Identity, 0f);
             // Whatever the pose (a straddle, standing on the Magic Pot, a chair), the rider's own seat (its reference 107, just
             // under the hips) goes on the race's seat: the references sit just over the raptor's back at one height for every
             // race, and on the Magic Pot by each race's standing hip height over the lid. Model space is Y-down: heights are -Y.
-            var offset = seat - resources.GetRiderSeat(rider!);
-            // The name plate rides with the rider: raised by how far its origin moved, plus half the seat's height for a
-            // straddle (round 3 H17), whose origin is the ground under a chocobo.
-            float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? 0.5f * raceScale * MountModels.ChocoboRestSeatHeight : 0f);
-            return new MountRide(mount, gpuModel, palette, key, scale, offset, lift);
+            var riderSeat = resources.GetRiderSeat(rider!);
+            var offset = seat - riderSeat;
+            // The rider turns about its seat by the race's moun yaw (round 8: the tiger's sidesaddle, the Morbol's slight turn).
+            // Model space is EntityRotMatrix's (X flipped about), so +Y here is clockwise from above in the world, like the heading.
+            float yaw = data?.YawFor(race) ?? 0f;
+            var shift = yaw == 0f ? Matrix4x4.CreateTranslation(offset)
+                : Matrix4x4.CreateTranslation(-riderSeat) * Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(seat);
+            // The name plate rides with the rider: raised by how far its origin moved, plus most of the seat's height for a
+            // straddle (round 8), whose origin is the ground under a chocobo.
+            float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? StraddlePlateSeatFraction * raceScale * MountModels.ChocoboRestSeatHeight : 0f);
+            return new MountRide(mount, gpuModel, palette, key, scale, shift, lift);
         }
 
         /// <summary>

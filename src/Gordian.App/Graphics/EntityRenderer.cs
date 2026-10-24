@@ -596,7 +596,7 @@ namespace Gordian.App.Graphics
                 var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
                     ? PrepareMount(cl, entity, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
                     : null;
-                var seatShift = ride is { } seated && !isFallback ? Matrix4x4.CreateTranslation(seated.RiderOffset) : Matrix4x4.Identity;
+                var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
                 if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
                 var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
