@@ -96,6 +96,12 @@ namespace Gordian.Core.Resources
         public System.Numerics.Vector3 GetRiderSeat(EntityModel rider) =>
             _riderHips.GetValue(rider, r => new StrongBox<System.Numerics.Vector3>(MountModels.RiderSeat(r))).Value;
 
+        private ConditionalWeakTable<EntityModel, StrongBox<float>> _riderHeadRise = new();
+
+        /// <summary>How far <paramref name="rider"/>'s head is raised seated (#87 round 9, <see cref="MountModels.SeatedHeadRise"/>), computed once per rider.</summary>
+        public float GetRiderHeadRise(EntityModel rider) =>
+            _riderHeadRise.GetValue(rider, r => new StrongBox<float>(MountModels.SeatedHeadRise(r))).Value;
+
         /// <summary>Drops the riding packs and riders built from them (part of <see cref="ClearCache"/>).</summary>
         private void ClearMountCaches()
         {
@@ -103,6 +109,7 @@ namespace Gordian.Core.Resources
             _mountPacks.Clear();
             _rideData.Clear();
             _riderHips = new ConditionalWeakTable<EntityModel, StrongBox<System.Numerics.Vector3>>();
+            _riderHeadRise = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();
             _poseRiders = new ConditionalWeakTable<EntityModel, ConcurrentDictionary<byte, EntityModel?>>();
             _mountScales = new ConditionalWeakTable<EntityModel, StrongBox<float>>();

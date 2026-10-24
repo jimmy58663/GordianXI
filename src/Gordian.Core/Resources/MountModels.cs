@@ -271,6 +271,24 @@ namespace Gordian.Core.Resources
             return HasReference(rider, RiderSeatReference) ? ReferencePoint(rider, pose, RiderSeatReference) : pose.Translations[2];
         }
 
+        /// <summary>
+        /// How far the rider's highest joint (its head) is raised in its seated idle's first frame over where it stands in the
+        /// bind pose (#87 round 9). A straddling rider's name plate goes up by this much, so it keeps the gap over the head it has
+        /// on foot. From the retail packs: Hume 0.73, Mithra 0.76, Elvaan male 0.96, Galka 1.14, Tarutaru 1.40 (the
+        /// Tarutaru's head rises most, its standing head being lowest). Zero without a skeleton or an idle.
+        /// </summary>
+        public static float SeatedHeadRise(EntityModel rider)
+        {
+            if (rider.Skeleton is not { Count: > 2 } skeleton || !rider.Animations.TryGetValue("chi", out var seated)) return 0f;
+            static float Top(SkeletonPoseEvaluator.EvaluatedPose pose)
+            {
+                float top = float.MinValue;
+                foreach (var t in pose.Translations) top = MathF.Max(top, -t.Y);
+                return top;
+            }
+            return Top(SkeletonPoseEvaluator.EvaluatePose(skeleton, seated, 0f, true)) - Top(SkeletonPoseEvaluator.ComputeBindPose(skeleton));
+        }
+
         private static bool IsFootMotion(string name)
         {
             foreach (var stem in FootMotions)

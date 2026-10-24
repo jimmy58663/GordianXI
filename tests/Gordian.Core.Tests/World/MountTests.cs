@@ -424,6 +424,27 @@ namespace Gordian.Core.Tests.World
         }
 
         /// <summary>
+        /// Round 9: a straddling rider's name plate rises with its seated head. The Tarutaru's head rises most (its standing head
+        /// is lowest), so a share of the seat height could not suit it and the tall races at once.
+        /// </summary>
+        [Fact]
+        public void RetailRiders_HeadRiseMostForTheTarutaru()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            float Rise(CharacterRace race)
+            {
+                var ch = EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+                Assert.True(rm.TryGetRiderModel(ch, race, out var rider));
+                return rm.GetRiderHeadRise(rider!);
+            }
+            float hume = Rise(CharacterRace.HumeMale), taru = Rise(CharacterRace.TaruMale), galka = Rise(CharacterRace.Galka);
+            Assert.InRange(hume, 0.65f, 0.8f);
+            Assert.InRange(galka, 1.05f, 1.25f);
+            Assert.InRange(taru, 1.3f, 1.5f);
+        }
+
+        /// <summary>
         /// Round 8: <c>moun</c> bytes 0-7 turn the rider, in 256ths of a turn. The tiger seats its chair-pose women sidesaddle
         /// (64, a quarter turn); the Morbol turns the Hume female slightly left (-20); the raptor turns no one.
         /// </summary>

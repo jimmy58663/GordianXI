@@ -45,12 +45,13 @@ namespace Gordian.App.Graphics
             Matrix4x4 RiderShift, float PlateLift);
 
         /// <summary>
-        /// How much of the seat's height a straddling rider's name plate is raised by, over its own overhead point (#87 round 8).
-        /// Measured against retail image-9.png, using each rider's chocobo as the scale: the Mithra's plate is about 1.3 yalms
-        /// over its standing overhead point and the Tarutaru's about 1.1, of a 1.4-yalm seat. Round 2 used the full seat (a
-        /// little too high) and round 3 half (too low, the Tarutaru's plate over its face).
+        /// How much higher a straddling rider's name plate sits over its head than on foot (#87 round 9, yalms). The plate rises
+        /// with the seated head (<see cref="MountModels.SeatedHeadRise"/>) plus this. Rounds 2-8 raised it by a share of the
+        /// seat's height, which can't suit every build: the Tarutaru's head rises most when seated, its standing head being
+        /// lowest. Half the seat was a little low for the tall races (round 3); 0.8 of it was about 25% too high for them and
+        /// still low for the Tarutaru (round 8 H44). With this margin, a Hume's plate rises 0.86, 25% under round 8's 1.15.
         /// </summary>
-        private const float StraddlePlateSeatFraction = 0.8f;
+        private const float StraddlePlateMargin = 0.13f;
 
         /// <summary>
         /// Advances and poses the mount of a mounted entity (its own state, the rider's movement category) and works out the
@@ -92,9 +93,9 @@ namespace Gordian.App.Graphics
             var race = RaceOf(entity);
             if (entity.Mount.RidesChocobo)
             {
-                // The name plate: the rider's own overhead point raised by most of its seat's height (round 8).
-                var chocoboSeat = MountModels.ReferencePoint(mount, pose, MountModels.ChocoboSeatReference);
-                return new MountRide(mount, gpuModel, palette, key, raceScale, Matrix4x4.Identity, StraddlePlateSeatFraction * raceScale * -chocoboSeat.Y);
+                // The name plate: the rider's own overhead point raised with its seated head (round 9).
+                float plate = riding ? resources.GetRiderHeadRise(rider!) + StraddlePlateMargin : 0f;
+                return new MountRide(mount, gpuModel, palette, key, raceScale, Matrix4x4.Identity, plate);
             }
 
             // Every mount takes the chocobo's race factor (round 7: retail's Fenrir grows from the Tarutaru to the Galka,
@@ -118,9 +119,9 @@ namespace Gordian.App.Graphics
             float yaw = data?.YawFor(race) ?? 0f;
             var shift = yaw == 0f ? Matrix4x4.CreateTranslation(offset)
                 : Matrix4x4.CreateTranslation(-riderSeat) * Matrix4x4.CreateRotationY(yaw) * Matrix4x4.CreateTranslation(seat);
-            // The name plate rides with the rider: raised by how far its origin moved, plus most of the seat's height for a
-            // straddle (round 8), whose origin is the ground under a chocobo.
-            float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? StraddlePlateSeatFraction * raceScale * MountModels.ChocoboRestSeatHeight : 0f);
+            // The name plate rides with the rider: raised by how far its origin moved, plus, for a straddle (whose origin is the
+            // ground under a chocobo), by how far its head rises seated (round 9).
+            float lift = -offset.Y + (riderPose == MountSeating.StraddlePose ? resources.GetRiderHeadRise(rider!) + StraddlePlateMargin : 0f);
             return new MountRide(mount, gpuModel, palette, key, scale, shift, lift);
         }
 
