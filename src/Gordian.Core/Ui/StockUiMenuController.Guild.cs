@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui
@@ -39,7 +40,7 @@ namespace Gordian.Engine.Ui
         public const string SelectFromInventoryText = "Select from your inventory.";
 
         /// <summary>The Buy list: the guild's stock in its order; rows out of stock greyed.</summary>
-        public static List<StockUiShopRow> BuyRows(IReadOnlyList<GuildItemEntry> items, Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? lookup)
+        public static List<StockUiShopRow> BuyRows(IReadOnlyList<GuildItemEntry> items, Func<ushort, ItemRecord?>? lookup)
         {
             var rows = new List<StockUiShopRow>(items.Count);
             for (int i = 0; i < items.Count; i++)
@@ -58,7 +59,7 @@ namespace Gordian.Engine.Ui
         /// with the guild's price and the largest stack the inventory holds of it (C2S 0x0AC sells from one slot); items not
         /// held, or whose guild stock is full, greyed.
         /// </summary>
-        public static List<StockUiShopRow> SellRows(IReadOnlyList<GuildItemEntry> items, InventoryState? inventory, Func<ushort, Gordian.Core.Resources.Models.ItemRecord?>? lookup)
+        public static List<StockUiShopRow> SellRows(IReadOnlyList<GuildItemEntry> items, InventoryState? inventory, Func<ushort, ItemRecord?>? lookup)
         {
             var rows = new List<StockUiShopRow> { new(0, SelectFromInventoryText, 0, 0, -1, 0, 1) };
             var held = inventory?.SnapshotItems(ContainerId.Inventory) ?? Array.Empty<InventoryItem>();

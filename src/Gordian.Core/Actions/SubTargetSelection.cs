@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Gordian.Core.Network.Packets;
 using Gordian.Engine.Input;
 using Gordian.Core.World;
 
@@ -62,7 +63,7 @@ namespace Gordian.Engine.Actions
         public WorldEntity? RestoreLockOn { get; init; }
 
         /// <summary>The container and slot of the item being used (<see cref="ActionKind.Item"/> only).</summary>
-        public Gordian.Core.Network.Packets.ContainerId ItemContainer { get; init; }
+        public ContainerId ItemContainer { get; init; }
         public byte ItemSlot { get; init; }
 
         /// <summary>

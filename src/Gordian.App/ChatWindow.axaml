@@ -3,7 +3,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
-        xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
+        xmlns:sessions="clr-namespace:Gordian.Engine.Sessions;assembly=Gordian.Core"
         xmlns:common="clr-namespace:Gordian.App.Common"
         mc:Ignorable="d" d:DesignWidth="680" d:DesignHeight="480"
         x:Class="Gordian.App.ChatWindow"
@@ -23,7 +23,7 @@
                           SelectedItem="{Binding SelectedSession, Mode=TwoWay}"
                           HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="net:CharacterSession">
+                        <DataTemplate x:DataType="sessions:CharacterSession">
                             <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>

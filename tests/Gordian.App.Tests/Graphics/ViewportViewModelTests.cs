@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.IO;
 using Gordian.App.Graphics;
 using Gordian.App.ViewModels;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics
@@ -196,8 +197,8 @@ namespace Gordian.App.Tests.Graphics
             {
                 var netManager1 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
                 var netManager2 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                var session1 = new Gordian.Engine.Sessions.CharacterSession("Cybin", 1, "cybin_user", netManager1);
-                var session2 = new Gordian.Engine.Sessions.CharacterSession("Sylphie", 2, "sylph_user", netManager2);
+                var session1 = new CharacterSession("Cybin", 1, "cybin_user", netManager1);
+                var session2 = new CharacterSession("Sylphie", 2, "sylph_user", netManager2);
 
                 var tab1 = vm.AddSession(session1);
                 Assert.Single(vm.CharacterTabs);
@@ -263,7 +264,7 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
-        private static Gordian.Engine.Sessions.CharacterSession NewSession(string name, uint id) =>
+        private static CharacterSession NewSession(string name, uint id) =>
             new(name, id, $"user_{name}", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230));
 
         /// <summary>
@@ -505,11 +506,11 @@ namespace Gordian.App.Tests.Graphics
             var (vm, tempFile) = CreateIsolatedViewModel();
             try
             {
-                var sessions = new Gordian.Engine.Sessions.CharacterSession[6];
+                var sessions = new CharacterSession[6];
                 for (int i = 0; i < 6; i++)
                 {
                     var net = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                    sessions[i] = new Gordian.Engine.Sessions.CharacterSession($"Char{i}", (uint)(i + 1), $"user{i}", net);
+                    sessions[i] = new CharacterSession($"Char{i}", (uint)(i + 1), $"user{i}", net);
                     vm.AddSession(sessions[i]);
                 }
 

@@ -413,7 +413,7 @@ namespace Gordian.App.Graphics
         private bool ZoneSwapGated => _activeSession != null && !_ungatedZoneSwap && !_loadingScreen.IsFullyBlack;
 
         /// <summary>Whether the zone to draw (the session's, or an event's scene zone) is not the one on screen.</summary>
-        private bool ZoneSwapPending(Gordian.Engine.Sessions.CharacterSession session)
+        private bool ZoneSwapPending(CharacterSession session)
         {
             ushort scene = session.World.SceneZoneId;
             ushort wanted = scene != 0 ? scene : session.World.MapZoneId;
@@ -457,7 +457,7 @@ namespace Gordian.App.Graphics
         /// camera at the next zone's arrival point (S2C 0x00A) while the old zone still faded out, for zone lines and the GM
         /// <c>!zone</c> alike. Before that moment the player keeps moving through the fade, as in retail.
         /// </summary>
-        private bool HoldPresentation(Gordian.Engine.Sessions.CharacterSession? session)
+        private bool HoldPresentation(CharacterSession? session)
         {
             if (session == null || !_loadingScreen.IsLoading || _loadingScreen.IsFullyBlack)
             {
@@ -1534,10 +1534,10 @@ namespace Gordian.App.Graphics
         /// the fade-in shows no drop or camera jump. A zone without a collision mesh (its geometry loaded and still none)
         /// has nothing to settle on.
         /// </summary>
-        private static bool ArrivalReady(Gordian.Engine.Sessions.CharacterSession session) =>
+        private static bool ArrivalReady(CharacterSession session) =>
             session.Locomotion is not { } locomotion || locomotion.ArrivalReady || session.World.Collision == null;
 
-        private bool LocalPlayerModelReady(Gordian.Engine.Sessions.CharacterSession session, uint localPlayerServerId)
+        private bool LocalPlayerModelReady(CharacterSession session, uint localPlayerServerId)
         {
             if (localPlayerServerId == 0 || !session.World.TryGetByServerId(localPlayerServerId, out var player) || player == null) return false;
             return ResourceManager is { } resources && resources.TryLoadEntityModel(player, out var model) && model != null;

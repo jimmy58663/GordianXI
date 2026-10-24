@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.Resources;
 
 namespace Gordian.Engine.Actions
 {
@@ -83,7 +84,7 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>Reads the tables and names from the game's resources; null when the table is missing.</summary>
-        public static ActionCatalog? Load(Gordian.Core.Resources.ResourceManager resources)
+        public static ActionCatalog? Load(ResourceManager resources)
         {
             ArgumentNullException.ThrowIfNull(resources);
             var bytes = resources.LoadDatBytesByFileId(SpellCommandTables.FileId);

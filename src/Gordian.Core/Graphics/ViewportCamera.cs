@@ -1,6 +1,7 @@
 // src/Gordian.Core/Graphics/ViewportCamera.cs
 using System;
 using System.Numerics;
+using Gordian.Core.World.Collision;
 
 namespace Gordian.Engine.Graphics
 {
@@ -41,7 +42,7 @@ namespace Gordian.Engine.Graphics
         /// pulls in to the first wall between the character and its orbit position, as the legacy client's does,
         /// ignoring triangles marked camera-transparent.
         /// </summary>
-        public Gordian.Core.World.Collision.ZoneCollisionMesh? Collision { get; set; }
+        public ZoneCollisionMesh? Collision { get; set; }
 
         /// <summary>Gap kept between the camera and a blocking wall, in yalms.</summary>
         public const float CollisionMargin = 0.3f;

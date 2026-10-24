@@ -3,6 +3,7 @@ using System;
 using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.World;
 
 namespace Gordian.Engine.Animation
 {
@@ -95,7 +96,7 @@ namespace Gordian.Engine.Animation
         /// event 324 the player holds (0, 1024) right before the "pink flash of light in the sky" appears above them, and the
         /// retail shot from behind shows no sideways turn; the sign of the turn is not known.
         /// </summary>
-        public static Vector2 AxisAngles(Gordian.Core.World.LookAxis axis) => new(
+        public static Vector2 AxisAngles(LookAxis axis) => new(
             Math.Clamp(axis.X * RadiansPerStep, -MaxYaw, MaxYaw),
             Math.Clamp(axis.Y * RadiansPerStep, -MaxPitch, MaxPitch));
 

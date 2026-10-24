@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using Gordian.App.ViewModels;
 using Gordian.Engine.Input;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.ViewModels
@@ -272,7 +273,7 @@ namespace Gordian.App.Tests.ViewModels
             try
             {
                 var netManager = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                var session = new Gordian.Engine.Sessions.CharacterSession("TestChar", 12345, "user1", netManager);
+                var session = new CharacterSession("TestChar", 12345, "user1", netManager);
                 vm.SetSession(session);
 
                 var pad = new GamepadState(

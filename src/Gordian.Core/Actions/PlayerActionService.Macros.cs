@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Gordian.Core.Network.Search;
 using Gordian.Engine.Input;
 using Gordian.Engine.Macros;
 using Gordian.Core.Network;
@@ -214,7 +215,7 @@ namespace Gordian.Engine.Actions
             if (service == null || !service.IsConfigured) return PlayerActionResult.Warn($"{name} is not in this area, and the search server is not known yet to find them.", kind);
             try
             {
-                var query = new Gordian.Core.Network.Search.SearchQuery { AllAreas = true, Name = name };
+                var query = new SearchQuery { AllAreas = true, Name = name };
                 var result = await service.SearchAsync(query).ConfigureAwait(false);
                 var match = result.Players.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                 if (match == null || match.CharacterId == 0)

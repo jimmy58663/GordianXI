@@ -166,7 +166,7 @@ namespace Gordian.App
             }
         }
 
-        private Gordian.Engine.Sessions.CharacterSession? _lastGamepadTarget;
+        private CharacterSession? _lastGamepadTarget;
 
         private void OnInputLoopTick(object? sender, EventArgs e)
         {

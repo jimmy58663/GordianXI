@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
         xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
+        xmlns:sessions="clr-namespace:Gordian.Engine.Sessions;assembly=Gordian.Core"
         xmlns:common="clr-namespace:Gordian.App.Common"
         xmlns:gfx="clr-namespace:Gordian.App.Graphics"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"
@@ -486,7 +487,7 @@
                                   SelectedItem="{Binding StateInspector.SelectedSession, Mode=TwoWay}"
                                   HorizontalAlignment="Stretch">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="net:CharacterSession">
+                                <DataTemplate x:DataType="sessions:CharacterSession">
                                     <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -873,7 +874,7 @@
                                   SelectedItem="{Binding Chat.SelectedSession, Mode=TwoWay}"
                                   HorizontalAlignment="Stretch">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="net:CharacterSession">
+                                <DataTemplate x:DataType="sessions:CharacterSession">
                                     <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -1009,7 +1010,7 @@
                                   SelectedItem="{Binding Inventory.SelectedSession, Mode=TwoWay}"
                                   HorizontalAlignment="Stretch">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="net:CharacterSession">
+                                <DataTemplate x:DataType="sessions:CharacterSession">
                                     <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -1352,7 +1353,7 @@
                                   SelectedItem="{Binding Console.SelectedSession, Mode=TwoWay}"
                                   HorizontalAlignment="Stretch">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="net:CharacterSession">
+                                <DataTemplate x:DataType="sessions:CharacterSession">
                                     <TextBlock Text="{Binding CharacterName}" FontSize="12"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>

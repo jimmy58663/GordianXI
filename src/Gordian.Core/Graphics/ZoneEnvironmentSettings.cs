@@ -1,6 +1,7 @@
 // src/Gordian.Core/Graphics/ZoneEnvironmentSettings.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Engine.Graphics
 {
@@ -90,7 +91,7 @@ namespace Gordian.Engine.Graphics
         /// Optional explicit elevation slices decoded from DAT Section 0x2F.
         /// When empty, the sky dome renderer smoothly gradients from SkyHorizonColor to SkyZenithColor.
         /// </summary>
-        public System.Collections.Generic.List<Gordian.Core.Resources.Graphics.SkySlice> SkySlices { get; } = new();
+        public System.Collections.Generic.List<SkySlice> SkySlices { get; } = new();
 
         /// <summary>
         /// Framebuffer clear color. Synchronized with SkyHorizonColor for seamless outdoor horizon blending.
@@ -130,7 +131,7 @@ namespace Gordian.Engine.Graphics
         /// <summary>
         /// Applies an authentic decoded FFXI Section 0x2F keyframe to these environment settings.
         /// </summary>
-        public void ApplyKeyframe(Gordian.Core.Resources.Graphics.EnvironmentKeyframe keyframe)
+        public void ApplyKeyframe(EnvironmentKeyframe keyframe)
         {
             if (keyframe == null) return;
 

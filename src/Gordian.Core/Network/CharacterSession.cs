@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Network.Search;
 using Gordian.Core.Network;
 using Gordian.Core.World;
 
@@ -127,7 +128,7 @@ namespace Gordian.Engine.Sessions
         public SocialPacketModule SocialModule => NetworkManager.SocialModule;
 
         /// <summary>Gets the search (cache) server service: Auction House lists and histories, <c>/sea</c>, party and linkshell member lists.</summary>
-        public Gordian.Core.Network.Search.SearchService Search => NetworkManager.Search;
+        public SearchService Search => NetworkManager.Search;
 
         /// <summary>Gets the state behind the everyday commands: the emote list, wide scan and proposals.</summary>
         public PlayerCommandState Commands => NetworkManager.Commands;
