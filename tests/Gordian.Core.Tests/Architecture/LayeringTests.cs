@@ -7,14 +7,14 @@ using System.Reflection;
 namespace Gordian.Core.Tests.Architecture
 {
     /// <summary>
-    /// Keeps the client's namespaces layered (issue #433): protocol, session and world state and
-    /// the DAT resources under them (Core), then the engine (playback, UI, input, audio) on top.
-    /// A type may refer to types in its own layer or a lower one, never a higher one. Resources
-    /// is not a layer of its own: its loaders build world and collision state and log through
-    /// Diagnostics, so a separate data layer would need those moved first (#433 phase 1 finding).
-    /// References that break the rule today are listed in <see cref="KnownViolations"/>;
-    /// fixing one means deleting its line, and the test fails on lines that no longer apply
-    /// so the list only shrinks.
+    /// Keeps the client layered (issue #433): <c>Gordian.Core</c> holds protocol, session, world and entity state and the
+    /// DAT resources under them; <c>Gordian.Engine</c> (playback, UI, input, audio, the session composition root) sits on
+    /// top. Since the split the compiler stops Core from naming engine types; these tests also scan the IL of both
+    /// assemblies (so a future layer inside one assembly can be checked the same way), make every new Core area pick its
+    /// layer, and check the assembly boundaries and the kill-switch setter. References that break the rule would be listed
+    /// in <see cref="KnownViolations"/>; fixing one means deleting its line, and the test fails on lines that no longer
+    /// apply so the list only shrinks. Resources is not a layer of its own: its loaders build world and collision state and
+    /// log through Diagnostics, so a separate data layer would need those moved first.
     /// </summary>
     public class LayeringTests
     {
@@ -37,16 +37,7 @@ namespace Gordian.Core.Tests.Architecture
             ["Profiles"] = Layer.Core,
             ["Resources"] = Layer.Core,
             ["World"] = Layer.Core,
-
             ["Animation"] = Layer.Core,
-
-            ["Actions"] = Layer.Engine,
-            ["Audio"] = Layer.Engine,
-            ["Events"] = Layer.Engine,
-            ["Graphics"] = Layer.Engine,
-            ["Input"] = Layer.Engine,
-            ["Macros"] = Layer.Engine,
-            ["Ui"] = Layer.Engine,
         };
 
         /// <summary>
@@ -57,7 +48,45 @@ namespace Gordian.Core.Tests.Architecture
         {
         };
 
-        internal static Assembly[] ScannedAssemblies => new[] { typeof(Gordian.Core.Config.GordianStorage).Assembly };
+        internal static Assembly[] ScannedAssemblies => new[]
+        {
+            typeof(Gordian.Core.Config.GordianStorage).Assembly,
+            typeof(Gordian.Engine.Sessions.CharacterSession).Assembly,
+        };
+
+        [Fact]
+        public void CoreDoesNotReferenceTheEngine()
+        {
+            var core = typeof(Gordian.Core.Config.GordianStorage).Assembly;
+            Assert.DoesNotContain(core.GetReferencedAssemblies(), a => a.Name == "Gordian.Engine");
+            Assert.All(core.GetTypes(), t => Assert.False(IsUnder(t.Namespace, EngineRoot), $"{t.FullName} is in Gordian.Core"));
+        }
+
+        [Fact]
+        public void EngineTypesLiveInTheEngineAssembly()
+        {
+            var engine = typeof(Gordian.Engine.Sessions.CharacterSession).Assembly;
+            Assert.All(engine.GetTypes().Where(t => t.Namespace != null && !t.Namespace.StartsWith("<", StringComparison.Ordinal)),
+                t => Assert.True(IsUnder(t.Namespace, EngineRoot), $"{t.FullName} is in Gordian.Engine"));
+        }
+
+        /// <summary>
+        /// The server's feature restrictions are set by Core's packet handling only: the setter is internal, and Core shows its
+        /// internals to the engine and the tests, not to the App or the addon runtime (AGENTS.md kill-switch policy).
+        /// </summary>
+        [Fact]
+        public void FeatureRestrictionsCannotBeSetOutsideCore()
+        {
+            var setter = typeof(Gordian.Core.Config.SessionProfile).GetProperty(nameof(Gordian.Core.Config.SessionProfile.FeatureRestrictions))!.SetMethod!;
+            Assert.True(setter.IsAssembly);
+            var friends = typeof(Gordian.Core.Config.SessionProfile).Assembly
+                .GetCustomAttributes<System.Runtime.CompilerServices.InternalsVisibleToAttribute>()
+                .Select(a => a.AssemblyName)
+                .ToList();
+            Assert.DoesNotContain("Gordian.App", friends);
+            Assert.DoesNotContain("Gordian.Addons", friends);
+            Assert.DoesNotContain("Gordian.Automation", friends);
+        }
 
         [Fact]
         public void EveryAreaHasALayer()

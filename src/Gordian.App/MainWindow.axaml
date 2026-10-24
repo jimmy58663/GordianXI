@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:Gordian.App.ViewModels"
         xmlns:net="clr-namespace:Gordian.Core.Network;assembly=Gordian.Core"
-        xmlns:sessions="clr-namespace:Gordian.Engine.Sessions;assembly=Gordian.Core"
+        xmlns:sessions="clr-namespace:Gordian.Engine.Sessions;assembly=Gordian.Engine"
         xmlns:common="clr-namespace:Gordian.App.Common"
         xmlns:gfx="clr-namespace:Gordian.App.Graphics"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"

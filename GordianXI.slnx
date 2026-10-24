@@ -4,6 +4,7 @@
     <Project Path="src/Gordian.App/Gordian.App.csproj" />
     <Project Path="src/Gordian.Automation/Gordian.Automation.csproj" />
     <Project Path="src/Gordian.Core/Gordian.Core.csproj" />
+    <Project Path="src/Gordian.Engine/Gordian.Engine.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Gordian.Addons.Tests/Gordian.Addons.Tests.csproj" />

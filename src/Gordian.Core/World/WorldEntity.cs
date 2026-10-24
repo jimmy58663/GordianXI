@@ -6,7 +6,6 @@ using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
-using Gordian.Engine.Animation;
 
 namespace Gordian.Core.World
 {
@@ -889,17 +888,20 @@ namespace Gordian.Core.World
         /// </summary>
         public int SpokenLines => Volatile.Read(ref _spokenLines);
 
+        /// <summary>The mouth flaps in one play of the mouth clip (<c>mou4</c>), the flaps a line gets when no count is given.</summary>
+        public const int MouthFlapsPerClip = 3;
+
         /// <summary>
         /// Counts a line the entity speaks (an event message with it as the speaker) and how many times its mouth flaps for
-        /// it (<see cref="FaceMotion.FlapsFor"/>).
+        /// it (the engine's <c>FaceMotion.FlapsFor</c>).
         /// </summary>
-        public void Speak(int flaps = FaceMotion.FlapsPerClip)
+        public void Speak(int flaps = MouthFlapsPerClip)
         {
             Volatile.Write(ref _lineFlaps, flaps);
             Interlocked.Increment(ref _spokenLines);
         }
 
-        private int _lineFlaps = FaceMotion.FlapsPerClip;
+        private int _lineFlaps = MouthFlapsPerClip;
 
         /// <summary>How many times the mouth flaps for the entity's last line.</summary>
         public int LineFlaps => Volatile.Read(ref _lineFlaps);
