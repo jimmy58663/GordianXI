@@ -1,7 +1,6 @@
 // src/Gordian.App/Graphics/StockUiItemWindow.cs
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
@@ -30,27 +29,8 @@ namespace Gordian.App.Graphics
     /// </summary>
     public static class StockUiItemWindow
     {
-        /// <summary>The row layout: the 16 x 16 slot box at the row's origin, the name from 19 px in.</summary>
-        private const float IconSize = 16, NameInset = 19;
-
-        /// <summary>
-        /// The count over the icon: right edge 15 px into the box, the font cell's bottom 17 px down so the digit ends about
-        /// 1 px above the icon's bottom (retail capture: the "4" of Wind Crystal ends near the box's bottom; lowered after the
-        /// maintainer's round 1, 2026-10-12).
-        /// </summary>
-        private const float CountRight = 15, CountBottom = 17;
-
         /// <summary>The description window's top under a list or the grid (layout y 240, the DAT's item info place).</summary>
-        public const float DescriptionTop = 240;
-
-        /// <summary>
-        /// Gap between the screen's bottom and a window placed at the bottom while the log is hidden (PROVISIONAL: the
-        /// capture shows the description close to the bottom; its exact margin depends on how the capture was cropped).
-        /// </summary>
-        public const float BottomMargin = 16;
-
-        /// <summary>Text inside the description window: log font lines 16 px apart from (48,4), the 32 x 32 icon at (8,12).</summary>
-        private const float InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 4, InfoRightInset = 8;
+        public const float DescriptionTop = StockUiItemInfoWindow.DefaultTop;
 
         /// <summary>
         /// The stats side (<c>persona</c>, retail capture 2026-10-11): the four top lines at y 6, 18, 31, 43 (12.5 px apart) from x 5; HP, MP
@@ -86,10 +66,6 @@ namespace Gordian.App.Graphics
         private static readonly UiColor MainJobTint = new(0x1D, 0x50, 0x6B, 0x80), BonusTint = new(0x37, 0x6A, 0x3A, 0x80),
             MalusTint = new(0x80, 0x40, 0x40, 0x80);
 
-        /// <summary>Where a window goes at the bottom: on Window 1's top edge, or the screen's bottom (less <see cref="BottomMargin"/>).</summary>
-        public static float BottomOf(StockUiScreen screen, float scale) =>
-            screen.Window1Top ?? (screen.Height > 0 ? screen.Height - BottomMargin * scale : 0);
-
         /// <summary>An item list: rows, scrollbar, the help bar, the bin's companion inventory list and the description.</summary>
         public static void DrawList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, long timestamp, StockUiScreen screen)
@@ -97,19 +73,14 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             var definition = menu.Menu;
             var frame = definition.Frame;
-            float first = menu.FirstRow;
-            if (menu.ScrollFrom != menu.FirstRow)
-            {
-                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-            }
+            float first = StockUiMenuWindow.ScrolledFirstRow(menu, timestamp);
             int picked = menu.ManualSortFrom ?? -1;
             DrawRows(renderer, library, font, menu, definition, placement, menu.ItemRows, first, menu.EntryIndex(menu.SelectedButtonId), picked);
 
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin && library.TryGetMenu(StockUiItems.ListMenu, out var inventor))
             {
                 // The inventory beside the bin (retail capture: the two lists side by side, the inventory not taking the cursor).
-                var at = new StockUiPlacement(placement.X + (StockUiItems.RecycleInventoryX - frame.X) * s, placement.Y, s, false);
+                var at = StockUiWindowPlacement.Beside(placement, frame, StockUiItems.RecycleInventoryX, frame.Y);
                 DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
             }
 
@@ -137,32 +108,25 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             var frame = definition.Frame;
             var secondRow = definition.FindButton(2);
-            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+            float pitch = StockUiMenuWindow.RowPitch(firstRow, secondRow);
             int visible = 0;
             foreach (var b in definition.Buttons) if (StockUiMenuController.IsSelectable(b)) visible++;
             float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
             renderer.SetClip(placement.X, areaY, frame.Width * s, visible * pitch * s);
-            float ts = s * StockUiPartyWindow.TextScale;
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(rows.Count - 1, (int)Math.Ceiling(first) + visible);
             for (int i = from; i <= to; i++)
             {
                 var row = rows[i];
                 float ry = areaY + (i - first) * pitch * s;
-                float textY = ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f;
                 if (row.IsStorageOptions)
                 {
                     DrawStorageOptions(renderer, library, font, areaX, ry, firstRow.Height, s);
                     continue;
                 }
-                if (row.ItemId != 0) StockUiMenuWindow.DrawItemIcon(renderer, menu, row.ItemId, areaX, ry, IconSize * s);
-                if (row.ShowsCount)
-                {
-                    string count = row.Count.ToString(CultureInfo.InvariantCulture);
-                    renderer.DrawText(font, count, areaX + CountRight * s - font.MeasureWidth(count) * ts, ry + CountBottom * s - font.LineHeight * ts, ts);
-                }
                 UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
                     : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
-                renderer.DrawText(font, row.Name, areaX + NameInset * s, textY, s, tint);
+                StockUiItemRows.Draw(renderer, font, menu.ItemLookup, StockUiItemRowStyle.ItemList, areaX, ry, firstRow.Height, s, row.ItemId, row.Name, tint,
+                    row.ShowsCount ? (int)row.Count : null);
             }
             renderer.ClearClip();
             if (rows.Count > visible) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, rows.Count, visible);
@@ -214,24 +178,17 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             var definition = menu.Menu;
             var frame = definition.Frame;
-            foreach (var button in definition.Buttons)
-            {
-                ushort item = menu.EquippedItemIn(button.ButtonId);
-                if (item != 0) StockUiMenuWindow.DrawItemIcon(renderer, menu, item, placement.X + button.X * s, placement.Y + button.Y * s, 32 * s);
-            }
+            StockUiItemGrid.Draw(renderer, menu.ItemLookup, definition, placement, menu.EquippedItemIn);
             DrawStats(renderer, library, font, menu, placement);
             DrawCombatStats(renderer, font, menu, placement);
             if (library.TryGetMenu(StockUiItems.GilMenu, out var gil) && menu.Inventory is { } inventory)
             {
                 // "Current Gil" under the stats side (retail capture: 16,240 as the DAT authors it), the amount right-aligned.
-                var at = new StockUiPlacement(placement.X + (gil.Frame.X - frame.X) * s, placement.Y + (gil.Frame.Y - frame.Y) * s, s, false);
-                renderer.DrawMenu(gil, at, includeButtons: false, opaqueBody: true);
-                string amount = StockUiShop.FormatPrice(inventory.Gil);
-                renderer.DrawText(font, amount, at.X + (gil.Frame.Width - 8) * s - font.MeasureWidth(amount) * s, at.Y + 30 * s, s);
+                StockUiMenuWindow.DrawGilWindow(renderer, font, gil, StockUiWindowPlacement.Beside(placement, frame, gil.Frame), inventory.Gil);
             }
             if (!menu.IsListOpen && library.TryGetMenu(StockUiItems.ListMenu, out var inventor))
             {
-                var at = new StockUiPlacement(placement.X + (StockUiItems.EquipListX - frame.X) * s, placement.Y + (inventor.Frame.Y - frame.Y) * s, s, false);
+                var at = StockUiWindowPlacement.Beside(placement, frame, StockUiItems.EquipListX, inventor.Frame.Y);
                 DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
             }
             if (menu.ItemHelpBar is { } bar) DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
@@ -245,7 +202,7 @@ namespace Gordian.App.Graphics
             if (!library.TryGetMenu(StockUiItems.StatsMenu, out var persona)) return;
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
-            var at = new StockUiPlacement(placement.X + (persona.Frame.X - frame.X) * s, placement.Y + (persona.Frame.Y - frame.Y) * s, s, false);
+            var at = StockUiWindowPlacement.Beside(placement, frame, persona.Frame);
             renderer.DrawMenu(persona, at, includeButtons: false, opaqueBody: true);
             if (menu.CharacterStats?.Invoke() is not { } stats) return;
             float ts = s * StockUiPartyWindow.TextScale;
@@ -308,111 +265,35 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// The help bar (retail captures 2026-10-11): the title in <c>titlewin</c> (16,16) in the log font with the fraction after
-        /// it in the small font, "23/30" on one line with the "/" at x 88 and y 12 (retail raises the used count above the "/";
-        /// the maintainer asked for it inline after rounds 2 and 3, 2026-10-12); the help line in <c>helpwind</c> (130,16)
-        /// stretched toward the screen's right edge.
+        /// An item window's help bar (<see cref="StockUiHelpBar"/>) at its authored places beside the window: the title with the
+        /// list's "23/30" fraction, and the help line of the window taking input.
         /// </summary>
         internal static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiItemHelpBar bar, StockUiPlacement placement, StockUiScreen screen)
         {
-            const float BarTextX = 8, HelpRightMargin = 16, DenominatorX = 88, DenominatorY = 12;
-            float s = placement.Scale;
-            var frame = menu.Menu.Frame;
-            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var title))
-            {
-                var at = new StockUiPlacement(placement.X + (title.Frame.X - frame.X) * s, placement.Y + (title.Frame.Y - frame.Y) * s, s, false);
-                renderer.DrawMenu(title, at, includeButtons: false, opaqueBody: true);
-                DrawLine(renderer, font, logFont, bar.Title, at.X + BarTextX * s, at.Y + (title.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
-                if (bar.Numerator is { } numerator && bar.Denominator is { } denominator)
-                {
-                    float ts = s * StockUiPartyWindow.TextScale;
-                    // "23/30" on one line, the "/" where it was (the maintainer's round 3, 2026-10-12: inline rather than raised).
-                    string used = numerator.ToString(CultureInfo.InvariantCulture);
-                    renderer.DrawText(font, used + "/" + denominator.ToString(CultureInfo.InvariantCulture),
-                        at.X + DenominatorX * s - font.MeasureWidth(used) * ts, at.Y + DenominatorY * s, ts);
-                }
-            }
-            if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
-            {
-                var at = new StockUiPlacement(placement.X + (help.Frame.X - frame.X) * s, placement.Y + (help.Frame.Y - frame.Y) * s, s, false);
-                float? width = screen.Width > 0 ? Math.Max(help.Frame.Width, (screen.Width - at.X) / s - HelpRightMargin) : null;
-                renderer.DrawMenu(help, at, includeButtons: false, opaqueBody: true, frameWidth: width);
-                string? text = bar.HelpTextId >= 0 ? menu.ItemHelpText(bar.HelpTextId) : null;
-                if (!string.IsNullOrEmpty(text))
-                {
-                    DrawLine(renderer, font, logFont, text.Replace("\n", " "), at.X + BarTextX * s, at.Y + (help.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
-                }
-            }
+            string? text = bar.HelpTextId >= 0 ? menu.ItemHelpText(bar.HelpTextId) : null;
+            StockUiHelpBar.DrawBeside(renderer, library, font, logFont, bar.Title, text, placement, menu.Menu.Frame, screen, bar.Numerator, bar.Denominator);
         }
 
         /// <summary>
-        /// The described item's page in the item info window sized to its lines at layout x <paramref name="layoutX"/>: at
-        /// <paramref name="top"/> (screen px) when given, else with its bottom at <see cref="BottomOf"/>.
+        /// The described item's page in the item info window (<see cref="StockUiItemInfoWindow"/>) at layout x
+        /// <paramref name="layoutX"/>: at <paramref name="top"/> (screen px) when given, else with its bottom on Window 1's top
+        /// edge or the screen's bottom (<see cref="StockUiWindowPlacement.TopOnLog"/>); <paramref name="aboveLog"/> keeps a
+        /// window placed by its top above the log. <paramref name="emptyWhenNone"/> draws the empty window off an item.
         /// </summary>
         internal static void DrawDescription(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
-            StockUiPlacement placement, long timestamp, float layoutX, float? top, StockUiScreen screen = default, bool aboveLog = false)
+            StockUiPlacement placement, long timestamp, float layoutX, float? top, StockUiScreen screen = default, bool aboveLog = false, bool emptyWhenNone = false)
         {
-            var pages = menu.DescriptionPages;
-            if (pages.Count == 0) return;
-            var page = pages[Math.Clamp(menu.DescriptionPage, 0, pages.Count - 1)];
-            if (!library.TryGetMenu(StockUiItemDescription.FrameFor(page.LineCount), out var info)) return;
+            var page = menu.ShownDescriptionPage;
+            if (page == null && !emptyWhenNone) return;
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
-            float x = placement.X + (layoutX - frame.X) * s;
-            float y = top ?? (screen.Height > 0 || screen.Window1Top != null
-                ? BottomOf(screen, s) - info.Frame.Height * s
-                : placement.Y + (DescriptionTop - frame.Y) * s);
+            float h = StockUiItemInfoWindow.HeightOf(library, page, s);
+            var at = StockUiWindowPlacement.Beside(placement, frame, layoutX, DescriptionTop);
+            float y = top ?? (StockUiWindowPlacement.HasScreen(screen) ? StockUiWindowPlacement.TopOnLog(screen, s, h, at.Y) : at.Y);
             // Anything at the bottom left sits on Window 1 and rises with it (the maintainer's notes, 2026-10-12).
-            if (aboveLog && screen.Window1Top is { } logTop) y = Math.Min(y, logTop - info.Frame.Height * s);
-            DrawDescriptionPage(renderer, library, font, logFont, menu, menu.DescribedItem, page, new StockUiPlacement(x, Math.Max(0, y), s, false), info, timestamp);
-        }
-
-        /// <summary>
-        /// One description page (<see cref="StockUiItemDescriptionPage"/>) in the item info window sized to its lines, placed at
-        /// layout (the info window's authored x, <see cref="DescriptionTop"/>) relative to a window drawn at
-        /// <paramref name="placement"/> whose frame is <paramref name="frame"/>. Shared with the check window.
-        /// </summary>
-        public static void DrawDescriptionPage(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiOpenMenu menu, ushort itemId, StockUiItemDescriptionPage page, StockUiPlacement placement, UiMenuFrame frame, long timestamp)
-        {
-            float s = placement.Scale;
-            if (!library.TryGetMenu(StockUiItemDescription.FrameFor(page.LineCount), out var info)) return;
-            var at = new StockUiPlacement(placement.X + (info.Frame.X - frame.X) * s, placement.Y + (DescriptionTop - frame.Y) * s, s, false);
-            DrawDescriptionPage(renderer, library, font, logFont, menu, itemId, page, at, info, timestamp);
-        }
-
-        /// <summary>One description page in the given item info window at a screen place: the icon, the lines, the footer and page arrow.</summary>
-        private static void DrawDescriptionPage(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiOpenMenu menu, ushort itemId, StockUiItemDescriptionPage page, StockUiPlacement at, UiMenuDefinition info, long timestamp)
-        {
-            float s = at.Scale;
-            renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            StockUiMenuWindow.DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            // The text box: from (48,4) to 8 px before the right edge, the window's height (StockUiTextBoxes clips to it).
-            StockUiTextBoxes.DrawLines(renderer, font, logFont, page.Lines, at.X + InfoTextX * s, at.Y + InfoTextY * s,
-                info.Frame.Width - InfoTextX - InfoRightInset, info.Frame.Height - InfoTextY, s);
-            if (page.Footer.Length == 0 && !page.HasMore) return;
-            float footerY = at.Y + (InfoTextY + page.Lines.Count * StockUiLogFont.CellHeight) * s;
-            float right = at.X + (info.Frame.Width - InfoRightInset) * s;
-            if (page.HasMore && library.TryGetGroup("kaipage", out var arrow) && arrow.Images.Count > 0)
-            {
-                // The page arrow after the footer: the log's page-wait arrow, stepped like the target cursor.
-                int step = (int)(timestamp / (Stopwatch.Frequency * StockUiTargetWindow.CursorStepSeconds));
-                int cycle = Math.Max(1, 2 * arrow.Images.Count - 2);
-                int index = step % cycle;
-                if (index >= arrow.Images.Count) index = cycle - index;
-                right -= 12 * s;
-                renderer.DrawImage(arrow.Images[index], right + 2 * s, footerY + 3 * s, s);
-            }
-            float width = logFont != null ? logFont.MeasureWidth(page.Footer) : font.MeasureWidth(page.Footer);
-            DrawLine(renderer, font, logFont, page.Footer, right - width * s, footerY, s);
-        }
-
-        private static void DrawLine(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s)
-        {
-            if (logFont != null) logFont.Draw(renderer, text, x, y, s, White);
-            else renderer.DrawText(font, text, x, y, s);
+            if (aboveLog && screen.Window1Top is { } logTop) y = Math.Min(y, logTop - h);
+            StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu, at with { Y = Math.Max(0, y) }, timestamp, emptyWhenNone);
         }
 
         /// <summary>

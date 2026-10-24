@@ -23,6 +23,21 @@ namespace Gordian.App.Graphics
         /// <summary>The line pitch of the font text boxes draw with (layout px).</summary>
         public static float LinePitch(UiFont font, StockUiLogFont? logFont) => logFont != null ? StockUiLogFont.CellHeight : font.LineHeight;
 
+        /// <summary>The width of one line in the font text boxes draw with (layout px).</summary>
+        public static float MeasureLine(UiFont font, StockUiLogFont? logFont, string text) =>
+            logFont != null ? logFont.MeasureWidth(text) : font.MeasureWidth(text);
+
+        /// <summary>
+        /// Draws one line, unclipped, at (<paramref name="x"/>, <paramref name="y"/>) (screen px) in the log font when it is
+        /// loaded, else the menu font: the one "log font, else menu font" line the help bars, footers and comments share.
+        /// </summary>
+        public static void DrawLine(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float scale,
+            UiColor? color = null)
+        {
+            if (logFont != null) logFont.Draw(renderer, text, x, y, scale, color ?? White);
+            else renderer.DrawText(font, text, x, y, scale, color);
+        }
+
         /// <summary>
         /// Draws <paramref name="lines"/> from (<paramref name="x"/>, <paramref name="y"/>) (screen px) one pitch apart, clipped to
         /// a box <paramref name="width"/> x <paramref name="height"/> layout px wide and tall at scale <paramref name="scale"/>;

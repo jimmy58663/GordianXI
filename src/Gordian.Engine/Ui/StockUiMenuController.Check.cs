@@ -16,23 +16,6 @@ namespace Gordian.Engine.Ui
         public ushort SelectedCheckItem =>
             Check is { } check && StockUiCheck.TryGetSlot(SelectedButtonId, out var slot) ? check.Info.ItemIn(slot) : (ushort)0;
 
-        private int _checkPage;
-
-        /// <summary>
-        /// The description page shown for the item under a check window's cursor (0 = the first); it goes back to the first
-        /// page whenever the cursor moves.
-        /// </summary>
-        public int CheckPage
-        {
-            get => _checkPage;
-            internal set => _checkPage = value;
-        }
-
-        /// <summary>The description pages of the item under a check window's cursor (empty off an item or without its record).</summary>
-        public IReadOnlyList<StockUiItemDescriptionPage> SelectedCheckPages =>
-            SelectedCheckItem is var id && id != 0 && ItemLookup?.Invoke(id) is { } record
-                ? StockUiItemDescription.Pages(record)
-                : Array.Empty<StockUiItemDescriptionPage>();
     }
 
     public sealed partial class StockUiMenuController
@@ -81,30 +64,6 @@ namespace Gordian.Engine.Ui
             }
             Changed?.Invoke();
             return menu;
-        }
-
-        /// <summary>
-        /// Turns the description of the item under the check window's cursor to its next page, wrapping to the first
-        /// (retail: the gamepad's X, here the main menu action, which the check window does not otherwise use). Returns
-        /// whether a page turned.
-        /// </summary>
-        public bool NextCheckPage()
-        {
-            bool turned = false;
-            lock (_sync)
-            {
-                if (Top is { IsCheck: true } top)
-                {
-                    int count = top.SelectedCheckPages.Count;
-                    if (count > 1)
-                    {
-                        top.CheckPage = (top.CheckPage + 1) % count;
-                        turned = true;
-                    }
-                }
-            }
-            if (turned) Changed?.Invoke();
-            return turned;
         }
 
         /// <summary>

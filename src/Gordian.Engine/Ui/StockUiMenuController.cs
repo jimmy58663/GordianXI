@@ -160,7 +160,7 @@ namespace Gordian.Engine.Ui
             get => _selectedButtonId;
             internal set
             {
-                if (_selectedButtonId != value) _checkPage = 0; // a check window's description starts on its first page
+                if (_selectedButtonId != value) ResetDescriptionPage(); // the item description starts on its first page
                 _selectedButtonId = value;
             }
         }
@@ -1176,15 +1176,11 @@ namespace Gordian.Engine.Ui
                     Move(InputAction.MenuRight);
                     SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
                 }
-                else if (Top is { IsCheck: true })
+                else if (NextItemPage())
                 {
-                    // The check window: the gamepad's X pages the item description (retail screenshot, 2026-10-07).
-                    if (NextCheckPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
-                }
-                else if (Top is { IsItemList: true } or { IsEquipment: true })
-                {
-                    // The Items and Equipment windows page the description the same way (PROVISIONAL: as the check window).
-                    if (NextItemPage()) SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
+                    // A window with an item description pages it (retail screenshot of the check window, 2026-10-07: the
+                    // gamepad's X; the other item info windows the same way, PROVISIONAL).
+                    SoundCue?.Invoke(StockUiSoundCue.PageSwitch);
                 }
                 Array.Clear(_repeat);
                 return wasOpen;

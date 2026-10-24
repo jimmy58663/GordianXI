@@ -16,16 +16,9 @@ namespace Gordian.App.Graphics
     /// </summary>
     public static class StockUiTreasureWindow
     {
-        /// <summary>The row layout: icon box at x 3 (16 x 16), the name from x 22, the countdown right-aligned 8 px from the frame's right edge.</summary>
-        private const float IconX = 3, IconSize = 16, NameX = 22, RightInset = 8;
-
-        /// <summary>The info window: the 32 x 32 icon at (8,12), log-font lines from (48,4), 16 px apart (as the retail screenshot).</summary>
-        private const float InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 4, InfoRightInset = 8;
-
         /// <summary>Row name colours (half scale): white until you lot, orange-red after a lot (sampled (255, 148, 103)), grey after a pass.</summary>
         private static readonly UiColor LottedTint = new(0x80, 0x4A, 0x34, 0x80);
         private static readonly UiColor PassedTint = new(0x48, 0x48, 0x48, 0x80);
-        private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>The row name's colour for the local player's entry.</summary>
         public static UiColor? RowTint(TreasureEntryKind entry) => entry switch
@@ -36,66 +29,49 @@ namespace Gordian.App.Graphics
         };
 
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
-            StockUiPlacement placement, StockUiScreen screen = default)
+            StockUiPlacement placement, StockUiScreen screen = default, long timestamp = 0)
         {
             float s = placement.Scale;
             var definition = menu.Menu;
             var frame = definition.Frame;
             var rows = menu.TreasureRows;
             var pool = menu.TreasurePool;
-            float right = placement.X + (frame.Width - RightInset) * s;
+            float right = placement.X + frame.Width * s;
             for (int i = 0; i < rows.Count; i++)
             {
                 var button = definition.FindButton(i + 1);
                 if (button == null) break;
                 var row = rows[i];
                 float y = placement.Y + button.Y * s;
-                float textY = y + (button.Height * s - font.LineHeight * s) * 0.5f;
-                StockUiMenuWindow.DrawItemIcon(renderer, menu, row.ItemId, placement.X + IconX * s, y, IconSize * s);
-                var tint = RowTint(row.Entry);
-                renderer.DrawText(font, row.Name, placement.X + NameX * s, textY, s, tint);
-                if (pool?.GetSlot(row.Slot) is { } slot)
-                {
-                    string left = StockUiTreasurePool.FormatTimeLeft(pool.GetRemaining(slot));
-                    renderer.DrawText(font, left, right - font.MeasureWidth(left) * s, textY, s, tint);
-                }
+                // The icon box (frame art), the name, and the time left before the item is given out on the right.
+                string? left = pool?.GetSlot(row.Slot) is { } slot ? StockUiTreasurePool.FormatTimeLeft(pool.GetRemaining(slot)) : null;
+                StockUiItemRows.Draw(renderer, font, menu.ItemLookup, StockUiItemRowStyle.FramedList, placement.X, y, button.Height, s,
+                    row.ItemId, row.Name, RowTint(row.Entry), right: left, rightEdge: right);
             }
 
-            if (menu.SelectedTreasureRow is { } selected) DrawDescription(renderer, library, font, logFont, menu, selected.ItemId, placement, screen);
+            DrawDescription(renderer, library, font, logFont, menu, placement, screen, timestamp);
         }
 
         /// <summary>
-        /// The selected item's description alone (retail screenshots): its icon, its name, then the DAT description wrapped in
-        /// the log font, in the item info window sized to the lines (<c>iteminfo</c>, <c>item4inf</c> ...), its bottom on
-        /// Window 1's top edge (the screen's bottom-left place while the log is hidden).
+        /// The selected item's description in the item info window (<see cref="StockUiItemInfoWindow"/>, the same pages as the
+        /// Items window's, turned with X), its bottom on Window 1's top edge (retail screenshots; while the log is hidden, the
+        /// list's own bottom-left place, 152 px above the screen's bottom).
         /// </summary>
         private static void DrawDescription(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiOpenMenu menu, ushort itemId, StockUiPlacement placement, StockUiScreen screen)
+            StockUiOpenMenu menu, StockUiPlacement placement, StockUiScreen screen, long timestamp)
         {
-            var record = menu.ItemLookup?.Invoke(itemId);
-            if (record == null) return;
+            var page = menu.ShownDescriptionPage;
+            if (page == null) return;
             float s = placement.Scale;
-            Func<string, float> measure = logFont != null ? t => logFont.MeasureWidth(t) : t => font.MeasureWidth(t);
-            string name = StockUiShop.LongName(record);
-            if (name.Length > 0 && char.IsLower(name[0])) name = char.ToUpperInvariant(name[0]) + name[1..];
-            var lines = new List<string> { name };
-            lines.AddRange(StockUiTextLayout.Wrap(record.Description, measure, 366 - InfoTextX - InfoRightInset, 11));
-            int count = Math.Clamp(lines.Count, 3, 12);
-            string frameName = count <= 3 ? "iteminfo" : count <= 9 ? $"item{count}inf" : $"item{count}in";
-            if (!library.TryGetMenu(frameName, out var info) && !library.TryGetMenu("iteminfo", out info)) return;
-
-            float h = info.Frame.Height * s;
-            float x = placement.X + (info.Frame.X - menu.Menu.Frame.X) * s;
-            float y = screen.Window1Top is { } top ? top - h
-                : screen.Height > 0 ? screen.Height - h - (448 - 296) * s
-                : placement.Y + (240 - menu.Menu.Frame.Y) * s;
-            var at = new StockUiPlacement(x, Math.Max(0, y), s, false);
-            renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            StockUiMenuWindow.DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            StockUiTextBoxes.DrawLines(renderer, font, logFont, lines, at.X + InfoTextX * s, at.Y + InfoTextY * s,
-                info.Frame.Width - InfoTextX - InfoRightInset, info.Frame.Height - InfoTextY, s);
+            float h = StockUiItemInfoWindow.HeightOf(library, page, s);
+            var frame = menu.Menu.Frame;
+            var at = StockUiWindowPlacement.Beside(placement, frame, StockUiItemInfoWindow.FrameOf(library, page)?.Frame.X ?? frame.X, StockUiItemInfoWindow.DefaultTop);
+            float y = StockUiWindowPlacement.TopOnLog(screen, s, h, at.Y, screen.Height - h - HiddenLogBottom * s);
+            StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu, at with { Y = y }, timestamp);
         }
 
+        /// <summary>The description's bottom above the screen's bottom while the log is hidden (layout 448 - 296).</summary>
+        private const float HiddenLogBottom = 448 - 296;
 
         /// <summary>
         /// The "roll" column (retail screenshots, 2026-10-07, 1:1): while the Treasure Pool list is open, each member's entry

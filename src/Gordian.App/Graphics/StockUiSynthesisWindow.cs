@@ -18,7 +18,7 @@ namespace Gordian.App.Graphics
     public static class StockUiSynthesisWindow
     {
         private const float CrystalIconX = 20, CrystalIconY = 5, CrystalIconSize = 14, WordX = 37, WordY = 6;
-        private const float SlotIconSize = 32, CountRight = 31, CountBottom = 33;
+        private const float CountRight = 31, CountBottom = 33;
 
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, long timestamp, StockUiScreen screen)
@@ -35,37 +35,29 @@ namespace Gordian.App.Graphics
                 titles.Draw(renderer, StockUiSynthesis.ElementWord(element), placement.X + WordX * s, placement.Y + WordY * s, s, font);
             }
 
+            // Each slot's item, with the count of a stack over its bottom right.
             float ts = s * StockUiPartyWindow.TextScale;
-            for (int i = 0; i < StockUiSynthesis.SlotCount; i++)
-            {
-                if (menu.SynthesisSlots[i] is not { } slot || definition.FindButton(i + 1) is not { } button) continue;
-                float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
-                StockUiMenuWindow.DrawItemIcon(renderer, menu, slot.ItemId, bx, by, SlotIconSize * s);
-                if (slot.Count > 1)
+            var slots = menu.SynthesisSlots;
+            StockUiItemGrid.Draw(renderer, menu.ItemLookup, definition, placement,
+                id => id >= 1 && id <= StockUiSynthesis.SlotCount && slots[id - 1] is { } slot ? slot.ItemId : (ushort)0,
+                (button, item, bx, by) =>
                 {
+                    if (item == 0 || slots[button.ButtonId - 1] is not { Count: > 1 } slot) return;
                     string count = slot.Count.ToString(CultureInfo.InvariantCulture);
                     renderer.DrawText(font, count, bx + CountRight * s - font.MeasureWidth(count) * ts, by + CountBottom * s - font.LineHeight * ts, ts);
-                }
-            }
+                });
 
             bool listOpen = menu.IsListOpen;
             if (!listOpen && library.TryGetMenu(menu.IsSynthesisHistory ? StockUiSynthesis.HistoryListMenu : StockUiItems.ListMenu, out var list))
             {
-                var at = new StockUiPlacement(placement.X + (StockUiSynthesis.ListX - frame.X) * s, placement.Y + (list.Frame.Y - frame.Y) * s, s, false);
+                var at = StockUiWindowPlacement.Beside(placement, frame, StockUiSynthesis.ListX, list.Frame.Y);
                 StockUiItemWindow.DrawCompanion(renderer, library, font, menu, list, at, menu.CompanionRows);
             }
             if (menu.ItemHelpBar is { } bar) StockUiItemWindow.DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
             if (listOpen) return;
-            float top = placement.Y + (StockUiItemWindow.DescriptionTop - frame.Y) * s;
-            if (menu.DescriptionPages.Count > 0)
-            {
-                StockUiItemWindow.DrawDescription(renderer, library, font, logFont, menu, placement, timestamp, StockUiSynthesis.DescriptionX, top);
-            }
-            else if (library.TryGetMenu(StockUiShop.InfoMenu, out var info))
-            {
-                // An empty slot: the empty description window (the video shows it with its bare slot box).
-                renderer.DrawMenu(info, new StockUiPlacement(placement.X + (StockUiSynthesis.DescriptionX - frame.X) * s, top, s, false), includeButtons: true, opaqueBody: true);
-            }
+            // The slot's item under the grid; an empty slot shows the empty description window (the video: its bare slot box).
+            StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu,
+                StockUiWindowPlacement.Beside(placement, frame, StockUiSynthesis.DescriptionX, StockUiItemInfoWindow.DefaultTop), timestamp, emptyWhenNone: true);
         }
     }
 }

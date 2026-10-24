@@ -38,7 +38,7 @@ namespace Gordian.App.Tests.Graphics
             {
                 full = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: false, shifted: false, 1, screen.Width, screen.Height);
                 compact = StockUiMacroWindow.DrawPlayPalette(r, screen.Library, screen.Font, controller, compact: true, shifted: true, 1, screen.Width, screen.Height);
-                StockUiMenuWindow.DrawHelpBar(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.PaletteTitle, "Macro Set WAR (#1)", 1, screen.Width, screen.Height);
+                StockUiHelpBar.DrawOnScreen(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.PaletteTitle, "Macro Set WAR (#1)", 1, screen.Width, screen.Height);
             }, "gpu_macro_palette.png");
             Assert.NotNull(full);
             Assert.NotNull(compact);
@@ -80,7 +80,7 @@ namespace Gordian.App.Tests.Graphics
             screen.Render(r =>
             {
                 StockUiMenuWindow.Draw(r, screen.Library, screen.Font, palette, Place(palette), 0, logFont: screen.LogFont);
-                StockUiMenuWindow.DrawHelpBar(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.EditTitle, palette.MacroSetCaption, 1, screen.Width, screen.Height);
+                StockUiHelpBar.DrawOnScreen(r, screen.Library, screen.Font, screen.LogFont, StockUiMacroMenus.EditTitle, palette.MacroSetCaption, 1, screen.Width, screen.Height);
                 Assert.True(screen.Library.TryGetMenu(StockUiMacroMenus.ButtonOptions, out var buttonEdit));
                 StockUiMacroWindow.DrawOptions(r, screen.Library, buttonEdit, Place(menus.Top!) with { X = screen.Width - 128, Y = 134 });
             }, "gpu_macro_palette_editor.png");

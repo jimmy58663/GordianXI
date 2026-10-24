@@ -109,7 +109,7 @@ namespace Gordian.App.Graphics
 
             if (font != null && menu.IsShopList && definition.FindButton(1) is { } firstShopRow)
             {
-                DrawShopList(renderer, library, font, menu, placement, firstShopRow, timestamp, companionShift);
+                DrawShopList(renderer, library, font, logFont, menu, placement, firstShopRow, timestamp, companionShift);
             }
             else if (font != null && menu.IsQuantity)
             {
@@ -117,7 +117,7 @@ namespace Gordian.App.Graphics
             }
             else if (font != null && menu.IsTreasureList)
             {
-                StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default);
+                StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default, timestamp);
             }
             else if (font != null && menu.Check is { } check)
             {
@@ -160,13 +160,8 @@ namespace Gordian.App.Graphics
                 // and a scrollbar on the right edge shows the position.
                 library.TryGetGroup(StateGroup, out var states);
                 var secondRow = definition.FindButton(2);
-                float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
-                float first = menu.FirstRow;
-                if (menu.ScrollFrom != menu.FirstRow)
-                {
-                    double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                    if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-                }
+                float pitch = RowPitch(firstRow, secondRow);
+                float first = ScrolledFirstRow(menu, timestamp);
                 float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
                 float areaH = menu.VisibleRows * pitch * s;
                 // The state balls' text starts a few pixels left of the row origin, so the clip starts at the window's edge.
@@ -295,13 +290,8 @@ namespace Gordian.App.Graphics
 
             var definition = menu.Menu;
             var secondRow = definition.FindButton(2);
-            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
-            float first = menu.FirstRow;
-            if (menu.ScrollFrom != menu.FirstRow)
-            {
-                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-            }
+            float pitch = RowPitch(firstRow, secondRow);
+            float first = ScrolledFirstRow(menu, timestamp);
             float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
             float areaH = menu.VisibleRows * pitch * s;
             renderer.SetClip(placement.X, areaY, definition.Frame.Width * s, areaH);
@@ -364,13 +354,8 @@ namespace Gordian.App.Graphics
             }
             if (menu.VisibleRows == 0) return;
             var secondRow = definition.FindButton(2);
-            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
-            float first = menu.FirstRow;
-            if (menu.ScrollFrom != menu.FirstRow)
-            {
-                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-            }
+            float pitch = RowPitch(firstRow, secondRow);
+            float first = ScrolledFirstRow(menu, timestamp);
             float areaY = placement.Y + firstRow.Y * s;
             renderer.SetClip(placement.X, areaY, frame.Width * s, menu.VisibleRows * pitch * s);
             int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
@@ -455,41 +440,6 @@ namespace Gordian.App.Graphics
         /// <summary>The pet in a blood pact list's info window (retail image-46): name 6 px in at y 4, its gauge 23 px right and 12 px down.</summary>
         private const float InfoPetX = 6, InfoPetY = 4, InfoPetGaugeDx = 23, InfoPetGaugeDy = 12;
 
-        /// <summary>
-        /// The help bar at the top of the screen for the Magic and Abilities lists and the sub-target cursor (retail image-14,
-        /// -27, -41 and the video, 2026-10-11/12): the title ("Magic List", "Abilities", or the action being aimed) in
-        /// <c>titlewin</c> and the line ("Restores target's HP.", "Select target of spell.") in <c>helpwind</c> stretched to
-        /// 16 px short of the screen's right edge, both in the log font 8 px in, as the check window draws its bar. The bar
-        /// for every other menu is #313.
-        /// </summary>
-        public static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            string title, string? text, float scale, uint width, uint height)
-        {
-            float s = scale;
-            void Line(string line, float x, float y)
-            {
-                if (logFont != null) logFont.Draw(renderer, line, x, y, s, White);
-                else renderer.DrawText(font, line, x, y, s);
-            }
-            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
-            {
-                var f = titleWindow.Frame;
-                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
-                renderer.DrawMenu(titleWindow, at, includeButtons: false, opaqueBody: true);
-                Line(title, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
-            }
-            if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
-            {
-                var f = help.Frame;
-                var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, s, width, height);
-                float barWidth = Math.Max(f.Width, (width - at.X) / s - HelpBarRightMargin);
-                renderer.DrawMenu(help, at, includeButtons: false, opaqueBody: true, frameWidth: barWidth);
-                if (!string.IsNullOrEmpty(text)) Line(text, at.X + HelpBarTextX * s, at.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s);
-            }
-        }
-
-        private const float HelpBarTextX = 8, HelpBarRightMargin = 16;
-
         /// <summary>Draws an element-group image scaled so its bounds fill a square of <paramref name="size"/> pixels.</summary>
         private static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
         {
@@ -507,22 +457,12 @@ namespace Gordian.App.Graphics
             renderer.DrawImage(image, x - left * scale, y - top * scale, scale);
         }
 
-        /// <summary>
-        /// The shop list's row layout (the "shop" frame, Tier 2 chunk 6c): the DAT authors ten invisible 132 x 16 rows
-        /// at an 18 px pitch with a 16 x 16 icon slot at x 3; the name follows the slot and the price (Buy) or the
-        /// count held (Sell) is right-aligned inside the frame. The item's 32 x 32 DAT icon is drawn into the slot.
-        /// Not captured yet: retail's exact text insets and how it prints the price.
-        /// </summary>
-        private const float ShopIconX = 3, ShopIconSize = 16, ShopRowTextX = 22, ShopRowRightInset = 8;
+        // The shop list's rows (the "shop" frame, Tier 2 chunk 6c): the DAT authors ten invisible 132 x 16 rows at an 18 px
+        // pitch with a 16 x 16 icon slot at x 3; the rows are StockUiItemRowStyle.FramedList (not captured yet: retail's exact
+        // text insets and how it prints the price).
 
         /// <summary>Half-scale tint of a row that cannot be sold (the item's NoSale flag): a mid grey.</summary>
         private static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
-
-        /// <summary>
-        /// The item info window: its 32 x 32 icon slot is authored at (8,12); the long name and the description's lines
-        /// follow it (the maintainer's in-game capture, 2026-09-28: name, then two description lines).
-        /// </summary>
-        private const float InfoIconX = 8, InfoIconY = 12, InfoIconSize = 32, InfoTextX = 48, InfoTextY = 8, InfoLinePitch = 14, InfoRightInset = 8;
 
         /// <summary>
         /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), right under the list, and that is where
@@ -540,22 +480,26 @@ namespace Gordian.App.Graphics
         /// <summary>The resource generation <see cref="ItemIcons"/> was read under; a VFS reload reads the icons again (#374).</summary>
         private static int _itemIconGeneration = Gordian.Core.Resources.Tables.ZoneDatLoader.Generation;
 
-        private static DecodedTexture? ItemIcon(StockUiOpenMenu menu, ushort itemId)
+        private static DecodedTexture? ItemIcon(Func<ushort, ItemRecord?>? itemLookup, ushort itemId)
         {
             if (itemId == 0) return null;
             int generation = Gordian.Core.Resources.Tables.ZoneDatLoader.Generation;
             if (System.Threading.Interlocked.Exchange(ref _itemIconGeneration, generation) != generation) ItemIcons.Clear();
             if (ItemIcons.TryGetValue(itemId, out var cached)) return cached;
-            var record = menu.ItemLookup?.Invoke(itemId);
+            var record = itemLookup?.Invoke(itemId);
             var pixels = record?.IconRgbaPixels;
             var icon = pixels != null && pixels.Length >= 32 * 32 * 4 ? new DecodedTexture($"item{itemId}", 32, 32, pixels) : null;
             ItemIcons[itemId] = icon;
             return icon;
         }
 
-        internal static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size, UiColor? tint = null)
+        internal static void DrawItemIcon(StockUiRenderer renderer, StockUiOpenMenu menu, ushort itemId, float x, float y, float size, UiColor? tint = null) =>
+            DrawItemIcon(renderer, menu.ItemLookup, itemId, x, y, size, tint);
+
+        /// <summary>Draws an item's 32 x 32 DAT icon (cached per item) scaled to a <paramref name="size"/> px square; nothing for an item without one.</summary>
+        public static void DrawItemIcon(StockUiRenderer renderer, Func<ushort, ItemRecord?>? itemLookup, ushort itemId, float x, float y, float size, UiColor? tint = null)
         {
-            var icon = ItemIcon(menu, itemId);
+            var icon = ItemIcon(itemLookup, itemId);
             if (icon != null) renderer.DrawTexture($"item:{itemId}", icon, x, y, size, size, tint ?? PointerColor);
         }
 
@@ -565,19 +509,14 @@ namespace Gordian.App.Graphics
         /// "Current Gil" window is drawn under the list and the item info window beside it (their authored places
         /// relative to the list's; where retail puts them is not captured yet).
         /// </summary>
-        private static void DrawShopList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu,
+        private static void DrawShopList(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
             StockUiPlacement placement, UiMenuButton firstRow, long timestamp, (float X, float Y) companionShift)
         {
             float s = placement.Scale;
             var definition = menu.Menu;
             var secondRow = definition.FindButton(2);
-            float pitch = secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
-            float first = menu.FirstRow;
-            if (menu.ScrollFrom != menu.FirstRow)
-            {
-                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-            }
+            float pitch = RowPitch(firstRow, secondRow);
+            float first = ScrolledFirstRow(menu, timestamp);
             var frame = definition.Frame;
             float areaY = placement.Y + firstRow.Y * s;
             float areaH = menu.VisibleRows * pitch * s;
@@ -586,18 +525,16 @@ namespace Gordian.App.Graphics
                 renderer.SetClip(placement.X, areaY, frame.Width * s, areaH);
                 int selectedEntry = menu.EntryIndex(menu.SelectedButtonId);
                 int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.ShopRows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
-                float rightEdge = placement.X + (frame.Width - ShopRowRightInset) * s;
+                float rightEdge = placement.X + frame.Width * s;
                 for (int i = from; i <= to; i++)
                 {
                     var row = menu.ShopRows[i];
                     float ry = areaY + (i - first) * pitch * s;
-                    float textY = ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f;
-                    DrawItemIcon(renderer, menu, row.ItemId, placement.X + ShopIconX * s, ry, ShopIconSize * s);
                     UiColor? tint = i == selectedEntry ? SelectedGlyphTint : row.Greyed ? GreyedTextTint : null;
-                    renderer.DrawText(font, row.Name, placement.X + ShopRowTextX * s, textY, s, tint);
                     // The price ("29 G"); a Sell row shows it once the server has appraised the row.
-                    string right = menu.ShopSide == StockUiShopSide.Buy || row.Price > 0 ? StockUiShop.FormatPrice(row.Price) : string.Empty;
-                    if (right.Length > 0) renderer.DrawText(font, right, rightEdge - font.MeasureWidth(right) * s, textY, s, tint);
+                    string? right = menu.ShopSide == StockUiShopSide.Buy || row.Price > 0 ? StockUiShop.FormatPrice(row.Price) : null;
+                    StockUiItemRows.Draw(renderer, font, menu.ItemLookup, StockUiItemRowStyle.FramedList, placement.X, ry, firstRow.Height, s,
+                        row.ItemId, row.Name, tint, right: right, rightEdge: rightEdge);
                 }
                 renderer.ClearClip();
                 if (menu.CanScroll) DrawScrollbar(renderer, placement, frame, first, menu.ShopRows.Count, menu.VisibleRows);
@@ -606,7 +543,7 @@ namespace Gordian.App.Graphics
             // The gil window and the item info sit right under the list (companionShift is the HUD's displacement of
             // the list, if any); an open quantity prompt stands in the gil window's place.
             if (!menu.ShowsQuantity) DrawGilWindow(renderer, library, font, menu, placement, companionShift);
-            if (menu.SelectedShopRow is { } selected) DrawInfoWindow(renderer, library, font, menu, placement, selected, companionShift);
+            if (menu.SelectedShopRow != null) DrawInfoWindow(renderer, library, font, logFont, menu, placement, timestamp, companionShift);
         }
 
         /// <summary>The "Current Gil" window ("money", authored under the list) with the amount right-aligned under its label.</summary>
@@ -614,53 +551,36 @@ namespace Gordian.App.Graphics
             (float X, float Y) shift)
         {
             if (!library.TryGetMenu(StockUiShop.GilMenu, out var gil) || !library.TryGetMenu(StockUiShop.ListMenu, out var list)) return;
-            float s = placement.Scale;
-            var at = new StockUiPlacement(placement.X + (gil.Frame.X - list.Frame.X) * s + shift.X, placement.Y + (gil.Frame.Y - list.Frame.Y) * s + shift.Y, s, false);
-            renderer.DrawMenu(gil, at, includeButtons: false, opaqueBody: true);
-            string amount = StockUiShop.FormatPrice(menu.Gil);
-            renderer.DrawText(font, amount, at.X + (gil.Frame.Width - GilRightInset) * s - font.MeasureWidth(amount) * s, at.Y + GilTextY * s, s);
+            var at = StockUiWindowPlacement.Beside(placement, list.Frame, gil.Frame);
+            DrawGilWindow(renderer, font, gil, at with { X = at.X + shift.X, Y = at.Y + shift.Y }, menu.Gil);
         }
 
         /// <summary>
-        /// The item info window ("iteminfo", beside the gil window): the item's 32 x 32 icon, its long name, then the
-        /// DAT description wrapped to the lines that fit (retail shows no price here and the window does not change
-        /// while a count is chosen; in-game check 2026-09-28).
+        /// The "Current Gil" window (<c>money</c>) at a place, the amount right-aligned 8 px from its right edge under the label
+        /// band (y 30): the shop's and the Equipment window's.
         /// </summary>
-        private static void DrawInfoWindow(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu,
-            StockUiPlacement placement, in StockUiShopRow row, (float X, float Y) shift)
-        {
-            if (!library.TryGetMenu(StockUiShop.InfoMenu, out var info) || !library.TryGetMenu(StockUiShop.ListMenu, out var list)
-                || !library.TryGetMenu(StockUiShop.GilMenu, out var gil)) return;
-            float s = placement.Scale;
-            float originX = placement.X + (gil.Frame.X - list.Frame.X) * s + shift.X;
-            float originY = placement.Y + (gil.Frame.Y - list.Frame.Y) * s + shift.Y;
-            var at = new StockUiPlacement(originX + InfoOffsetX * s, originY, s, false);
-            DrawItemInfo(renderer, info, font, menu, at, row.ItemId, row.Name);
-        }
-
-        /// <summary>
-        /// The "iteminfo" window at a place: the item's 32 x 32 icon, its long name, then the DAT description wrapped to
-        /// the lines that fit (the shop's item info window; the check window's item under the cursor).
-        /// </summary>
-        internal static void DrawItemInfo(StockUiRenderer renderer, UiMenuDefinition info, UiFont font, StockUiOpenMenu menu,
-            StockUiPlacement at, ushort itemId, string fallbackName)
+        internal static void DrawGilWindow(StockUiRenderer renderer, UiFont font, UiMenuDefinition gil, StockUiPlacement at, uint amount)
         {
             float s = at.Scale;
-            if (itemId == 0)
-            {
-                // No item (the guild Sell list's "Select from your inventory."): the empty window with its slot box (image-5).
-                renderer.DrawMenu(info, at, includeButtons: true, opaqueBody: true);
-                return;
-            }
-            renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            DrawItemIcon(renderer, menu, itemId, at.X + InfoIconX * s, at.Y + InfoIconY * s, InfoIconSize * s);
-            var record = menu.ItemLookup?.Invoke(itemId);
-            // The name on the first line, the description under it, all in the window's text box (shared layout and clip).
-            float width = info.Frame.Width - InfoTextX - InfoRightInset, height = info.Frame.Height - InfoTextY;
-            var lines = new List<string> { record != null ? StockUiShop.LongName(record) : fallbackName };
-            int maxLines = StockUiTextLayout.LinesIn(height, InfoLinePitch);
-            lines.AddRange(StockUiTextLayout.Wrap(record?.Description, t => font.MeasureWidth(t), width, Math.Max(0, maxLines - 1)));
-            StockUiTextBoxes.DrawLines(renderer, font, null, lines, at.X + InfoTextX * s, at.Y + InfoTextY * s, width, height, s, linePitch: InfoLinePitch);
+            renderer.DrawMenu(gil, at, includeButtons: false, opaqueBody: true);
+            string text = StockUiShop.FormatPrice(amount);
+            renderer.DrawText(font, text, at.X + (gil.Frame.Width - GilRightInset) * s - font.MeasureWidth(text) * s, at.Y + GilTextY * s, s);
+        }
+
+        /// <summary>
+        /// The shop's item info window (<see cref="StockUiItemInfoWindow"/>, beside the gil window): the row's item described
+        /// as every item info window describes it, sized to its lines and growing down from the gil window's top (#417; retail
+        /// shows no price here and the window does not change while a count is chosen, in-game check 2026-09-28). A row
+        /// without an item (the guild Sell list's "Select from your inventory.") shows the empty window (image-5).
+        /// </summary>
+        private static void DrawInfoWindow(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
+            StockUiOpenMenu menu, StockUiPlacement placement, long timestamp, (float X, float Y) shift)
+        {
+            if (!library.TryGetMenu(StockUiShop.ListMenu, out var list) || !library.TryGetMenu(StockUiShop.GilMenu, out var gil)) return;
+            float s = placement.Scale;
+            var at = StockUiWindowPlacement.Beside(placement, list.Frame, gil.Frame);
+            StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu, at with { X = at.X + InfoOffsetX * s + shift.X, Y = at.Y + shift.Y },
+                timestamp, emptyWhenNone: true);
         }
 
         /// <summary>
@@ -760,6 +680,22 @@ namespace Gordian.App.Graphics
         private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
         private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
+        /// <summary>
+        /// The list's first row as drawn: <see cref="StockUiOpenMenu.FirstRow"/>, eased from <see cref="StockUiOpenMenu.ScrollFrom"/>
+        /// over <see cref="StockUiMenuController.ScrollDuration"/> while the list scrolls (one rule for every scrolling list, #418).
+        /// </summary>
+        internal static float ScrolledFirstRow(StockUiOpenMenu menu, long timestamp)
+        {
+            float first = menu.FirstRow;
+            if (menu.ScrollFrom == menu.FirstRow) return first;
+            double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
+            return t < 1 ? menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t) : first;
+        }
+
+        /// <summary>A list's row pitch: from its first row button to its second, or the first row's height without a second below it.</summary>
+        internal static float RowPitch(UiMenuButton firstRow, UiMenuButton? secondRow) =>
+            secondRow != null && secondRow.Y > firstRow.Y ? secondRow.Y - firstRow.Y : firstRow.Height;
+
         internal static void DrawScrollbar(StockUiRenderer renderer, StockUiPlacement placement, UiMenuFrame frame, float first, int total, int visible)
         {
             float s = placement.Scale;
@@ -801,7 +737,7 @@ namespace Gordian.App.Graphics
             if (!library.TryGetMenu(StockUiConfigPages.FontColorSampleBox, out var box)) return;
             float s = placement.Scale;
             var listFrame = list.Menu.Frame;
-            var at = new StockUiPlacement(placement.X + (box.Frame.X - listFrame.X) * s, placement.Y + (box.Frame.Y - listFrame.Y) * s, s, false);
+            var at = StockUiWindowPlacement.Beside(placement, listFrame, box.Frame);
             renderer.DrawMenu(box, at, includeButtons: false, opaqueBody: true);
             if (list.SelectedFontColorSample is not { } sample || sample.Text.Length == 0) return;
             if (logFont != null) logFont.Draw(renderer, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, sample.Color);

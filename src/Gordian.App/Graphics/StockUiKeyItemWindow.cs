@@ -1,6 +1,5 @@
 // src/Gordian.App/Graphics/StockUiKeyItemWindow.cs
 using System;
-using System.Diagnostics;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Ui;
 using Gordian.Core.World;
@@ -59,11 +58,8 @@ namespace Gordian.App.Graphics
             else if (menu.IsEquipSetGrid) DrawEditedGrid(renderer, library, font, logFont, menu, placement, timestamp, screen);
         }
 
-        private static void Text(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s, UiColor color)
-        {
-            if (logFont != null) logFont.Draw(renderer, text, x, y, s, color);
-            else renderer.DrawText(font, text, x, y, s, color);
-        }
+        private static void Text(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s, UiColor color) =>
+            StockUiTextBoxes.DrawLine(renderer, font, logFont, text, x, y, s, color);
 
         private static void Image(StockUiRenderer renderer, UiResourceLibrary library, string group, int index, float x, float y, float s)
         {
@@ -80,7 +76,7 @@ namespace Gordian.App.Graphics
             {
                 // "Key Items", then the main menu's help on the categories, the category's name in it (image-7 ... -10).
                 string? line = menu.KeyItemCategory?.Name ?? menu.ItemHelpText(StockUiKeyItems.HelpKeyItems);
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, StockUiKeyItems.Title, line, s, (uint)screen.Width, (uint)screen.Height);
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, StockUiKeyItems.Title, line, s, (uint)screen.Width, (uint)screen.Height);
             }
 
             if (menu.IsKeyItemExamine)
@@ -121,12 +117,7 @@ namespace Gordian.App.Graphics
             }
             if (definition.FindButton(1) is not { } firstRow) return;
             float pitch = StockUiKeyItems.RowPitch;
-            float first = menu.FirstRow;
-            if (menu.ScrollFrom != menu.FirstRow)
-            {
-                double t = (timestamp - menu.ScrollStartedAt) / (double)Stopwatch.Frequency / StockUiMenuController.ScrollDuration.TotalSeconds;
-                if (t < 1) first = menu.ScrollFrom + (menu.FirstRow - menu.ScrollFrom) * (float)Math.Max(0, t);
-            }
+            float first = StockUiMenuWindow.ScrolledFirstRow(menu, timestamp);
             float areaY = placement.Y + (firstRow.Y - 4) * s;
             renderer.SetClip(placement.X, areaY, frame.Width * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
@@ -198,14 +189,10 @@ namespace Gordian.App.Graphics
         /// <summary>The set's items as 32 x 32 icons over the grid's slots; "Remove piece" slots under the red X.</summary>
         private static void DrawSetGrid(StockUiRenderer renderer, UiResourceLibrary library, StockUiOpenMenu menu, UiMenuDefinition grid, StockUiPlacement at)
         {
-            float s = at.Scale;
-            foreach (var button in grid.Buttons)
+            StockUiItemGrid.Draw(renderer, menu.ItemLookup, grid, at, menu.EquipSetItemIn, (button, item, x, y) =>
             {
-                float x = at.X + button.X * s, y = at.Y + button.Y * s;
-                ushort item = menu.EquipSetItemIn(button.ButtonId);
-                if (item != 0) StockUiMenuWindow.DrawItemIcon(renderer, menu, item, x, y, 32 * s);
-                else if (menu.IsEquipSetRemoved(button.ButtonId)) Image(renderer, library, RemoveGroup, RemoveImage, x, y, s);
-            }
+                if (item == 0 && menu.IsEquipSetRemoved(button.ButtonId)) Image(renderer, library, RemoveGroup, RemoveImage, x, y, at.Scale);
+            });
         }
 
         /// <summary>
@@ -222,24 +209,19 @@ namespace Gordian.App.Graphics
             if (menu.IsEquipSetListOpen) return;
             if (menu.ItemHelpBar is { } bar && screen.Width > 0 && screen.Height > 0)
             {
-                string? text = bar.HelpTextId >= 0 ? menu.ItemHelpText(bar.HelpTextId)?.Replace("\n", " ") : null;
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, logFont, bar.Title, text, s, (uint)screen.Width, (uint)screen.Height);
+                string? text = bar.HelpTextId >= 0 ? menu.ItemHelpText(bar.HelpTextId) : null;
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, bar.Title, text, s, (uint)screen.Width, (uint)screen.Height);
             }
             if (library.TryGetMenu(StockUiItems.ListMenu, out var inventor))
             {
-                var at = new StockUiPlacement(placement.X + (StockUiEquipSets.SlotListX - frame.X) * s, placement.Y + (inventor.Frame.Y - frame.Y) * s, s, false);
+                var at = StockUiWindowPlacement.Beside(placement, frame, StockUiEquipSets.SlotListX, inventor.Frame.Y);
                 StockUiItemWindow.DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
             }
-            var pages = menu.DescriptionPages;
-            if (pages.Count > 0)
+            // The slot's item under the grid at the info window's authored x; the empty window for an empty slot.
+            if (StockUiItemInfoWindow.FrameOf(library, menu.ShownDescriptionPage) is { } info)
             {
-                var page = pages[Math.Clamp(menu.DescriptionPage, 0, pages.Count - 1)];
-                StockUiItemWindow.DrawDescriptionPage(renderer, library, font, logFont, menu, menu.DescribedItem, page, placement, frame, timestamp);
-            }
-            else if (library.TryGetMenu(StockUiItemDescription.FrameFor(0), out var info))
-            {
-                var at = new StockUiPlacement(placement.X + (info.Frame.X - frame.X) * s, placement.Y + (StockUiItemWindow.DescriptionTop - frame.Y) * s, s, false);
-                renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
+                StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu,
+                    StockUiWindowPlacement.Beside(placement, frame, info.Frame.X, StockUiItemInfoWindow.DefaultTop), timestamp, emptyWhenNone: true);
             }
         }
     }
