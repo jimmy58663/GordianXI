@@ -520,7 +520,7 @@ namespace Gordian.App.Graphics
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
                 // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); mounted, the
-                // rider and its mount together (#87 round 6, PROVISIONAL: the mount differs between riders beyond its race data).
+                // rider and its mount together (#87; retail-confirmed in round 7: a Large Elvaan's Fenrir is larger than a Small one's).
                 bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
