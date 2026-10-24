@@ -81,7 +81,7 @@ GordianXI type: `CliActionId`; every request goes through `CombatPacketBuilder.B
 | 0x0F | ChangeTarget | `/attack` on another target while engaged |
 | 0x10 | Shoot | `/shoot` |
 | 0x11 | ChocoboDig | `/dig` (then S2C 0x02F and C2S 0x063) |
-| 0x12 | Dismount | builder only |
+| 0x12 | Dismount | the mounted command menu's Dismount (after "Dismount?"), `/dismount` ([#87](https://github.com/jimmy58663/GordianXI/issues/87)) |
 | 0x13 | TractorMenu | the Tractor prompt, `/accepttractor [decline]`; `ActionBuf[0]` = `ReviveMenuAnswer` 0 accept, 1 decline (#103) |
 | 0x14 | SendResRdy | no named caller |
 | 0x15 | Quarry | no named caller |
@@ -89,7 +89,7 @@ GordianXI type: `CliActionId`; every request goes through `CombatPacketBuilder.B
 | 0x17 | Scout | no named caller |
 | 0x18 | Blockaid | `/blockaid [on|off]`; `ActionBuf[0]` = `BlockaidMode` 0 off, 1 on, 2 toggle |
 | 0x19 | MonsterSkill | `/monsterskill` (`/ms`); the id is sent as given (retail sends the ability id less 1536) |
-| 0x1A | Mount | builder only |
+| 0x1A | Mount | the mount list (Abilities > Mount), `/mount <name>`; `ActionBuf[0]` = the client's mount id (0 Chocobo, 1 Raptor ...), which LandSandBoat stores plus 1 (#87) |
 
 ## Action results (S2C 0x028)
 
@@ -191,7 +191,7 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 2 | despawn | `PlayerActionService.StatusDespawning`: the engaged target is dropped |
 | 3 | death | `PlayerActionService.StatusDead`; `AnimationStateClassifier` plays death; a monster, pet or Trust at 3 is dead (`WorldEntity.IsDeadBattleEntity`): grey name, untargetable, dropped as the target ([entity-flags.md](entity-flags.md#dead-monsters-327), #327) |
 | 4 | event | |
-| 5 | chocobo | |
+| 5 | chocobo | `MountAppearance.StatusChocobo`: riding a chocobo (rental, personal or the Noble Chocobo), drawn on the chocobo race model ([#87](https://github.com/jimmy58663/GordianXI/issues/87)) |
 | 6 | fishing | |
 | 8 / 9 | open_door / close_door | `ZoneDoors.StatusOpen` / `StatusClosed`: `DoorAnimator` plays the door's routines and `ZoneDoors` blocks the doorway while not 8 (#15); events set them as `WorldEntity.EventStatus` (0x4C / 0x4D, #200) |
 | 10 / 11 | elevator_up / elevator_down | `MovingPlatforms.AnimationUp` / `AnimationDown` pick the leg direction |
@@ -200,7 +200,7 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 47 | sit | `RestPosture.StatusSitting`: the sitting posture (`sit0` / `sit1` / `sit2`, #343) |
 | 48 | ranged | |
 | 63-73 | sitchair_0-10 | |
-| 85 | mount | |
+| 85 | mount | `MountAppearance.StatusMount`: riding mount (wire number - 1), drawn on its own model (#87) |
 | 90 | trust (spawn-in) | |
 
 Values not listed (the fishing family 38-62, numbered unknowns) are not read.

@@ -220,6 +220,20 @@ namespace Gordian.Core.Network.Packets
             {
                 player.Hpp = pc.Hpp;
                 player.AnimationState = pc.ServerStatus;
+                // The mount (#87): the status says whether they ride, Flags6 which mount (kept after a dismount). Only a General
+                // update that carries Flags6 says which (round 6: a short one, read as "mount 0", drew everyone as a chocobo);
+                // without it the last known mount number stands.
+                if (pc.UniqueNo != _localPlayer.ServerId && (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
+                {
+                    byte wire = pc.HasFlags6 ? pc.MountIndex : player.MountWire;
+                    var mount = MountAppearance.FromWire(pc.ServerStatus, wire, pc.ChocoboIndex, pc.CustomProperty);
+                    if (pc.HasFlags6) player.MountWire = pc.MountIndex;
+                    if (mount != player.Mount)
+                    {
+                        GordianLog.Debug("ENTITY", $"Mount 0x{pc.UniqueNo:X8}: status={pc.ServerStatus} wire={wire} chocoboIndex={pc.ChocoboIndex} -> {mount.Kind} {mount.MountId}");
+                    }
+                    player.Mount = mount;
+                }
             }
             else if (pc.Hpp > 0)
             {
@@ -667,6 +681,7 @@ namespace Gordian.Core.Network.Packets
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 localEnt.AnimationState = charStatus.ServerStatus;
+                localEnt.Mount = _localPlayer.Mount;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a
                 // standing player play a step on every status update.

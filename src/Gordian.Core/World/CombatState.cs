@@ -234,6 +234,20 @@ namespace Gordian.Core.World
             }
         }
 
+        /// <summary>
+        /// The time left on the mount recast (S2C 0x119 <c>MountRecast</c>, one timer for every mount: LandSandBoat
+        /// <c>Recast::Mount</c>, 60 s) counted down since it arrived; zero when ready (#87).
+        /// </summary>
+        public TimeSpan GetMountRecastRemaining()
+        {
+            lock (_lock)
+            {
+                if (MountRecastSeconds == 0) return TimeSpan.Zero;
+                var left = TimeSpan.FromSeconds(MountRecastSeconds) - Elapsed(_abilityRecastStamp);
+                return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+            }
+        }
+
         private readonly Dictionary<ushort, (long Stamp, uint Seconds)> _spellRecasts = new();
 
         /// <summary>The clock recasts count down by (<see cref="System.Diagnostics.Stopwatch"/> ticks); replaceable for tests.</summary>

@@ -669,6 +669,15 @@ namespace Gordian.Core.World
         public EntityAppearance Appearance { get; } = new EntityAppearance();
         public EntityAnimationState Animation { get; } = new EntityAnimationState();
 
+        /// <summary>What the player rides (#87; S2C 0x00D, or 0x037 for the local player); <see cref="MountAppearance.None"/> on foot.</summary>
+        public MountAppearance Mount { get; set; }
+
+        /// <summary>The last mount number S2C 0x00D's Flags6 carried for the player (#87), for updates without it.</summary>
+        public byte MountWire { get; set; }
+
+        /// <summary>The ridden mount's own motion (idle, walk, run), played beside the rider's <see cref="Animation"/> (#87).</summary>
+        public EntityAnimationState MountAnimation { get; } = new EntityAnimationState();
+
         public bool IsSpawned { get; set; } = true;
 
         /// <summary>

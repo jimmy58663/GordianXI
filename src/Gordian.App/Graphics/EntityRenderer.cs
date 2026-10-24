@@ -451,6 +451,7 @@ namespace Gordian.App.Graphics
                     {
                         stalePalette.Dispose();
                     }
+                    if (_jointPaletteByEntity.TryRemove(MountPaletteKey(entity.ServerId), out var staleMount)) staleMount.Dispose();
                     _entityEnvironments.Remove(entity.ServerId);
                     _actorAnchors.Remove(entity.ServerId);
                     _faces.Remove(entity.ServerId);
@@ -521,7 +522,9 @@ namespace Gordian.App.Graphics
                     ? entity.RenderHeadingRadians
                     : entity.HeadingRadians;
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
-                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values).
+                // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); mounted, the
+                // rider and its mount together (#87; retail-confirmed in round 7: a Large Elvaan's Fenrir is larger than a Small one's).
+                bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
                 // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
@@ -589,7 +592,16 @@ namespace Gordian.App.Graphics
                                   ReferenceEquals(gpuModel, _fallbackMonsterProxy);
                 var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
 
-                var worldMatrix = rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
+                // A rider sits on its mount's seat (#87): the mount is posed first, scaled for the rider's race, and the rider
+                // follows its seat (round 2: the bob, idle included). A mount left from the last frame frees its palette.
+                bool isLocalEntity = entity.ServerId == localPlayerServerId;
+                bool engagedNow = isLocalEntity ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
+                var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
+                    ? PrepareMount(cl, entity, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
+                    : null;
+                var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
+                if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
+                var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
                 {
@@ -623,6 +635,8 @@ namespace Gordian.App.Graphics
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 
                 var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
+                // Mounted, the same meshes play the riding pack (#87).
+                if (skinnedModel != null && mounted) skinnedModel = RiderOrSelf(entity, skinnedModel, resourceManager);
                 bool isSkinned = skinnedModel != null;
 
                 cl.SetPipeline(faded ? (isSkinned ? _skinnedDepthPipeline : _depthPipeline) : (isSkinned ? _skinnedPipeline : _pipeline));
@@ -675,7 +689,11 @@ namespace Gordian.App.Graphics
                 }
 
                 float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
-                var overhead = pos + new Vector3(0.0f, isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y, 0.0f);
+                float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
+                // A rider's name plate (#87, round 2 H12): its own overhead point over the mount's seat, about a yalm over the
+                // seated head as in retail (image-9.png), not over the head itself.
+                if (ride is { } plated && isSkinned) overheadHeight += plated.PlateLift * sizeFactor;
+                var overhead = pos + new Vector3(0.0f, overheadHeight, 0.0f);
                 _overheadAnchors.Add(new OverheadAnchor(entity.ServerId, overhead));
                 if (isTarget) TargetAnchor = overhead;
                 if (SubTargetServerId != 0 && entity.ServerId == SubTargetServerId) SubTargetAnchor = overhead;
@@ -694,6 +712,7 @@ namespace Gordian.App.Graphics
                     if (paletteSet != null) cl.SetGraphicsResourceSet(2, paletteSet);
                     draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 }
+                if (ride is { } drawnRide && !isFallback) draws += DrawMount(cl, entity, drawnRide, uniform, sizeScale * headingRot, pos, faded, isLocalEntity, deltaSeconds);
             }
 
             draws += DrawBlurAuras(cl, deltaSeconds);

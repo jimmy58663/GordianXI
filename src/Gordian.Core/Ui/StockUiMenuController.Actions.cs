@@ -81,16 +81,20 @@ namespace Gordian.Core.Ui
         public StockUiOpenMenu? OpenActionList(StockUiActionList list, int category, StockUiOpenMenu? parent)
         {
             var library = _library;
-            string menuName = list == StockUiActionList.Spells ? StockUiActionMenu.SpellListMenu : StockUiActionMenu.AbilityListMenu;
+            string menuName = list switch
+            {
+                StockUiActionList.Spells => StockUiActionMenu.SpellListMenu,
+                StockUiActionList.Mounts => StockUiActionMenu.MountListMenu,
+                _ => StockUiActionMenu.AbilityListMenu,
+            };
             if (library == null || !library.TryGetMenu(menuName, out var definition))
             {
                 GordianLog.Warning("UI", $"Stock menu '{menuName}' is not available.");
                 return null;
             }
             var target = CommandTargetOf(parent);
-            IReadOnlyList<StockUiActionRow>? rows = list == StockUiActionList.Mounts
-                ? Array.Empty<StockUiActionRow>()
-                : ActionRowsProvider?.Invoke(list, category, target);
+            IReadOnlyList<StockUiActionRow>? rows = ActionRowsProvider?.Invoke(list, category, target)
+                ?? (list == StockUiActionList.Mounts ? Array.Empty<StockUiActionRow>() : null);
             if (rows == null)
             {
                 NoticePosted?.Invoke("Magic and abilities are not available in this session (the game's spell tables are not loaded).");
@@ -146,7 +150,7 @@ namespace Gordian.Core.Ui
             bool changed = false;
             foreach (var menu in _open)
             {
-                if (!menu.IsActionList || menu.ActionList == StockUiActionList.Mounts) continue;
+                if (!menu.IsActionList) continue;
                 var rows = provider(menu.ActionList, menu.ActionCategory, menu.ActionTarget);
                 if (rows == null) continue;
                 lock (_sync)

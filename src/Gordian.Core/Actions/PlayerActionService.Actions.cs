@@ -60,6 +60,15 @@ namespace Gordian.Core.Actions
 
         private IReadOnlyList<StockUiActionRow>? ComposeActionRows(StockUiActionList list, int category, StockUiTargetContext? target)
         {
+            if (list == StockUiActionList.Mounts)
+            {
+                // The mount list needs only the mount names (#87), not the spell and ability tables.
+                var names = MountName;
+                return names == null
+                    ? Array.Empty<StockUiActionRow>()
+                    : StockUiActionMenu.MountRows(UnlockedMounts, names, id => MountHelp?.Invoke(id),
+                        _combatModule.State.GetMountRecastRemaining(), System.Diagnostics.Stopwatch.GetTimestamp());
+            }
             var catalog = Catalog;
             if (catalog == null) return null;
             var combat = _combatModule.State;
@@ -104,6 +113,11 @@ namespace Gordian.Core.Actions
             if (request.Target is { } context && (!_world.TryGetByServerId(context.TargetServerId, out preferred) || preferred == null))
             {
                 return Task.FromResult(PlayerActionResult.Warn($"{context.TargetName} is no longer here."));
+            }
+            if (request.Type == StockUiActionType.Mount)
+            {
+                // Calling a mount needs no target (retail capture Mounts.mp4: the mount comes at once).
+                return MountAsync(request.Id);
             }
             if (request.Type == StockUiActionType.RangedAttack)
             {

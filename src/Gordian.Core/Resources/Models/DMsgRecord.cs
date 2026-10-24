@@ -63,6 +63,16 @@ namespace Gordian.Core.Resources.Models
         /// equipment set editor's "Remove piece." / "Keep same piece." (275, 276) and its prompts (277-279) (#91, #92).
         /// </summary>
         MenuMessages,
+        /// <summary>
+        /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
+        /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
+        /// </summary>
+        MountNames,
+        /// <summary>
+        /// Mount help lines by client mount id (ROM/351/85.DAT, EN file id 0xD982: 0 "Calls forth your personal chocobo."),
+        /// shown in the help bar over the mount list (#87; retail capture Mounts.mp4).
+        /// </summary>
+        MountHelp,
         Custom
     }
 

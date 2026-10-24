@@ -346,6 +346,12 @@ namespace Gordian.Core.Network.Packets
         public byte MountIndex => (byte)((Flags6 >> 4) & 0xFF);
 
         /// <summary>
+        /// Whether the packet is long enough to carry Flags6 (#87): LandSandBoat sends short updates (position only, 62
+        /// bytes) whose other fields are left over from the last full one, so a mount must not be read from them.
+        /// </summary>
+        public bool HasFlags6 => _payload.Length >= 0x44;
+
+        /// <summary>
         /// The name plate flags: flags1 LfgFlag (11), AnonymousFlag (12), YellFlag (13), AwayFlag (14), PlayOnelineFlag
         /// (16), LinkShellFlag (17), LinkDeadFlag (18), BazaarFlag (31); flags2 GmIconFlag (28), AutoPartyFlag (31);
         /// flags3 LfgMasterFlag (1), NewCharacterFlag (23), MentorFlag (24); flags4 TrialFlag (1), JobMasterFlag (6).
@@ -1136,6 +1142,13 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>GM level (flags0 bits 29-31). The client only distinguishes values of 3 and up.</summary>
         public byte GmLevel => (byte)((Flags0 >> 29) & 0x07);
+
+        /// <summary>
+        /// <c>Chocobo_Index</c> (flags0 bits 13-15): set while mounted, 1 on a rental chocobo, 2 on a personal one (#87).
+        /// Layout referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037; values from
+        /// LandSandBoat (https://github.com/LandSandBoat/server) <c>utils/mountutils.cpp</c>.
+        /// </summary>
+        public byte ChocoboIndex => (byte)((Flags0 >> 13) & 0x07);
 
         /// <summary>
         /// FreezeFlag (flags1 bit 13): the client is locked in place and the compass is removed. Layout referenced from

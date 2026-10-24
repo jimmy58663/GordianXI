@@ -22,7 +22,7 @@ namespace Gordian.Core.Resources
     /// Derived from community research in xi-model-viewer (https://github.com/vekien/xi-model-viewer)
     /// and LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
-    public sealed class ResourceManager
+    public sealed partial class ResourceManager
     {
         private readonly object _lock = new();
         private readonly string _gameDirectory;
@@ -427,6 +427,8 @@ namespace Gordian.Core.Resources
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
             DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
             DMsgCategory.MenuMessages => Path.Combine("ROM", "165", "72.DAT"),
+            DMsgCategory.MountNames => Path.Combine("ROM", "351", "84.DAT"),
+            DMsgCategory.MountHelp => Path.Combine("ROM", "351", "85.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),
@@ -901,6 +903,7 @@ namespace Gordian.Core.Resources
             _interiorCache.Clear();
             _interiorCollisionCache.Clear();
             _entityModelCache.Clear();
+            ClearMountCaches();
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
             Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
