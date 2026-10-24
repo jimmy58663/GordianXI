@@ -83,7 +83,48 @@ namespace Gordian.Core.Tests.Architecture
             Type[] typeArgs = owner.IsGenericType ? owner.GetGenericArguments() : Type.EmptyTypes;
             Type[] methodArgs = method.IsGenericMethod ? method.GetGenericArguments() : Type.EmptyTypes;
             var module = method.Module;
+            foreach (int token in MemberTokens(il))
+                AddToken(module, token, typeArgs, methodArgs, found);
+        }
 
+        /// <summary>
+        /// Every method or constructor in <paramref name="assembly"/> whose IL refers to <paramref name="target"/> (calls it,
+        /// or takes it as a delegate), as "<c>Type.Method</c>" with nested types (lambdas, state machines) reported under
+        /// their outermost declaring type.
+        /// </summary>
+        public static List<string> FindCallers(Assembly assembly, MethodBase target)
+        {
+            var callers = new List<string>();
+            foreach (var type in assembly.GetTypes())
+            {
+                var methods = type.GetMethods(AllDeclared).Cast<MethodBase>().Concat(type.GetConstructors(AllDeclared));
+                foreach (var method in methods)
+                {
+                    byte[]? il;
+                    try { il = method.GetMethodBody()?.GetILAsByteArray(); }
+                    catch (Exception) { continue; }
+                    if (il == null) continue;
+                    Type[] typeArgs = type.IsGenericType ? type.GetGenericArguments() : Type.EmptyTypes;
+                    Type[] methodArgs = method.IsGenericMethod ? method.GetGenericArguments() : Type.EmptyTypes;
+                    foreach (int token in MemberTokens(il))
+                    {
+                        MemberInfo? member;
+                        try { member = method.Module.ResolveMember(token, typeArgs, methodArgs); }
+                        catch (Exception) { continue; }
+                        if (member is MethodBase m && m.MetadataToken == target.MetadataToken && m.Module == target.Module)
+                        {
+                            callers.Add($"{Outermost(type).FullName}.{method.Name}");
+                            break;
+                        }
+                    }
+                }
+            }
+            return callers;
+        }
+
+        /// <summary>The field, method, type and token operands in a method body's IL.</summary>
+        private static IEnumerable<int> MemberTokens(byte[] il)
+        {
             int pos = 0;
             while (pos < il.Length)
             {
@@ -97,8 +138,7 @@ namespace Gordian.Core.Tests.Architecture
                     case OperandType.InlineMethod:
                     case OperandType.InlineTok:
                     case OperandType.InlineType:
-                        int token = BitConverter.ToInt32(il, pos);
-                        AddToken(module, token, typeArgs, methodArgs, found);
+                        yield return BitConverter.ToInt32(il, pos);
                         pos += 4;
                         break;
                     case OperandType.InlineNone:

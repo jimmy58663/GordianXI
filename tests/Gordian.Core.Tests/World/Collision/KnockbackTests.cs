@@ -94,7 +94,7 @@ namespace Gordian.Core.Tests.World.Collision
             settings.AnchorRequested = true;
             Assert.True(settings.IsAnchored(profile));
 
-            profile.FeatureRestrictions = FeatureRestrictions.KnockbackOverride;
+            profile.Restrict(FeatureRestrictions.KnockbackOverride);
             Assert.False(settings.IsAnchored(profile));
             Assert.True(KnockbackSettings.IsAnchorLocked(profile));
         }

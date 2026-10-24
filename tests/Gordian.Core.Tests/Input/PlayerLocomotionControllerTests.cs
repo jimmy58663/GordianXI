@@ -971,7 +971,7 @@ namespace Gordian.Core.Tests.Input
         {
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
 
-            actionService.Profile.FeatureRestrictions = FeatureRestrictions.SpeedOverride;
+            actionService.Profile.Restrict(FeatureRestrictions.SpeedOverride);
             controller.SpeedMultiplier = 2.0f;
             controller.SpeedOverride = 120;
 

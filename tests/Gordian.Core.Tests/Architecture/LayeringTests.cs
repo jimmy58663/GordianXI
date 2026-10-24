@@ -11,7 +11,7 @@ namespace Gordian.Core.Tests.Architecture
     /// DAT resources under them; <c>Gordian.Engine</c> (playback, UI, input, audio, the session composition root) sits on
     /// top. Since the split the compiler stops Core from naming engine types; these tests also scan the IL of both
     /// assemblies (so a future layer inside one assembly can be checked the same way), make every new Core area pick its
-    /// layer, and check the assembly boundaries and the kill-switch setter. References that break the rule would be listed
+    /// layer, and check the assembly boundaries and the kill-switch writer. References that break the rule would be listed
     /// in <see cref="KnownViolations"/>; fixing one means deleting its line, and the test fails on lines that no longer
     /// apply so the list only shrinks. Resources is not a layer of its own: its loaders build world and collision state and
     /// log through Diagnostics, so a separate data layer would need those moved first.
@@ -71,14 +71,15 @@ namespace Gordian.Core.Tests.Architecture
         }
 
         /// <summary>
-        /// The server's feature restrictions are set by Core's packet handling only: the setter is internal, and Core shows its
-        /// internals to the engine and the tests, not to the App or the addon runtime (AGENTS.md kill-switch policy).
+        /// The server's feature restrictions are set by Core's packet handling only: there is no setter, the one writer is
+        /// internal, and Core shows its internals to the engine and the tests, not to the App or the addon runtime (AGENTS.md
+        /// kill-switch policy).
         /// </summary>
         [Fact]
         public void FeatureRestrictionsCannotBeSetOutsideCore()
         {
-            var setter = typeof(Gordian.Core.Config.SessionProfile).GetProperty(nameof(Gordian.Core.Config.SessionProfile.FeatureRestrictions))!.SetMethod!;
-            Assert.True(setter.IsAssembly);
+            Assert.Null(typeof(Gordian.Core.Config.SessionProfile).GetProperty(nameof(Gordian.Core.Config.SessionProfile.FeatureRestrictions))!.SetMethod);
+            Assert.True(RestrictionWriter.IsAssembly);
             var friends = typeof(Gordian.Core.Config.SessionProfile).Assembly
                 .GetCustomAttributes<System.Runtime.CompilerServices.InternalsVisibleToAttribute>()
                 .Select(a => a.AssemblyName)
@@ -87,6 +88,20 @@ namespace Gordian.Core.Tests.Architecture
             Assert.DoesNotContain("Gordian.Addons", friends);
             Assert.DoesNotContain("Gordian.Automation", friends);
         }
+
+        /// <summary>
+        /// The S2C 0x0EE handler is the only production code that writes the restrictions: no other method in Core or the
+        /// engine may call the writer, so the kill switch can't be lifted or forged from inside the client either.
+        /// </summary>
+        [Fact]
+        public void FeatureRestrictionsAreWrittenOnlyByTheServerPacket()
+        {
+            var callers = ScannedAssemblies.SelectMany(a => TypeDependencyScanner.FindCallers(a, RestrictionWriter)).ToList();
+            Assert.Equal(new[] { "Gordian.Core.Network.Packets.LifecyclePacketModule.HandleFeatureRestrictions" }, callers);
+        }
+
+        private static MethodInfo RestrictionWriter =>
+            typeof(Gordian.Core.Config.SessionProfile).GetMethod("ApplyServerRestrictions", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
         [Fact]
         public void EveryAreaHasALayer()

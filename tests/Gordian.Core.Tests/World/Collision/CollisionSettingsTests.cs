@@ -30,11 +30,14 @@ namespace Gordian.Core.Tests.World.Collision
             var profile = new SessionProfile();
             Assert.Equal(CollisionLayers.None, settings.GetEffective(profile));
 
-            profile.FeatureRestrictions = FeatureRestrictions.WallCollisionOverride;
+            profile.Restrict(FeatureRestrictions.WallCollisionOverride);
             Assert.Equal(CollisionLayers.Ground | CollisionLayers.Walls, settings.GetEffective(profile));
 
-            profile.FeatureRestrictions = FeatureRestrictions.EntityCollisionOverride;
-            Assert.Equal(CollisionLayers.Entities, settings.GetEffective(profile));
+            Assert.Equal(CollisionLayers.Entities, settings.GetEffective(SessionProfileTestExtensions.Restricted(FeatureRestrictions.EntityCollisionOverride)));
+
+            // Restrictions add up and never clear: both kinds now hold every protected layer on.
+            profile.Restrict(FeatureRestrictions.EntityCollisionOverride);
+            Assert.Equal(CollisionLayers.Ground | CollisionLayers.Walls | CollisionLayers.Entities, settings.GetEffective(profile));
         }
 
         [Fact]
@@ -60,7 +63,7 @@ namespace Gordian.Core.Tests.World.Collision
         [Fact]
         public void CollisionCommand_ReportsServerEnforcedLayers()
         {
-            var profile = new SessionProfile { FeatureRestrictions = FeatureRestrictions.WallCollisionOverride };
+            var profile = SessionProfileTestExtensions.Restricted(FeatureRestrictions.WallCollisionOverride);
             var service = CreateService(profile);
 
             var result = service.ApplyCollisionCommand("walls off");

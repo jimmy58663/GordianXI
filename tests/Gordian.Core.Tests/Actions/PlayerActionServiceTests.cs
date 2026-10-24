@@ -259,7 +259,6 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_MoveTo_AllowAll_UpdatesPositionAndSendsPacket()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var res = await _actionService.ExecuteCommandAsync("/moveto 55.5 12.3 88.0");
 
             Assert.True(res.Success);
@@ -272,7 +271,6 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_MoveTo_TakesWindowerOrderWithZAsHeight()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             await _actionService.ExecuteCommandAsync("/moveto 124.12 -588.277 -5.69");
 
             Assert.True(_world.TryGetByServerId(0x01020304, out var player));
@@ -283,7 +281,6 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_MoveTo_WithoutHeightKeepsTheCurrentHeight()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             await _actionService.ExecuteCommandAsync("/moveto 30 40");
 
             Assert.True(_world.TryGetByServerId(0x01020304, out var player));
@@ -293,7 +290,7 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_MoveTo_MovementRestricted_BlocksSyntheticMovement()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
+            _profile.Restrict(FeatureRestrictions.Movement);
             var res = await _actionService.ExecuteCommandAsync("/moveto 55.5 12.3 88.0");
 
             Assert.False(res.Success);
@@ -378,14 +375,13 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_Help_ListsCommands_FilteredByPolicy()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var resAllow = await _actionService.ExecuteCommandAsync("/help");
             Assert.True(resAllow.Success);
             Assert.Contains("[Restrictions: None]", resAllow.Message);
             Assert.Contains("/pos", resAllow.Message);
             Assert.Contains("/moveto", resAllow.Message);
 
-            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
+            _profile.Restrict(FeatureRestrictions.Movement);
             var resVanilla = await _actionService.ExecuteCommandAsync("/commands");
             Assert.True(resVanilla.Success);
             Assert.Contains("[Restrictions: Movement]", resVanilla.Message);
@@ -396,12 +392,11 @@ namespace Gordian.Core.Tests.Actions
         [Fact]
         public async Task ExecuteCommand_Help_SpecificCommand_ReflectsPolicy()
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var resAllow = await _actionService.ExecuteCommandAsync("/help moveto");
             Assert.True(resAllow.Success);
             Assert.Contains("Usage: /moveto", resAllow.Message);
 
-            _profile.FeatureRestrictions = FeatureRestrictions.Movement;
+            _profile.Restrict(FeatureRestrictions.Movement);
             var resVanilla = await _actionService.ExecuteCommandAsync("/help moveto");
             Assert.True(resVanilla.Success);
             Assert.Contains("blocked by server feature restrictions (Movement)", resVanilla.Message);
@@ -445,7 +440,6 @@ namespace Gordian.Core.Tests.Actions
         [InlineData("/moveto X=55.5, Y=12.3, Z=88.0")]
         public async Task ExecuteCommand_MoveTo_VariousCoordinateFormats_ParsesSuccessfully(string cmd)
         {
-            _profile.FeatureRestrictions = FeatureRestrictions.None;
             var res = await _actionService.ExecuteCommandAsync(cmd);
 
             Assert.True(res.Success);
@@ -672,7 +666,7 @@ namespace Gordian.Core.Tests.Actions
             _actionService.ApplyAnchorCommand("");
             Assert.False(_actionService.Knockback.AnchorRequested);
 
-            _profile.FeatureRestrictions = FeatureRestrictions.KnockbackOverride;
+            _profile.Restrict(FeatureRestrictions.KnockbackOverride);
             var locked = _actionService.ApplyAnchorCommand("on");
             Assert.False(_actionService.Knockback.IsAnchored(_profile));
             Assert.Contains("server", locked.Message);
