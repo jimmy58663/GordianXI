@@ -55,6 +55,8 @@ namespace Gordian.App.Tests.Graphics
             };
             var list = menus.OpenTreasurePool(null)!;
             menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // the cloth
+            Assert.Equal(816, list.DescribedItem); // the shared item info window describes the row (#418)
+            Assert.NotNull(list.ShownDescriptionPage);
             menus.Activate(); // Cast Lot / Pass
             Assert.Equal(2, menus.OpenMenus.Count);
 

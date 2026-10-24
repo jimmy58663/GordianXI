@@ -91,7 +91,7 @@ namespace Gordian.App.Graphics
                     _statusIcons = StatusIconLibrary.Load(resources);
                     _logFont = StockUiLogFont.FromLibrary(library);
                     // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
-                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = StockUiTextBoxes.Measure(_font!, wrapFont);
                     _libraryGeneration = generation;
                     _library = library;
                 }
@@ -123,7 +123,7 @@ namespace Gordian.App.Graphics
                     _font = UiFont.FromLibrary(library);
                     _logFont = StockUiLogFont.FromLibrary(library);
                     // Item descriptions wrap with the log font they are drawn in (StockUiTextLayout).
-                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = t => wrapFont.MeasureWidth(t);
+                    if (_logFont is { } wrapFont) StockUiItemDescription.FontMeasure = StockUiTextBoxes.Measure(_font!, wrapFont);
                     if (reloaded) _statusIcons = StatusIconLibrary.Load(resources);
                     _library = library;
                 }
@@ -333,12 +333,12 @@ namespace Gordian.App.Graphics
                     Gordian.Engine.Actions.ActionKind.Item => "Select target of item.",
                     _ => "Select target of ability.",
                 };
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, picking.Name, line, Layout.Scale, width, height);
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, picking.Name, line, Layout.Scale, width, height);
                 return;
             }
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
-            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -351,7 +351,7 @@ namespace Gordian.App.Graphics
             if (_font is not { } font || menus.Suspended || menus.OpenMenus.LastOrDefault() is not { } top) return;
             if (StockUiParty.TitleOf(top.Name) is not { } title) return;
             string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
-            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -385,7 +385,7 @@ namespace Gordian.App.Graphics
                 string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
                 string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
                 if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
-                StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
                 return;
             }
             var macros = session.Macros;
@@ -399,7 +399,7 @@ namespace Gordian.App.Graphics
             bool shifted = settings.GetValue(StockUiSettingKey.MacroPalettePosition) == 1 || session.ActionService.Combat?.IsEngaged == true;
             StockUiMacroWindow.DrawPlayPalette(renderer, library, font, macros, compact, shifted, Layout.Scale, width, height);
             var library2 = macros.Library;
-            StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, StockUiMacroMenus.PaletteTitle,
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMacroMenus.PaletteTitle,
                 $"Macro Set {library2.GetBookTitle(library2.CurrentBook)} (#{library2.CurrentSet + 1})", Layout.Scale, width, height);
         }
 
@@ -555,7 +555,7 @@ namespace Gordian.App.Graphics
                     if (menu.ItemDropRow != null)
                     {
                         // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).
-                        y = Math.Max(0, StockUiItemWindow.BottomOf(new StockUiScreen(width, height, _window1Top), root.Scale) - frame.Height * root.Scale);
+                        y = Math.Max(0, StockUiWindowPlacement.BottomOf(new StockUiScreen(width, height, _window1Top), root.Scale) - frame.Height * root.Scale);
                     }
                     else if (menu.PageRing.Count > 0)
                     {

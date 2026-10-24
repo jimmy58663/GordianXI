@@ -38,7 +38,7 @@ Code: `EventMessageDecoder` (Core `Resources/Tables`) turns a string into segmen
 | `1F c` | text colour `c` | 35,896 | `Colour` | dropped (lines are drawn in one colour) | decoder notes |
 | other below `20` | one argument byte (xi-tools gives `04`, `06`, `0F`, `15`, `1B` none; no English line uses them) | - | `Unknown`, 2 bytes | dropped | decoder notes |
 | `7F xx ...` | extended codes | see [0x7F codes](#0x7f-codes) | - | - | - |
-| `EF n` | inline icon; `EF 1F`-`EF 26` stand for the eight elements in the weather list and an elemental balance line | 19,068 | `Icon` | dropped (not drawn) | corpus; xi-tools calls the range gauge-bar glyphs |
+| `EF n` | inline icon; `EF 1F`-`EF 26` stand for the eight elements in the weather list and an elemental balance line | 19,068 | `Icon` | dropped (not drawn) in event text; in item descriptions decoded to icon characters (`ElementGlyphs`) and drawn as the `el*` element icons (#417) | corpus; xi-tools calls the range gauge-bar glyphs |
 | `FD .. FD` | auto-translate phrase (6 bytes) | 0 | `Unknown`, 6 bytes | dropped | decoder notes |
 | `20`-`FF` else | Shift-JIS text (`cp932`; a lead byte takes its trail byte) | - | `Text` | handled; the 85 FFXI glyphs that differ from `cp932` are not mapped | xi-tools docs/dialog/format.md |
 

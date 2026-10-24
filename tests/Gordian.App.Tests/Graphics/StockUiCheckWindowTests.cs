@@ -62,7 +62,7 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(23407, menu.SelectedCheckItem);
             var page1 = Draw("gpu_check_item.png");
             Assert.True(screen.HasLightPixel(page1, px + 48, px + 300, py + 192 + 4 + 16 * 11 + 8), "no footer on the twelfth line");
-            Assert.True(menus.NextCheckPage());
+            Assert.True(menus.NextItemPage());
             var page2 = Draw("gpu_check_item_page2.png");
             Assert.False(screen.HasLightPixel(page2, px + 48, px + 300, py + 192 + 4 + 16 * 8 + 8), "page 2 should be five lines tall");
             Assert.True(screen.HasLightPixel(page2, px + 48, px + 300, py + 192 + 4 + 16 * 2 + 8), "no description on page 2");

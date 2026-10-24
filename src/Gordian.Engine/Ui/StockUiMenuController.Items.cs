@@ -106,23 +106,65 @@ namespace Gordian.Engine.Ui
         public ushort EquippedItemIn(int buttonId) =>
             IsEquipment && StockUiCheck.TryGetSlot(buttonId, out var slot) ? StockUiItems.EquippedItem(Inventory, slot)?.ItemId ?? 0 : (ushort)0;
 
-        /// <summary>The item whose description the window shows: the list's row under the cursor, or the grid's worn item.</summary>
-        public ushort DescribedItem => IsItemList
-            ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
+        /// <summary>
+        /// The item whose description the window shows in the item info window (#418: one source for every window that has
+        /// one): an item list's row under the cursor, the Equipment, Equipment Sets or synthesis grid's slot, the check
+        /// window's slot, the Treasure Pool's row or the shop's row; 0 for none.
+        /// </summary>
+        public ushort DescribedItem =>
+            IsItemList ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
             : IsSynthesisGrid ? SynthesisGridItem
-            : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId) : EquippedItemIn(SelectedButtonId);
+            : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId)
+            : IsEquipment ? EquippedItemIn(SelectedButtonId)
+            : IsCheck ? SelectedCheckItem
+            : IsTreasureList ? SelectedTreasureRow?.ItemId ?? 0
+            : IsShopList ? SelectedShopRow?.ItemId ?? 0
+            : (ushort)0;
 
-        /// <summary>The description pages of <see cref="DescribedItem"/> (empty without an item or its record).</summary>
-        public IReadOnlyList<StockUiItemDescriptionPage> DescriptionPages =>
-            DescribedItem is var id && id != 0 && ItemLookup?.Invoke(id) is { } record
-                ? StockUiItemDescription.Pages(record)
-                : Array.Empty<StockUiItemDescriptionPage>();
+        private ushort _pagesItem;
+        private Func<string, float>? _pagesMeasure;
+        private IReadOnlyList<StockUiItemDescriptionPage> _pages = Array.Empty<StockUiItemDescriptionPage>();
+
+        /// <summary>
+        /// The description pages of <see cref="DescribedItem"/> (empty without an item or its record), built once per item
+        /// (and again when the HUD's font measure arrives) rather than on every read.
+        /// </summary>
+        public IReadOnlyList<StockUiItemDescriptionPage> DescriptionPages
+        {
+            get
+            {
+                ushort id = DescribedItem;
+                var measure = StockUiItemDescription.FontMeasure;
+                if (id != _pagesItem || !ReferenceEquals(measure, _pagesMeasure) || (id != 0 && _pages.Count == 0))
+                {
+                    _pages = id != 0 && ItemLookup?.Invoke(id) is { } record
+                        ? StockUiItemDescription.Pages(record)
+                        : Array.Empty<StockUiItemDescriptionPage>();
+                    _pagesItem = id;
+                    _pagesMeasure = measure;
+                }
+                return _pages;
+            }
+        }
 
         private ushort _pageItem;
         private int _page;
 
-        /// <summary>The description page shown (0 = the first); it goes back to the first whenever the described item changes.</summary>
+        /// <summary>
+        /// The description page shown (0 = the first); it goes back to the first whenever the cursor moves or the described
+        /// item changes.
+        /// </summary>
         public int DescriptionPage => _pageItem == DescribedItem ? _page : 0;
+
+        /// <summary>The page of <see cref="DescriptionPages"/> shown, null when there is no description.</summary>
+        public StockUiItemDescriptionPage? ShownDescriptionPage
+        {
+            get
+            {
+                var pages = DescriptionPages;
+                return pages.Count == 0 ? null : pages[Math.Clamp(DescriptionPage, 0, pages.Count - 1)];
+            }
+        }
 
         /// <summary>Turns the description to its next page, wrapping; false when it has one page.</summary>
         internal bool NextDescriptionPage()
@@ -133,6 +175,9 @@ namespace Gordian.Engine.Ui
             _pageItem = DescribedItem;
             return true;
         }
+
+        /// <summary>Back to the description's first page (the cursor moved).</summary>
+        private void ResetDescriptionPage() => _page = 0;
     }
 
     public sealed partial class StockUiMenuController
@@ -1074,15 +1119,16 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Turns the description of the item under an Items or Equipment window's cursor to its next page (the gamepad's X,
-        /// as in the check window). Returns whether a page turned.
+        /// Turns the item description of the top window (Items, Equipment, Equipment Sets, synthesis, check, Treasure Pool,
+        /// shop) to its next page, wrapping to the first (retail: the gamepad's X, here the main menu action, which these
+        /// windows do not otherwise use). Returns whether a page turned.
         /// </summary>
         public bool NextItemPage()
         {
             bool turned = false;
             lock (_sync)
             {
-                if (Top is { } top && (top.IsItemList || top.IsEquipment)) turned = top.NextDescriptionPage();
+                if (Top is { } top) turned = top.NextDescriptionPage();
             }
             if (turned) Changed?.Invoke();
             return turned;

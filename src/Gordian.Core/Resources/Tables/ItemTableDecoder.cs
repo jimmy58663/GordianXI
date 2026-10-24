@@ -332,7 +332,8 @@ namespace Gordian.Core.Resources.Tables
                             {
                                 strStart++;
                             }
-                            strings.Add(DMsgStringTable.DecodeTextWithGlyphs(block.Slice(strStart)));
+                            // Element codes stay icons (ElementGlyphs): the item info window draws them as retail does (#417).
+                            strings.Add(DMsgStringTable.DecodeTextWithGlyphs(block.Slice(strStart), elementIcons: true));
                         }
                         else
                         {
@@ -367,7 +368,7 @@ namespace Gordian.Core.Resources.Tables
                         if (strings.Count > 1) item.Description = strings[^1];
                     }
 
-                    ParseDescriptionStats(item.Description, item.ExtractedStats);
+                    ParseDescriptionStats(ElementGlyphs.ToPlainText(item.Description), item.ExtractedStats);
                     return;
                 }
             }

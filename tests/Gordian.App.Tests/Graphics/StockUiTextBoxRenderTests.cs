@@ -1,5 +1,6 @@
 // tests/Gordian.App.Tests/Graphics/StockUiTextBoxRenderTests.cs
 using System.Linq;
+using Gordian.Core.Resources.Tables;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.Packets;
 using Gordian.Engine.Ui;
@@ -60,6 +61,31 @@ namespace Gordian.App.Tests.Graphics
             {
                 StockUiItemDescription.FontMeasure = previous;
             }
+        }
+
+        [Fact]
+        public void ElementIcons_DrawAsTheirSpritesInTheLine()
+        {
+            // #417: the Paewr Belt's "DEF:14 [Fire]+25": the DAT's 0xEF 0x1F stays an icon, drawn as elfire on the line.
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null || screen.LogFont is not { } logFont) return;
+            Assert.True(screen.Resources.TryGetItem(10831, out var belt));
+            Assert.Contains(ElementGlyphs.IconChar(0), belt!.Description);
+            Assert.Contains("Fire+25", ElementGlyphs.ToPlainText(belt.Description));
+
+            string line = ElementGlyphs.IconChar(0) + "+25";
+            Assert.Equal(StockUiTextBoxes.IconAdvance + logFont.MeasureWidth("+25"), StockUiTextBoxes.MeasureLine(screen.Font, logFont, line));
+            byte[] pixels = screen.Render(r => StockUiTextBoxes.DrawLine(r, screen.Font, logFont, line, 100, 100, 1), "gpu_text_box_element_icon.png");
+            // The fire icon's warm orange where the icon stands, the "+25" after it.
+            bool warm = false;
+            for (int y = 102; y < 114 && !warm; y++)
+            for (int x = 102; x < 114 && !warm; x++)
+            {
+                var p = screen.Pixel(pixels, x, y);
+                warm = p.R > 120 && p.R > p.B + 50;
+            }
+            Assert.True(warm, "no fire icon at the start of the line");
+            Assert.True(screen.HasLightPixel(pixels, 116, 140, 108), "no \"+25\" after the icon");
         }
     }
 }

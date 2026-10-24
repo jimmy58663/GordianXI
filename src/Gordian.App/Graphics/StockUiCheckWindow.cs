@@ -25,25 +25,14 @@ namespace Gordian.App.Graphics
     /// </summary>
     public static class StockUiCheckWindow
     {
-        /// <summary>The 32 x 32 item icon fills the slot (the slot art is the empty slot's look).</summary>
-        private const float SlotIconSize = 32;
-
         /// <summary>
         /// The linkshell line under View Wares (its capsule ends at y 164), measured on the retail screenshot (2026-10-07):
         /// the 16 px rank icon at (16,163), the name from x 34.
         /// </summary>
         private const float LinkshellIconX = 16, LinkshellIconY = 163, LinkshellIconSize = 16, LinkshellTextX = 34, LinkshellTextY = 165;
 
-        /// <summary>Text inside the help bar's boxes and the description: log font lines 16 px apart.</summary>
-        private const float BarTextX = 8;
-
-        /// <summary>The help line stops this far (layout px) short of the screen's right edge.</summary>
-        private const float HelpRightMargin = 16;
-
         /// <summary>The bazaar message in the comment window: log-font lines 6 px in from y 4 (three 16 px rows fill its 56 px).</summary>
         private const float CommentTextX = 6, CommentTextY = 4;
-
-        private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>Whether a grid button's slot holds an item (its label is then left out under the icon).</summary>
         public static bool HoldsItem(StockUiCheckData check, int buttonId) =>
@@ -57,13 +46,8 @@ namespace Gordian.App.Graphics
             var frame = definition.Frame;
 
             // Item icons over the slots that hold something.
-            foreach (var button in definition.Buttons)
-            {
-                if (!StockUiCheck.TryGetSlot(button.ButtonId, out EquipSlotId slot)) continue;
-                ushort item = check.Info.ItemIn(slot);
-                if (item == 0) continue;
-                StockUiMenuWindow.DrawItemIcon(renderer, menu, item, placement.X + button.X * s, placement.Y + button.Y * s, SlotIconSize * s);
-            }
+            StockUiItemGrid.Draw(renderer, menu.ItemLookup, definition, placement,
+                id => StockUiCheck.TryGetSlot(id, out EquipSlotId slot) ? check.Info.ItemIn(slot) : (ushort)0);
 
             // The linkshell: the rank icon tinted with its colour, then the name, in fontshp at the party rows' 7/8 size.
             if (check.Info.HasLinkshell)
@@ -83,37 +67,18 @@ namespace Gordian.App.Graphics
                 renderer.DrawText(font, check.Info.LinkshellName, placement.X + LinkshellTextX * s, placement.Y + LinkshellTextY * s, ts);
             }
 
-            DrawHelpBar(renderer, library, font, logFont, check, placement, frame, screen);
+            StockUiHelpBar.DrawBeside(renderer, library, font, logFont, check.Name, check.JobText ?? StockUiCheck.FormatJobs(check.Info), placement, frame, screen);
 
             if (menu.SelectedButtonId == StockUiCheck.ViewWaresButton)
             {
                 DrawComment(renderer, library, font, logFont, check, placement, frame, screen);
                 return;
             }
-            var pages = menu.SelectedCheckPages;
-            if (pages.Count == 0) return;
-            var page = pages[Math.Clamp(menu.CheckPage, 0, pages.Count - 1)];
-            StockUiItemWindow.DrawDescriptionPage(renderer, library, font, logFont, menu, menu.SelectedCheckItem, page, placement, frame, timestamp);
-        }
-
-        /// <summary>The help bar: the name in the title box, the jobs in the help line stretched toward the screen's right edge.</summary>
-        private static void DrawHelpBar(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiCheckData check, StockUiPlacement placement, UiMenuFrame frame, StockUiScreen screen)
-        {
-            float s = placement.Scale;
-            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var title))
+            // The item under the cursor right under the grid, at the info window's authored x.
+            if (StockUiItemInfoWindow.FrameOf(library, menu.ShownDescriptionPage) is { } info)
             {
-                var at = new StockUiPlacement(placement.X + (title.Frame.X - frame.X) * s, placement.Y + (title.Frame.Y - frame.Y) * s, s, false);
-                renderer.DrawMenu(title, at, includeButtons: false, opaqueBody: true);
-                DrawLine(renderer, font, logFont, check.Name, at.X + BarTextX * s, at.Y + (title.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
-            }
-            if (library.TryGetMenu(StockUiCheck.HelpMenu, out var help))
-            {
-                var at = new StockUiPlacement(placement.X + (help.Frame.X - frame.X) * s, placement.Y + (help.Frame.Y - frame.Y) * s, s, false);
-                float? width = screen.Width > 0 ? Math.Max(help.Frame.Width, (screen.Width - at.X) / s - HelpRightMargin) : null;
-                renderer.DrawMenu(help, at, includeButtons: false, opaqueBody: true, frameWidth: width);
-                DrawLine(renderer, font, logFont, check.JobText ?? StockUiCheck.FormatJobs(check.Info), at.X + BarTextX * s,
-                    at.Y + (help.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
+                StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu,
+                    StockUiWindowPlacement.Beside(placement, frame, info.Frame.X, StockUiItemInfoWindow.DefaultTop), timestamp);
             }
         }
 
@@ -124,23 +89,17 @@ namespace Gordian.App.Graphics
             var lines = check.CommentLines;
             if (lines.Count == 0 || !library.TryGetMenu(StockUiCheck.CommentMenu, out var comment)) return;
             float s = placement.Scale;
-            float x = placement.X + (comment.Frame.X - frame.X) * s;
+            var beside = StockUiWindowPlacement.Beside(placement, frame, comment.Frame);
             float h = comment.Frame.Height * s;
-            float y = screen.Window1Top is { } top ? top - h
-                : screen.Height > 0 ? StockUiLayout.Place(comment.Frame.Anchor, comment.Frame.X, comment.Frame.Y, comment.Frame.Width, comment.Frame.Height, s, screen.Width, screen.Height).Y
-                : placement.Y + (comment.Frame.Y - frame.Y) * s;
-            var at = new StockUiPlacement(x, Math.Max(0, y), s, false);
+            float? hidden = screen.Height > 0
+                ? StockUiLayout.Place(comment.Frame.Anchor, comment.Frame.X, comment.Frame.Y, comment.Frame.Width, comment.Frame.Height, s, screen.Width, screen.Height).Y
+                : null;
+            var at = beside with { Y = StockUiWindowPlacement.TopOnLog(screen, s, h, beside.Y, hidden) };
             renderer.DrawMenu(comment, at, includeButtons: false, opaqueBody: true);
             for (int i = 0; i < lines.Count && i < 3; i++)
             {
-                DrawLine(renderer, font, logFont, lines[i], at.X + CommentTextX * s, at.Y + (CommentTextY + i * StockUiLogFont.CellHeight) * s, s);
+                StockUiTextBoxes.DrawLine(renderer, font, logFont, lines[i], at.X + CommentTextX * s, at.Y + (CommentTextY + i * StockUiLogFont.CellHeight) * s, s);
             }
-        }
-
-        private static void DrawLine(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, string text, float x, float y, float s)
-        {
-            if (logFont != null) logFont.Draw(renderer, text, x, y, s, White);
-            else renderer.DrawText(font, text, x, y, s);
         }
     }
 }

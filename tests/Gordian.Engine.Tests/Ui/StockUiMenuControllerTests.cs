@@ -1029,7 +1029,7 @@ namespace Gordian.Engine.Tests.Ui
             private static readonly Dictionary<ushort, ItemRecord> Items = new()
             {
                 [4389] = new ItemRecord { ItemId = 4389, Name = "Distilled Water", StackSize = 12 },
-                [4431] = new ItemRecord { ItemId = 4431, Name = "Grilled Hare", StackSize = 12 },
+                [4431] = new ItemRecord { ItemId = 4431, Name = "Grilled Hare", StackSize = 12, Description = string.Join('\n', Enumerable.Range(1, 10).Select(i => $"Line {i}.")) },
                 [639] = new ItemRecord { ItemId = 639, Name = "Ronfaure Chestnut", StackSize = 12 },
                 [610] = new ItemRecord { ItemId = 610, Name = "Bay Leaves", StackSize = 12 },
                 [1000] = new ItemRecord { ItemId = 1000, Name = "Rusty Key", StackSize = 1, Flags = StockUiShop.NoSaleFlag },
@@ -1065,6 +1065,35 @@ namespace Gordian.Engine.Tests.Ui
                     new ShopItemEntry(64, 610, 3, 0, 0),
                 });
             }
+        }
+
+        [Fact]
+        public void Shop_DescribesTheRowLikeEveryItemInfoWindow_AndXPagesIt()
+        {
+            // #418 / #417: the shop's item info is the shared description (display name, pages turned with X), not its own copy.
+            var h = new ShopHarness();
+            h.OpenCapturedShop();
+            h.Menus.Activate(); // Buy
+            var list = h.Menus.Top!;
+            Assert.Equal(4389, list.DescribedItem);
+            Assert.Equal(new[] { "Distilled Water" }, list.ShownDescriptionPage!.Lines);
+            Assert.False(h.Menus.NextItemPage()); // one page
+
+            h.Menus.Move(InputAction.MenuDown); // Grilled Hare: ten description lines, two pages
+            Assert.Equal(4431, list.DescribedItem);
+            var pages = list.DescriptionPages;
+            Assert.Equal(2, pages.Count);
+            Assert.Same(pages, list.DescriptionPages); // built once per item
+            Assert.Equal("Grilled Hare", pages[0].Lines[0]);
+            Assert.True(pages[0].HasMore);
+            Assert.True(h.Menus.NextItemPage());
+            Assert.Equal(1, list.DescriptionPage);
+            Assert.Same(pages[1], list.ShownDescriptionPage);
+
+            h.Menus.Move(InputAction.MenuDown); // a cursor move starts the next item on its first page
+            h.Menus.Move(InputAction.MenuUp);
+            Assert.Equal(4431, list.DescribedItem);
+            Assert.Equal(0, list.DescriptionPage);
         }
 
         [Fact]

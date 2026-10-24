@@ -389,19 +389,19 @@ namespace Gordian.Engine.Tests.Network
         {
             var controller = Controller();
             var menu = controller.OpenCheck(Data(bazaar: true))!;
-            Assert.False(controller.NextCheckPage()); // on View Wares: nothing to page
+            Assert.False(controller.NextItemPage()); // on View Wares: nothing to page
             menu.SelectedButtonId = 2; // Head: Bihu Roundlet +3
-            Assert.Equal(2, menu.SelectedCheckPages.Count);
-            Assert.True(controller.NextCheckPage());
-            Assert.Equal(1, menu.CheckPage);
-            Assert.True(controller.NextCheckPage());
-            Assert.Equal(0, menu.CheckPage); // wraps
-            controller.NextCheckPage();
+            Assert.Equal(2, menu.DescriptionPages.Count);
+            Assert.True(controller.NextItemPage());
+            Assert.Equal(1, menu.DescriptionPage);
+            Assert.True(controller.NextItemPage());
+            Assert.Equal(0, menu.DescriptionPage); // wraps
+            controller.NextItemPage();
             controller.Move(Gordian.Engine.Input.InputAction.MenuUp); // to Main
             controller.Move(Gordian.Engine.Input.InputAction.MenuDown); // back to Head
-            Assert.Equal(0, menu.CheckPage);
+            Assert.Equal(0, menu.DescriptionPage);
             menu.SelectedButtonId = 1; // Cesti: one page
-            Assert.False(controller.NextCheckPage());
+            Assert.False(controller.NextItemPage());
         }
 
         [Fact]
