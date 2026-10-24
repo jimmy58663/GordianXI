@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources;
 
@@ -91,10 +92,10 @@ namespace Gordian.Engine.Actions
             var tables = bytes != null ? SpellCommandTables.Parse(bytes) : null;
             if (tables == null) return null;
             return new ActionCatalog(tables,
-                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.Spells, id, out var name) ? name : null,
-                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.Abilities, id, out var name) ? name : null,
-                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.SpellHelp, id, out var help) ? help : null,
-                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.AbilityHelp, id, out var help) ? help : null);
+                id => resources.TryGetString(DMsgCategory.Spells, id, out var name) ? name : null,
+                id => resources.TryGetString(DMsgCategory.Abilities, id, out var name) ? name : null,
+                id => resources.TryGetString(DMsgCategory.SpellHelp, id, out var help) ? help : null,
+                id => resources.TryGetString(DMsgCategory.AbilityHelp, id, out var help) ? help : null);
         }
 
         /// <summary>

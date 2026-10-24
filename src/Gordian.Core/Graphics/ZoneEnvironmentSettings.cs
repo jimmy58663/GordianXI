@@ -2,6 +2,7 @@
 using System;
 using System.Numerics;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.World;
 
 namespace Gordian.Engine.Graphics
 {
@@ -125,7 +126,7 @@ namespace Gordian.Engine.Graphics
         public void SetTimeOfDay(float vanaHour)
         {
             TimeOfDayHours = vanaHour;
-            SunDirection = Gordian.Core.World.VanaTime.GetSunDirection(vanaHour);
+            SunDirection = VanaTime.GetSunDirection(vanaHour);
         }
 
         /// <summary>

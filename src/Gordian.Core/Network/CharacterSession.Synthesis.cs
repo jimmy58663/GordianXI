@@ -1,4 +1,5 @@
 // src/Gordian.Core/Network/CharacterSession.Synthesis.cs
+using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
 namespace Gordian.Engine.Sessions
@@ -21,8 +22,8 @@ namespace Gordian.Engine.Sessions
             Crafting.SynthesisCompleted += outcome =>
             {
                 // Successes and breaks (crystal, or crystal and materials, lost) go into the History; cancels did not synthesize.
-                bool ran = outcome.IsSuccess || outcome.Result is Gordian.Core.Network.Packets.SynthesisAnswer.Failed or Gordian.Core.Network.Packets.SynthesisAnswer.Interrupted
-                    or Gordian.Core.Network.Packets.SynthesisAnswer.InterruptedCritical;
+                bool ran = outcome.IsSuccess || outcome.Result is SynthesisAnswer.Failed or SynthesisAnswer.Interrupted
+                    or SynthesisAnswer.InterruptedCritical;
                 if (ran && Crafting.LastRequest is { } request) history.Record(request, outcome.IsSuccess ? outcome.ItemId : (ushort)0);
             };
 

@@ -60,7 +60,7 @@ namespace Gordian.Engine.Animation
             yaw = 0f;
             float dx = to.X - from.X, dz = to.Z - from.Z;
             if (dx * dx + dz * dz < 1e-6f) return true;
-            float delta = Gordian.Core.World.WorldEntity.HeadingOf(dx, dz) - heading;
+            float delta = WorldEntity.HeadingOf(dx, dz) - heading;
             delta -= MathF.Tau * MathF.Round(delta / MathF.Tau);
             if (MathF.Abs(delta) > MaxYaw) return false;
             yaw = delta;

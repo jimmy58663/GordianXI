@@ -1007,7 +1007,7 @@ namespace Gordian.Engine.Graphics
                     {
                         float along = p.Progress;
                         if (Template.Curves.TryGetValue(slot, out var pathCurve)) along = pathCurve.Evaluate(Math.Clamp(along, 0f, 1f));
-                        p.Position = Gordian.Core.Resources.Graphics.PointListDecoder.Sample(path, along);
+                        p.Position = PointListDecoder.Sample(path, along);
                     }
                     break;
                 case 0x02: // PositionUpdater (sub-particles drift along their own relative velocity)

@@ -1,6 +1,7 @@
 // src/Gordian.Core/Network/CharacterSession.cs
 using System;
 using System.Linq;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Network.Search;
@@ -232,8 +233,8 @@ namespace Gordian.Engine.Sessions
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             // The engine side of the session, built before anything else subscribes so its handlers run first, as they
             // did when the parser built them (#433).
-            ActionPlayback = new Animation.ActionPlaybackQueue(Combat, World, Gordian.Core.Animation.ActionMotionLibrary.Shared);
-            SchedulerPlayback = new Animation.SchedulerPlayback(Scheduler, World, Gordian.Core.Animation.ActionMotionLibrary.Shared);
+            ActionPlayback = new Animation.ActionPlaybackQueue(Combat, World, ActionMotionLibrary.Shared);
+            SchedulerPlayback = new Animation.SchedulerPlayback(Scheduler, World, ActionMotionLibrary.Shared);
             ActionService = Actions.PlayerActionService.ForParser(NetworkManager.Parser);
             ActionService.LocalPlayerMoved += (pos, dir) => NetworkManager.SetLocalPosition(pos, dir);
             ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
@@ -319,7 +320,7 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.HasUnity = () => LocalPlayer.UnityFaction != 0;
             ChatModule.LinkshellMessageReceived += msg =>
             {
-                if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == Gordian.Core.Network.Packets.LinkshellSlot.LS1 ? 1 : 2, true);
+                if (!string.IsNullOrEmpty(msg.LinkshellName)) Party.SetLinkshellEquipped(msg.Slot == LinkshellSlot.LS1 ? 1 : 2, true);
             };
             Locomotion.Chat = Chat;
             // Macros (#339, #362): the character's own books, run through the chat's submit so each line acts as typed.
@@ -425,20 +426,20 @@ namespace Gordian.Engine.Sessions
             };
             Inventory.GuildStatusReceived += (status, hours) =>
             {
-                if (status != Gordian.Core.Network.Packets.ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
+                if (status != ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             };
             // Confirm on the Mog House door asks "Heading outside, kupo?" (No under the cursor) before the exit is sent (#354).
             ActionService.MogHouseExitRequested += () => ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
             {
                 if (answer != true || World.MogHouseRoom == 0) return;
-                _ = NetworkManager.RequestMogHouseExitAsync(Gordian.Core.Network.Packets.MogHouseExitBit.Default, Gordian.Core.Network.Packets.MogHouseExitMode.AreaEnteredFrom);
+                _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
             });
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
                 // LandSandBoat empties the recycle bin whenever the character is loaded, i.e. at every zone-in
                 // (charutils::EmptyRecycleBin), without telling the client; retail's help text says the same (#351).
-                Inventory.ClearContainer(Gordian.Core.Network.Packets.ContainerId.RecycleBin);
+                Inventory.ClearContainer(ContainerId.RecycleBin);
                 Treasure.Clear();
                 // The pet, the wide scan list and the tracked entity do not survive a zone change; the server sends the
                 // pet again (S2C 0x068) when it comes along.
@@ -497,8 +498,8 @@ namespace Gordian.Engine.Sessions
         {
             var p = LocalPlayer;
             var inv = System.Globalization.CultureInfo.InvariantCulture;
-            string main = p.MainJob == Gordian.Core.Network.Packets.JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
-            string sub = p.SubJob == Gordian.Core.Network.Packets.JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
+            string main = p.MainJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
+            string sub = p.SubJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
             string itemLevel = string.Create(inv, $"ILv {p.ItemLevel}/Su {p.SuperiorLevel}");
             var bases = new int[7];
             var bonuses = new int[7];

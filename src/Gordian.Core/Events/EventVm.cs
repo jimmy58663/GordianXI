@@ -2,6 +2,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Numerics;
+using Gordian.Core.Animation;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.World;
 
@@ -1231,7 +1232,7 @@ namespace Gordian.Engine.Events
                 case 0x5B:
                 case 0x66:
                     // Both yield a frame after starting the motion (RetFlag = 1).
-                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, Gordian.Core.Animation.EventMotionBank.MotionBankFileId(GetWork(1)), 3);
+                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, EventMotionBank.MotionBankFileId(GetWork(1)), 3);
                     else ExecEntityMotion(EventMotionSource.Package, GetWork(1), 3);
                     _pc += 15;
                     _retFlag = true;

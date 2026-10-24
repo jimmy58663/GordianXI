@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources;
 
 namespace Gordian.Engine.Graphics
 {
@@ -25,7 +26,7 @@ namespace Gordian.Engine.Graphics
         /// </summary>
         public uint ActorFor(ParticleAttachType attachType)
         {
-            if (!Gordian.Core.Resources.ZoneDataLoader.IsActorAttached(attachType)) return 0;
+            if (!ZoneDataLoader.IsActorAttached(attachType)) return 0;
             bool targetSide = attachType is ParticleAttachType.TargetActor or ParticleAttachType.TargetToSourceBasis;
             uint first = targetSide ? TargetServerId : CasterServerId;
             return first != 0 ? first : targetSide ? CasterServerId : TargetServerId;

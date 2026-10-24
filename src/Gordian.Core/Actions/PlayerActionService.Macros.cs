@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Search;
 using Gordian.Engine.Input;
 using Gordian.Engine.Macros;
@@ -227,7 +228,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Gordian.Core.Diagnostics.GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
+                GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
                 return PlayerActionResult.Fail($"Could not invite {name}: {ex.Message}", kind);
             }
         }

@@ -412,13 +412,13 @@ namespace Gordian.App.Tests.Graphics
         {
             var primary = new ViewportViewModel(enableAutoSave: false);
             var main = primary.AddSession(NewSession("Gordian", 3));
-            Assert.Same(main.Session, Gordian.Engine.Sessions.SessionRegistry.Default.PrimaryRenderingSession);
+            Assert.Same(main.Session, SessionRegistry.Default.PrimaryRenderingSession);
 
             var popOut = new ViewportViewModel(enableAutoSave: false) { IsPrimary = false };
             var knot = popOut.AddSession(NewSession("Knot", 1));
 
             Assert.Same(knot, popOut.ActiveTab);
-            Assert.NotSame(knot.Session, Gordian.Engine.Sessions.SessionRegistry.Default.PrimaryRenderingSession);
+            Assert.NotSame(knot.Session, SessionRegistry.Default.PrimaryRenderingSession);
         }
 
         [Fact]

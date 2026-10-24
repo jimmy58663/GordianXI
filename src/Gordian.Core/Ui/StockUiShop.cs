@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
@@ -146,7 +147,7 @@ namespace Gordian.Engine.Ui
         {
             var rows = new List<StockUiShopRow>();
             if (inventory == null) return rows;
-            var items = inventory.SnapshotItems(Gordian.Core.Network.Packets.ContainerId.Inventory);
+            var items = inventory.SnapshotItems(ContainerId.Inventory);
             Array.Sort(items, (a, b) => a.Slot.CompareTo(b.Slot));
             foreach (var item in items)
             {

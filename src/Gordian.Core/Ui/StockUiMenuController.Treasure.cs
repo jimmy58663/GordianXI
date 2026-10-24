@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
@@ -131,8 +132,8 @@ namespace Gordian.Engine.Ui
         private static HashSet<int>? ActionGreyed(TreasureSlot slot)
         {
             var greyed = new HashSet<int>();
-            if (slot.Entry != Gordian.Core.Network.Packets.TreasureEntryKind.None) greyed.Add(StockUiTreasurePool.LotButton);
-            if (slot.Entry == Gordian.Core.Network.Packets.TreasureEntryKind.Pass) greyed.Add(StockUiTreasurePool.PassButton);
+            if (slot.Entry != TreasureEntryKind.None) greyed.Add(StockUiTreasurePool.LotButton);
+            if (slot.Entry == TreasureEntryKind.Pass) greyed.Add(StockUiTreasurePool.PassButton);
             return greyed.Count > 0 ? greyed : null;
         }
 
@@ -223,7 +224,7 @@ namespace Gordian.Engine.Ui
             }
             foreach (var slot in TreasurePool?.Snapshot() ?? Array.Empty<TreasureSlot>())
             {
-                if (slot.Entry == Gordian.Core.Network.Packets.TreasureEntryKind.None) _ = SendTreasureAsync(pass, slot.Slot, lot: false);
+                if (slot.Entry == TreasureEntryKind.None) _ = SendTreasureAsync(pass, slot.Slot, lot: false);
             }
         }
 
@@ -237,7 +238,7 @@ namespace Gordian.Engine.Ui
             ushort itemId = poolSlot?.ItemId ?? 0;
             if (menu.IsGreyed(button.ButtonId))
             {
-                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} item={itemId} reason=already {(poolSlot?.Entry == Gordian.Core.Network.Packets.TreasureEntryKind.Pass ? "passed" : "lotted")}");
+                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} item={itemId} reason=already {(poolSlot?.Entry == TreasureEntryKind.Pass ? "passed" : "lotted")}");
                 NoticePosted?.Invoke(lot ? "You have already cast lots on or passed this item." : "You have already passed on this item.");
                 return;
             }
@@ -278,11 +279,11 @@ namespace Gordian.Engine.Ui
             ArgumentNullException.ThrowIfNull(slot);
             var inventory = Inventory;
             if (inventory == null) return null;
-            var bag = inventory.GetContainer(Gordian.Core.Network.Packets.ContainerId.Inventory);
+            var bag = inventory.GetContainer(ContainerId.Inventory);
             if (bag.MaxSize > 0)
             {
                 int used = 0;
-                foreach (var item in inventory.SnapshotItems(Gordian.Core.Network.Packets.ContainerId.Inventory))
+                foreach (var item in inventory.SnapshotItems(ContainerId.Inventory))
                 {
                     if (item.Slot >= 1 && item.ItemId != 0) used++;
                 }
@@ -291,9 +292,9 @@ namespace Gordian.Engine.Ui
             var record = ItemLookup?.Invoke(slot.ItemId);
             if (record != null && (record.Flags & StockUiTreasurePool.RareFlag) != 0)
             {
-                for (var container = Gordian.Core.Network.Packets.ContainerId.Inventory; container < Gordian.Core.Network.Packets.ContainerId.Count; container++)
+                for (var container = ContainerId.Inventory; container < ContainerId.Count; container++)
                 {
-                    if (container == Gordian.Core.Network.Packets.ContainerId.RecycleBin) continue;
+                    if (container == ContainerId.RecycleBin) continue;
                     foreach (var item in inventory.SnapshotItems(container))
                     {
                         if (item.ItemId == slot.ItemId) return ("rare item already held", StockUiTreasurePool.RareHeldMessage);
