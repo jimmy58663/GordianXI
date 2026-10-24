@@ -12,7 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Gordian.Engine" />
     <InternalsVisibleTo Include="Gordian.Core.Tests" />
+    <InternalsVisibleTo Include="Gordian.Engine.Tests" />
     <InternalsVisibleTo Include="Gordian.App.Tests" />
   </ItemGroup>
 

@@ -102,6 +102,38 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void ProcessIncomingChunk_FeatureRestrictions_ALaterPacketTightensButNeverLoosens()
+        {
+            var profile = new SessionProfile();
+            var parser = new PacketParser(profile, (_, _) => Task.CompletedTask);
+
+            SendRestrictions(parser, FeatureRestrictions.Movement, 0x0001);
+            SendRestrictions(parser, FeatureRestrictions.None, 0x0002);
+            Assert.Equal(FeatureRestrictions.Movement, profile.FeatureRestrictions);
+
+            SendRestrictions(parser, FeatureRestrictions.Addons, 0x0003);
+            Assert.Equal(FeatureRestrictions.Movement | FeatureRestrictions.Addons, profile.FeatureRestrictions);
+        }
+
+        private static void SendRestrictions(PacketParser parser, FeatureRestrictions restrictions, ushort sequence)
+        {
+            byte[] subPacket = new byte[12];
+            PackSubPacketHeader(subPacket, 0x0EE, 12, sequence);
+            BinaryPrimitives.WriteUInt64LittleEndian(subPacket.AsSpan(4, 8), (ulong)restrictions);
+
+            byte[] compressed = new byte[64];
+            int compressedBytes = FfxiCodec.Default.Compress(subPacket, compressed);
+
+            const int headerSize = 28;
+            byte[] datagram = new byte[headerSize + compressedBytes + 32];
+            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(0, 2), sequence);
+            compressed.AsSpan(0, compressedBytes).CopyTo(datagram.AsSpan(headerSize));
+
+            int totalDatagramSize = parser.CryptoSuite.EncryptAndSign(datagram, headerSize, compressedBytes);
+            parser.ProcessIncomingChunk(datagram.AsSpan(0, totalDatagramSize));
+        }
+
+        [Fact]
         public void ProcessIncomingChunk_WithPerformanceTracker_RecordsInboundPacketsAndLatency()
         {
             var profile = new SessionProfile();

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Reflection;
 using Gordian.Core.Resources.Graphics;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App.Graphics
 {

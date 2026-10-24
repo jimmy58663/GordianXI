@@ -1,6 +1,7 @@
 // src/Gordian.App/ViewModels/ChatItemViewModel.cs
 using System;
 using Gordian.Core.Network.Packets;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App.ViewModels
 {

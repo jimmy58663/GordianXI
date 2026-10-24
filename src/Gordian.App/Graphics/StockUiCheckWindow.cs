@@ -2,7 +2,7 @@
 using System;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.Graphics

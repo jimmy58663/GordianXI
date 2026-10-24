@@ -241,18 +241,10 @@ namespace Gordian.Core.Network
         /// </summary>
         public CombatPacketModule CombatModule => _parser.CombatModule;
 
-        /// <summary>Bridge from S2C 0x028 actions to entity animation.</summary>
-        public Animation.ActionPlaybackQueue ActionPlayback => _parser.ActionPlayback;
-
         /// <summary>
         /// Gets the character configuration module (server-side config flags and chat filters).
         /// </summary>
         public ConfigPacketModule ConfigModule => _parser.ConfigModule;
-
-        /// <summary>
-        /// Gets the unified player action coordinator service.
-        /// </summary>
-        public Actions.PlayerActionService ActionService => _parser.ActionService;
 
         /// <summary>
         /// Unique Character ID assigned by the server database.
@@ -273,6 +265,15 @@ namespace Gordian.Core.Network
         /// Optional authentication session ticket.
         /// </summary>
         public byte[] Ticket { get; set; } = Array.Empty<byte>();
+
+        /// <summary>Records where the local player now is, for the position updates this session sends.</summary>
+        public void SetLocalPosition(System.Numerics.Vector3 position, byte direction)
+        {
+            PositionX = position.X;
+            PositionY = position.Y;
+            PositionZ = position.Z;
+            Direction = direction;
+        }
 
         /// <summary>
         /// Current X position coordinate in world space.
@@ -551,13 +552,6 @@ namespace Gordian.Core.Network
                 {
                     pe.Appearance.CopyFrom(grap);
                 }
-            };
-            _parser.ActionService.LocalPlayerMoved += (pos, dir) =>
-            {
-                PositionX = pos.X;
-                PositionY = pos.Y;
-                PositionZ = pos.Z;
-                Direction = dir;
             };
             _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex, _moveFrame, _isWalking);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>

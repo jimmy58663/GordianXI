@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using Gordian.App.Audio;
 using Gordian.App.ViewModels;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Xunit;
 
 namespace Gordian.App.Tests.Audio

@@ -1,5 +1,6 @@
 // tests/Gordian.App.Tests/Audio/FootstepTrackerTests.cs
 using Gordian.Core.Animation;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.App.Tests.Audio

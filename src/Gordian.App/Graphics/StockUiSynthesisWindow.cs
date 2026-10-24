@@ -1,7 +1,7 @@
 // src/Gordian.App/Graphics/StockUiSynthesisWindow.cs
 using System.Globalization;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App.Graphics
 {

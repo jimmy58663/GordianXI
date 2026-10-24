@@ -12,6 +12,7 @@ using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.Graphics
 {

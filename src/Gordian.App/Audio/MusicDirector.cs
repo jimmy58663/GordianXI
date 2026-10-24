@@ -1,6 +1,6 @@
 // src/Gordian.App/Audio/MusicDirector.cs
 using System;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.World;
 
 namespace Gordian.App.Audio

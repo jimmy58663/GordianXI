@@ -56,11 +56,8 @@ namespace Gordian.Core.Network
         private readonly LoginDataPacketModule _loginDataModule;
         private readonly CombatState _combat;
         private readonly CombatPacketModule _combatModule;
-        private readonly Animation.ActionPlaybackQueue _actionPlayback;
-        private readonly Animation.SchedulerPlayback _schedulerPlayback;
         private readonly PlayerConfigState _config;
         private readonly ConfigPacketModule _configModule;
-        private readonly Actions.PlayerActionService _actionService;
 
         // Reusable scratch buffer for decompression to avoid GC allocations
         private readonly byte[] _decompressionScratch = new byte[8192];
@@ -170,32 +167,9 @@ namespace Gordian.Core.Network
 
             _combatModule = new CombatPacketModule(_combat, _localPlayer, _sendChunkCallback, LogPacket);
             _combatModule.Register(_dispatcher);
-            _actionPlayback = new Animation.ActionPlaybackQueue(_combat, _world, Animation.ActionMotionLibrary.Shared);
-            // S2C 0x038 / 0x03A play on their actors as they arrive (#311).
-            _schedulerPlayback = new Animation.SchedulerPlayback(_scheduler, _world, Animation.ActionMotionLibrary.Shared);
 
             _configModule = new ConfigPacketModule(_config, _sendChunkCallback, LogPacket);
             _configModule.Register(_dispatcher);
-
-            _actionService = new Actions.PlayerActionService(
-                _profile,
-                _world,
-                _localPlayer,
-                _combatModule,
-                _chatModule,
-                _partyModule,
-                _entityModule,
-                _lifecycleModule,
-                _sendChunkCallback);
-            _actionService.ConfigModule = _configModule;
-            _actionService.InventoryModule = _inventoryModule;
-            _actionService.ProgressionModule = _progressionModule;
-            _actionService.TreasureModule = _treasureModule;
-            _actionService.CraftingModule = _craftingModule;
-            _actionService.SocialModule = _socialModule;
-            _actionService.SearchService = _search;
-            _actionService.CommandModule = _commandModule;
-            _actionService.LoginDataModule = _loginDataModule;
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
@@ -205,10 +179,11 @@ namespace Gordian.Core.Network
             };
         }
 
-        /// <summary>
-        /// Gets the unified player action service for coordinating user commands, combat, movement, and automation.
-        /// </summary>
-        public Actions.PlayerActionService ActionService => _actionService;
+        /// <summary>The session's login profile (keys, character identity) the outgoing packets are built from.</summary>
+        internal SessionProfile Profile => _profile;
+
+        /// <summary>Sends one outgoing packet chunk (the bool asks for it to go out at once).</summary>
+        internal Func<ReadOnlyMemory<byte>, bool, Task> SendChunk => _sendChunkCallback;
 
         /// <summary>
         /// Gets the direct-indexed packet dispatcher used by this parser.
@@ -334,14 +309,6 @@ namespace Gordian.Core.Network
         /// Gets the combat, spell casting, ability, and emote packet handling module.
         /// </summary>
         public CombatPacketModule CombatModule => _combatModule;
-
-        /// <summary>
-        /// Gets the bridge from S2C 0x028 actions to entity animation (swings, casts, hit reactions).
-        /// </summary>
-        public Animation.ActionPlaybackQueue ActionPlayback => _actionPlayback;
-
-        /// <summary>Plays S2C 0x038 / 0x03A on their actors (#311).</summary>
-        public Animation.SchedulerPlayback SchedulerPlayback => _schedulerPlayback;
 
         /// <summary>
         /// Gets the character configuration module (S2C 0x0B4; C2S 0x0DB / 0x0DC for the config menu's server-side settings).

@@ -2,7 +2,8 @@
 using System;
 using System.IO;
 using Gordian.App.ViewModels;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.ViewModels
@@ -214,7 +215,7 @@ namespace Gordian.App.Tests.ViewModels
                 Assert.True(vm2.FirstPersonInvertMouseY);
                 Assert.False(vm2.IsCameraRelativeLocomotion);
 
-                using var session = new Gordian.Core.Network.CharacterSession("RestartTest", 1, "user1",
+                using var session = new Gordian.Engine.Sessions.CharacterSession("RestartTest", 1, "user1",
                     new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
                 var pad = session.Locomotion.Profile.GamepadSettings;
                 Assert.Equal(new CameraAxisSettings(1f, 1f, true, true), pad.Camera(firstPerson: false));
@@ -272,7 +273,7 @@ namespace Gordian.App.Tests.ViewModels
             try
             {
                 var netManager = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                var session = new Gordian.Core.Network.CharacterSession("TestChar", 12345, "user1", netManager);
+                var session = new CharacterSession("TestChar", 12345, "user1", netManager);
                 vm.SetSession(session);
 
                 var pad = new GamepadState(
@@ -306,8 +307,8 @@ namespace Gordian.App.Tests.ViewModels
             {
                 var vm = new ControlsInputViewModel(tempFile, hub);
                 Assert.Equal(hub.Profile.Name, vm.ActivePresetName);
-                using var selected = new Gordian.Core.Network.CharacterSession("VmTestA", 1, "user1", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
-                using var other = new Gordian.Core.Network.CharacterSession("VmTestB", 2, "user2", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+                using var selected = new Gordian.Engine.Sessions.CharacterSession("VmTestA", 1, "user1", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+                using var other = new Gordian.Engine.Sessions.CharacterSession("VmTestB", 2, "user2", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
                 vm.SetSession(selected);
 
                 vm.RightStickDeadzone = 0.3f;

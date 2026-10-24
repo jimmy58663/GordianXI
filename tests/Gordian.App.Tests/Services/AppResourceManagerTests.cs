@@ -5,6 +5,7 @@ using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.Core.Network;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.Services

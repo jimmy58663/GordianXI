@@ -37,9 +37,9 @@ namespace Gordian.Core.Tests.Animation
             var model = new EntityModel { Name = "Test", IsCharacter = character };
             foreach (var name in new[] { "idl", "btl", "wlk", "run" }) model.Animations[name] = Clip(name, 1f);
             model.Animations["at0"] = Clip("at0", 98 / 60f);
-            model.RawMotionRoutines["ati0"] = MotionRoutineDecoder.Decode(MotionRoutineDecoderTests.Routine(98,
-                MotionRoutineDecoderTests.PlayClip("at0?", 36, 98, 12, 20, 1),
-                MotionRoutineDecoderTests.Link(0x03, "dada", 62)), "ati0")!;
+            model.RawMotionRoutines["ati0"] = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(98,
+                MotionRoutineBuilder.PlayClip("at0?", 36, 98, 12, 20, 1),
+                MotionRoutineBuilder.Link(0x03, "dada", 62)), "ati0")!;
             model.RebuildMotionRoutines();
             return model;
         }

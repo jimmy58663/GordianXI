@@ -6,8 +6,8 @@ using System.Numerics;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
-using Gordian.Core.Ui.Lobby;
+using Gordian.Engine.Ui;
+using Gordian.Engine.Ui.Lobby;
 
 namespace Gordian.App.Graphics
 {

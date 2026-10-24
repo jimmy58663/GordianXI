@@ -6,10 +6,11 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
 using Gordian.App.Common;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {

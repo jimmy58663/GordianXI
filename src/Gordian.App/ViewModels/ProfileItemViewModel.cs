@@ -2,6 +2,7 @@
 using System;
 using Gordian.Core.Network;
 using Gordian.Core.Profiles;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {

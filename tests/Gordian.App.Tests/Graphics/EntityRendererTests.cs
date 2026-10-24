@@ -3,7 +3,7 @@ using System;
 using System.Numerics;
 using Gordian.App.Graphics;
 using Gordian.Core.Animation;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;

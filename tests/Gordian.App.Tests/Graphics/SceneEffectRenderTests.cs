@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Numerics;
 using Gordian.App.Graphics;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources.Events;
 using Xunit;
 
@@ -42,8 +42,8 @@ namespace Gordian.App.Tests.Graphics
             try
             {
                 var renderer = new ZoneTerrainRenderer(gd); // no zone: a black background
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
                 var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
                 var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
@@ -111,9 +111,9 @@ namespace Gordian.App.Tests.Graphics
             {
                 var renderer = new ZoneTerrainRenderer(gd);
                 renderer.LoadZone(zone, textures); // Bibiki Bay's sea and sky: a bright background
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.Update(new Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
@@ -189,9 +189,9 @@ namespace Gordian.App.Tests.Graphics
             {
                 var renderer = new ZoneTerrainRenderer(gd);
                 renderer.LoadZone(zone, textures); // Bibiki Bay's sea and sky: a bright background
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.Update(new Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
@@ -279,9 +279,9 @@ namespace Gordian.App.Tests.Graphics
             {
                 var renderer = new ZoneTerrainRenderer(gd);
                 renderer.LoadZone(zone, textures);
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.SetEventView(new Vector3(0, 10, 0), new Vector3(0, 10, 10), 1.0f, 0f, 640f / 480f);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;

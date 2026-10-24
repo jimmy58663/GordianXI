@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using NeoVeldrid;
 using NeoVeldrid.SPIRV;
 
@@ -770,7 +770,7 @@ void main()
 
         /// <summary>
         /// Adds <paramref name="color"/> (0-1 per channel) over the whole screen: an event's 0x72 flash or white fade
-        /// (<see cref="Gordian.Core.Events.EventPresentation.SceneFlash"/>). Nothing is drawn while it is black.
+        /// (<see cref="Gordian.Engine.Events.EventPresentation.SceneFlash"/>). Nothing is drawn while it is black.
         /// </summary>
         public void DrawScreenFlash(float width, float height, Vector3 color)
         {

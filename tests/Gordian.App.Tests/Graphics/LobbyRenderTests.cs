@@ -10,7 +10,7 @@ using Gordian.App.Graphics;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui.Lobby;
+using Gordian.Engine.Ui.Lobby;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics
@@ -238,7 +238,7 @@ namespace Gordian.App.Tests.Graphics
                 lobby.HandleInput(LobbyInput.Confirm);
                 for (int i = 0; i < 200 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
                 Assert.Equal(LobbyScreen.Entering, lobby.Screen);
-                Thread.Sleep((int)(Gordian.Core.Ui.ZoneLoadingScreen.FadeOutSeconds * 1000) + 100);
+                Thread.Sleep((int)(Gordian.Engine.Ui.ZoneLoadingScreen.FadeOutSeconds * 1000) + 100);
                 frames.Render(lobby, preview, null, rm, framebuffer, width, height, 1 / 60f);
                 var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
                 int lit = 0;

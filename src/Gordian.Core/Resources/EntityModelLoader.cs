@@ -112,7 +112,7 @@ namespace Gordian.Core.Resources
 
                         case DatSectionType.SoundEffectPointer:
                             // The routines' sound commands name these (#41); the first of a name wins.
-                            if (Gordian.Core.Audio.SoundEffectPointer.TryDecode(payload, out int soundId) && h.DatId.Length > 0)
+                            if (Gordian.Core.Resources.Containers.SoundEffectPointer.TryDecode(payload, out int soundId) && h.DatId.Length > 0)
                             {
                                 soundPointers ??= new Dictionary<string, int>(StringComparer.Ordinal);
                                 soundPointers.TryAdd(h.DatId, soundId);

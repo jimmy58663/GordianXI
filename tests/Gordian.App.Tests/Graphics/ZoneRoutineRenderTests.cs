@@ -45,9 +45,9 @@ namespace Gordian.App.Tests.Graphics
                 var world = new WorldState { CurrentZoneId = 72 };
                 var renderer = new ZoneTerrainRenderer(gd) { World = world };
                 renderer.LoadZone(zone, textures);
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.Update(target, 35.0f, 0.0f, 10.0f, 640f / 480f);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
@@ -119,9 +119,9 @@ namespace Gordian.App.Tests.Graphics
                 world.UpsertEntity(door);
                 var renderer = new ZoneTerrainRenderer(gd) { World = world };
                 renderer.LoadZone(zone, textures);
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.Update(new Vector3(-at.X, -at.Y + 2f, at.Z), 10.0f, 0.0f, 10.0f, 640f / 480f);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
                 env.WeatherId = "fine";
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
                 var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));

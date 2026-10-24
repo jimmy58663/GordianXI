@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.Graphics
@@ -113,7 +113,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Draws the target's name and, when <paramref name="showGauge"/> is set, its HP gauge. Retail draws no gauge
-        /// for an NPC without a name plate (<see cref="Gordian.Core.Ui.NamePlateStyle.ShowsTargetHealthBar"/>, #259); a
+        /// for an NPC without a name plate (<see cref="Gordian.Engine.Ui.NamePlateStyle.ShowsTargetHealthBar"/>, #259); a
         /// long name wraps onto up to two lines with the gauge or three without it (<see cref="WrapName(UiFont, string, bool)"/>, #258).
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiFont font, UiMenuDefinition menu, StockUiPlacement placement,

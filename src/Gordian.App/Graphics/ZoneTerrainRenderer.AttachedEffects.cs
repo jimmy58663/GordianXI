@@ -3,8 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 
@@ -161,7 +162,7 @@ namespace Gordian.App.Graphics
                 if (!effectMesh.Layer.IsActorAttached || !_emitters.TryGetValue(effectMesh.Layer, out var emitter) || emitter.Particles.Count == 0 ||
                     !_attachedBindings.TryGetValue(emitter, out var binding) || !binding.Placed) continue;
                 Vector3 joint = binding.Anchor is { } posed
-                    ? ActorEffectInstance.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
+                    ? Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
                         ActorEffectInstance.GetJointReference(emitter.Template.Definition))
                     : Vector3.Zero;
                 Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * binding.ModelToWorld;

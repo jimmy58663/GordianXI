@@ -6,7 +6,7 @@ using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
 namespace Gordian.App.Services
 {

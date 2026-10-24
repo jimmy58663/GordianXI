@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 
 namespace Gordian.App.Audio
 {

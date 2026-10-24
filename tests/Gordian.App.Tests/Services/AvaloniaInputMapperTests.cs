@@ -1,7 +1,7 @@
 // tests/Gordian.App.Tests/Services/AvaloniaInputMapperTests.cs
 using Avalonia.Input;
 using Gordian.App.Services;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Xunit;
 
 namespace Gordian.App.Tests.Services
@@ -66,9 +66,9 @@ namespace Gordian.App.Tests.Services
         [Fact]
         public void ToMouseButton_MapsButtonsCorrectly()
         {
-            Assert.Equal(Gordian.Core.Input.MouseButton.Left, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Left));
-            Assert.Equal(Gordian.Core.Input.MouseButton.Right, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Right));
-            Assert.Equal(Gordian.Core.Input.MouseButton.Middle, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Middle));
+            Assert.Equal(Gordian.Engine.Input.MouseButton.Left, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Left));
+            Assert.Equal(Gordian.Engine.Input.MouseButton.Right, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Right));
+            Assert.Equal(Gordian.Engine.Input.MouseButton.Middle, AvaloniaInputMapper.ToMouseButton(Avalonia.Input.MouseButton.Middle));
         }
     }
 }

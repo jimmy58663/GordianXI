@@ -4,6 +4,7 @@ using System.IO;
 using Gordian.App.Graphics;
 using Gordian.App.ViewModels;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 using NeoVeldrid;
 using Xunit;
 

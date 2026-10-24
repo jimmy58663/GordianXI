@@ -1,7 +1,7 @@
 // tests/Gordian.App.Tests/Services/SdlGamepadDriverTests.cs
 using System;
 using Gordian.App.Services;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Xunit;
 
 namespace Gordian.App.Tests.Services

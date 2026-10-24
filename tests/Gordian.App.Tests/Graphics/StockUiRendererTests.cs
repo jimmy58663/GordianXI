@@ -6,7 +6,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics
@@ -174,8 +174,8 @@ namespace Gordian.App.Tests.Graphics
 
                 var menus = new StockUiMenuController { Library = library };
                 Assert.True(menus.OpenMainMenu());
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
                 var prompt = menus.PromptYesNoAsync("Log out?", defaultYes: false);
 
                 var layout = new StockUiLayout();
@@ -392,8 +392,8 @@ namespace Gordian.App.Tests.Graphics
                 });
                 Assert.True(menus.Top!.IsShopMenu);
                 menus.Activate(); // Buy
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown);
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Ronfaure Chestnut
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // Ronfaure Chestnut
 
                 var layout = new StockUiLayout();
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
@@ -449,7 +449,7 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(gilDigits, "no gil amount under the list");
 
                 menus.Activate(); // the quantity prompt
-                menus.Move(Gordian.Core.Input.InputAction.MenuLeft); // All: 12
+                menus.Move(Gordian.Engine.Input.InputAction.MenuLeft); // All: 12
                 Assert.Equal(3, menus.OpenMenus.Count);
                 var pixels = Render("gpu_shop_buy.png");
                 Assert.True(renderer.LastQuadCount > 50, $"{renderer.LastQuadCount} quads");
@@ -527,7 +527,7 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(menus.OpenCommandMenu(new StockUiTargetContext(StockUiTargetKind.Self, 1, "Me")));
                 menus.Activate(); // Chat -> the chat-mode list
                 Assert.Equal(2, menus.OpenMenus.Count);
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Tell
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // Tell
 
                 var layout = new StockUiLayout();
                 using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
@@ -620,8 +620,8 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(menus.Open(StockUiMenuEntries.ConfigMenu));
                 Assert.True(menus.Open(StockUiMenuEntries.WindowsMenu));
                 Assert.True(menus.Open(StockUiMenuEntries.WindowSettingsPage));
-                for (int i = 0; i < 2; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown); // to the Window Type row
-                for (int i = 0; i < 2; i++) menus.Move(Gordian.Core.Input.InputAction.MenuRight); // digit 3
+                for (int i = 0; i < 2; i++) menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // to the Window Type row
+                for (int i = 0; i < 2; i++) menus.Move(Gordian.Engine.Input.InputAction.MenuRight); // digit 3
                 Assert.Equal(StockUiMenuEntries.WindowSkinFirstButton + 2, menus.Top!.SelectedButtonId);
 
                 var layout = new StockUiLayout();
@@ -730,9 +730,9 @@ namespace Gordian.App.Tests.Graphics
 
                 // Left on the bar moves the value down a step; past the value the bar shows the authored translucent strip.
                 menus.Settings.SetValue(StockUiSettingKey.SoundEffectsVolume, 50);
-                menus.Move(Gordian.Core.Input.InputAction.MenuDown);           // ON -> the Sound Effects Volume bar
+                menus.Move(Gordian.Engine.Input.InputAction.MenuDown);           // ON -> the Sound Effects Volume bar
                 Assert.Equal(3, menus.Top!.SelectedButtonId);
-                menus.Move(Gordian.Core.Input.InputAction.MenuLeft);
+                menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
                 Assert.Equal(45, menus.Settings.GetValue(StockUiSettingKey.SoundEffectsVolume));
                 pixels = Render(menus, "config_gameplay_half");
                 var pastValue = Pixel(pixels, width, 16 + bar.X + bar.Width - 4, 48 + bar.Y + 6);
@@ -772,11 +772,11 @@ namespace Gordian.App.Tests.Graphics
                 // Gamepad key assignment (#21): Config -> Gamepad lists the functions from the row origin and each one's
                 // buttons right-aligned before the window's right edge ("B" on the Cancel row; Confirm's is tinted, selected).
                 menus.CloseAll();
-                var profiles = new Gordian.Core.Input.InputProfileHub();
+                var profiles = new Gordian.Engine.Input.InputProfileHub();
                 menus.GamepadProfile = () => profiles.Profile;
                 menus.GamepadProfileEdited = edit => profiles.Edit(edit);
                 Assert.True(menus.Open(StockUiMenuEntries.ConfigMenu));
-                menus.Move(Gordian.Core.Input.InputAction.MenuUp);             // Gameplay -> Gamepad (the list wraps)
+                menus.Move(Gordian.Engine.Input.InputAction.MenuUp);             // Gameplay -> Gamepad (the list wraps)
                 Assert.Equal(13, menus.Top!.SelectedButtonId);
                 menus.Activate();
                 Assert.Equal(StockUiListKind.GamepadAssign, menus.Top!.ListKind);
@@ -808,7 +808,7 @@ namespace Gordian.App.Tests.Graphics
                 menus.Activate();                                              // Chat
                 Assert.Equal(StockUiConfigPages.FontColorListMenu, menus.Top!.Name);
                 int tellIndex = menus.Top.FontColorRows.ToList().FindIndex(e => e.Id == StockUiFontColorId.Tell);
-                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+                for (int i = 0; i < tellIndex; i++) menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
                 pixels = Render(menus, "config_font_colors");
                 bool pink = false;
                 for (int x = 16; x < 160 && !pink; x++)

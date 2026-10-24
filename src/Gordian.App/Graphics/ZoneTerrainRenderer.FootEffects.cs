@@ -3,8 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Animation;
-using Gordian.Core.Audio;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Audio;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
@@ -199,7 +200,7 @@ namespace Gordian.App.Graphics
             foreach (int reference in FootReferences)
             {
                 if (reference >= anchor.Skeleton.References.Count) continue;
-                Vector3 joint = ActorEffectInstance.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales, reference);
+                Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales, reference);
                 Vector3 world = Vector3.Transform(joint, anchor.ModelToWorld);
                 if (!found || world.Y < foot.Y) foot = world;
                 found = true;

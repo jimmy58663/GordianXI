@@ -45,5 +45,26 @@ namespace Gordian.Core.Resources.Models
         }
 
         public int Count => Joints.Count;
+
+        /// <summary>
+        /// Position of skeleton joint reference <paramref name="referenceIndex"/> in model space for a posed skeleton:
+        /// the reference's joint plus its offset (scaled and turned by the joint). Returns the model origin when the
+        /// skeleton has no such reference or the pose lacks the joint.
+        /// </summary>
+        public static Vector3 ResolveJointReference(
+            Skeleton? skeleton,
+            ReadOnlySpan<Vector3> translations,
+            ReadOnlySpan<Quaternion> rotations,
+            ReadOnlySpan<Vector3> scales,
+            int referenceIndex)
+        {
+            if (skeleton == null || referenceIndex < 0 || referenceIndex >= skeleton.References.Count) return Vector3.Zero;
+            var reference = skeleton.References[referenceIndex];
+            int joint = reference.Index;
+            if (joint >= translations.Length) return Vector3.Zero;
+            Vector3 offset = reference.Offset * (joint < scales.Length ? scales[joint] : Vector3.One);
+            if (joint < rotations.Length) offset = Vector3.Transform(offset, rotations[joint]);
+            return translations[joint] + offset;
+        }
     }
 }

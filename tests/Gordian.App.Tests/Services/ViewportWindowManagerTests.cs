@@ -3,6 +3,7 @@ using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.Services

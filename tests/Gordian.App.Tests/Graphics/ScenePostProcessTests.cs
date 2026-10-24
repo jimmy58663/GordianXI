@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
 using Gordian.App.Graphics;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources.Events;
 using Xunit;
 
@@ -36,9 +36,9 @@ namespace Gordian.App.Tests.Graphics
             private readonly NeoVeldrid.Texture _color, _depth, _staging, _depthStaging;
             private readonly NeoVeldrid.CommandList _cl;
             private readonly Gordian.Core.Resources.ResourceManager _rm;
-            private readonly Gordian.Core.Graphics.ZoneEnvironmentSettings _env;
+            private readonly Gordian.Engine.Graphics.ZoneEnvironmentSettings _env;
             public readonly ZoneTerrainRenderer Renderer;
-            public readonly Gordian.Core.Graphics.ViewportCamera Camera = new() { FarClip = 5000f };
+            public readonly Gordian.Engine.Graphics.ViewportCamera Camera = new() { FarClip = 5000f };
             public readonly EventPresentation Presentation;
             public double Now;
 
@@ -53,7 +53,7 @@ namespace Gordian.App.Tests.Graphics
                 // A still picture: no drifting clouds or rolling surf between the frames compared.
                 Renderer = new ZoneTerrainRenderer(_gd) { EnableWeatherClouds = false, EnableZoneEffects = false };
                 Renderer.LoadZone(zone, textures);
-                _env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                _env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 _env.WeatherId = "fine";
                 Renderer.SkyDomeRenderer?.UpdateDome(_env);
                 var format = _gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;

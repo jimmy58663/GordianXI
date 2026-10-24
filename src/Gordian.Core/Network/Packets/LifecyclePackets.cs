@@ -1247,8 +1247,8 @@ namespace Gordian.Core.Network.Packets
             var restrictions = new S2C_0x0EE_FeatureRestrictions(payload);
             if (restrictions.IsValid)
             {
-                _profile.FeatureRestrictions = restrictions.Value;
-                GordianLog.Info("LIFECYCLE", $"Server feature restrictions updated to: {restrictions.Value}");
+                _profile.ApplyServerRestrictions(restrictions);
+                GordianLog.Info("LIFECYCLE", $"Server feature restrictions: received {restrictions.Value}, in force {_profile.FeatureRestrictions}");
             }
         }
 

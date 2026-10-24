@@ -116,11 +116,11 @@ namespace Gordian.App.Tests.Graphics
                 renderer.EnableWeatherCelestialBodies = false;
                 renderer.LoadZone(zone, textures);
 
-                var camera = new Gordian.Core.Graphics.ViewportCamera();
+                var camera = new Gordian.Engine.Graphics.ViewportCamera();
                 camera.Update(new System.Numerics.Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
                 camera.FarClip = 5000f;
 
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
 
                 renderer.SkyDomeRenderer?.UpdateDome(env);
@@ -212,11 +212,11 @@ namespace Gordian.App.Tests.Graphics
                 renderer.EnableWeatherCelestialBodies = false;
                 renderer.LoadZone(zone, textures);
 
-                var camera = new Gordian.Core.Graphics.ViewportCamera();
+                var camera = new Gordian.Engine.Graphics.ViewportCamera();
                 camera.Update(new System.Numerics.Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
                 camera.FarClip = 5000f;
 
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "suny";
                 if (zone.EnvironmentData != null)
                 {
@@ -606,13 +606,13 @@ namespace Gordian.App.Tests.Graphics
                 renderer.EnableCelestialSun = false;
                 renderer.LoadZone(zone, textures);
 
-                var camera = new Gordian.Core.Graphics.ViewportCamera();
-                camera.Mode = Gordian.Core.Graphics.CameraMode.FirstPerson;
+                var camera = new Gordian.Engine.Graphics.ViewportCamera();
+                camera.Mode = Gordian.Engine.Graphics.CameraMode.FirstPerson;
                 // Pitch -45 degrees looking UP into the night sky
                 camera.Update(new System.Numerics.Vector3(0, 10, 0), -45.0f, 180.0f, 0.0f, 640f / 480f);
                 camera.FarClip = 5000f;
 
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
                 env.WeatherId = "fine";
                 env.SunDirection = Gordian.Core.World.VanaTime.GetSunDirection(0.0f);
                 if (zone.EnvironmentData != null)
@@ -780,7 +780,7 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void ViewportCamera_FarClip_DefaultsTo5000Yalms()
         {
-            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            var camera = new Gordian.Engine.Graphics.ViewportCamera();
             Assert.Equal(5000.0f, camera.FarClip);
         }
 
@@ -857,10 +857,10 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void ZoneEnvironmentSettings_IndoorsProperty_DefaultAndKeyframeBehavior()
         {
-            var day = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+            var day = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
             Assert.False(day.Indoors);
 
-            var night = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+            var night = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
             Assert.False(night.Indoors);
 
             var keyframeIndoor = new Gordian.Core.Resources.Graphics.EnvironmentKeyframe

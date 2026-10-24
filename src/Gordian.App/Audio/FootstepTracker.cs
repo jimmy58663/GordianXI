@@ -3,7 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Animation;
-using Gordian.Core.Audio;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Audio;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 

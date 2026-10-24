@@ -9,6 +9,7 @@ using Gordian.App.Common;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {

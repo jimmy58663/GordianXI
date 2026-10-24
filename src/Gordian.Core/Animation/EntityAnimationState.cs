@@ -318,7 +318,7 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// Whether the entity is standing up out of /heal or /sit (#343): from the moment its category leaves the seated
-        /// posture until the stand-up clip ends. The player stays rooted meanwhile (<see cref="Input.SeatedMovementHold"/>),
+        /// posture until the stand-up clip ends. The player stays rooted meanwhile (<c>SeatedMovementHold</c>),
         /// read from the input thread.
         /// </summary>
         public bool IsStandingUp => _standingUp;

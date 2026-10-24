@@ -6,8 +6,9 @@ using Avalonia.Threading;
 using Gordian.App.Common;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App
 {
@@ -165,7 +166,7 @@ namespace Gordian.App
             }
         }
 
-        private Gordian.Core.Network.CharacterSession? _lastGamepadTarget;
+        private CharacterSession? _lastGamepadTarget;
 
         private void OnInputLoopTick(object? sender, EventArgs e)
         {
@@ -230,7 +231,7 @@ namespace Gordian.App
 
             // Next Character (the gamepad's L1 by default, #326): the next character in tab order, as Ctrl+Tab does (#151);
             // a popped-out one has its window brought forward, and the pad follows the focus there.
-            if (gamepadTarget != null && gamepadTarget.InputState.WasActionTriggered(Gordian.Core.Input.InputAction.CycleCharacter))
+            if (gamepadTarget != null && gamepadTarget.InputState.WasActionTriggered(Gordian.Engine.Input.InputAction.CycleCharacter))
             {
                 var chosen = viewports.PrimaryViewModel.CycleFrom(gamepadTarget, +1);
                 Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");

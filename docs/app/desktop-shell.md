@@ -4,7 +4,7 @@
 
 ## Foundation (Phase 1)
 
-- Four-tier decoupled monorepo (`Gordian.Core`, `Gordian.Automation`, `Gordian.Addons`, `Gordian.App`)
+- Decoupled monorepo (`Gordian.Core`, `Gordian.Engine`, `Gordian.Automation`, `Gordian.Addons`, `Gordian.App`); layers in [architecture.md](../architecture.md)
 - Clean-room reverse engineering boundaries enforced in `AGENTS.md`
 - Modern dark HUD UI with Avalonia MVVM
 - Encrypted profile storage with master AES key and defensive plaintext migration

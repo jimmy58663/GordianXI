@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.World;
@@ -272,7 +273,7 @@ namespace Gordian.App.Graphics
                     Matrix4x4 placement = onTarget ? slot.TargetToWorld : slot.ActorToWorld;
                     Vector3 joint = definition.AttachType == ParticleAttachType.None || !_entityRenderer!.ActorAnchors.TryGetValue(carrier, out var posed)
                         ? Vector3.Zero
-                        : ActorEffectInstance.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
+                        : Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
                             ActorEffectInstance.GetJointReference(definition));
                     frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * placement;
                     distance = Vector3.Distance(camera.Position, placement.Translation);

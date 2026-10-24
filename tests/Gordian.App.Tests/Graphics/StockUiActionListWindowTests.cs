@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using Gordian.App.Graphics;
-using Gordian.Core.Actions;
-using Gordian.Core.Ui;
+using Gordian.Engine.Actions;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

@@ -106,7 +106,7 @@ Verification: `dotnet test --filter SharedDeviceAndZoneCacheTests` (headless D3D
 
 ## Camera and zone terrain (Phase 5B)
 
-- Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](../../src/Gordian.Core/Input/PlayerLocomotionController.cs)
+- Third-person orbital follow camera, freecam, and first-person mode integrated with [PlayerLocomotionController](../../src/Gordian.Engine/Input/PlayerLocomotionController.cs)
 - Event camera ([#165](https://github.com/jimmy58663/GordianXI/issues/165)): while a running event's scene routine plays a camera Route (`EventDialogController.Presentation`), the viewport shows that pose instead of the orbit camera (`ViewportCamera.SetEventView`: eye, look-at, vertical field of view from the Route's focal length, roll), converted to display axes (-x, -y, z); the orbit camera keeps its state and takes over again when the event releases the camera. Routes, easing and the fades are in [events/vm.md](../events/vm.md#cutscene-schedulers).
 - GPU vertex & index buffer streaming for Phase 4 `ZoneGeometry` / `MeshGroup` models
 - Texture palette decoding and NeoVeldrid GPU texture sampler caching

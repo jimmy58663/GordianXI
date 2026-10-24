@@ -6,6 +6,7 @@ All formats described here were researched clean-room from public sources (LandS
 
 | Area | Doc | Covers |
 |---|---|---|
+| Architecture | [architecture.md](architecture.md) | Assembly layers (Core, Engine, Addons, Automation, App), where new code goes, how the split is enforced |
 | App | [app/desktop-shell.md](app/desktop-shell.md) | Avalonia shell, account profiles, packet inspector |
 | Network | [network/session-and-packets.md](network/session-and-packets.md) | Bootloader handoff, LSB login, Blowfish, UDP framing, packet registry, 0x015 timing, packet audit gaps |
 | World | [world/world-state-and-resources.md](world/world-state-and-resources.md) | Entity store, state caches, DAT decoders, VFS & asset overrides |

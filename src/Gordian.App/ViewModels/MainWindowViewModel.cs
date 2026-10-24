@@ -13,6 +13,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Profiles;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {
@@ -1445,7 +1446,7 @@ namespace Gordian.App.ViewModels
             var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
             var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;
             // The licence page shows once per launch, not again when a Log Out returns to the title menu.
-            var lobby = new Gordian.Core.Ui.Lobby.LobbyController(lobbySession, library, text, showLicence);
+            var lobby = new Gordian.Engine.Ui.Lobby.LobbyController(lobbySession, library, text, showLicence);
 
             lobby.CharacterSelected += ticket => _ = Task.Run(async () =>
             {

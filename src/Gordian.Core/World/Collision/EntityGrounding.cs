@@ -1,7 +1,6 @@
 // src/Gordian.Core/World/Collision/EntityGrounding.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Input;
 
 namespace Gordian.Core.World.Collision
 {
@@ -14,6 +13,24 @@ namespace Gordian.Core.World.Collision
     /// </summary>
     public static class EntityGrounding
     {
+        /// <summary>
+        /// Highest floor rise, in yalms, the player steps onto without being blocked (stairs, curbs, steep slopes).
+        /// Slightly more forgiving than the legacy client, which will not let the player up the low side walls of
+        /// Southern San d'Oria's ramps.
+        /// </summary>
+        public const float StepUpHeight = 0.5f;
+
+        /// <summary>
+        /// Radius, in yalms, of the rounded foot the player rests on, which turns stairs into a ramp as in the legacy
+        /// client (see <see cref="ZoneCollisionMesh.TryGetSteppedGround"/>).
+        /// </summary>
+        public const float FootRadius = 0.9f;
+
+        /// <summary>
+        /// Deepest floor, in yalms, a player falls to.
+        /// </summary>
+        public const float MaxFallDistance = 500.0f;
+
         /// <summary>
         /// Whether <paramref name="entity"/> is drawn on the floor.
         /// </summary>
@@ -34,7 +51,7 @@ namespace Gordian.Core.World.Collision
         /// event places an entity (retail calibrates event positions to the floor, VCalibrate).
         /// </summary>
         public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision) =>
-            GetDisplayHeight(position, collision, PlayerLocomotionController.StepUpHeight);
+            GetDisplayHeight(position, collision, StepUpHeight);
 
         /// <summary>How far above an event position its floor may be (event walks move their height in a line between floors).</summary>
         public const float EventStepUpHeight = 2.5f;
@@ -68,10 +85,10 @@ namespace Gordian.Core.World.Collision
             }
 
             GroundHit near = default;
-            bool found = collision != null && collision.TryGetSteppedGround(position, PlayerLocomotionController.StepUpHeight,
-                PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out near);
-            if (MovingPlatforms.TryGetPlatformUnder(platforms, position, PlayerLocomotionController.StepUpHeight,
-                    PlayerLocomotionController.MaxFallDistance, out var under) &&
+            bool found = collision != null && collision.TryGetSteppedGround(position, StepUpHeight,
+                MaxFallDistance, FootRadius, out near);
+            if (MovingPlatforms.TryGetPlatformUnder(platforms, position, StepUpHeight,
+                    MaxFallDistance, out var under) &&
                 (!found || under.Height <= near.Height + MovingPlatforms.LevelTolerance))
                 return under.Height;
             if (found) return near.Height;
@@ -81,7 +98,7 @@ namespace Gordian.Core.World.Collision
         /// <summary>As <see cref="GetDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with the floor allowed up to <paramref name="stepUp"/> above.</summary>
         public static float GetDisplayHeight(Vector3 position, ZoneCollisionMesh? collision, float stepUp) =>
             collision != null && collision.TryGetSteppedGround(position, stepUp,
-                PlayerLocomotionController.MaxFallDistance, PlayerLocomotionController.FootRadius, out var ground)
+                MaxFallDistance, FootRadius, out var ground)
                 ? ground.Height
                 : position.Y;
 
@@ -112,10 +129,10 @@ namespace Gordian.Core.World.Collision
                 entity.RidingPlatformId = string.Empty;
             }
 
-            float stepUp = PlayerLocomotionController.StepUpHeight, maxDrop = PlayerLocomotionController.MaxFallDistance;
+            float stepUp = StepUpHeight, maxDrop = MaxFallDistance;
             GroundHit ground = default;
             bool found = collision != null &&
-                         collision.TryGetSteppedGround(position, stepUp, maxDrop, PlayerLocomotionController.FootRadius, out ground);
+                         collision.TryGetSteppedGround(position, stepUp, maxDrop, FootRadius, out ground);
             if (MovingPlatforms.TryGetPlatformUnder(platforms, position, stepUp, maxDrop, out var under) &&
                 (!found || under.Height <= ground.Height + MovingPlatforms.LevelTolerance))
             {

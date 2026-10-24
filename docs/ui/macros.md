@@ -4,7 +4,7 @@
 
 Sources: the maintainer's retail captures of 2026-10-13 (book list, book options, palette editor, play palette in combat, `/recast` and `/echo` lines; cited as "maintainer retail capture 2026-10-13"), BG-Wiki "Macro" (structure, hotkeys, commands, placeholders; fetched 2026-10-12), the maintainer's two BG-Wiki screenshots of the palette editor and the macro editor, the retail menu DAT (ROM/119/51) and string tables (ROM/165/75-76), and the maintainer's retail `USER` folders (read only; 16 characters, 2026-10-12).
 
-## Model (`Gordian.Core.Macros`)
+## Model (`Gordian.Engine.Macros`)
 
 - **`MacroLibrary`**: 40 books, each with a title and 10 sets; a set holds 20 macros, Ctrl 1..0 then Alt 1..0 (the retail file's order); one book and set is current. Thread-safe; `Changed` fires once per change (a whole import is one change).
 - **`Macro`**: a title of up to 8 characters (shown on the palette key) and 6 lines of up to 60 characters. Book titles take up to 15. The limits are the retail files' fields (below); control characters are dropped.
@@ -54,7 +54,7 @@ Each line goes through the chat's own submit (`StockUiChat.SubmitAsync` with the
 
 ## Windows (stock UI, Tier 2)
 
-Found in the English menu DAT by name and read with `GORDIAN_UI_DUMP_MENUS=mcr*,macro` (help ids and titles from ROM/165/75-76). `StockUiMacroMenus` (Core) names them and composes the palette editor; `StockUiMenuController.Macros.cs` drives them; `StockUiMacroWindow` (App) draws their client content.
+Found in the English menu DAT by name and read with `GORDIAN_UI_DUMP_MENUS=mcr*,macro` (help ids and titles from ROM/165/75-76). `StockUiMacroMenus` (Engine) names them and composes the palette editor; `StockUiMenuController.Macros.cs` drives them; `StockUiMacroWindow` (App) draws their client content.
 
 | Window | Frame | Buttons | Use |
 |---|---|---|---|

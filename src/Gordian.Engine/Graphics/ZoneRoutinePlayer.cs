@@ -1,0 +1,270 @@
+// src/Gordian.Engine/Graphics/ZoneRoutinePlayer.cs
+using System;
+using System.Collections.Generic;
+using Gordian.Core.Resources.Events;
+using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources;
+
+namespace Gordian.Engine.Graphics
+{
+    /// <summary>
+    /// The two actors a zone routine plays on: the caster and the target a map scheduler (S2C 0x039) or an event's 0x2D
+    /// names, or the door entity for a door's own routines (both the door). 0 = none (a routine the zone starts itself).
+    /// </summary>
+    public readonly record struct ZoneRoutineActors(uint CasterServerId, uint TargetServerId)
+    {
+        public static readonly ZoneRoutineActors None = default;
+
+        /// <summary>
+        /// The entity a generator of <paramref name="attachType"/> rides (#232), 0 for one placed in the zone: target-side
+        /// types the target (else the caster), source-side types and the zone actor types 0xA-0xC the caster (else the
+        /// target). LandSandBoat sends a map scheduler with one entity as both (<c>0x039_mapschedulor.cpp</c>), and a
+        /// door's routines play on the door, so the side matters only for an event's 0x2D with two actors. Sides
+        /// referenced from xi-model-viewer (ui/js/particle/runtime.js, TARGET_ATTACH); that the zone actor types ride the
+        /// routine's caster is *inference* (Alzadaal's door <c>_20t</c> carries its effects as ZoneActor0xA a few yalms
+        /// from the door).
+        /// </summary>
+        public uint ActorFor(ParticleAttachType attachType)
+        {
+            if (!ZoneDataLoader.IsActorAttached(attachType)) return 0;
+            bool targetSide = attachType is ParticleAttachType.TargetActor or ParticleAttachType.TargetToSourceBasis;
+            uint first = targetSide ? TargetServerId : CasterServerId;
+            return first != 0 ? first : targetSide ? CasterServerId : TargetServerId;
+        }
+    }
+
+    /// <summary>
+    /// Plays a zone's on-demand routines (<see cref="ZoneRoutineLibrary"/>) on the zone's emitters when a trigger names
+    /// them: a map scheduler from the server (S2C 0x039, <see cref="Gordian.Core.World.WorldState.PostMapScheduler"/>), e.g. the
+    /// Alzadaal Runic Portals' idle glow <c>1pa1</c>, activation <c>1pa2</c> and end <c>1pak</c>, or an event's zone
+    /// scheduler opcodes 0x2D / 0x60 sub 2 (start) and 0x51 (<see cref="Stop"/>) through the same queue (#226).
+    /// <para>
+    /// The commands play as in the cutscene scene files (<see cref="SceneEffectPlayer"/>, #192): op 0x02 starts a
+    /// generator emitting for the command's duration, 0x1E kills one, 0x3F kills the first and starts the second, 0x03
+    /// starts a routine, 0x73 starts one repeating and 0x5F stops one. A routine of 0 frames never repeats: started with
+    /// 0x73 it runs once (Alzadaal's <c>s104</c> re-armed its pillars every frame when looped, #210).
+    /// </para>
+    /// </summary>
+    public sealed class ZoneRoutinePlayer
+    {
+        private sealed class Running
+        {
+            public required string Directory;
+            public required SceneRoutine Routine;
+            public ZoneRoutineActors Actors;
+            public bool Loop;
+            public float Clock;
+            public int Next;
+        }
+
+        private readonly ZoneRoutineLibrary _library;
+        private readonly List<Running> _running = new();
+        private Func<ZoneEmitterTemplate, ZoneParticleEmitter?>? _resolve;
+        private Action<ZoneParticleEmitter, ZoneRoutineActors>? _bind;
+
+        /// <summary>
+        /// Raised when a command starts a generator the library has no emitter for, with the routine's directory and actors:
+        /// a sound generator (linked data 0x3D), which the audio side plays (round 4 E2: Alzadaal's door <c>_20t</c>'s
+        /// <c>stat</c> starts its sound <c>se01</c>).
+        /// </summary>
+        public event Action<string, string, ZoneRoutineActors>? GeneratorWithoutEmitterStarted;
+
+        /// <summary>Routine nesting limit, so routines that start each other cannot grow without end.</summary>
+        public const int MaxRunning = 64;
+
+        public ZoneRoutinePlayer(ZoneRoutineLibrary library)
+        {
+            _library = library ?? throw new ArgumentNullException(nameof(library));
+        }
+
+        /// <summary>Routines still running (looping ones until they are stopped).</summary>
+        public int RunningCount => _running.Count;
+
+        /// <summary>Starts every routine of the zone named <paramref name="name"/>; false when the zone has none.</summary>
+        public bool Play(string name) => Play(name, ZoneRoutineActors.None);
+
+        /// <summary>
+        /// Starts every routine of the zone named <paramref name="name"/> on <paramref name="actors"/>: the generators it
+        /// starts that ride an actor are bound to the one their attach type picks (<see cref="ZoneRoutineActors.ActorFor"/>,
+        /// #232), and so are those of the routines it starts. False when the zone has none.
+        /// </summary>
+        public bool Play(string name, ZoneRoutineActors actors)
+        {
+            var found = _library.Find(name);
+            foreach (var (directory, routine) in found)
+            {
+                if (_running.Count < MaxRunning) Add(directory, routine, loop: false, actors);
+            }
+            return found.Count > 0;
+        }
+
+        /// <summary>
+        /// Starts the routine <paramref name="name"/> of exactly <paramref name="directory"/> on <paramref name="actors"/>
+        /// (a door's <c>open</c> / <c>clos</c> / <c>into</c> / <c>intc</c> on the door entity, #227). False when there is none.
+        /// </summary>
+        public bool PlayAt(string directory, string name, ZoneRoutineActors actors)
+        {
+            if (!_library.TryGetRoutine(directory, name, out var routine)) return false;
+            if (_running.Count < MaxRunning) Add(directory, routine, loop: false, actors);
+            return true;
+        }
+
+        /// <summary>The length in frames of the routine <paramref name="name"/> of <paramref name="directory"/>, with the routines it starts; 0 when there is none.</summary>
+        public int GetFrames(string directory, string name) =>
+            _library.TryGetRoutine(directory, name, out var routine) ? FramesWithChildren(directory, routine, 0) : 0;
+
+        private int FramesWithChildren(string directory, SceneRoutine routine, int depth)
+        {
+            int frames = routine.TotalFrames;
+            if (depth >= 8) return frames;
+            foreach (var command in routine.Commands)
+            {
+                if (command.Kind == SceneCommandKind.StartRoutine && _library.TryResolveRoutine(directory, command.Reference, out string dir, out var child) &&
+                    !ReferenceEquals(child, routine))
+                {
+                    frames = Math.Max(frames, command.StartFrame + FramesWithChildren(dir, child, depth + 1));
+                }
+            }
+            return frames;
+        }
+
+        /// <summary>
+        /// Ends every running routine named <paramref name="name"/> (an event's 0x51, CodeENDMAPSCHEDULOR, or the server
+        /// ending a map scheduler): nothing more of it runs; the routines it started and its particles go on, as a scene
+        /// task's stop leaves them (<see cref="SceneEffectPlayer"/>). False when the zone has no routine of that name.
+        /// </summary>
+        public bool Stop(string name)
+        {
+            var found = _library.Find(name);
+            foreach (var (_, routine) in found)
+            {
+                foreach (var run in _running)
+                {
+                    if (ReferenceEquals(run.Routine, routine)) End(run);
+                }
+            }
+            return found.Count > 0;
+        }
+
+        /// <summary>Whether a routine named <paramref name="name"/> is still running (started by name or by another routine).</summary>
+        public bool IsPlaying(string name)
+        {
+            foreach (var run in _running)
+            {
+                if (string.Equals(run.Routine.Name, name, StringComparison.OrdinalIgnoreCase) && (run.Loop || run.Next < run.Routine.Commands.Count)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Runs the commands due in the next <paramref name="frames"/> 60 Hz frames, starting and stopping emitters through
+        /// <paramref name="resolve"/> (the zone's running emitter for a template).
+        /// </summary>
+        public void Update(float frames, Func<ZoneEmitterTemplate, ZoneParticleEmitter?> resolve) => Update(frames, resolve, null);
+
+        /// <summary>
+        /// Runs the commands due in the next <paramref name="frames"/> frames like <see cref="Update(float, Func{ZoneEmitterTemplate, ZoneParticleEmitter?})"/>;
+        /// <paramref name="bind"/> hears of every emitter a command starts with the actors of its routine, so the caller
+        /// can place actor-attached ones (#232).
+        /// </summary>
+        public void Update(float frames, Func<ZoneEmitterTemplate, ZoneParticleEmitter?> resolve, Action<ZoneParticleEmitter, ZoneRoutineActors>? bind)
+        {
+            _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+            _bind = bind;
+            // Routines a command starts run from this frame on, in the same pass.
+            for (int i = 0; i < _running.Count; i++)
+            {
+                var run = _running[i];
+                run.Clock += frames;
+                var commands = run.Routine.Commands;
+                while (true)
+                {
+                    while (run.Next < commands.Count && commands[run.Next].StartFrame <= run.Clock)
+                    {
+                        Execute(run, commands[run.Next++]);
+                    }
+                    if (run.Next < commands.Count || !run.Loop) break;
+                    float length = run.Routine.TotalFrames;
+                    if (length <= 0f)
+                    {
+                        run.Loop = false;
+                        break;
+                    }
+                    if (run.Clock < length) break;
+                    run.Clock -= length;
+                    run.Next = 0;
+                }
+            }
+            _running.RemoveAll(r => !r.Loop && r.Next >= r.Routine.Commands.Count);
+        }
+
+        private ZoneParticleEmitter? Emitter(Running run, string generator) =>
+            generator.Length > 0 && _library.TryResolveGenerator(run.Directory, generator, out var template) ? _resolve?.Invoke(template) : null;
+
+        /// <summary>Starts a generator's emitter, binding it to the routine's actors first.</summary>
+        private void Start(Running run, string generator, int duration)
+        {
+            if (Emitter(run, generator) is not { } emitter)
+            {
+                if (generator.Length > 0) GeneratorWithoutEmitterStarted?.Invoke(run.Directory, generator, run.Actors);
+                return;
+            }
+            _bind?.Invoke(emitter, run.Actors);
+            emitter.Trigger(0, duration);
+        }
+
+        private void Execute(Running run, SceneCommand command)
+        {
+            switch (command.Kind)
+            {
+                case SceneCommandKind.SpawnGenerator:
+                    Start(run, command.Reference, command.Duration);
+                    break;
+                case SceneCommandKind.KillGenerator:
+                    Emitter(run, command.Reference)?.Kill();
+                    break;
+                case SceneCommandKind.ReplaceGenerator:
+                    Emitter(run, command.Reference)?.Kill();
+                    Start(run, command.Reference2, command.Duration);
+                    break;
+                case SceneCommandKind.StopGenerator:
+                    // 0x2D: the generator stops emitting; its particles live out their lives (as in SceneEffectPlayer).
+                    Emitter(run, command.Reference)?.StopEmitting();
+                    break;
+                case SceneCommandKind.StartRoutine:
+                case SceneCommandKind.LoopRoutine:
+                    if (_running.Count < MaxRunning && _library.TryResolveRoutine(run.Directory, command.Reference, out string dir, out var routine))
+                    {
+                        Add(dir, routine, command.Kind == SceneCommandKind.LoopRoutine && routine.TotalFrames > 0, run.Actors);
+                    }
+                    break;
+                case SceneCommandKind.StopRoutine:
+                    if (_library.TryResolveRoutine(run.Directory, command.Reference, out _, out var stopped))
+                    {
+                        foreach (var other in _running)
+                        {
+                            // A stopped routine ends with this pass: nothing more of it runs.
+                            if (ReferenceEquals(other.Routine, stopped)) End(other);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        private void Add(string directory, SceneRoutine routine, bool loop, ZoneRoutineActors actors)
+        {
+            // The same routine started again starts over (the old run is dropped after this pass).
+            foreach (var run in _running)
+            {
+                if (ReferenceEquals(run.Routine, routine)) End(run);
+            }
+            _running.Add(new Running { Directory = directory, Routine = routine, Loop = loop, Actors = actors });
+        }
+
+        private static void End(Running run)
+        {
+            run.Loop = false;
+            run.Next = run.Routine.Commands.Count;
+        }
+    }
+}

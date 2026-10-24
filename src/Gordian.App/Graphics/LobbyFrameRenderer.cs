@@ -2,10 +2,10 @@
 using System;
 using System.Diagnostics;
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui.Lobby;
+using Gordian.Engine.Ui.Lobby;
 using NeoVeldrid;
 
 namespace Gordian.App.Graphics
@@ -97,7 +97,7 @@ namespace Gordian.App.Graphics
                 {
                     // A character was chosen: the lobby fades to black, and the session's zone-in stays black (#36).
                     double seconds = (now - lobby.EnteredTimestamp) / (double)Stopwatch.Frequency;
-                    float black = (float)Math.Clamp(seconds / Gordian.Core.Ui.ZoneLoadingScreen.FadeOutSeconds, 0, 1);
+                    float black = (float)Math.Clamp(seconds / Gordian.Engine.Ui.ZoneLoadingScreen.FadeOutSeconds, 0, 1);
                     _foreground.DrawScreenTint(width, height, new Vector3(1f - black));
                 }
                 if (brightness < 1f) _foreground.DrawScreenTint(width, height, new Vector3(Math.Clamp(brightness, 0f, 1f)));

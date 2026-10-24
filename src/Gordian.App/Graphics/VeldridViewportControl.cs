@@ -12,11 +12,12 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using Gordian.App.Services;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 using NeoVeldrid;
 
 namespace Gordian.App.Graphics
@@ -412,7 +413,7 @@ namespace Gordian.App.Graphics
         private bool ZoneSwapGated => _activeSession != null && !_ungatedZoneSwap && !_loadingScreen.IsFullyBlack;
 
         /// <summary>Whether the zone to draw (the session's, or an event's scene zone) is not the one on screen.</summary>
-        private bool ZoneSwapPending(Gordian.Core.Network.CharacterSession session)
+        private bool ZoneSwapPending(CharacterSession session)
         {
             ushort scene = session.World.SceneZoneId;
             ushort wanted = scene != 0 ? scene : session.World.MapZoneId;
@@ -456,7 +457,7 @@ namespace Gordian.App.Graphics
         /// camera at the next zone's arrival point (S2C 0x00A) while the old zone still faded out, for zone lines and the GM
         /// <c>!zone</c> alike. Before that moment the player keeps moving through the fade, as in retail.
         /// </summary>
-        private bool HoldPresentation(Gordian.Core.Network.CharacterSession? session)
+        private bool HoldPresentation(CharacterSession? session)
         {
             if (session == null || !_loadingScreen.IsLoading || _loadingScreen.IsFullyBlack)
             {
@@ -969,10 +970,10 @@ namespace Gordian.App.Graphics
                         _renderer.RetailTerrainBrightness = ViewportRenderSettings.RetailTerrainBrightness;
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
-                            shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Core.Ui.StockUiSettingKey.Shadows);
+                            shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.Shadows);
                         // Config "Footstep Effects" draws the footprints and foot effects or not (#40).
                         if (_activeSession?.ActionService.UiSettings is { } footSettings)
-                            _renderer.EnableFootEffects = footSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.FootstepEffects);
+                            _renderer.EnableFootEffects = footSettings.IsOn(Gordian.Engine.Ui.StockUiSettingKey.FootstepEffects);
                     }
                     if (_renderer != null && _deviceManager.IsInitialized)
                     {
@@ -1170,7 +1171,7 @@ namespace Gordian.App.Graphics
         {
             if (entity == null || ResourceManager is not { } resources || !resources.TryLoadEntityModel(entity, out var model) || model == null) return null;
             float size = entity.Type == EntityType.Player ? PlayerSizeScale.For(entity.GraphSize) : 1f;
-            return Gordian.Core.Animation.FirstPersonEye.HeightOf(model) * size;
+            return Gordian.Engine.Animation.FirstPersonEye.HeightOf(model) * size;
         }
 
         /// <summary>
@@ -1522,7 +1523,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public StockUiHud StockUi { get; } = new();
 
-        private readonly Gordian.Core.Ui.ZoneLoadingScreen _loadingScreen = new();
+        private readonly Gordian.Engine.Ui.ZoneLoadingScreen _loadingScreen = new();
 
         /// <summary>
         /// Whether the session's own character is in the world with a model that loads (its look has arrived): until then
@@ -1533,20 +1534,20 @@ namespace Gordian.App.Graphics
         /// the fade-in shows no drop or camera jump. A zone without a collision mesh (its geometry loaded and still none)
         /// has nothing to settle on.
         /// </summary>
-        private static bool ArrivalReady(Gordian.Core.Network.CharacterSession session) =>
+        private static bool ArrivalReady(CharacterSession session) =>
             session.Locomotion is not { } locomotion || locomotion.ArrivalReady || session.World.Collision == null;
 
-        private bool LocalPlayerModelReady(Gordian.Core.Network.CharacterSession session, uint localPlayerServerId)
+        private bool LocalPlayerModelReady(CharacterSession session, uint localPlayerServerId)
         {
             if (localPlayerServerId == 0 || !session.World.TryGetByServerId(localPlayerServerId, out var player) || player == null) return false;
             return ResourceManager is { } resources && resources.TryLoadEntityModel(player, out var model) && model != null;
         }
-        private volatile Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+        private volatile Gordian.Engine.Ui.Lobby.LobbyController? _lobby;
         private LobbyFrameRenderer? _lobbyRenderer;
-        private readonly Gordian.Core.Ui.Lobby.LobbyPreview _lobbyPreview = new();
+        private readonly Gordian.Engine.Ui.Lobby.LobbyPreview _lobbyPreview = new();
 
         /// <summary>The character lobby to draw instead of the session's scene, or null (#32).</summary>
-        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        public Gordian.Engine.Ui.Lobby.LobbyController? Lobby
         {
             get => _lobby;
             set => _lobby = value;
@@ -1567,7 +1568,7 @@ namespace Gordian.App.Graphics
         public const float LobbyFadeInSeconds = 0.5f;
 
         /// <summary>The lobby being drawn and when it first was (render thread only), for its fade in.</summary>
-        private Gordian.Core.Ui.Lobby.LobbyController? _lobbyShown;
+        private Gordian.Engine.Ui.Lobby.LobbyController? _lobbyShown;
         private long _lobbyShownAt;
 
         /// <summary>
@@ -1576,11 +1577,11 @@ namespace Gordian.App.Graphics
         /// frames and the zone music played on in the character select screen. The lobby's screens play the title music
         /// (#378) until a character is chosen.
         /// </summary>
-        private void SilenceWorldAudio(float deltaSeconds, Gordian.Core.Ui.Lobby.LobbyController? lobby)
+        private void SilenceWorldAudio(float deltaSeconds, Gordian.Engine.Ui.Lobby.LobbyController? lobby)
         {
             try
             {
-                bool titleMusic = lobby is { Screen: not (Gordian.Core.Ui.Lobby.LobbyScreen.Entering or Gordian.Core.Ui.Lobby.LobbyScreen.Closed) };
+                bool titleMusic = lobby is { Screen: not (Gordian.Engine.Ui.Lobby.LobbyScreen.Entering or Gordian.Engine.Ui.Lobby.LobbyScreen.Closed) };
                 Audio.GameAudioService.UpdateWithoutWorld(this, Camera, deltaSeconds, titleMusic);
             }
             catch (Exception ex)
@@ -1617,7 +1618,7 @@ namespace Gordian.App.Graphics
         /// <summary>The viewport's size in rendering-surface pixels (for the lobby's mouse hit tests).</summary>
         public (uint Width, uint Height) SurfaceSize => (_deviceManager.CurrentWidth, _deviceManager.CurrentHeight);
 
-        private void RenderLobbyFrame(Gordian.Core.Ui.Lobby.LobbyController lobby, float deltaSeconds)
+        private void RenderLobbyFrame(Gordian.Engine.Ui.Lobby.LobbyController lobby, float deltaSeconds)
         {
             lock (_renderLock)
             {

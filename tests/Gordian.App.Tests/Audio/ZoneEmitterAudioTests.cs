@@ -4,7 +4,7 @@ using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.App.Audio;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.Resources.Graphics;
 using Xunit;
 

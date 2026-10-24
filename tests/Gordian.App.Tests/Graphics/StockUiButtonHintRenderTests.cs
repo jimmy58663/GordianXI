@@ -1,6 +1,6 @@
 // tests/Gordian.App.Tests/Graphics/StockUiButtonHintRenderTests.cs
 using Gordian.App.Graphics;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

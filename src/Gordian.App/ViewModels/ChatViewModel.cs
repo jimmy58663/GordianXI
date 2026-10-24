@@ -10,6 +10,8 @@ using Gordian.App.Common;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.ViewModels
@@ -325,7 +327,7 @@ namespace Gordian.App.ViewModels
         {
             DispatchToUi(() =>
             {
-                foreach (string line in Gordian.Core.Ui.StockUiChat.SplitServerMessage(message))
+                foreach (string line in Gordian.Engine.Ui.StockUiChat.SplitServerMessage(message))
                 {
                     AddMessageItem(ChatItemViewModel.CreateLocalNotice(line, "[Server]", "#C678DD"));
                 }

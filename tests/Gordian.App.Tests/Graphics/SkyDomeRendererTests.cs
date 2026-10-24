@@ -3,7 +3,7 @@ using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
 using Xunit;
 

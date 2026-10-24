@@ -54,7 +54,7 @@ namespace Gordian.Core.Animation
     public readonly record struct ActionHit(uint TargetId, CombatActionResult Result);
 
     /// <summary>
-    /// One motion for an actor, built from an S2C 0x028 action by <see cref="ActionPlaybackQueue"/> on the network thread and
+    /// One motion for an actor, built from an S2C 0x028 action by <c>ActionPlaybackQueue</c> on the network thread and
     /// played by the actor's <see cref="EntityAnimationState"/> on the render thread. The hits are delivered to the targets once,
     /// either when the actor's routine reaches its hit tick or, when the actor is not animated (off screen, no model), by the
     /// queue's fallback timer.
