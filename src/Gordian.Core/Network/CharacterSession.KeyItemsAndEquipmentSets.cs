@@ -35,9 +35,9 @@ namespace Gordian.Core.Network
 
             // S2C 0x009 messages the client's short list does not know print from the system message table (MsgStd ids), the
             // style lock's "Style lock mode enabled." among them (round 1: they printed as "Msg#267").
-            Packets.StandardMessages.TableText = (id, parameters) =>
+            Gordian.Core.Ui.StandardMessages.TableText = (id, parameters) =>
             {
-                int[] numbers = Packets.StandardMessages.TryGetNumbers(parameters, out uint first, out uint second)
+                int[] numbers = Gordian.Core.Ui.StandardMessages.TryGetNumbers(parameters, out uint first, out uint second)
                     ? new[] { unchecked((int)first), unchecked((int)second) }
                     : Array.Empty<int>();
                 var lines = Messages.FormatTableMessage(id, numbers);

@@ -65,7 +65,7 @@ public partial class App : Application
         // S2C 0x029 battle messages worded from the client's basic-message table (file 7027, #335), read through the
         // file-id loader above on first use.
         var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
-        Gordian.Core.Network.Packets.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
+        Gordian.Core.Ui.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
 
         // /reloaddats (#374): re-index the VFS packs and read every DAT again.
         Gordian.Core.Actions.PlayerActionService.DatReloader = Gordian.App.Services.DatReload.Reload;

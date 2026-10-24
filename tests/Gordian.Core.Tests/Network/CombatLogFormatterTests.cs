@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Tests.Actions;
+using Gordian.Core.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network

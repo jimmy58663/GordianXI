@@ -6,6 +6,7 @@ using System.Text;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network

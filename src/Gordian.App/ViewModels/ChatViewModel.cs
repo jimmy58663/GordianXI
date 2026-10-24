@@ -10,6 +10,7 @@ using Gordian.App.Common;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.ViewModels

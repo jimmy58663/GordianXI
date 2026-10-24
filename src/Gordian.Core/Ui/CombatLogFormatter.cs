@@ -1,4 +1,4 @@
-// src/Gordian.Core/Network/Packets/CombatLogFormatter.cs
+// src/Gordian.Core/Ui/CombatLogFormatter.cs
 // Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
 // and Atom0s XiPackets research (https://github.com/atom0s/XiPackets).
 
@@ -6,9 +6,10 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Actions;
 using Gordian.Core.Events;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Network.Packets
+namespace Gordian.Core.Ui
 {
     /// <summary>
     /// Formatter mapping low-level FFXI combat action packets (0x028) and battle message notifications (0x029/0x02D)

@@ -1,7 +1,8 @@
-// src/Gordian.Core/Network/Packets/StandardMessages.cs
+// src/Gordian.Core/Ui/StandardMessages.cs
 using System.Collections.Generic;
+using Gordian.Core.Network.Packets;
 
-namespace Gordian.Core.Network.Packets
+namespace Gordian.Core.Ui
 {
     /// <summary>
     /// Formatter and dictionary mapping standard FFXI system message IDs (MsgStd) to human-readable text.

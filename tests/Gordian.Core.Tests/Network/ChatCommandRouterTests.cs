@@ -3,6 +3,7 @@ using System;
 using System.Numerics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Ui;
 using Gordian.Core.World;
 using Xunit;
 
