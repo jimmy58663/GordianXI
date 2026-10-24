@@ -2,7 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Text;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;

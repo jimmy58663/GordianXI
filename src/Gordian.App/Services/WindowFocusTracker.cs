@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.Services
 {

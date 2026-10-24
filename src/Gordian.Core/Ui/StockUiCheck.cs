@@ -5,7 +5,7 @@ using System.Globalization;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// What the check window shows about a checked player: the character's name (the world entity's, else the 0x0CA

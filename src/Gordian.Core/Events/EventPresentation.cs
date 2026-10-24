@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Numerics;
 using Gordian.Core.Resources.Events;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// What a running event shows beyond its actors: the cutscene camera, the screen fades and flashes its scene routines

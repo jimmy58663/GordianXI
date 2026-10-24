@@ -196,8 +196,8 @@ namespace Gordian.App.Tests.Graphics
             {
                 var netManager1 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
                 var netManager2 = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                var session1 = new Gordian.Core.Network.CharacterSession("Cybin", 1, "cybin_user", netManager1);
-                var session2 = new Gordian.Core.Network.CharacterSession("Sylphie", 2, "sylph_user", netManager2);
+                var session1 = new Gordian.Engine.Sessions.CharacterSession("Cybin", 1, "cybin_user", netManager1);
+                var session2 = new Gordian.Engine.Sessions.CharacterSession("Sylphie", 2, "sylph_user", netManager2);
 
                 var tab1 = vm.AddSession(session1);
                 Assert.Single(vm.CharacterTabs);
@@ -263,7 +263,7 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
-        private static Gordian.Core.Network.CharacterSession NewSession(string name, uint id) =>
+        private static Gordian.Engine.Sessions.CharacterSession NewSession(string name, uint id) =>
             new(name, id, $"user_{name}", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230));
 
         /// <summary>
@@ -398,12 +398,12 @@ namespace Gordian.App.Tests.Graphics
             vm.AddSession(NewSession("Knot", 1));
 
             // Ctrl is down for Ctrl+Tab and W keeps the character running; their key-ups go to the new character.
-            a.Session.InputState.SetKeyDown(Gordian.Core.Input.GordianKey.LeftCtrl);
-            a.Session.InputState.SetKeyDown(Gordian.Core.Input.GordianKey.W);
+            a.Session.InputState.SetKeyDown(Gordian.Engine.Input.GordianKey.LeftCtrl);
+            a.Session.InputState.SetKeyDown(Gordian.Engine.Input.GordianKey.W);
             vm.CycleNextCharacter();
 
-            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Core.Input.GordianKey.W));
-            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Core.Input.GordianKey.LeftCtrl));
+            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Engine.Input.GordianKey.W));
+            Assert.False(a.Session.InputState.IsKeyHeld(Gordian.Engine.Input.GordianKey.LeftCtrl));
         }
 
         [Fact]
@@ -411,13 +411,13 @@ namespace Gordian.App.Tests.Graphics
         {
             var primary = new ViewportViewModel(enableAutoSave: false);
             var main = primary.AddSession(NewSession("Gordian", 3));
-            Assert.Same(main.Session, Gordian.Core.Network.SessionRegistry.Default.PrimaryRenderingSession);
+            Assert.Same(main.Session, Gordian.Engine.Sessions.SessionRegistry.Default.PrimaryRenderingSession);
 
             var popOut = new ViewportViewModel(enableAutoSave: false) { IsPrimary = false };
             var knot = popOut.AddSession(NewSession("Knot", 1));
 
             Assert.Same(knot, popOut.ActiveTab);
-            Assert.NotSame(knot.Session, Gordian.Core.Network.SessionRegistry.Default.PrimaryRenderingSession);
+            Assert.NotSame(knot.Session, Gordian.Engine.Sessions.SessionRegistry.Default.PrimaryRenderingSession);
         }
 
         [Fact]
@@ -486,16 +486,16 @@ namespace Gordian.App.Tests.Graphics
         {
             var vm = new ViewportViewModel(enableAutoSave: false);
             var a = vm.AddSession(NewSession("Gordian", 3));
-            Assert.Equal(Gordian.Core.Graphics.CameraMode.ThirdPersonOrbital, a.Session.Locomotion.CameraMode);
+            Assert.Equal(Gordian.Engine.Graphics.CameraMode.ThirdPersonOrbital, a.Session.Locomotion.CameraMode);
 
             vm.ToggleFreeCamCommand.Execute(null);
-            Assert.Equal(Gordian.Core.Graphics.CameraMode.FreeCam, a.Session.Locomotion.CameraMode);
+            Assert.Equal(Gordian.Engine.Graphics.CameraMode.FreeCam, a.Session.Locomotion.CameraMode);
             Assert.True(vm.IsFreeCamActive);
 
             // A key press changed it in game: the switcher follows on the next sync.
-            a.Session.Locomotion.CameraMode = Gordian.Core.Graphics.CameraMode.FirstPerson;
+            a.Session.Locomotion.CameraMode = Gordian.Engine.Graphics.CameraMode.FirstPerson;
             vm.SyncFromActiveSession();
-            Assert.Equal(Gordian.Core.Graphics.CameraMode.FirstPerson, vm.ActiveCameraMode);
+            Assert.Equal(Gordian.Engine.Graphics.CameraMode.FirstPerson, vm.ActiveCameraMode);
             Assert.False(vm.IsFreeCamActive);
         }
 
@@ -505,11 +505,11 @@ namespace Gordian.App.Tests.Graphics
             var (vm, tempFile) = CreateIsolatedViewModel();
             try
             {
-                var sessions = new Gordian.Core.Network.CharacterSession[6];
+                var sessions = new Gordian.Engine.Sessions.CharacterSession[6];
                 for (int i = 0; i < 6; i++)
                 {
                     var net = new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230);
-                    sessions[i] = new Gordian.Core.Network.CharacterSession($"Char{i}", (uint)(i + 1), $"user{i}", net);
+                    sessions[i] = new Gordian.Engine.Sessions.CharacterSession($"Char{i}", (uint)(i + 1), $"user{i}", net);
                     vm.AddSession(sessions[i]);
                 }
 

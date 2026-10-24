@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Encapsulates a complete, rebindable mapping configuration between physical input chords

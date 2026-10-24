@@ -2,11 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using Gordian.Core.Graphics;
-using Gordian.Core.Input;
+using Gordian.Engine.Graphics;
+using Gordian.Engine.Input;
 using Gordian.Core.World;
 using Xunit;
-using Candidate = Gordian.Core.Input.TargetCycling.Candidate;
+using Candidate = Gordian.Engine.Input.TargetCycling.Candidate;
 
 namespace Gordian.Core.Tests.Input
 {

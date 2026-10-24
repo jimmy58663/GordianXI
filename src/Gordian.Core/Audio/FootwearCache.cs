@@ -5,7 +5,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// The footstep digits and movement type of each actor (#40), read from its DAT on a worker and cached per file: a

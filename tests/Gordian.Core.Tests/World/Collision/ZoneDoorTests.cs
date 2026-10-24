@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Text;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
@@ -174,9 +174,9 @@ namespace Gordian.Core.Tests.World.Collision
             var me = new PlayerEntity(player.ServerId, 1) { Name = "T", Position = new Vector3(180f, 0f, startZ), IsSpawned = true };
             world.UpsertEntity(me);
             world.UpsertEntity(new WorldEntity(0x010480BB, 187, EntityType.Door) { TransportId = "_20d", AnimationState = ZoneDoors.StatusClosed, Position = new Vector3(180, -2, -40), IsSpawned = true });
-            var input = new Gordian.Core.Input.InputState();
-            var controller = new Gordian.Core.Input.PlayerLocomotionController(input, Gordian.Core.Input.InputProfile.CreateCompact(), world, player) { CameraYaw = cameraYaw };
-            input.SetKeyDown(Gordian.Core.Input.GordianKey.W);
+            var input = new Gordian.Engine.Input.InputState();
+            var controller = new Gordian.Engine.Input.PlayerLocomotionController(input, Gordian.Engine.Input.InputProfile.CreateCompact(), world, player) { CameraYaw = cameraYaw };
+            input.SetKeyDown(Gordian.Engine.Input.GordianKey.W);
             for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromSeconds(0.05));
             Assert.InRange(me.Position.Z, MathF.Min(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f), MathF.Max(stopZ, stopZ + MathF.Sign(startZ - stopZ) * 0.2f));
         }
@@ -359,8 +359,8 @@ namespace Gordian.Core.Tests.World.Collision
         public void Doors_AreTargetable_TransportsAreNot()
         {
             // LSB names its doors ("Door:House"); retail targets them like NPCs, the cursor at the door's middle.
-            Assert.True(Gordian.Core.Input.TargetCycling.IsTargetable(new WorldEntity(1, 1, EntityType.Door) { Name = "Door:House", IsSpawned = true }));
-            Assert.False(Gordian.Core.Input.TargetCycling.IsTargetable(new WorldEntity(2, 2, EntityType.Elevator) { Name = "_6l0", IsSpawned = true }));
+            Assert.True(Gordian.Engine.Input.TargetCycling.IsTargetable(new WorldEntity(1, 1, EntityType.Door) { Name = "Door:House", IsSpawned = true }));
+            Assert.False(Gordian.Engine.Input.TargetCycling.IsTargetable(new WorldEntity(2, 2, EntityType.Elevator) { Name = "_6l0", IsSpawned = true }));
         }
 
         [Fact]

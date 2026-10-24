@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using Gordian.Core.Network;
 using Gordian.Core.Profiles;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.Core.Tests.Profiles

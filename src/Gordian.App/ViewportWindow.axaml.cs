@@ -12,9 +12,10 @@ using Gordian.App.Graphics;
 using Gordian.App.Services;
 using Gordian.App.ViewModels;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App
 {
@@ -499,23 +500,23 @@ namespace Gordian.App
         }
 
         /// <summary>The character lobby on show in this window, if any (it takes the keyboard and mouse).</summary>
-        private Gordian.Core.Ui.Lobby.LobbyController? ActiveLobby => _viewModel?.Lobby;
+        private Gordian.Engine.Ui.Lobby.LobbyController? ActiveLobby => _viewModel?.Lobby;
 
         /// <summary>
         /// The lobby's keys: the arrows and numeric keypad 8/2/4/6 move the cursor, Enter / keypad 5 confirm, Escape
         /// cancels, Backspace deletes a letter of a name being typed. Every key is the lobby's while it is open.
         /// </summary>
-        private static void HandleLobbyKey(Gordian.Core.Ui.Lobby.LobbyController lobby, KeyEventArgs e)
+        private static void HandleLobbyKey(Gordian.Engine.Ui.Lobby.LobbyController lobby, KeyEventArgs e)
         {
-            Gordian.Core.Ui.Lobby.LobbyInput? input = e.Key switch
+            Gordian.Engine.Ui.Lobby.LobbyInput? input = e.Key switch
             {
-                Key.Up or Key.NumPad8 => Gordian.Core.Ui.Lobby.LobbyInput.Up,
-                Key.Down or Key.NumPad2 => Gordian.Core.Ui.Lobby.LobbyInput.Down,
-                Key.Left or Key.NumPad4 => Gordian.Core.Ui.Lobby.LobbyInput.Left,
-                Key.Right or Key.NumPad6 => Gordian.Core.Ui.Lobby.LobbyInput.Right,
-                Key.Enter or Key.NumPad5 => Gordian.Core.Ui.Lobby.LobbyInput.Confirm,
-                Key.Escape => Gordian.Core.Ui.Lobby.LobbyInput.Cancel,
-                Key.Back => Gordian.Core.Ui.Lobby.LobbyInput.Backspace,
+                Key.Up or Key.NumPad8 => Gordian.Engine.Ui.Lobby.LobbyInput.Up,
+                Key.Down or Key.NumPad2 => Gordian.Engine.Ui.Lobby.LobbyInput.Down,
+                Key.Left or Key.NumPad4 => Gordian.Engine.Ui.Lobby.LobbyInput.Left,
+                Key.Right or Key.NumPad6 => Gordian.Engine.Ui.Lobby.LobbyInput.Right,
+                Key.Enter or Key.NumPad5 => Gordian.Engine.Ui.Lobby.LobbyInput.Confirm,
+                Key.Escape => Gordian.Engine.Ui.Lobby.LobbyInput.Cancel,
+                Key.Back => Gordian.Engine.Ui.Lobby.LobbyInput.Backspace,
                 _ => null,
             };
             // Letter keys stay unhandled so their text input follows (the name step types it, OnGameTextInput); Avalonia
@@ -526,13 +527,13 @@ namespace Gordian.App
         }
 
         /// <summary>The mouse over the lobby: hovering a button moves the cursor there, a left press activates it, a right press cancels.</summary>
-        private void LobbyPointer(Gordian.Core.Ui.Lobby.LobbyController lobby, Point point, Avalonia.Input.MouseButton? pressed)
+        private void LobbyPointer(Gordian.Engine.Ui.Lobby.LobbyController lobby, Point point, Avalonia.Input.MouseButton? pressed)
         {
             if (_viewportControl == null) return;
             var (width, height) = _viewportControl.SurfaceSize;
             if (pressed == Avalonia.Input.MouseButton.Right)
             {
-                lobby.HandleInput(Gordian.Core.Ui.Lobby.LobbyInput.Cancel);
+                lobby.HandleInput(Gordian.Engine.Ui.Lobby.LobbyInput.Cancel);
                 return;
             }
             if (StockUiLobby.HitTest(lobby, width, height, (float)point.X, (float)point.Y) is not { } hit) return;
@@ -933,17 +934,17 @@ namespace Gordian.App
         /// Offers a mouse press to the stock UI: the unlocked UI's drag (left button), then an open menu under the
         /// pointer. Returns true when the stock UI took it, so it is not game input.
         /// </summary>
-        private bool TryStockUiPress(string path, CharacterSession session, Gordian.Core.Input.MouseButton button, Point point)
+        private bool TryStockUiPress(string path, CharacterSession session, Gordian.Engine.Input.MouseButton button, Point point)
         {
             float x = (float)point.X, y = (float)point.Y;
-            if (button == Gordian.Core.Input.MouseButton.Left)
+            if (button == Gordian.Engine.Input.MouseButton.Left)
             {
                 var drag = session.ActionService.UiDrag;
                 if (drag.Unlocked) LogUnlockedPress(path, drag, x, y);
                 if (drag.OnMouseDown(x, y)) return true;
             }
             if (session.ActionService.Menus.OnMouseDown(button, x, y)) return true;
-            if (button == Gordian.Core.Input.MouseButton.Left)
+            if (button == Gordian.Engine.Input.MouseButton.Left)
             {
                 // A left click confirms the sub-target cursor and an NPC's waiting line, as Enter does (the maintainer's
                 // round 1 note, 2026-10-12).
@@ -953,7 +954,7 @@ namespace Gordian.App
                     _ = System.Threading.Tasks.Task.Run(async () =>
                     {
                         var result = await actions.ConfirmSubTargetAsync().ConfigureAwait(false);
-                        if (result.Kind is Gordian.Core.Actions.PlayerActionResultKind.Warning or Gordian.Core.Actions.PlayerActionResultKind.Error)
+                        if (result.Kind is Gordian.Engine.Actions.PlayerActionResultKind.Warning or Gordian.Engine.Actions.PlayerActionResultKind.Error)
                         {
                             actions.Menus.PostNotice(result.Message);
                         }
@@ -970,10 +971,10 @@ namespace Gordian.App
         }
 
         /// <summary>Offers a mouse release to the stock UI; true when its press was the stock UI's.</summary>
-        private static bool TryStockUiRelease(CharacterSession session, Gordian.Core.Input.MouseButton button, Point point)
+        private static bool TryStockUiRelease(CharacterSession session, Gordian.Engine.Input.MouseButton button, Point point)
         {
             float x = (float)point.X, y = (float)point.Y;
-            bool dragged = button == Gordian.Core.Input.MouseButton.Left && session.ActionService.UiDrag.OnMouseUp(x, y);
+            bool dragged = button == Gordian.Engine.Input.MouseButton.Left && session.ActionService.UiDrag.OnMouseUp(x, y);
             bool menu = session.ActionService.Menus.OnMouseUp(button, x, y);
             return dragged || menu;
         }

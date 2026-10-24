@@ -11,10 +11,10 @@ using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     /// <summary>What the client knows of the server's style lock.</summary>
     public enum StyleLockStatus

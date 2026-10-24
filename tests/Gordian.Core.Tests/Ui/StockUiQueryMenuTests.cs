@@ -2,9 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui

@@ -3,10 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     public sealed partial class StockUiOpenMenu
     {

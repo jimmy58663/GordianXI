@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Plays a door entity's own effect routines (#227) as its status changes, the way <see cref="DoorAnimator"/> plays

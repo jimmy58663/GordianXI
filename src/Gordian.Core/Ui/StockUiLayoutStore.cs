@@ -3,7 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// One shared <see cref="StockUiLayout"/> per character, loaded on first use and saved whenever it changes, so

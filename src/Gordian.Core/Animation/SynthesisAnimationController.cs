@@ -2,11 +2,12 @@
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The synthesis animation (S2C 0x030, #315), as the maintainer's retail video <c>Synth_Wind_Fire_Lightning_Breaks.mp4</c>

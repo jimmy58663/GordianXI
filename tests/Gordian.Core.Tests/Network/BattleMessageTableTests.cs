@@ -6,7 +6,7 @@ using System.Text;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -223,7 +223,7 @@ namespace Gordian.Core.Tests.Network
                     Targets = { new CombatActionTargetRecord { TargetId = Knot, Results = new() { new CombatActionResult { Param = 30, MessageId = 2 } } } },
                 },
                 id => id == Knot ? "Gemini" : Names(id), entityTakesArticle: IsMonster, battleMessages: table.GetMessage,
-                catalog: Gordian.Core.Actions.ActionCatalog.Load(rm));
+                catalog: Gordian.Engine.Actions.ActionCatalog.Load(rm));
             Assert.Equal(new[] { "The Wild Rabbit casts Fire.", "Gemini takes 30 points of damage." }, spell.Select(l => l.Text));
         }
     }

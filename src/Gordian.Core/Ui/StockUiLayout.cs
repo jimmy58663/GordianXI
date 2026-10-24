@@ -8,7 +8,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// A player's placement of one stock UI window. Null fields keep the authored value.

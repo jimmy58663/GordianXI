@@ -1,5 +1,6 @@
 using Gordian.App.Services;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.Services

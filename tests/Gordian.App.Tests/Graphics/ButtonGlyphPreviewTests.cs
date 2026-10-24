@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Threading;
 using Gordian.App.Graphics;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

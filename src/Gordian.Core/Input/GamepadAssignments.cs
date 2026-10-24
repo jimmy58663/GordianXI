@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// One assignable gamepad function of the key-assignment list (#21): its label and the actions one button drives.

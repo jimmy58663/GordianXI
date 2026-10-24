@@ -7,7 +7,7 @@ using Gordian.App.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -54,7 +54,7 @@ namespace Gordian.App.Tests.Graphics
                 ItemLookup = id => screen.Resources.TryGetItem(id, out var record) ? record : null,
             };
             var list = menus.OpenTreasurePool(null)!;
-            menus.Move(Gordian.Core.Input.InputAction.MenuDown); // the cloth
+            menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // the cloth
             menus.Activate(); // Cast Lot / Pass
             Assert.Equal(2, menus.OpenMenus.Count);
 

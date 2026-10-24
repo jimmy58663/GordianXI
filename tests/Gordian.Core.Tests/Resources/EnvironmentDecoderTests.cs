@@ -164,19 +164,19 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_Presets_HaveAuthenticVisibilityParameters()
         {
-            var day = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+            var day = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
             Assert.False(day.FogEnabled);
             Assert.True(day.FogStart >= 300f);
             Assert.True(day.FogEnd >= 1000f);
 
-            var night = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateNight();
+            var night = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateNight();
             Assert.False(night.FogEnabled);
             Assert.True(night.FogStart >= 250f);
 
-            var dusk = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDusk();
+            var dusk = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDusk();
             Assert.False(dusk.FogEnabled);
 
-            var overcast = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateOvercast();
+            var overcast = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateOvercast();
             Assert.True(overcast.FogEnabled);
             Assert.Equal(150f, overcast.FogStart);
             Assert.Equal(600f, overcast.FogEnd);
@@ -185,7 +185,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_PushesZeroFogStartToDistantHorizon()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Retail DAT keyframe with FogStart = 0, FogEnd = 302
             var keyframe = new EnvironmentKeyframe
@@ -207,7 +207,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_DisablesFogWhenFarIsNonPositive()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             var keyframe = new EnvironmentKeyframe
             {
@@ -224,7 +224,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_SynchronizesOutdoorClearColorWithLowestSkySlice()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             var keyframe = new EnvironmentKeyframe
             {
@@ -248,7 +248,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_PreservesIndoorClearColor()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             var indoorClear = new Vector4(0.05f, 0.05f, 0.08f, 1.0f);
             var keyframe = new EnvironmentKeyframe
@@ -267,8 +267,8 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_CalibratesLinearFogForClearOutdoorKeyframes()
         {
-            var outdoorSettings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
-            var indoorSettings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
+            var indoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Outdoor keyframe with low authored FogStart
             var outdoorKeyframe = new EnvironmentKeyframe
@@ -303,7 +303,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_ConvertsLightingLikeLegacyClient()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
             var keyframe = new EnvironmentKeyframe
             {
                 Hour = 0,
@@ -335,7 +335,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_IndoorsHasNoMoonLight()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
             var keyframe = new EnvironmentKeyframe
             {
                 Indoors = true,
@@ -352,7 +352,7 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_TreatsZeroDiffuseMultAsOne()
         {
-            var settings = new Gordian.Core.Graphics.ZoneEnvironmentSettings();
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
             var keyframe = new EnvironmentKeyframe
             {
                 TerrainSunColor = new Vector4(1f, 1f, 1f, 1f),

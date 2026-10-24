@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Text;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>What a dialog message's codes substitute: the numbers, names and entities of the moment.</summary>
     public interface IEventMessageContext

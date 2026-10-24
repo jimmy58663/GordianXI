@@ -2,14 +2,14 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The stock chat for one session: fills the log windows (<see cref="Log"/>) from incoming chat, system, combat
@@ -524,7 +524,7 @@ namespace Gordian.Core.Ui
         public Func<string, string>? ExpandTokens { get; set; }
 
         /// <summary>The character's macros, which <c>/importretail &lt;folder&gt; macros</c> replaces (#339).</summary>
-        public Func<Gordian.Core.Macros.MacroLibrary?> Macros { get; set; } = () => null;
+        public Func<Gordian.Engine.Macros.MacroLibrary?> Macros { get; set; } = () => null;
 
         /// <summary>The retail install folder (for <c>/importretail</c>); null when unknown.</summary>
         public Func<string?> GameDirectory { get; set; } = () => null;
@@ -569,7 +569,7 @@ namespace Gordian.Core.Ui
                 {
                     string mark = folder.Name.Equals(guess, StringComparison.Ordinal) ? "  <- this character?" : string.Empty;
                     string config = folder.HasConfig ? string.Empty : " (no cnf.dat)";
-                    string macros = Gordian.Core.Macros.RetailMacroFiles.HasMacroFiles(folder.Path) ? " (macros)" : string.Empty;
+                    string macros = Gordian.Engine.Macros.RetailMacroFiles.HasMacroFiles(folder.Path) ? " (macros)" : string.Empty;
                     Log.Add(ChatLogChannel.Notice, $"  {folder.Name}  {folder.LastModifiedUtc.ToLocalTime():yyyy-MM-dd HH:mm}{config}{macros}{mark}");
                 }
                 Log.Add(ChatLogChannel.Notice, "Import a folder's macros (replacing this character's) with /importretail <folder> macros.");
@@ -617,12 +617,12 @@ namespace Gordian.Core.Ui
                 Log.Add(ChatLogChannel.Error, "Import retail macros: macros are not available.");
                 return;
             }
-            if (!Gordian.Core.Macros.RetailMacroFiles.HasMacroFiles(folder.Path))
+            if (!Gordian.Engine.Macros.RetailMacroFiles.HasMacroFiles(folder.Path))
             {
                 Log.Add(ChatLogChannel.Error, $"Import retail macros: USER/{folder.Name} has no macro files.");
                 return;
             }
-            var imported = Gordian.Core.Macros.RetailMacroFiles.Import(folder.Path, library);
+            var imported = Gordian.Engine.Macros.RetailMacroFiles.Import(folder.Path, library);
             string dropped = imported.DroppedPhrases > 0 ? $" ({imported.DroppedPhrases} auto-translate phrases left out)" : string.Empty;
             Log.Add(ChatLogChannel.Notice, $"Imported {imported.Macros} macros in {imported.Sets} sets and {imported.BookTitles} book titles from USER/{folder.Name}{dropped}.");
         }

@@ -4,7 +4,7 @@ using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The head look of an event (<see cref="World.EventLook"/>, opcodes 0x1E / 0x4A / 0x79): the entity's head turns
@@ -59,7 +59,7 @@ namespace Gordian.Core.Animation
             yaw = 0f;
             float dx = to.X - from.X, dz = to.Z - from.Z;
             if (dx * dx + dz * dz < 1e-6f) return true;
-            float delta = World.WorldEntity.HeadingOf(dx, dz) - heading;
+            float delta = Gordian.Core.World.WorldEntity.HeadingOf(dx, dz) - heading;
             delta -= MathF.Tau * MathF.Round(delta / MathF.Tau);
             if (MathF.Abs(delta) > MaxYaw) return false;
             yaw = delta;
@@ -95,7 +95,7 @@ namespace Gordian.Core.Animation
         /// event 324 the player holds (0, 1024) right before the "pink flash of light in the sky" appears above them, and the
         /// retail shot from behind shows no sideways turn; the sign of the turn is not known.
         /// </summary>
-        public static Vector2 AxisAngles(World.LookAxis axis) => new(
+        public static Vector2 AxisAngles(Gordian.Core.World.LookAxis axis) => new(
             Math.Clamp(axis.X * RadiansPerStep, -MaxYaw, MaxYaw),
             Math.Clamp(axis.Y * RadiansPerStep, -MaxPitch, MaxPitch));
 

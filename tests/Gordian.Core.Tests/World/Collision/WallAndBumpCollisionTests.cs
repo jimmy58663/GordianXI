@@ -1,5 +1,5 @@
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;

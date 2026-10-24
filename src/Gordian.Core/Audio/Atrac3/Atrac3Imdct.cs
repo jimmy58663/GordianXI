@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/Atrac3/Atrac3Imdct.cs
 using System;
 
-namespace Gordian.Core.Audio.Atrac3
+namespace Gordian.Engine.Audio.Atrac3
 {
     /// <summary>
     /// The 256-coefficient inverse MDCT of an ATRAC3 QMF band, with the sign and scale of the clean-room spec

@@ -6,7 +6,7 @@ using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Plays the particle effects of one action presentation (#132: a weapon skill, monster move, job ability or spell DAT)
@@ -33,7 +33,7 @@ namespace Gordian.Core.Graphics
         /// whose routines the actors' motion routines link (one per actor, so a release's <c>stwh</c> stops the circle the
         /// chant's <c>ner2</c> started).
         /// </summary>
-        public ActionEffectPlayer(Resources.Events.EventSceneResource routines, ActorEffectSet effects, uint actorId, uint targetId, int seed = 0)
+        public ActionEffectPlayer(Gordian.Core.Resources.Events.EventSceneResource routines, ActorEffectSet effects, uint actorId, uint targetId, int seed = 0)
         {
             Routines = routines ?? throw new ArgumentNullException(nameof(routines));
             Effects = effects ?? throw new ArgumentNullException(nameof(effects));
@@ -46,7 +46,7 @@ namespace Gordian.Core.Graphics
         public ActionAsset? Asset { get; }
 
         /// <summary>The routines the player runs.</summary>
-        public Resources.Events.EventSceneResource Routines { get; }
+        public Gordian.Core.Resources.Events.EventSceneResource Routines { get; }
 
         /// <summary>
         /// Routines at least this long (60 Hz frames) run until something stops them: the chant circles (1800). They are

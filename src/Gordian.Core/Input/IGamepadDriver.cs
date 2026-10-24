@@ -3,7 +3,7 @@
 
 using System;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Represents a cross-platform or OS-specific hardware gamepad polling and feedback driver.

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>One Key Items category: its name and its key items, in the table's order.</summary>
     public sealed record StockUiKeyItemCategory(string Name, IReadOnlyList<ushort> Ids);

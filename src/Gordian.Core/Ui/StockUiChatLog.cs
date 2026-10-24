@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// What a log line is, which picks its colour and the log window it goes to.

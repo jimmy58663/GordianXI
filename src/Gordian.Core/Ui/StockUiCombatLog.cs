@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>What a combat line reports, as the Font Colors and Log pages group battle messages.</summary>
     public enum CombatLogEffect : byte

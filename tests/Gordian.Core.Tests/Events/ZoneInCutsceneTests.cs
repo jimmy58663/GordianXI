@@ -6,13 +6,13 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Tables;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Events

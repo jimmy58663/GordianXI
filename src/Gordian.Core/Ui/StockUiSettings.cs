@@ -8,7 +8,7 @@ using System.Text.Json.Serialization;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>Where a config-menu setting lives.</summary>
     public enum StockUiSettingScope

@@ -1,9 +1,9 @@
 // src/Gordian.Core/Macros/MacroController.cs
 using System;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>
     /// The macro palettes in play (#339): which palette shows, the macro picked on it, and the keys that run macros and

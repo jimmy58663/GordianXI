@@ -1,8 +1,8 @@
 // tests/Gordian.Core.Tests/Ui/StockUiButtonHintsTests.cs
 using System;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui

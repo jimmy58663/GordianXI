@@ -2,7 +2,7 @@
 using System;
 using System.Buffers.Binary;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// Streams the PCM of one retail <c>.bgw</c> / <c>.spw</c> file block by block (ADPCM or PCM), looping back to the

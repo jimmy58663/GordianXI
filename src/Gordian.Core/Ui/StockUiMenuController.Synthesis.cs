@@ -7,7 +7,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     public sealed partial class StockUiOpenMenu
     {

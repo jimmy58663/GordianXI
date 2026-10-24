@@ -1,7 +1,7 @@
 // src/Gordian.Core/Ui/StockUiLogSizing.cs
 using System;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// A log window's reactive sizing (config Window 1 / Window 2: "Reactive window sizing", "Minimum lines displayed",

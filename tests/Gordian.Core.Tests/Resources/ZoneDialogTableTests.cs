@@ -117,12 +117,12 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal((80, 340), message.Position);
             Assert.Equal(9, message.AutoCloseSeconds);
             var female = new GenderContext(true);
-            Assert.Equal("Of course, she has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, female)));
-            Assert.Equal("Of course, he has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, new GenderContext(false))));
-            Assert.Equal("Of course, [he/she] has only begun.", Assert.Single(Gordian.Core.Events.EventMessageFormatter.FormatLines(message, new GenderContext(null))));
+            Assert.Equal("Of course, she has only begun.", Assert.Single(Gordian.Engine.Events.EventMessageFormatter.FormatLines(message, female)));
+            Assert.Equal("Of course, he has only begun.", Assert.Single(Gordian.Engine.Events.EventMessageFormatter.FormatLines(message, new GenderContext(false))));
+            Assert.Equal("Of course, [he/she] has only begun.", Assert.Single(Gordian.Engine.Events.EventMessageFormatter.FormatLines(message, new GenderContext(null))));
         }
 
-        private sealed class GenderContext(bool? female) : Gordian.Core.Events.IEventMessageContext
+        private sealed class GenderContext(bool? female) : Gordian.Engine.Events.IEventMessageContext
         {
             public int GetNumber(int index) => 0;
             public string PlayerName => "Cybin";

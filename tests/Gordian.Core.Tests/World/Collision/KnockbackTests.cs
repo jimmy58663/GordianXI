@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Gordian.Core.Config;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using Xunit;

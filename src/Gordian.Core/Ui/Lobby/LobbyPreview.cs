@@ -3,7 +3,7 @@ using System.Numerics;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui.Lobby
+namespace Gordian.Engine.Ui.Lobby
 {
     /// <summary>
     /// The lobby's 3D preview: one player entity built from a character's look, standing at the origin of a world of

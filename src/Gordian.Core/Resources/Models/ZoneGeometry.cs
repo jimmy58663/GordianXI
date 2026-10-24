@@ -219,7 +219,7 @@ namespace Gordian.Core.Resources.Models
 
         /// <summary>
         /// The zone's routines outside the weather directories with the emitters they start, which the client plays when a
-        /// trigger names them (S2C 0x039 map schedulers, <see cref="Gordian.Core.Graphics.ZoneRoutinePlayer"/>). Door
+        /// trigger names them (S2C 0x039 map schedulers, <see cref="Gordian.Engine.Graphics.ZoneRoutinePlayer"/>). Door
         /// directories' routines are in it by path only (<see cref="DoorDirectories"/>): a map scheduler's name never
         /// starts a door's <c>open</c>.
         /// </summary>

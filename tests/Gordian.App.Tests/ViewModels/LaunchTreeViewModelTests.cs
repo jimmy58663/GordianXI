@@ -6,6 +6,7 @@ using Gordian.App.ViewModels;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Profiles;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.ViewModels

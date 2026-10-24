@@ -1,7 +1,7 @@
 // src/Gordian.Core/Events/EventScreenText.cs
 using System.Collections.Generic;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// A line an event shows on the screen in its event message mode (opcode 0x67): the text lines and the mode's two

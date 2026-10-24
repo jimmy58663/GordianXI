@@ -2,7 +2,8 @@
 using System;
 using Gordian.App.Graphics;
 using Gordian.Core.Network;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

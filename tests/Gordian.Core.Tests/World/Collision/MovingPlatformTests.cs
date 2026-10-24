@@ -272,8 +272,8 @@ namespace Gordian.Core.Tests.World.Collision
             var player = new LocalPlayerState { ServerId = 0x1001 };
             var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(-56, 2.0f, -12), IsSpawned = true };
             world.UpsertEntity(localEnt);
-            var controller = new Gordian.Core.Input.PlayerLocomotionController(new Gordian.Core.Input.InputState(),
-                Gordian.Core.Input.InputProfile.CreateCompact(), world, player);
+            var controller = new Gordian.Engine.Input.PlayerLocomotionController(new Gordian.Engine.Input.InputState(),
+                Gordian.Engine.Input.InputProfile.CreateCompact(), world, player);
 
             // Play the 8-second leg at 60 ticks per second from a fixed start, standing still the whole time.
             elevator.TransportStartSeconds = 1000;

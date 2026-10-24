@@ -2,6 +2,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.Graphics
 {

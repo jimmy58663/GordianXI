@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using Gordian.App.Services;
 using Gordian.Core.Network;
 using Gordian.Core.World.Collision;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App;
 
@@ -25,13 +26,13 @@ public partial class App : Application
         Gordian.Core.World.SubAreaTracker.InteriorCollisionLoader = subAreaId => AppResourceManager.Instance?.TryLoadSubAreaCollision(subAreaId);
 
         // Event dialog (NPC talk): the zone's scripts and dialog table, and the names its text refers to.
-        Gordian.Core.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
-        Gordian.Core.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
+        Gordian.Engine.Events.EventDialogController.DatLoader = fileId => AppResourceManager.Instance?.LoadDatBytesByFileId(fileId);
+        Gordian.Engine.Events.EventDialogController.DatPathLoader = path => AppResourceManager.Instance?.LoadDatBytes(path);
         // Weapon skill / ability / spell effects (#132): decoded on the network thread when the action arrives, so the
         // renderer finds them cached instead of parsing the DAT mid-frame.
         Gordian.Core.Animation.ActionMotionLibrary.EffectsPreloader = fileId => AppResourceManager.Instance?.GetSceneEffects(fileId);
         // Zone routines an event starts (0x2D, #226): their length from the loaded zone, for the event's 0x54 wait.
-        Gordian.Core.Events.EventDialogController.ZoneRoutineFrames = (zoneId, routine) =>
+        Gordian.Engine.Events.EventDialogController.ZoneRoutineFrames = (zoneId, routine) =>
         {
             var zone = AppResourceManager.Instance?.TryGetLoadedZone(zoneId);
             if (zone == null) return 0;
@@ -40,7 +41,7 @@ public partial class App : Application
             return frames;
         };
         // A door's open / clos an event starts and waits on (0x2D / 0x54, #233): the length of its leaves' move.
-        Gordian.Core.Events.EventDialogController.DoorRoutineFrames = (zoneId, doorId, routine) =>
+        Gordian.Engine.Events.EventDialogController.DoorRoutineFrames = (zoneId, doorId, routine) =>
         {
             var zone = AppResourceManager.Instance?.TryGetLoadedZone(zoneId);
             if (zone == null) return 0;
@@ -57,18 +58,18 @@ public partial class App : Application
             }
             return frames;
         };
-        Gordian.Core.Events.EventDialogController.NameResolver = (kind, id) =>
+        Gordian.Engine.Events.EventDialogController.NameResolver = (kind, id) =>
         {
             var rm = AppResourceManager.Instance;
-            return rm == null ? null : Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, id);
+            return rm == null ? null : Gordian.Engine.Events.EventMessageNames.Resolve(rm, kind, id);
         };
         // S2C 0x029 battle messages worded from the client's basic-message table (file 7027, #335), read through the
         // file-id loader above on first use.
         var clientTables = new Gordian.Core.Resources.Tables.ClientMessageTables();
-        Gordian.Core.Ui.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
+        Gordian.Engine.Ui.CombatLogFormatter.BattleMessages = id => clientTables.BattleMessages?.GetMessage(id);
 
         // /reloaddats (#374): re-index the VFS packs and read every DAT again.
-        Gordian.Core.Actions.PlayerActionService.DatReloader = Gordian.App.Services.DatReload.Reload;
+        Gordian.Engine.Actions.PlayerActionService.DatReloader = Gordian.App.Services.DatReload.Reload;
 
         // Spells, job abilities and weapon skills by name (/ma, /ja, /ws and the Magic / Abilities windows, #240 / #353):
         // the client's spell and command tables with their name tables, read once per resource manager and again after
@@ -76,8 +77,8 @@ public partial class App : Application
         object catalogGate = new();
         object? catalogSource = null;
         int catalogGeneration = -1;
-        Gordian.Core.Actions.ActionCatalog? catalog = null;
-        Gordian.Core.Actions.ActionCatalog.Provider = () =>
+        Gordian.Engine.Actions.ActionCatalog? catalog = null;
+        Gordian.Engine.Actions.ActionCatalog.Provider = () =>
         {
             var rm = AppResourceManager.Instance;
             if (rm == null) return null;
@@ -87,7 +88,7 @@ public partial class App : Application
                 {
                     catalogSource = rm;
                     catalogGeneration = rm.CacheGeneration;
-                    catalog = Gordian.Core.Actions.ActionCatalog.Load(rm);
+                    catalog = Gordian.Engine.Actions.ActionCatalog.Load(rm);
                 }
                 return catalog;
             }

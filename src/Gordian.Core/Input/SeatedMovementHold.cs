@@ -1,7 +1,7 @@
 // src/Gordian.Core/Input/SeatedMovementHold.cs
 using Gordian.Core.Animation;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Keeps the player rooted while resting or sitting and while standing up (#343 round 1, the maintainer's retail check):

@@ -7,7 +7,7 @@ using System.Text;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// A zone's sound source: a Section 0x05 generator whose linked data is a sound pointer (<c>0x3D</c>), placed in the

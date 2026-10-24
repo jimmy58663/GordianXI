@@ -1,9 +1,10 @@
 // src/Gordian.Core/Animation/FirstPersonEye.cs
 using System.Runtime.CompilerServices;
+using Gordian.Core.Animation;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The height of a character's eyes above its feet, where the first-person camera sits (#305). It is read from the

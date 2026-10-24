@@ -2,9 +2,9 @@
 using System;
 using System.Buffers.Binary;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 

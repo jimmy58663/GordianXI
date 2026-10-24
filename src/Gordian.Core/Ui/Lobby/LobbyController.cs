@@ -8,7 +8,7 @@ using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui.Lobby
+namespace Gordian.Engine.Ui.Lobby
 {
     /// <summary>The lobby's input: the menu cursor keys, confirm and cancel.</summary>
     public enum LobbyInput

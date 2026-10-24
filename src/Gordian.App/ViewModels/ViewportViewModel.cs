@@ -5,8 +5,9 @@ using System.Linq;
 using System.Windows.Input;
 using Gordian.App.Common;
 using Gordian.App.Graphics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {
@@ -534,13 +535,13 @@ namespace Gordian.App.ViewModels
 
         public ObservableCollection<ViewportCharacterTabViewModel> CharacterTabs { get; } = new();
 
-        private Gordian.Core.Ui.Lobby.LobbyController? _lobby;
+        private Gordian.Engine.Ui.Lobby.LobbyController? _lobby;
 
         /// <summary>
         /// The character lobby on show, if any: while set, the viewport draws the lobby and sends it the keyboard and mouse
         /// instead of the active tab's session (one lobby at a time, as the retail client).
         /// </summary>
-        public Gordian.Core.Ui.Lobby.LobbyController? Lobby
+        public Gordian.Engine.Ui.Lobby.LobbyController? Lobby
         {
             get => _lobby;
             set

@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
 using Xunit;

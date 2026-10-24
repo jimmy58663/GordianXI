@@ -2,11 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>Which client-drawn action list a window shows.</summary>
     public enum StockUiActionList

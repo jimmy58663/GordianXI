@@ -4,14 +4,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
-using Gordian.Core.Macros;
+using Gordian.Engine.Input;
+using Gordian.Engine.Macros;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     /// <summary>
     /// The macro commands (#339, #362; BG-Wiki "Macro"): <c>/macro</c>, <c>/wait</c>, <c>/recast</c>, <c>/targetnpc</c>,
@@ -214,7 +214,7 @@ namespace Gordian.Core.Actions
             if (service == null || !service.IsConfigured) return PlayerActionResult.Warn($"{name} is not in this area, and the search server is not known yet to find them.", kind);
             try
             {
-                var query = new Network.Search.SearchQuery { AllAreas = true, Name = name };
+                var query = new Gordian.Core.Network.Search.SearchQuery { AllAreas = true, Name = name };
                 var result = await service.SearchAsync(query).ConfigureAwait(false);
                 var match = result.Players.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                 if (match == null || match.CharacterId == 0)
@@ -226,7 +226,7 @@ namespace Gordian.Core.Actions
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Diagnostics.GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
                 return PlayerActionResult.Fail($"Could not invite {name}: {ex.Message}", kind);
             }
         }

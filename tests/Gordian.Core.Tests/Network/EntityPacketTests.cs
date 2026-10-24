@@ -6,7 +6,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -1431,7 +1431,7 @@ namespace Gordian.Core.Tests.Network
                 {
                     Now += dt;
                     Pc.InterpolatePosition(dt, Now);
-                    var animation = Gordian.Core.Animation.AnimationStateClassifier.Classify(Pc, isEngaged: false, isLocalPlayer: false);
+                    var animation = Gordian.Engine.Animation.AnimationStateClassifier.Classify(Pc, isEngaged: false, isLocalPlayer: false);
                     Frames.Add((Now, Pc.Position, Pc.IsTranslating, animation));
                 }
             }
@@ -1524,7 +1524,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(new Vector3(128.73f, 0f, 119.80f), h.Pc.Position);
             Assert.Equal(0, h.Pc.Speed);
             Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle,
-                Gordian.Core.Animation.AnimationStateClassifier.Classify(h.Pc, isEngaged: false, isLocalPlayer: false));
+                Gordian.Engine.Animation.AnimationStateClassifier.Classify(h.Pc, isEngaged: false, isLocalPlayer: false));
         }
 
         [Fact]

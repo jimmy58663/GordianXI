@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.Graphics

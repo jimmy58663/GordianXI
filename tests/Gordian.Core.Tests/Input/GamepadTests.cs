@@ -1,7 +1,7 @@
 // tests/Gordian.Core.Tests/Input/GamepadTests.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Xunit;
 
 namespace Gordian.Core.Tests.Input

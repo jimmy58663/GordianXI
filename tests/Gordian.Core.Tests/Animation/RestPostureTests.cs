@@ -2,6 +2,7 @@
 using Gordian.Core.Animation;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation
@@ -188,7 +189,7 @@ namespace Gordian.Core.Tests.Animation
         {
             var model = Model();
             var state = new EntityAnimationState();
-            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            var hold = new Gordian.Engine.Input.SeatedMovementHold();
             state.Advance(0f, AnimationCategory.Healing, 0, model);
 
             Assert.True(hold.IsRooted(RestPosture.StatusHealing, state, 0.0));
@@ -206,16 +207,16 @@ namespace Gordian.Core.Tests.Animation
         {
             var state = new EntityAnimationState(); // never drawn: stays "seated" forever
             state.Advance(0f, AnimationCategory.Sitting, 0, Model());
-            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            var hold = new Gordian.Engine.Input.SeatedMovementHold();
             Assert.True(hold.IsRooted(RestPosture.StatusSitting, state, 10.0));
             Assert.True(hold.IsRooted(0, state, 10.5));
-            Assert.False(hold.IsRooted(0, state, 10.5 + Gordian.Core.Input.SeatedMovementHold.MaxStandUpSeconds));
+            Assert.False(hold.IsRooted(0, state, 10.5 + Gordian.Engine.Input.SeatedMovementHold.MaxStandUpSeconds));
         }
 
         [Fact]
         public void Hold_NeverSeated_NeverRoots()
         {
-            var hold = new Gordian.Core.Input.SeatedMovementHold();
+            var hold = new Gordian.Engine.Input.SeatedMovementHold();
             Assert.False(hold.IsRooted(0, new EntityAnimationState(), 0.0));
             Assert.False(hold.IsRooted(1, new EntityAnimationState(), 1.0));
         }

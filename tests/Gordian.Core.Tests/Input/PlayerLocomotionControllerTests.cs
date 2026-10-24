@@ -2,10 +2,10 @@
 using System;
 using System.Numerics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
-using Gordian.Core.Graphics;
-using Gordian.Core.Input;
+using Gordian.Engine.Graphics;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -498,7 +498,7 @@ namespace Gordian.Core.Tests.Input
             world.UpsertEntity(target);
             localEnt.Direction = 0;
             actionService.SetTarget(target);
-            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             if (lockOn) actionService.SetLockOn(true);
             return (controller, input, world, localEnt, actionService, target);
@@ -690,7 +690,7 @@ namespace Gordian.Core.Tests.Input
 
             if (auto)
             {
-                actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
+                actionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.AutoLockOnEngage, 1);
                 actionService.Combat!.Disengage();
                 actionService.Combat.Engage(mob.ServerId, mob.TargetIndex); // the engage itself locks on
             }
@@ -814,7 +814,7 @@ namespace Gordian.Core.Tests.Input
             world.UpsertEntity(target);
             localEnt.Direction = 0;
             actionService.SetTarget(target);
-            Assert.True(actionService.UiSettings.IsOn(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage));
+            Assert.True(actionService.UiSettings.IsOn(Gordian.Engine.Ui.StockUiSettingKey.AutoLockOnEngage));
 
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.True(actionService.IsLockedOn);
@@ -829,7 +829,7 @@ namespace Gordian.Core.Tests.Input
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
             actionService.SetTarget(target);
-            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.False(actionService.IsLockedOn);
         }
@@ -840,7 +840,7 @@ namespace Gordian.Core.Tests.Input
             var (controller, input, world, player, localEnt, actionService) = CreateTestHarnessWithActionService();
             var target = new WorldEntity(0x9999, 2, EntityType.Monster) { Position = new Vector3(0f, 0f, 10f), IsSpawned = true };
             world.UpsertEntity(target);
-            actionService.UiSettings.SetValue(Gordian.Core.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
+            actionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.AutoLockOnEngage, 0);
             actionService.Combat!.Engage(target.ServerId, target.TargetIndex);
             Assert.Null(actionService.CurrentTarget);
 

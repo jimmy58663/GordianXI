@@ -1,7 +1,8 @@
 // tests/Gordian.Core.Tests/Input/InputProfileSharingTests.cs
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Input

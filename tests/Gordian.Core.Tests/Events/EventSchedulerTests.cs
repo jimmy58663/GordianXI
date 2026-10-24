@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.World;
 using Xunit;

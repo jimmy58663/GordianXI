@@ -1,7 +1,7 @@
 // src/Gordian.App/Audio/MusicVoicePool.cs
 using System;
 using System.Collections.Generic;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 
 namespace Gordian.App.Audio
 {

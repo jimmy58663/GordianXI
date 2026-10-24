@@ -3,14 +3,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// One client-drawn row of a list page (the Chat Filters list): its hit button, text and whether it is marked

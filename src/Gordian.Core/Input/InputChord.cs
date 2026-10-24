@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Represents a specific physical input trigger: a keyboard key or mouse button combined with modifier keys.

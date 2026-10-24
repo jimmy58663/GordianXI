@@ -7,6 +7,7 @@ using System.Windows.Input;
 using Avalonia.Threading;
 using Gordian.App.Common;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {

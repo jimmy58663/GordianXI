@@ -5,10 +5,11 @@ using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
-using Gordian.Core.Ui;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// Prints the messages the client's own tables hold (<see cref="ClientMessageTables"/>) and plays the emotes of

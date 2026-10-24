@@ -6,7 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>What an import of retail macro files brought in.</summary>
     public readonly record struct RetailMacroImport(int Sets, int Macros, int BookTitles, bool CurrentSet, int DroppedPhrases);

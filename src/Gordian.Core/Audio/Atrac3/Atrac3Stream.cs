@@ -2,7 +2,7 @@
 using System;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Audio.Atrac3
+namespace Gordian.Engine.Audio.Atrac3
 {
     /// <summary>
     /// Streams the PCM of one ATRAC3 <c>.bgw</c> / <c>.spw</c> file frame by frame: de-obfuscates each block, decodes each

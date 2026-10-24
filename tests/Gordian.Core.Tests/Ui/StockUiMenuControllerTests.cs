@@ -4,13 +4,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
-using Gordian.Core.Actions;
+using Gordian.Engine.Input;
+using Gordian.Engine.Actions;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -420,8 +420,8 @@ namespace Gordian.Core.Tests.Ui
             {
                 ran.Add((command, target));
                 return Task.FromResult(command == StockUiMenuCommand.Check
-                    ? Gordian.Core.Actions.PlayerActionResult.Ok("Checking Target.")
-                    : Gordian.Core.Actions.PlayerActionResult.Warn("Too far away."));
+                    ? Gordian.Engine.Actions.PlayerActionResult.Ok("Checking Target.")
+                    : Gordian.Engine.Actions.PlayerActionResult.Warn("Too far away."));
             };
 
             menus.OpenCommandMenu(Target(StockUiTargetKind.Monster));

@@ -4,7 +4,7 @@ using System.Linq;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 

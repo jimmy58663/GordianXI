@@ -1,12 +1,12 @@
 // tests/Gordian.Core.Tests/Ui/UiLayoutCommandTests.cs
 using System;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 

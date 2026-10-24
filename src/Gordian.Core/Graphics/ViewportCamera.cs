@@ -2,7 +2,7 @@
 using System;
 using System.Numerics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// High-performance 3D viewport camera supporting Third-Person Orbital, First-Person,
@@ -41,7 +41,7 @@ namespace Gordian.Core.Graphics
         /// pulls in to the first wall between the character and its orbit position, as the legacy client's does,
         /// ignoring triangles marked camera-transparent.
         /// </summary>
-        public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+        public Gordian.Core.World.Collision.ZoneCollisionMesh? Collision { get; set; }
 
         /// <summary>Gap kept between the camera and a blocking wall, in yalms.</summary>
         public const float CollisionMargin = 0.3f;

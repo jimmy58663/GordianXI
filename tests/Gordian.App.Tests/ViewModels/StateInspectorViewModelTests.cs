@@ -5,6 +5,7 @@ using Gordian.App.ViewModels;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.App.Tests.ViewModels

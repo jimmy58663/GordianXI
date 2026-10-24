@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.Diagnostics;
 
 namespace Gordian.App.Audio

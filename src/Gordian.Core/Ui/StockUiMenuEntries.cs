@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// What a menu entry does when confirmed. Entries whose window is not implemented yet post a notice.

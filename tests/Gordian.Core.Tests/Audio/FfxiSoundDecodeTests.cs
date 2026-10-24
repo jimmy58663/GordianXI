@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Xunit;
 
 namespace Gordian.Core.Tests.Audio
@@ -154,7 +154,7 @@ namespace Gordian.Core.Tests.Audio
             byte[] file = SyntheticEffect(7, 2, -1, 48000, _ => new byte[9]);
             BitConverter.GetBytes(3).CopyTo(file, 0x0C); // format 3 = ATRAC3
             IAtrac3Decoder? previous = FfxiSoundDecoder.Atrac3;
-            Assert.IsType<Gordian.Core.Audio.Atrac3.Atrac3Decoder>(previous); // registered by default, so the App's "no decoder" log stays quiet
+            Assert.IsType<Gordian.Engine.Audio.Atrac3.Atrac3Decoder>(previous); // registered by default, so the App's "no decoder" log stays quiet
             try
             {
                 FfxiSoundDecoder.Atrac3 = null;

@@ -6,7 +6,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>One row of the Treasure Pool window: a pool slot's item and standings.</summary>
     public readonly record struct StockUiTreasureRow(byte Slot, ushort ItemId, string Name, uint Count, TreasureEntryKind Entry,

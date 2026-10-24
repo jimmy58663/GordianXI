@@ -2,10 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     /// <summary>
     /// The sub-target cursor (retail's <c>&lt;st&gt;</c>, and what every spell or ability chosen in a menu opens): an
@@ -62,7 +62,7 @@ namespace Gordian.Core.Actions
         public WorldEntity? RestoreLockOn { get; init; }
 
         /// <summary>The container and slot of the item being used (<see cref="ActionKind.Item"/> only).</summary>
-        public Network.Packets.ContainerId ItemContainer { get; init; }
+        public Gordian.Core.Network.Packets.ContainerId ItemContainer { get; init; }
         public byte ItemSlot { get; init; }
 
         /// <summary>

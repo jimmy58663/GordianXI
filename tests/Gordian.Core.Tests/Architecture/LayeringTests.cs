@@ -55,11 +55,6 @@ namespace Gordian.Core.Tests.Architecture
         /// </summary>
         private static readonly HashSet<string> KnownViolations = new(StringComparer.Ordinal)
         {
-            "Network.CharacterSession -> Actions",
-            "Network.CharacterSession -> Events",
-            "Network.CharacterSession -> Input",
-            "Network.CharacterSession -> Macros",
-            "Network.CharacterSession -> Ui",
         };
 
         internal static Assembly[] ScannedAssemblies => new[] { typeof(Gordian.Core.Config.GordianStorage).Assembly };

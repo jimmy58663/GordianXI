@@ -7,7 +7,7 @@ using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// One actor's running copy of its model's effects: an emitter per layer, the auto-running (idle) generators emitting

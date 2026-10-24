@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;

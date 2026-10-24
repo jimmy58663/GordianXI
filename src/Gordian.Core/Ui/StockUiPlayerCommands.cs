@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The message log lines for the everyday command results: the wide scan list, proposals and their tallies, and the

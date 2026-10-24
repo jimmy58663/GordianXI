@@ -1,6 +1,6 @@
 // tests/Gordian.Core.Tests/Ui/StockUiLogSizingTests.cs
 using System;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui

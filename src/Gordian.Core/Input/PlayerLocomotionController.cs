@@ -4,13 +4,13 @@
 
 using System;
 using System.Numerics;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Coordinates continuous keyboard and mouse input evaluation, updating player
@@ -357,7 +357,7 @@ namespace Gordian.Core.Input
             // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,
             //     the chat line or a selected log window has the input.
             //     The command menu alone does not block them: it stays up while fighting (round 1, A16: macros did nothing in combat).
-            string? macroBlock = Gordian.Core.Macros.MacroController.BlockReason(menus, chat, subTargeting);
+            string? macroBlock = Gordian.Engine.Macros.MacroController.BlockReason(menus, chat, subTargeting);
             Macros?.Update(_inputState, blocked: macroBlock != null, _profile, macroBlock);
 
             // 1b. The stock chat. While the input line is open the keyboard is its own (the window feeds it directly):

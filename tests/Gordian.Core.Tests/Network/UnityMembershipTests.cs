@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network

@@ -2,7 +2,7 @@
 using System;
 using Gordian.Core.Resources.Containers;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// The footstep digits of a footwear (or creature) model: the <c>move</c> character and <c>shake</c> value that, with

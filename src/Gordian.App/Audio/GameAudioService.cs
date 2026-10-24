@@ -5,13 +5,14 @@ using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.App.Services;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.App.Audio
@@ -76,7 +77,7 @@ namespace Gordian.App.Audio
             _musicPool = new MusicVoicePool(_engine.Mixer, id => _library?.OpenMusic(id));
             _idleMusic = new MusicDirector(_engine.Mixer, _musicPool) { Heard = false };
             _emitters = new ZoneEmitterAudio(_engine.Mixer, id => _library?.GetEffectAsync(id) ?? Task.FromResult<PcmClip?>(null));
-            Gordian.Core.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || Music.IsSettled;
+            Gordian.Engine.Events.EventDialogController.MusicReady = () => !_engine.IsAvailable || Music.IsSettled;
 
             // Tell cues come from every session (#265: the cue of a character not heard can be let through).
             SessionRegistry.Default.SessionRegistered += (_, s) => WatchTells(s);
@@ -422,7 +423,7 @@ namespace Gordian.App.Audio
         /// <summary>Range of a cutscene sound command played at its actor (provisional; generators carry their own range).</summary>
         public static readonly (float Near, float Far) SceneSoundRange = (15f, 60f);
 
-        private readonly List<Gordian.Core.Events.EventPresentation.SceneSound> _sceneSounds = new();
+        private readonly List<Gordian.Engine.Events.EventPresentation.SceneSound> _sceneSounds = new();
         private readonly Dictionary<(int FileId, string Generator), int> _sceneLoops = new();
         private int _sceneSoundResets;
 
@@ -481,7 +482,7 @@ namespace Gordian.App.Audio
                 }
                 if (source == null) continue;
                 Vector3 position = source.Position;
-                uint actor = new Gordian.Core.Graphics.ZoneRoutineActors(request.CasterServerId, request.TargetServerId).ActorFor(source.AttachType);
+                uint actor = new Gordian.Engine.Graphics.ZoneRoutineActors(request.CasterServerId, request.TargetServerId).ActorFor(source.AttachType);
                 if (actor != 0)
                 {
                     if (!world.TryGetByServerId(actor, out var entity)) continue;
@@ -491,7 +492,7 @@ namespace Gordian.App.Audio
             }
         }
 
-        private void PlaySceneSounds(Gordian.Core.Events.EventPresentation presentation)
+        private void PlaySceneSounds(Gordian.Engine.Events.EventPresentation presentation)
         {
             int resets = presentation.SoundResets;
             if (resets != _sceneSoundResets)

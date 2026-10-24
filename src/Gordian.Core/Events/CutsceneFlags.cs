@@ -1,7 +1,7 @@
 // src/Gordian.Core/Events/CutsceneFlags.cs
 using System;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// The event's mode flags (the Mode field of S2C 0x032 / 0x033 / 0x034, the zone-in EventMode of S2C 0x00A).

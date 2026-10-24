@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The one text layout every stock UI text box uses (item descriptions in the Items, Equipment, check, shop, guild shop,

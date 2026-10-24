@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
 using NeoVeldrid;
 using NeoVeldrid.SPIRV;

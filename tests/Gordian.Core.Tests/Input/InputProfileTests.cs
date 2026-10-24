@@ -1,7 +1,7 @@
 // tests/Gordian.Core.Tests/Input/InputProfileTests.cs
 using System;
 using System.IO;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Xunit;
 
 namespace Gordian.Core.Tests.Input

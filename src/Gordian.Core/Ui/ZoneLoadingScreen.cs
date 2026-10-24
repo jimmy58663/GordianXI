@@ -2,7 +2,7 @@
 using System;
 using Gordian.Core.Network;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The loading state of a session's view (#36): the screen goes black while the character is zoning in (after

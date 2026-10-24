@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// What the Party menu needs to know about the character's party: which of the three menus to open and which entries

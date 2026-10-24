@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Thread-safe active input state tracking currently depressed keys, mouse buttons,

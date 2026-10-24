@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Tests.Actions;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -282,7 +282,7 @@ namespace Gordian.Core.Tests.Network
         }
 
         /// <summary>
-        /// Action names come from the client's tables through <see cref="Gordian.Core.Actions.ActionCatalog"/> (#355): job
+        /// Action names come from the client's tables through <see cref="Gordian.Engine.Actions.ActionCatalog"/> (#355): job
         /// abilities at command 512 + id (LandSandBoat's ability ids: Berserk 31, Provoke 35), weapon skills at their id,
         /// spells at theirs. The old hand-written list named ability 16 "Berserk" (16 is Mighty Strikes).
         /// </summary>

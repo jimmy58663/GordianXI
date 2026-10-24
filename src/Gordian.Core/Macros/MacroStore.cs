@@ -8,7 +8,7 @@ using System.Text.Json.Serialization;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>
     /// GordianXI's own copy of a character's macros, kept client-side per character as retail keeps its <c>mcr*.dat</c> in

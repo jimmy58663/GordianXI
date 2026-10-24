@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The stock HUD elements that can be hidden at run time (#29), so an addon or an ImGui replacement can take one's

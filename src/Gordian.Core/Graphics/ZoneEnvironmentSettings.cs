@@ -2,7 +2,7 @@
 using System;
 using System.Numerics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Encapsulates lighting and authentic FFXI distance fog parameters for 3D zone rendering.
@@ -90,7 +90,7 @@ namespace Gordian.Core.Graphics
         /// Optional explicit elevation slices decoded from DAT Section 0x2F.
         /// When empty, the sky dome renderer smoothly gradients from SkyHorizonColor to SkyZenithColor.
         /// </summary>
-        public System.Collections.Generic.List<Resources.Graphics.SkySlice> SkySlices { get; } = new();
+        public System.Collections.Generic.List<Gordian.Core.Resources.Graphics.SkySlice> SkySlices { get; } = new();
 
         /// <summary>
         /// Framebuffer clear color. Synchronized with SkyHorizonColor for seamless outdoor horizon blending.
@@ -124,13 +124,13 @@ namespace Gordian.Core.Graphics
         public void SetTimeOfDay(float vanaHour)
         {
             TimeOfDayHours = vanaHour;
-            SunDirection = World.VanaTime.GetSunDirection(vanaHour);
+            SunDirection = Gordian.Core.World.VanaTime.GetSunDirection(vanaHour);
         }
 
         /// <summary>
         /// Applies an authentic decoded FFXI Section 0x2F keyframe to these environment settings.
         /// </summary>
-        public void ApplyKeyframe(Resources.Graphics.EnvironmentKeyframe keyframe)
+        public void ApplyKeyframe(Gordian.Core.Resources.Graphics.EnvironmentKeyframe keyframe)
         {
             if (keyframe == null) return;
 

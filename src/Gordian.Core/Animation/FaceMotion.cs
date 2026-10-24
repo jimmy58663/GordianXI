@@ -4,7 +4,7 @@ using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The face of a humanoid actor: the talking mouth and the eye blink. Both are small skeletal clips every humanoid

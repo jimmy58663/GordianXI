@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/Atrac3/Atrac3Channel.cs
 using System;
 
-namespace Gordian.Core.Audio.Atrac3
+namespace Gordian.Engine.Audio.Atrac3
 {
     /// <summary>
     /// The persistent per-channel state of the ATRAC3 decoder (spec <c>docs/audio/atrac3.md</c> section 12): the IMDCT

@@ -2,12 +2,12 @@
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The dead character's windows (#103). On death (S2C 0x037 status 3) retail shows the English menu DAT's "dead"

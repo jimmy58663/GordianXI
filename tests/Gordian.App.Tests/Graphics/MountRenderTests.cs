@@ -64,9 +64,9 @@ namespace Gordian.App.Tests.Graphics
             {
                 var renderer = new ZoneTerrainRenderer(gd);
                 renderer.LoadZone(zone, textures);
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.SetEventView(new Vector3(1f, 9.6f, -4f), new Vector3(1f, 9.4f, 9f), 1.0f, 0f, Width / (float)Height);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;

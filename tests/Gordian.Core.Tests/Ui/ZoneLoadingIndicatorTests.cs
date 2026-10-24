@@ -2,7 +2,7 @@ using System.IO;
 using System.Linq;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui

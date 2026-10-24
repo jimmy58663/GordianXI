@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// A name plate's colour: the index of the "ncol" element group image that carries it (English menu DAT 39542,

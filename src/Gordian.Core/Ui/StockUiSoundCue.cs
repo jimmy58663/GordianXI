@@ -1,5 +1,5 @@
 // src/Gordian.Core/Ui/StockUiSoundCue.cs
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The system sounds of the stock UI, valued by their sound effect id (<c>sound/win/se/se000/se0000NN.spw</c>).

@@ -1,5 +1,5 @@
 // src/Gordian.Core/Events/EventVm.Sound.cs
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     public sealed partial class EventVm
     {

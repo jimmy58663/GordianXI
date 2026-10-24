@@ -1,9 +1,9 @@
 // src/Gordian.App/Graphics/StockUiMacroWindow.cs
 using System;
 using System.Diagnostics;
-using Gordian.Core.Macros;
+using Gordian.Engine.Macros;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App.Graphics
 {

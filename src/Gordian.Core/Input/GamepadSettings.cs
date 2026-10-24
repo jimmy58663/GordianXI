@@ -3,7 +3,7 @@
 
 using System.Text.Json.Serialization;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Specifies how gamepad analog stick movement directs player locomotion.

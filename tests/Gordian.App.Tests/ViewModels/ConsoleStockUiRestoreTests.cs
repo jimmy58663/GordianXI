@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 using Gordian.App.ViewModels;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.ViewModels

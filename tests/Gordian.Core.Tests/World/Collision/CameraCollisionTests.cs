@@ -1,6 +1,6 @@
 // tests/Gordian.Core.Tests/World/Collision/CameraCollisionTests.cs
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.World.Collision;
 using Xunit;

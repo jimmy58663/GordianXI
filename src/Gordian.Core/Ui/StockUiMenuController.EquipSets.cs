@@ -2,13 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>A set name being typed with Change Name: the set and the shared text field holding the text and the caret.</summary>
     public sealed record StockUiNameEdit(int Number, StockUiTextField Field)

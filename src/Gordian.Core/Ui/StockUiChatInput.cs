@@ -2,9 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The default chat modes: what a line typed without a slash command is sent as. Values are the <c>fep</c>

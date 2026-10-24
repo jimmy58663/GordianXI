@@ -2,7 +2,7 @@
 using System.Numerics;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>Who says a message the VM prints.</summary>
     public enum EventSpeaker

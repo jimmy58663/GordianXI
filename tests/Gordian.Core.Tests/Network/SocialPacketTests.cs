@@ -526,7 +526,7 @@ namespace Gordian.Core.Tests.Network
         {
             var sent = new List<byte[]>();
             var parser = NewParser(out var dispatcher, sent);
-            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
             parser.Inventory.GetContainer(ContainerId.Inventory)._items[5] = new InventoryItem(4096, 12, 5, ContainerId.Inventory, 0, ItemLockFlag.Normal);
 
             var task = actions.ItemSearchAsync("Cure Potion");
@@ -549,7 +549,7 @@ namespace Gordian.Core.Tests.Network
         {
             var sent = new List<byte[]>();
             var parser = NewParser(out var dispatcher, sent);
-            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
             Receive(dispatcher, 0x041, BlackListPage(0x03, (1, "Ayame"), (2, "Cybin")));
 
             var added = await actions.BlacklistAsync("add Zed");

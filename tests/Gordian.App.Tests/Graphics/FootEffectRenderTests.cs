@@ -73,10 +73,10 @@ namespace Gordian.App.Tests.Graphics
                 var world = new WorldState { CurrentZoneId = 4 };
                 var renderer = new ZoneTerrainRenderer(gd) { World = world };
                 renderer.LoadZone(zone, textures);
-                var camera = new Gordian.Core.Graphics.ViewportCamera { FarClip = 5000f };
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 // Straight down from 2.5 yalms over the print.
                 camera.Update(foot, 89.0f, 0.0f, 2.5f, (float)Width / Height);
-                var env = Gordian.Core.Graphics.ZoneEnvironmentSettings.CreateDay();
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
                 env.WeatherId = "fine";
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
                 var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));

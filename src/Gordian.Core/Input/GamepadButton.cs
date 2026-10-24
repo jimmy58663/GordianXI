@@ -4,7 +4,7 @@
 
 using System;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Bitwise flags representing physical digital buttons and threshold-triggered analog controls on a gamepad.

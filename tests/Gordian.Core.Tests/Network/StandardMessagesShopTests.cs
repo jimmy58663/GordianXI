@@ -1,7 +1,7 @@
 // tests/Gordian.Core.Tests/Network/StandardMessagesShopTests.cs
 using System;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network

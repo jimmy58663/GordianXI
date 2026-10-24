@@ -5,6 +5,7 @@ using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation

@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/FfxiAdpcm.cs
 using System;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// The block ADPCM of retail <c>.bgw</c> / <c>.spw</c> files: one frame per channel per block, a header byte

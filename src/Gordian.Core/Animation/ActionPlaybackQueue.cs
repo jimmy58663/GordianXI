@@ -3,12 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// Bridges S2C 0x028 combat actions (<see cref="CombatState.ActionExecuted"/>) into entity animation: each action becomes

@@ -4,7 +4,7 @@
 
 using System;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Bitwise modifier key flags for keyboard and mouse shortcuts.

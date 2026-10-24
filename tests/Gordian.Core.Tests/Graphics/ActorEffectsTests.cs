@@ -2,7 +2,7 @@
 using System;
 using System.Linq;
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;

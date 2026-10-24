@@ -2,7 +2,7 @@
 using System;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Network
+namespace Gordian.Engine.Sessions
 {
     public sealed partial class CharacterSession
     {
@@ -35,9 +35,9 @@ namespace Gordian.Core.Network
 
             // S2C 0x009 messages the client's short list does not know print from the system message table (MsgStd ids), the
             // style lock's "Style lock mode enabled." among them (round 1: they printed as "Msg#267").
-            Gordian.Core.Ui.StandardMessages.TableText = (id, parameters) =>
+            Gordian.Engine.Ui.StandardMessages.TableText = (id, parameters) =>
             {
-                int[] numbers = Gordian.Core.Ui.StandardMessages.TryGetNumbers(parameters, out uint first, out uint second)
+                int[] numbers = Gordian.Engine.Ui.StandardMessages.TryGetNumbers(parameters, out uint first, out uint second)
                     ? new[] { unchecked((int)first), unchecked((int)second) }
                     : Array.Empty<int>();
                 var lines = Messages.FormatTableMessage(id, numbers);

@@ -1,8 +1,9 @@
 // src/Gordian.Core/Animation/FootfallDetector.cs
 using System.Collections.Generic;
+using Gordian.Core.Animation;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The footfall hook (#40): finds the frames a moving actor's foot lands. The step sounds (<c>FootstepTracker</c>) and

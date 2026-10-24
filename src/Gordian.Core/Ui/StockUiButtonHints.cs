@@ -1,9 +1,9 @@
 // src/Gordian.Core/Ui/StockUiButtonHints.cs
 using System;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The one source of the key / button hints the stock menus show (#360). The menu DAT bakes a hint into the frame art

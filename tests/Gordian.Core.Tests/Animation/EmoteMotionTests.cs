@@ -4,6 +4,7 @@ using System.Linq;
 using Gordian.Core.Animation;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation

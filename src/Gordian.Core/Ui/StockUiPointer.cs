@@ -1,5 +1,5 @@
 // src/Gordian.Core/Ui/StockUiPointer.cs
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// Where the mouse pointer is over the viewport (screen pixels), for the stock UI's pointer: over a clickable menu

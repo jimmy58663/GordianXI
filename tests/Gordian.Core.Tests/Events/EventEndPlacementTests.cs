@@ -1,8 +1,8 @@
 // tests/Gordian.Core.Tests/Events/EventEndPlacementTests.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Events;
-using Gordian.Core.Input;
+using Gordian.Engine.Events;
+using Gordian.Engine.Input;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using Xunit;

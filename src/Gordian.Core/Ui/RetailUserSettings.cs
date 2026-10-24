@@ -5,7 +5,7 @@ using System.Globalization;
 using System.IO;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>A character folder under the retail client's <c>USER</c> directory.</summary>
     public sealed record RetailUserFolder(string Name, string Path, DateTime LastModifiedUtc, bool HasConfig);

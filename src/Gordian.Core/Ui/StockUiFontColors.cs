@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>The four lists of the config menu's Font Colors page (<c>conftxtc</c>: Chat, For Self, For Others, System).</summary>
     public enum StockUiFontColorCategory

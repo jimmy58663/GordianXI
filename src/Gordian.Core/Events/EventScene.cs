@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// One running event: the <see cref="EventVm"/> of every entity taking part, and the state retail keeps once for

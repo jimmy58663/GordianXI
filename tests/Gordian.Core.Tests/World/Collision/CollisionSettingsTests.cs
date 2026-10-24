@@ -1,11 +1,12 @@
 using System.Numerics;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.Core.Tests.World.Collision
 {

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     /// <summary>
     /// The client's target bits on a spell (<see cref="SpellRecord.TargetFlags"/>) or command
@@ -83,17 +83,17 @@ namespace Gordian.Core.Actions
         }
 
         /// <summary>Reads the tables and names from the game's resources; null when the table is missing.</summary>
-        public static ActionCatalog? Load(Resources.ResourceManager resources)
+        public static ActionCatalog? Load(Gordian.Core.Resources.ResourceManager resources)
         {
             ArgumentNullException.ThrowIfNull(resources);
             var bytes = resources.LoadDatBytesByFileId(SpellCommandTables.FileId);
             var tables = bytes != null ? SpellCommandTables.Parse(bytes) : null;
             if (tables == null) return null;
             return new ActionCatalog(tables,
-                id => resources.TryGetString(Resources.Models.DMsgCategory.Spells, id, out var name) ? name : null,
-                id => resources.TryGetString(Resources.Models.DMsgCategory.Abilities, id, out var name) ? name : null,
-                id => resources.TryGetString(Resources.Models.DMsgCategory.SpellHelp, id, out var help) ? help : null,
-                id => resources.TryGetString(Resources.Models.DMsgCategory.AbilityHelp, id, out var help) ? help : null);
+                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.Spells, id, out var name) ? name : null,
+                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.Abilities, id, out var name) ? name : null,
+                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.SpellHelp, id, out var help) ? help : null,
+                id => resources.TryGetString(Gordian.Core.Resources.Models.DMsgCategory.AbilityHelp, id, out var help) ? help : null);
         }
 
         /// <summary>

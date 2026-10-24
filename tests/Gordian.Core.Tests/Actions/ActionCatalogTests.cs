@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Tables;

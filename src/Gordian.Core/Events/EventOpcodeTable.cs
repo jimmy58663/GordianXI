@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// Byte lengths of the event VM opcodes, so the interpreter can step over the ones it does not run (camera,

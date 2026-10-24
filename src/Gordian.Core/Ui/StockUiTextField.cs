@@ -1,9 +1,9 @@
 // src/Gordian.Core/Ui/StockUiTextField.cs
 using System;
 using System.Text;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// A one-line text field a stock window edits in place (the macro editor's title and lines, a macro book's name; #339;

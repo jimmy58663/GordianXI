@@ -3,8 +3,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Gordian.Core.Network;
 
-namespace Gordian.Core.Network
+namespace Gordian.Engine.Sessions
 {
     /// <summary>
     /// Thread-safe central registry tracking all active in-memory character sessions.

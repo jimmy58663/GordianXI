@@ -11,6 +11,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Tests.Resources;
 using Gordian.Core.World;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation

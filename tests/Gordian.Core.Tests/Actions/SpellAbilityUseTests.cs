@@ -5,13 +5,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -643,7 +643,7 @@ namespace Gordian.Core.Tests.Actions
             // The list icons (ROM/280/15): the songs' notes are images 32-39, Soul Voice's picture 75.
             Assert.True(library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons));
             Assert.Equal(677, icons.Images.Count);
-            var catalog = Gordian.Core.Actions.ActionCatalog.Load(rm)!;
+            var catalog = Gordian.Engine.Actions.ActionCatalog.Load(rm)!;
             Assert.True(catalog.TryFindSpell("Victory March", out var march));
             Assert.Equal((420, 36, 784), (march.Id, march.Icon, march.MenuIndex));
             Assert.True(catalog.TryFindJobAbility("Soul Voice", out _, out var soulVoice));

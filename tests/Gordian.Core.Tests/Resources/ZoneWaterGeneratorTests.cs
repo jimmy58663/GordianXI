@@ -154,11 +154,11 @@ namespace Gordian.Core.Tests.Resources
             Assert.Same(effect.Emitter, template);
 
             // Nothing is drawn until the routine plays; then one never-expiring particle, until a kill.
-            var emitter = new Gordian.Core.Graphics.ZoneParticleEmitter(effect.Emitter);
-            var frame = new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One);
+            var emitter = new Gordian.Engine.Graphics.ZoneParticleEmitter(effect.Emitter);
+            var frame = new Gordian.Engine.Graphics.ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One);
             emitter.Update(600f, frame);
             Assert.Empty(emitter.Particles);
-            var player = new Gordian.Core.Graphics.ZoneRoutinePlayer(zone.MapRoutines);
+            var player = new Gordian.Engine.Graphics.ZoneRoutinePlayer(zone.MapRoutines);
             Assert.True(player.Play("1pa1"));
             player.Update(1f, t => ReferenceEquals(t, effect.Emitter) ? emitter : null);
             emitter.Update(600f, frame);
@@ -233,10 +233,10 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotNull(spawn.Timer);
             Assert.Equal("10:30-11:24", Assert.Single(spawn.Timer.Windows).ToString());
 
-            var emitter = new Gordian.Core.Graphics.ZoneParticleEmitter(effect.Emitter);
-            for (int i = 0; i < 300; i++) emitter.Update(1f, new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 9f / 24f, Vector3.One));
+            var emitter = new Gordian.Engine.Graphics.ZoneParticleEmitter(effect.Emitter);
+            for (int i = 0; i < 300; i++) emitter.Update(1f, new Gordian.Engine.Graphics.ZoneParticleFrame(Vector3.Zero, 9f / 24f, Vector3.One));
             Assert.Empty(emitter.Particles);
-            emitter.Update(1f, new Gordian.Core.Graphics.ZoneParticleFrame(Vector3.Zero, 11f / 24f, Vector3.One));
+            emitter.Update(1f, new Gordian.Engine.Graphics.ZoneParticleFrame(Vector3.Zero, 11f / 24f, Vector3.One));
             Assert.NotEmpty(emitter.Particles);
         }
 

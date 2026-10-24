@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Text;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>One page of an equipment description: its lines (name first) and the footer at the bottom right.</summary>
     public sealed record StockUiItemDescriptionPage(IReadOnlyList<string> Lines, string Footer, bool HasMore)

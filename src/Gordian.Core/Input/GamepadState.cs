@@ -4,7 +4,7 @@
 using System;
 using System.Numerics;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Represents an immutable snapshot of a physical gamepad's buttons, analog thumbsticks,

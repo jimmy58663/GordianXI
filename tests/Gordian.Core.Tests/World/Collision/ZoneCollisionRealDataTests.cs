@@ -1,4 +1,4 @@
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using System.Numerics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;

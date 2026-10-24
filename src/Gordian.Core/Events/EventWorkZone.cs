@@ -1,7 +1,7 @@
 // src/Gordian.Core/Events/EventWorkZone.cs
 using System;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// The work values every event of a zone shares (the retail client's <c>Work_Zone</c>, <c>Work_Zone_Memorize</c>

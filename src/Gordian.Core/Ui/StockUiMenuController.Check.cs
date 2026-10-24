@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     public sealed partial class StockUiOpenMenu
     {

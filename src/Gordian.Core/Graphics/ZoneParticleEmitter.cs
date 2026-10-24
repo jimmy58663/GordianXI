@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Per-frame inputs shared by every zone emitter.
@@ -1007,7 +1007,7 @@ namespace Gordian.Core.Graphics
                     {
                         float along = p.Progress;
                         if (Template.Curves.TryGetValue(slot, out var pathCurve)) along = pathCurve.Evaluate(Math.Clamp(along, 0f, 1f));
-                        p.Position = Resources.Graphics.PointListDecoder.Sample(path, along);
+                        p.Position = Gordian.Core.Resources.Graphics.PointListDecoder.Sample(path, along);
                     }
                     break;
                 case 0x02: // PositionUpdater (sub-particles drift along their own relative velocity)

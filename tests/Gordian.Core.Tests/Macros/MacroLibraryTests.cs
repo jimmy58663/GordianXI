@@ -2,7 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
-using Gordian.Core.Macros;
+using Gordian.Engine.Macros;
 using Xunit;
 
 namespace Gordian.Core.Tests.Macros

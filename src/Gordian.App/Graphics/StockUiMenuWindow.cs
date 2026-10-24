@@ -6,7 +6,7 @@ using System.Diagnostics;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
 namespace Gordian.App.Graphics
 {

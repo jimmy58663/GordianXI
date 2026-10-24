@@ -1,9 +1,10 @@
 // tests/Gordian.Core.Tests/Input/PlayerLocomotionControllerGamepadTests.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.World;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.Core.Tests.Input

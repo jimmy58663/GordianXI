@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Plays short weather routines (lightning strikes) while their weather is active: each group plays one randomly

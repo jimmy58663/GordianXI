@@ -5,7 +5,7 @@ using System.Globalization;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>One time-keyed ambient loop of a zone weather directory: plays from <see cref="StartMinute"/> until the next entry's start.</summary>
     /// <param name="StartMinute">Vana'diel minute of the day (0-1439) the loop takes over, from the pointer's <c>HHMM</c> name.</param>

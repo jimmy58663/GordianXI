@@ -2,11 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
-using Gordian.Core.Macros;
+using Gordian.Engine.Input;
+using Gordian.Engine.Macros;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>Which macro window an open menu is (#339).</summary>
     public enum StockUiMacroView : byte

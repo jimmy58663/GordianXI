@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Xunit;

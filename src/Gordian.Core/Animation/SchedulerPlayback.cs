@@ -1,12 +1,13 @@
 // src/Gordian.Core/Animation/SchedulerPlayback.cs
 using System;
 using System.Diagnostics;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// Plays the scheduler packets that are not part of an action (#311), as they arrive (network thread):

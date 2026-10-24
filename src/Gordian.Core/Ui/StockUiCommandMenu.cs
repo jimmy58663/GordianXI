@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>What the command menu was opened on; decides which entries it shows.</summary>
     public enum StockUiTargetKind

@@ -11,7 +11,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -305,12 +305,12 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(new[] { "Selling crystals", "Cheap!" }, menu.Check!.CommentLines);
             Assert.Equal("Lv.99 Bard / Lv.49 White Mage", menu.Check.JobText);
 
-            controller.Move(Gordian.Core.Input.InputAction.MenuDown); // View Wares -> Main
+            controller.Move(Gordian.Engine.Input.InputAction.MenuDown); // View Wares -> Main
             Assert.Equal(1, menu.SelectedButtonId);
             Assert.Equal(16385, menu.SelectedCheckItem);
-            controller.Move(Gordian.Core.Input.InputAction.MenuDown);
+            controller.Move(Gordian.Engine.Input.InputAction.MenuDown);
             Assert.Equal(23407, menu.SelectedCheckItem); // Head
-            controller.Move(Gordian.Core.Input.InputAction.MenuDown);
+            controller.Move(Gordian.Engine.Input.InputAction.MenuDown);
             Assert.Equal(0, menu.SelectedCheckItem); // Body: empty
 
             // A second check replaces the window; nothing for sale greys View Wares.
@@ -397,8 +397,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(controller.NextCheckPage());
             Assert.Equal(0, menu.CheckPage); // wraps
             controller.NextCheckPage();
-            controller.Move(Gordian.Core.Input.InputAction.MenuUp); // to Main
-            controller.Move(Gordian.Core.Input.InputAction.MenuDown); // back to Head
+            controller.Move(Gordian.Engine.Input.InputAction.MenuUp); // to Main
+            controller.Move(Gordian.Engine.Input.InputAction.MenuDown); // back to Head
             Assert.Equal(0, menu.CheckPage);
             menu.SelectedButtonId = 1; // Cesti: one page
             Assert.False(controller.NextCheckPage());

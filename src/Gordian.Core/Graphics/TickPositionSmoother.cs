@@ -2,7 +2,7 @@
 using System;
 using System.Numerics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Smooths a value that a slower, irregular simulation tick advances (the locomotion loop runs on a UI timer that

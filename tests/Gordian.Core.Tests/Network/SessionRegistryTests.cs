@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Network/SessionRegistryTests.cs
 using System;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network

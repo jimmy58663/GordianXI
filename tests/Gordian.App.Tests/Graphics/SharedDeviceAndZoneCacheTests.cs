@@ -6,7 +6,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Gordian.App.Graphics;
 using Gordian.App.Services;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;

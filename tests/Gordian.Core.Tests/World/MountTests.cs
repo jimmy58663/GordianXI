@@ -6,15 +6,15 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Config;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Tests.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -183,9 +183,9 @@ namespace Gordian.Core.Tests.World
         public void Classifier_AMountedWalkIsAWalk()
         {
             var entity = new PlayerEntity(0x01000001, 1) { Hpp = 100, SpeedBase = 50, Speed = 40, Mount = MountAppearance.FromWire(5, 0, 1) };
-            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Walk, Gordian.Core.Animation.AnimationStateClassifier.Classify(entity, false, isLocalPlayer: true));
+            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Walk, Gordian.Engine.Animation.AnimationStateClassifier.Classify(entity, false, isLocalPlayer: true));
             entity.Speed = 80;
-            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Run, Gordian.Core.Animation.AnimationStateClassifier.Classify(entity, false, isLocalPlayer: true));
+            Assert.Equal(Gordian.Core.Animation.AnimationCategory.Run, Gordian.Engine.Animation.AnimationStateClassifier.Classify(entity, false, isLocalPlayer: true));
         }
 
         // ---- Models ----

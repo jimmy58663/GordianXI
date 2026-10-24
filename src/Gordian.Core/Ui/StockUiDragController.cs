@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Resources.Ui;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// A persistent stock window's on-screen extent for one frame, as the HUD drew it: the hit rectangle the player

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>One selectable value of an option row: the DAT button that shows it and the setting value it stands for.</summary>
     public readonly record struct StockUiConfigChoice(int ButtonId, int Value, string Name);

@@ -1,7 +1,7 @@
 // src/Gordian.Core/World/Collision/EntityGrounding.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
 namespace Gordian.Core.World.Collision
 {

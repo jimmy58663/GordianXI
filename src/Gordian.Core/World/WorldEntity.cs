@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
+using Gordian.Engine.Animation;
 
 namespace Gordian.Core.World
 {

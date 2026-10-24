@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Plays the effect commands of a cutscene's scene routines (<see cref="SceneRoutine"/>) on one actor: the particle

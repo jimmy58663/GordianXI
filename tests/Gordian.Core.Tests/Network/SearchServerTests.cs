@@ -10,7 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Config;
-using Gordian.Core.Actions;
+using Gordian.Engine.Actions;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Network.Search;
@@ -582,7 +582,7 @@ namespace Gordian.Core.Tests.Network
         private sealed class Session
         {
             public PacketParser Parser = null!;
-            public Gordian.Core.Actions.PlayerActionService Actions = null!;
+            public Gordian.Engine.Actions.PlayerActionService Actions = null!;
             public PacketDispatcher Dispatcher = null!;
             public FakeTransport Transport = null!;
             public readonly List<byte[]> Sent = new();
@@ -598,7 +598,7 @@ namespace Gordian.Core.Tests.Network
             }, dispatcher: session.Dispatcher);
             session.Parser.Search.Transport = session.Transport;
             session.Parser.Search.Configure("search.test", 54002);
-            session.Actions = Gordian.Core.Actions.PlayerActionService.ForParser(session.Parser);
+            session.Actions = Gordian.Engine.Actions.PlayerActionService.ForParser(session.Parser);
             return session;
         }
 

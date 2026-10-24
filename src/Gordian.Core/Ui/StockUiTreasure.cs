@@ -5,7 +5,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The message log lines for treasure pool events, in the retail wording documented in XiPackets

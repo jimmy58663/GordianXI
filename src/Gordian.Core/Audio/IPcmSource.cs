@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/IPcmSource.cs
 using System;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// A backend-neutral stream of interleaved 16-bit PCM, read by the audio mixer on its own thread. Implementations

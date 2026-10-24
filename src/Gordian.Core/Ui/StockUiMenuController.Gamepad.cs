@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The gamepad key-assignment list (#21): Config -> Gamepad. Each row is a <see cref="GamepadAssignments"/>

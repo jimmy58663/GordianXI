@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/Atrac3/Atrac3BitReader.cs
 using System;
 
-namespace Gordian.Core.Audio.Atrac3
+namespace Gordian.Engine.Audio.Atrac3
 {
     /// <summary>
     /// Reads one ATRAC3 sound unit as a bit string: most significant bit of each byte first, bytes in address order, no

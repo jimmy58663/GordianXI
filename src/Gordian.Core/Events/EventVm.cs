@@ -5,7 +5,7 @@ using System.Numerics;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// The talk subset of the retail event VM: runs one event of an <see cref="EventBlock"/> far enough to print
@@ -1231,7 +1231,7 @@ namespace Gordian.Core.Events
                 case 0x5B:
                 case 0x66:
                     // Both yield a frame after starting the motion (RetFlag = 1).
-                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, Animation.EventMotionBank.MotionBankFileId(GetWork(1)), 3);
+                    if (op == 0x5B) ExecEntityMotion(EventMotionSource.Bank, Gordian.Core.Animation.EventMotionBank.MotionBankFileId(GetWork(1)), 3);
                     else ExecEntityMotion(EventMotionSource.Package, GetWork(1), 3);
                     _pc += 15;
                     _retFlag = true;

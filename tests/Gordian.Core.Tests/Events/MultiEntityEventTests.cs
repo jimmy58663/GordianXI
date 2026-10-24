@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Tables;
@@ -223,10 +223,10 @@ namespace Gordian.Core.Tests.Events
             if (rm == null) return;
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
             var controller = new EventDialogController(rm.LoadDatBytesByFileId);
-            var chat = new Gordian.Core.Ui.StockUiChat();
+            var chat = new Gordian.Engine.Ui.StockUiChat();
             const uint Ceraule = 0x010E6001, Knight = 0x010E6068, TempleKnight = 0x010E60D7;
             controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, chat,
-                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+                new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
             byte[] login = new byte[144];
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
@@ -424,8 +424,8 @@ namespace Gordian.Core.Tests.Events
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
             var controller = new EventDialogController(rm.LoadDatBytesByFileId);
             const uint OtherPc = 0x00054321, Bystander = 0x010F1050, Hidden = 0x010F1081, Nanaa = 0x010F100F, Director = 0x010F100B;
-            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
-                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(),
+                new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
             byte[] login = new byte[144];
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
@@ -510,8 +510,8 @@ namespace Gordian.Core.Tests.Events
             var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
             var controller = new EventDialogController(rm.LoadDatBytesByFileId);
             const uint Nanaa = 0x010F100F, Outsider = 0x010F1050;
-            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Core.Ui.StockUiChat(),
-                new Gordian.Core.Ui.StockUiMenuController(), () => "Cybin");
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(),
+                new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
             byte[] login = new byte[144];
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);

@@ -5,7 +5,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// One filled slot of the synthesis grid: the item, how many of it, and the inventory slot it is taken from first

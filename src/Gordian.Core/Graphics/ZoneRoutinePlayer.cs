@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Graphics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// The two actors a zone routine plays on: the caster and the target a map scheduler (S2C 0x039) or an event's 0x2D
@@ -25,7 +25,7 @@ namespace Gordian.Core.Graphics
         /// </summary>
         public uint ActorFor(ParticleAttachType attachType)
         {
-            if (!Resources.ZoneDataLoader.IsActorAttached(attachType)) return 0;
+            if (!Gordian.Core.Resources.ZoneDataLoader.IsActorAttached(attachType)) return 0;
             bool targetSide = attachType is ParticleAttachType.TargetActor or ParticleAttachType.TargetToSourceBasis;
             uint first = targetSide ? TargetServerId : CasterServerId;
             return first != 0 ? first : targetSide ? CasterServerId : TargetServerId;

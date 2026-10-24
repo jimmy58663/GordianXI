@@ -8,12 +8,13 @@ using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Animation;
 using Gordian.Core.Config;
-using Gordian.Core.Events;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Events;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Tables;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -474,7 +475,7 @@ namespace Gordian.Core.Tests.Network
         public void Assist_SelectsTheTargetTheServerPicked()
         {
             var parser = NewParser(out var dispatcher);
-            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
             const uint Goblin = 0x01001234;
             parser.World.UpsertEntity(new WorldEntity(Goblin, 0x234, EntityType.Monster) { Name = "Goblin Thug" });
             var p = new byte[12];

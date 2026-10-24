@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;

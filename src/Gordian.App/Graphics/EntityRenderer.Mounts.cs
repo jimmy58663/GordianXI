@@ -8,6 +8,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
+using Gordian.Engine.Animation;
 using NeoVeldrid;
 
 namespace Gordian.App.Graphics

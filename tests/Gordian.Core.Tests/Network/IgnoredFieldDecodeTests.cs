@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -767,8 +767,8 @@ namespace Gordian.Core.Tests.Network
         public void WeaponSkillSkillchain_ReachesTheCombatLog()
         {
             var parser = NewParser(out var dispatcher);
-            var actions = Gordian.Core.Actions.PlayerActionService.ForParser(parser);
-            var chat = new Gordian.Core.Ui.StockUiChat();
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
+            var chat = new Gordian.Engine.Ui.StockUiChat();
             var lines = new List<string>();
             chat.Log.LineAdded += line => lines.Add(line.Text);
             chat.Attach(parser.ChatModule, parser.Party, parser.Combat, actions.Menus,

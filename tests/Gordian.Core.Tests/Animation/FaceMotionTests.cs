@@ -9,6 +9,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
+using Gordian.Engine.Animation;
 using Xunit;
 
 namespace Gordian.Core.Tests.Animation

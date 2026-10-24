@@ -1,9 +1,9 @@
 // tests/Gordian.App.Tests/Graphics/StockUiMacroWindowRenderTests.cs
 using System;
 using Gordian.App.Graphics;
-using Gordian.Core.Input;
-using Gordian.Core.Macros;
-using Gordian.Core.Ui;
+using Gordian.Engine.Input;
+using Gordian.Engine.Macros;
+using Gordian.Engine.Ui;
 using Xunit;
 
 namespace Gordian.App.Tests.Graphics

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// Formatter and dictionary mapping standard FFXI system message IDs (MsgStd) to human-readable text.
@@ -104,9 +104,9 @@ namespace Gordian.Core.Ui
             {
                 // LandSandBoat sends 232 with "Para0 <id> Para1 <count>" after a completed vendor sale (0x085); the
                 // retail client prints it as "You sell 12 Ronfaure chestnuts to the shop." (capture, 2026-09-28).
-                return Gordian.Core.Ui.StockUiShop.SellMessage(Gordian.Core.Ui.StockUiShop.Lookup(ItemLookup, (ushort)itemId), count);
+                return Gordian.Engine.Ui.StockUiShop.SellMessage(Gordian.Engine.Ui.StockUiShop.Lookup(ItemLookup, (ushort)itemId), count);
             }
-            if (msg.MessageId == DiceRollMessage && Gordian.Core.Ui.StockUiPlayerCommands.FormatDiceRoll(msg.Parameters) is { } roll)
+            if (msg.MessageId == DiceRollMessage && Gordian.Engine.Ui.StockUiPlayerCommands.FormatDiceRoll(msg.Parameters) is { } roll)
             {
                 return roll;
             }

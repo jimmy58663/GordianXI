@@ -4,12 +4,12 @@
 
 using System;
 using System.Collections.Generic;
-using Gordian.Core.Actions;
-using Gordian.Core.Events;
+using Gordian.Engine.Actions;
+using Gordian.Engine.Events;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// Formatter mapping low-level FFXI combat action packets (0x028) and battle message notifications (0x029/0x02D)

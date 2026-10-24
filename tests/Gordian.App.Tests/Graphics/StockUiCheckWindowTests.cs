@@ -2,7 +2,7 @@
 using System;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.Packets;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -57,8 +57,8 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(Math.Abs(icon.R - empty.R) + Math.Abs(icon.G - empty.G) + Math.Abs(icon.B - empty.B) > 30, $"no icon in Main: {icon} vs {empty}");
 
             // Cursor on the head: page 1 of its description in the twelve-line window under the grid, then page 2.
-            menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Main
-            menus.Move(Gordian.Core.Input.InputAction.MenuDown); // Head
+            menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // Main
+            menus.Move(Gordian.Engine.Input.InputAction.MenuDown); // Head
             Assert.Equal(23407, menu.SelectedCheckItem);
             var page1 = Draw("gpu_check_item.png");
             Assert.True(screen.HasLightPixel(page1, px + 48, px + 300, py + 192 + 4 + 16 * 11 + 8), "no footer on the twelfth line");

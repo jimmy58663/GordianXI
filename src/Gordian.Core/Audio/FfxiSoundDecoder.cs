@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/FfxiSoundDecoder.cs
 using System;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>
     /// Decodes the ATRAC3 coding (format 3) of retail sound files. GordianXI's own clean-room decoder

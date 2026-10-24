@@ -5,8 +5,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Gordian.Core.Network;
+using Gordian.Core.Profiles;
 
-namespace Gordian.Core.Profiles
+namespace Gordian.Engine.Sessions
 {
     public static class LaunchOrchestrator
     {

@@ -4,8 +4,10 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
+using Gordian.Core.World.Collision;
+using Gordian.Core.World;
 
-namespace Gordian.Core.World.Collision
+namespace Gordian.Engine.Sessions
 {
     /// <summary>
     /// Gives every registered session the collision mesh of the zone it is in, whether or not a viewport displays it,

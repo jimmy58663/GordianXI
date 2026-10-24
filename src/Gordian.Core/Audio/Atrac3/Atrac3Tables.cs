@@ -1,7 +1,7 @@
 // src/Gordian.Core/Audio/Atrac3/Atrac3Tables.cs
 using System;
 
-namespace Gordian.Core.Audio.Atrac3
+namespace Gordian.Engine.Audio.Atrac3
 {
     /// <summary>
     /// The constant tables of the ATRAC3 decoder: subband edges, value codes, scale factors, quantiser maxima, the

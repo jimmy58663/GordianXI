@@ -2,7 +2,7 @@
 using System;
 using System.Buffers.Binary;
 
-namespace Gordian.Core.Audio
+namespace Gordian.Engine.Audio
 {
     /// <summary>Which container a retail sound file uses.</summary>
     public enum FfxiSoundKind : byte

@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>Which macro palette a key belongs to: the Ctrl row or the Alt row of a macro set.</summary>
     public enum MacroPalette : byte

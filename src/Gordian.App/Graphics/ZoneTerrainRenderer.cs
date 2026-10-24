@@ -5,7 +5,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
@@ -93,10 +93,10 @@ namespace Gordian.App.Graphics
         public string LocalPlayerRidingPlatformId { get; set; } = string.Empty;
 
         /// <summary>
-        /// The running event's presentation (<see cref="Gordian.Core.Events.EventPresentation"/>), whose scene effect log
+        /// The running event's presentation (<see cref="Gordian.Engine.Events.EventPresentation"/>), whose scene effect log
         /// the renderer plays: the particle generators of cutscene scene routines (#192). Null without a session.
         /// </summary>
-        public Gordian.Core.Events.EventPresentation? EventPresentation { get; set; }
+        public Gordian.Engine.Events.EventPresentation? EventPresentation { get; set; }
 
         // Sub-environment lighting (indoor areas such as Metalworks' ev01/ev02): one scene uniform and set per id.
         private Dictionary<string, (DeviceBuffer Buffer, ResourceSet Set)> _subEnvironmentScenes =
@@ -164,9 +164,9 @@ namespace Gordian.App.Graphics
 
         private readonly Dictionary<(int FileId, uint Actor), SceneEffectSlot> _sceneEffects = new();
         private readonly Dictionary<int, (int FileId, uint Actor)> _sceneEffectTasks = new();
-        private readonly List<Gordian.Core.Events.SceneEffectEvent> _sceneEffectEvents = new();
+        private readonly List<Gordian.Engine.Events.SceneEffectEvent> _sceneEffectEvents = new();
         private readonly List<(int FileId, uint Actor)> _idleSceneEffects = new();
-        private Gordian.Core.Events.EventPresentation? _sceneEffectSource;
+        private Gordian.Engine.Events.EventPresentation? _sceneEffectSource;
         private long _sceneEffectSequence;
         private Matrix4x4 _cameraToWorld = Matrix4x4.Identity;
         private readonly List<uint> _staleEffectActors = new();
@@ -2257,16 +2257,16 @@ namespace Gordian.App.Graphics
             {
                 switch (entry.Kind)
                 {
-                    case Gordian.Core.Events.SceneEffectEventKind.Reset:
+                    case Gordian.Engine.Events.SceneEffectEventKind.Reset:
                         ClearSceneEffects();
                         break;
-                    case Gordian.Core.Events.SceneEffectEventKind.Stop:
+                    case Gordian.Engine.Events.SceneEffectEventKind.Stop:
                         if (_sceneEffectTasks.Remove(entry.TaskId, out var stoppedKey) && _sceneEffects.TryGetValue(stoppedKey, out var stopped))
                         {
                             stopped.Player.Stop(entry.TaskId);
                         }
                         break;
-                    case Gordian.Core.Events.SceneEffectEventKind.Start:
+                    case Gordian.Engine.Events.SceneEffectEventKind.Start:
                         StartSceneEffect(entry, resourceManager);
                         break;
                 }
@@ -2303,7 +2303,7 @@ namespace Gordian.App.Graphics
             }
         }
 
-        private void StartSceneEffect(Gordian.Core.Events.SceneEffectEvent entry, ResourceManager? resourceManager)
+        private void StartSceneEffect(Gordian.Engine.Events.SceneEffectEvent entry, ResourceManager? resourceManager)
         {
             if (entry.Resource == null || resourceManager == null) return;
             var key = (entry.FileId, entry.CasterServerId);

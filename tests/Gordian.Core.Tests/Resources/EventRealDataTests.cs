@@ -102,9 +102,9 @@ namespace Gordian.Core.Tests.Resources
             var alZahbi = ZoneDialogTable.Parse(rm.LoadDatBytesByFileId(ZoneDialogTable.GetFileId(48))!)!;
             string Line(ZoneDialogTable table, int id, params int[] numbers)
             {
-                var context = new Gordian.Core.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Core.Events.EventMessageNames.Resolve(rm, kind, value),
+                var context = new Gordian.Engine.Events.SimpleMessageContext(numbers, "Cybin", "", (kind, value) => Gordian.Engine.Events.EventMessageNames.Resolve(rm, kind, value),
                     timeZone: Gordian.Core.Tests.Events.EventMessageFormatterTests.Pacific);
-                var lines = Gordian.Core.Events.EventMessageFormatter.FormatLines(table.GetMessage(id)!, context);
+                var lines = Gordian.Engine.Events.EventMessageFormatter.FormatLines(table.GetMessage(id)!, context);
                 _output.WriteLine($"{id}: {string.Join(" | ", lines)}");
                 return string.Join(" | ", lines);
             }

@@ -5,7 +5,7 @@ using System.Linq;
 using Gordian.Core.Network.LandSandBoat;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Ui.Lobby
+namespace Gordian.Engine.Ui.Lobby
 {
     /// <summary>The steps of character creation, in the order the lobby walks them.</summary>
     public enum LobbyCreationStep

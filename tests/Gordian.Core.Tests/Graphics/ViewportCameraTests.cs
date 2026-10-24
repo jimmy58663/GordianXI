@@ -1,7 +1,7 @@
 // tests/Gordian.Core.Tests/Graphics/ViewportCameraTests.cs
 using System;
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Xunit;
 
 namespace Gordian.Core.Tests.Graphics

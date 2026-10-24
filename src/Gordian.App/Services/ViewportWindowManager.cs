@@ -7,6 +7,7 @@ using Gordian.App.Graphics;
 using Gordian.App.ViewModels;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.Services
 {
@@ -235,7 +236,7 @@ namespace Gordian.App.Services
         }
 
         /// <summary>Shows a character lobby in the primary viewport window (opening it), in place of the session tabs.</summary>
-        public void ShowLobby(Gordian.Core.Ui.Lobby.LobbyController lobby)
+        public void ShowLobby(Gordian.Engine.Ui.Lobby.LobbyController lobby)
         {
             ArgumentNullException.ThrowIfNull(lobby);
             PostToUi(() =>
@@ -248,7 +249,7 @@ namespace Gordian.App.Services
         /// <summary>
         /// Takes a lobby off the primary window; the window closes when no character tab is left to show.
         /// </summary>
-        public void CloseLobby(Gordian.Core.Ui.Lobby.LobbyController lobby)
+        public void CloseLobby(Gordian.Engine.Ui.Lobby.LobbyController lobby)
         {
             PostToUi(() =>
             {

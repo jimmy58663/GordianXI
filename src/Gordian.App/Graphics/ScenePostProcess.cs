@@ -161,7 +161,7 @@ void main()
         /// dissolve, into <paramref name="target"/>. <paramref name="frames"/> (60 Hz frames since the last one) keeps the
         /// blur's trail the same length at any frame rate.
         /// </summary>
-        public void Composite(CommandList commandList, Framebuffer target, Gordian.Core.Events.SceneBlur blur, (int Sequence, float Opacity) dissolve, float frames)
+        public void Composite(CommandList commandList, Framebuffer target, Gordian.Engine.Events.SceneBlur blur, (int Sequence, float Opacity) dissolve, float frames)
         {
             int previous = _current;
             int next = 1 - _current;

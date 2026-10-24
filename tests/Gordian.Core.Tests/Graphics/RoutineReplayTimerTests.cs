@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.Resources.Graphics;
 using Xunit;
 

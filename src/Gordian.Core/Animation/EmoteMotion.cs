@@ -1,11 +1,12 @@
 // src/Gordian.Core/Animation/EmoteMotion.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Animation;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// The emote motions of the player races (<c>/clap</c>, <c>/bow</c>...), as an event plays them on an entity with opcode

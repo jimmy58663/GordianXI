@@ -1,15 +1,15 @@
 // src/Gordian.App/Services/AvaloniaInputMapper.cs
-// Maps Avalonia UI input events to cross-platform Gordian.Core.Input abstractions.
+// Maps Avalonia UI input events to cross-platform Gordian.Engine.Input abstractions.
 
 using System;
 using Avalonia.Input;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 
 namespace Gordian.App.Services
 {
     /// <summary>
     /// Utility class providing translation between Avalonia UI keyboard and mouse structures
-    /// and clean-room Gordian.Core.Input cross-platform types.
+    /// and clean-room Gordian.Engine.Input cross-platform types.
     /// </summary>
     public static class AvaloniaInputMapper
     {
@@ -144,27 +144,27 @@ namespace Gordian.App.Services
             return result;
         }
 
-        public static Gordian.Core.Input.MouseButton ToMouseButton(PointerPointProperties props)
+        public static Gordian.Engine.Input.MouseButton ToMouseButton(PointerPointProperties props)
         {
-            var btn = Gordian.Core.Input.MouseButton.None;
-            if (props.IsLeftButtonPressed) btn |= Gordian.Core.Input.MouseButton.Left;
-            if (props.IsRightButtonPressed) btn |= Gordian.Core.Input.MouseButton.Right;
-            if (props.IsMiddleButtonPressed) btn |= Gordian.Core.Input.MouseButton.Middle;
-            if (props.IsXButton1Pressed) btn |= Gordian.Core.Input.MouseButton.XButton1;
-            if (props.IsXButton2Pressed) btn |= Gordian.Core.Input.MouseButton.XButton2;
+            var btn = Gordian.Engine.Input.MouseButton.None;
+            if (props.IsLeftButtonPressed) btn |= Gordian.Engine.Input.MouseButton.Left;
+            if (props.IsRightButtonPressed) btn |= Gordian.Engine.Input.MouseButton.Right;
+            if (props.IsMiddleButtonPressed) btn |= Gordian.Engine.Input.MouseButton.Middle;
+            if (props.IsXButton1Pressed) btn |= Gordian.Engine.Input.MouseButton.XButton1;
+            if (props.IsXButton2Pressed) btn |= Gordian.Engine.Input.MouseButton.XButton2;
             return btn;
         }
 
-        public static Gordian.Core.Input.MouseButton ToMouseButton(Avalonia.Input.MouseButton button)
+        public static Gordian.Engine.Input.MouseButton ToMouseButton(Avalonia.Input.MouseButton button)
         {
             return button switch
             {
-                Avalonia.Input.MouseButton.Left => Gordian.Core.Input.MouseButton.Left,
-                Avalonia.Input.MouseButton.Right => Gordian.Core.Input.MouseButton.Right,
-                Avalonia.Input.MouseButton.Middle => Gordian.Core.Input.MouseButton.Middle,
-                Avalonia.Input.MouseButton.XButton1 => Gordian.Core.Input.MouseButton.XButton1,
-                Avalonia.Input.MouseButton.XButton2 => Gordian.Core.Input.MouseButton.XButton2,
-                _ => Gordian.Core.Input.MouseButton.None
+                Avalonia.Input.MouseButton.Left => Gordian.Engine.Input.MouseButton.Left,
+                Avalonia.Input.MouseButton.Right => Gordian.Engine.Input.MouseButton.Right,
+                Avalonia.Input.MouseButton.Middle => Gordian.Engine.Input.MouseButton.Middle,
+                Avalonia.Input.MouseButton.XButton1 => Gordian.Engine.Input.MouseButton.XButton1,
+                Avalonia.Input.MouseButton.XButton2 => Gordian.Engine.Input.MouseButton.XButton2,
+                _ => Gordian.Engine.Input.MouseButton.None
             };
         }
     }

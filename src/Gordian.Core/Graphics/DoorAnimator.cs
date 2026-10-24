@@ -7,7 +7,7 @@ using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>The pose of one door leaf: its turn (radians) and slide about its placement origin, local axes.</summary>
     public readonly record struct DoorLeafPose(Vector3 Rotation, Vector3 Slide)

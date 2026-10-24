@@ -1,5 +1,5 @@
 // src/Gordian.Core/Graphics/CameraMode.cs
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Represents the operating mode of the 3D viewport camera.

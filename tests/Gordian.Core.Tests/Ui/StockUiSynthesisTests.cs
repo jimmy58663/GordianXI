@@ -9,7 +9,8 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using Xunit;
 
@@ -379,7 +380,7 @@ namespace Gordian.Core.Tests.Ui
             Assert.True(grid.IsSynthesisHistory);
             Assert.Equal(new StockUiSynthesisSlot(Seashell, 3, 5), grid.SynthesisSlots[0]);
 
-            h.Menus.Move(Gordian.Core.Input.InputAction.MenuDown);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
             Assert.Equal(ZincOxide, grid.SynthesisRecipe!.ResultItemId);
             Assert.Equal(new StockUiSynthesisCrystal(FireCrystal, 1), grid.SynthesisCrystal);
             Assert.Equal(new StockUiSynthesisSlot(ZincOre, 3, 4), grid.SynthesisSlots[0]);

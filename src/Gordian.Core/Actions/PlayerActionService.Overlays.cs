@@ -5,9 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Gordian.Core.Network;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     public sealed partial class PlayerActionService
     {

@@ -11,7 +11,8 @@ using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Sessions;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 using NeoVeldrid;
 
@@ -55,7 +56,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool PointerDrawn { get; private set; }
 
-        /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Core.Ui.ZoneLoadingScreen"/>).</summary>
+        /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Engine.Ui.ZoneLoadingScreen"/>).</summary>
         public float LoadingOpacity { get; set; }
 
         /// <summary>Whether the view counts as loading this frame, which shows retail's "Downloading data ..." over the black (<see cref="ZoneLoadingIndicator"/>).</summary>
@@ -189,7 +190,7 @@ namespace Gordian.App.Graphics
             {
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
-                Gordian.Core.Ui.StandardMessages.ItemLookup ??= menus.ItemLookup;
+                Gordian.Engine.Ui.StandardMessages.ItemLookup ??= menus.ItemLookup;
             }
             if (menus.KeyItemCatalog == null && _resources is { } keyItems)
             {
@@ -295,7 +296,7 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Retail's loading indicator (#350) in the bottom-right corner while the view is loading: the menu DAT's own
         /// "Downloading data ..." sprite (<see cref="ZoneLoadingIndicator"/>), its dimmed dot pair cycling, appearing with
-        /// the black (<see cref="Gordian.Core.Ui.ZoneLoadingScreen.IndicatorVisible"/>) and gone as soon as loading ends.
+        /// the black (<see cref="Gordian.Engine.Ui.ZoneLoadingScreen.IndicatorVisible"/>) and gone as soon as loading ends.
         /// </summary>
         private void DrawLoadingIndicator(StockUiRenderer renderer, UiResourceLibrary library, uint width, uint height)
         {
@@ -328,8 +329,8 @@ namespace Gordian.App.Graphics
                 // All three lines confirmed as retail's (the maintainer's round 2 check, 2026-10-12).
                 string line = picking.Kind switch
                 {
-                    Gordian.Core.Actions.ActionKind.Spell => "Select target of spell.",
-                    Gordian.Core.Actions.ActionKind.Item => "Select target of item.",
+                    Gordian.Engine.Actions.ActionKind.Spell => "Select target of spell.",
+                    Gordian.Engine.Actions.ActionKind.Item => "Select target of item.",
                     _ => "Select target of ability.",
                 };
                 StockUiMenuWindow.DrawHelpBar(renderer, library, font, _logFont, picking.Name, line, Layout.Scale, width, height);
@@ -390,8 +391,8 @@ namespace Gordian.App.Graphics
             var macros = session.Macros;
             // The same rule as the input tick: the target command menu alone, which stays up while engaged, does not hide the
             // palette (round 2, A22: this check hid it whenever any menu was open, so never while engaged).
-            if (macros.ShownPalette == Gordian.Core.Macros.MacroPalette.None
-                || Gordian.Core.Macros.MacroController.IsBlockedBy(menus, session.Chat, session.ActionService.SubTargeting != null)) return;
+            if (macros.ShownPalette == Gordian.Engine.Macros.MacroPalette.None
+                || Gordian.Engine.Macros.MacroController.IsBlockedBy(menus, session.Chat, session.ActionService.SubTargeting != null)) return;
             var settings = session.ActionService.UiSettings;
             bool compact = settings.GetValue(StockUiSettingKey.MacroPaletteSize) == 1;
             // Static: always shifted right; Dynamic: while engaged, when retail draws your own HP / MP / TP bars at its left.
@@ -428,7 +429,7 @@ namespace Gordian.App.Graphics
         /// top left at any resolution. Measured on the maintainer's retail recording (Southern San d'Oria intro,
         /// 2026-09-30: lines coded x 80, y 340 drawn at x 78, top 332 of a 2544 x 1416 client area at UI scale 1).
         /// </summary>
-        private void DrawEventText(StockUiRenderer renderer, Gordian.Core.Events.EventScreenText text, uint width, uint height)
+        private void DrawEventText(StockUiRenderer renderer, Gordian.Engine.Events.EventScreenText text, uint width, uint height)
         {
             var font = _logFont;
             if (font == null || text.Lines.Count == 0) return;
@@ -959,7 +960,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The rows each log window must keep while an event line waits for Confirm (#369): the wrapped rows of the lines that dialog
-        /// added to that window (<see cref="Gordian.Core.Events.EventDialogController.DialogLogMark"/>), the window still growing and
+        /// added to that window (<see cref="Gordian.Engine.Events.EventDialogController.DialogLogMark"/>), the window still growing and
         /// shrinking above that. Zero when nothing waits.
         /// </summary>
         private static (int Window1, int Window2) DialogFloors(CharacterSession session, StockUiChat chat, StockUiLogFont? logFont, float[] textWidth)

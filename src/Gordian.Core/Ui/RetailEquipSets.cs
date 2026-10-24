@@ -10,7 +10,7 @@ using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The retail client's equipment set files, <c>USER/&lt;id&gt;/es&lt;n&gt;.dat</c> (#92), read for <c>/importretail</c>.

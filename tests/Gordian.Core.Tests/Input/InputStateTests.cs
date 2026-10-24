@@ -1,6 +1,6 @@
 // tests/Gordian.Core.Tests/Input/InputStateTests.cs
 using System;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Xunit;
 
 namespace Gordian.Core.Tests.Input

@@ -1,6 +1,6 @@
 // src/Gordian.App/Graphics/ActorLighting.cs
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 
 namespace Gordian.App.Graphics
 {

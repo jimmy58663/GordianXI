@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Testable in-memory implementation of <see cref="IGamepadDriver"/> allowing simulated

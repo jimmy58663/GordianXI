@@ -11,8 +11,9 @@ using System.Windows.Input;
 using Gordian.App.Common;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Input;
 using Gordian.Core.Network;
+using Gordian.Engine.Sessions;
 
 namespace Gordian.App.ViewModels
 {

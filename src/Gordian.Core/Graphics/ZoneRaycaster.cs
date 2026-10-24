@@ -3,7 +3,7 @@ using System;
 using System.Numerics;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Ray queries against a zone's opaque world geometry (display space), e.g. whether terrain hides the sun.

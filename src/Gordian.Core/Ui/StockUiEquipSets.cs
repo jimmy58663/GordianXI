@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>What a set slot list's extra rows do (<see cref="StockUiItemRow.SetAction"/>).</summary>
     public enum StockUiSetRowAction : byte

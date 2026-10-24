@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using Gordian.Core.Audio;
-using Gordian.Core.Audio.Atrac3;
+using Gordian.Engine.Audio;
+using Gordian.Engine.Audio.Atrac3;
 using Xunit;
 
 namespace Gordian.Core.Tests.Audio

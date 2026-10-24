@@ -6,7 +6,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>Which window an item list (<see cref="StockUiItems.ListMenu"/>) belongs to.</summary>
     public enum StockUiItemListKind

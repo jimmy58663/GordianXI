@@ -1,6 +1,6 @@
 using System;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The retail loading indicator (#350): "Downloading data ..." between two rows of four dots, in the bottom-right

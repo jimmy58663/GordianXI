@@ -2,12 +2,12 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The message log lines for guild shop answers (S2C 0x082 to 0x086), until a guild shop window exists.

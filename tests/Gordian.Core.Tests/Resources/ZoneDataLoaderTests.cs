@@ -440,7 +440,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.NotEmpty(zone.MeshGroups);
             Assert.NotEmpty(textures);
 
-            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            var camera = new Gordian.Engine.Graphics.ViewportCamera();
             Vector3 playerPos = new(-398.85f, -1.68f, -466.56f);
             camera.Update(playerPos, pitch: 15.0f, yaw: 102f * 360f / 256f, distance: 6.0f, aspectRatio: 16f / 9f);
             var frustum = camera.Frustum;
@@ -565,7 +565,7 @@ namespace Gordian.Core.Tests.Resources
             if (!rm.TryLoadZone(4, out var zone, out var textures)) return;
 
             Vector3 playerDisp = new(398.85f, 1.68f, -466.56f);
-            var camera = new Gordian.Core.Graphics.ViewportCamera();
+            var camera = new Gordian.Engine.Graphics.ViewportCamera();
             camera.Update(playerDisp, pitch: 10.0f, yaw: 270.0f, distance: 6.0f, aspectRatio: 16f / 9f);
             var frustum = camera.Frustum;
 

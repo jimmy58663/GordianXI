@@ -7,7 +7,7 @@ using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>Whom an item is used on: the entity's server id, target index and name.</summary>
     public readonly record struct StockUiItemTarget(uint ServerId, ushort TargetIndex, string Name);

@@ -2,7 +2,7 @@
 using System;
 using System.Numerics;
 
-namespace Gordian.Core.Graphics
+namespace Gordian.Engine.Graphics
 {
     /// <summary>
     /// Represents a 3D view frustum defined by 6 clipping planes (Left, Right, Bottom, Top, Near, Far).

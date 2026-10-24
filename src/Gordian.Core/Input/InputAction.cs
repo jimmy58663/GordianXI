@@ -2,7 +2,7 @@
 // Clean-room logical action definitions for GordianXI.
 // Layout conventions referenced from Final Fantasy XI standard keyboard configurations.
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// Enumerates high-level logical gameplay actions triggerable by player input.

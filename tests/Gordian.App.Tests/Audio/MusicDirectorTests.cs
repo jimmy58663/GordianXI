@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Gordian.App.Audio;
-using Gordian.Core.Audio;
+using Gordian.Engine.Audio;
 using Gordian.Core.World;
 using Xunit;
 

@@ -3,8 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Gordian.Core.Input;
-using Gordian.Core.Macros;
+using Gordian.Engine.Input;
+using Gordian.Engine.Macros;
 using Xunit;
 
 namespace Gordian.Core.Tests.Macros

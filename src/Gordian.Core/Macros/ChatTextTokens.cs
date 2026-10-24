@@ -3,7 +3,7 @@ using System;
 using System.Globalization;
 using System.Text;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>
     /// The placeholders the retail client fills in when chat text is sent (BG-Wiki "Macro", display tokens; #362):

@@ -5,14 +5,15 @@ using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
-using Gordian.Core.Input;
+using Gordian.Engine.Animation;
+using Gordian.Engine.Input;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Events;
 using Gordian.Core.Resources.Tables;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// Dialog text for a session (Tier 2 chunk 6): runs the server's events (S2C 0x032/0x033/0x034) through the
@@ -1495,7 +1496,7 @@ namespace Gordian.Core.Events
             if (_world == null || string.IsNullOrEmpty(routine)) return 0;
             _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: false, sceneZone: true);
             // A door's open / clos is the door's own routine, not one of the zone's by name (#233).
-            int frames = Gordian.Core.Graphics.DoorEffectTrigger.IsDoorRoutine(routine) && _world.TryGetByServerId(casterServerId, out var door) &&
+            int frames = Gordian.Engine.Graphics.DoorEffectTrigger.IsDoorRoutine(routine) && _world.TryGetByServerId(casterServerId, out var door) &&
                          door.Type == EntityType.Door && door.TransportId.Length > 0
                 ? DoorRoutineFrames?.Invoke(_world.SceneZoneId, door.TransportId, routine) ?? 0
                 : ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;

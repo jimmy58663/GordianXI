@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Macros
+namespace Gordian.Engine.Macros
 {
     /// <summary>
     /// Runs macros: each line in order, as if typed in the input line (<see cref="SubmitLine"/>, the chat's own path, so

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
-using Gordian.Core.Ui.Lobby;
+using Gordian.Engine.Ui.Lobby;
 using Xunit;
 
 namespace Gordian.Core.Tests.Ui
@@ -130,7 +130,7 @@ namespace Gordian.Core.Tests.Ui
             preview.Show(Character(1, "Knot"));
             Assert.Equal(100, preview.Entity!.Hpp);
             Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle,
-                Gordian.Core.Animation.AnimationStateClassifier.Classify(preview.Entity, false, isLocalPlayer: true));
+                Gordian.Engine.Animation.AnimationStateClassifier.Classify(preview.Entity, false, isLocalPlayer: true));
         }
 
         [Fact]

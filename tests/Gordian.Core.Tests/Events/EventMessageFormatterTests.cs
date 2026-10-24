@@ -1,7 +1,7 @@
 // tests/Gordian.Core.Tests/Events/EventMessageFormatterTests.cs
 using System.Linq;
 using System.Text;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Resources.Tables;
 using Xunit;
 

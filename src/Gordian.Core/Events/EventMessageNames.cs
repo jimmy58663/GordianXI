@@ -1,9 +1,9 @@
 // src/Gordian.Core/Events/EventMessageNames.cs
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
-namespace Gordian.Core.Events
+namespace Gordian.Engine.Events
 {
     /// <summary>
     /// Resolves the names a dialog line's 0x01 tags ask for (<see cref="IEventMessageContext.ResolveName"/>) from the

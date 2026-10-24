@@ -15,9 +15,9 @@ using Gordian.Core.Network.Search;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using Gordian.Core.Resources.Ui;
-using Gordian.Core.Ui;
+using Gordian.Engine.Ui;
 
-namespace Gordian.Core.Actions
+namespace Gordian.Engine.Actions
 {
     public enum PlayerActionResultKind
     {

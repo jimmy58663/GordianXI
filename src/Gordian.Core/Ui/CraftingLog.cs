@@ -1,11 +1,11 @@
 // src/Gordian.Core/Ui/CraftingLog.cs
 using System;
 using System.Collections.Generic;
-using Gordian.Core.Events;
+using Gordian.Engine.Events;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The message log lines for synthesis results (S2C 0x06F and 0x070), in the client's own wording.

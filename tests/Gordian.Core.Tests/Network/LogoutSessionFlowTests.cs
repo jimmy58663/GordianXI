@@ -21,7 +21,7 @@ namespace Gordian.Core.Tests.Network
         {
             public List<byte[]> Sent { get; } = new();
             public SessionNetworkManager Net { get; }
-            public Gordian.Core.Actions.PlayerActionService Actions { get; }
+            public Gordian.Engine.Actions.PlayerActionService Actions { get; }
 
             public Fixture()
             {
@@ -33,7 +33,7 @@ namespace Gordian.Core.Tests.Network
                         return Task.CompletedTask;
                     }
                 };
-                Actions = Gordian.Core.Actions.PlayerActionService.ForParser(Net.Parser);
+                Actions = Gordian.Engine.Actions.PlayerActionService.ForParser(Net.Parser);
             }
 
             public IEnumerable<ushort> SentOpcodes

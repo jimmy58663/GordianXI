@@ -2,10 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using Gordian.Core.Graphics;
+using Gordian.Engine.Graphics;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>How a targeting key moves the target (see <see cref="TargetCycling"/>).</summary>
     public enum TargetCycleMode

@@ -1,10 +1,11 @@
 // src/Gordian.Core/Animation/AnimationStateClassifier.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
 
-namespace Gordian.Core.Animation
+namespace Gordian.Engine.Animation
 {
     /// <summary>
     /// Derives a high-level AnimationCategory from live WorldEntity state (speed, HP, claim)

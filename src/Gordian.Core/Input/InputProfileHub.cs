@@ -1,7 +1,7 @@
 // src/Gordian.Core/Input/InputProfileHub.cs
 using System;
 
-namespace Gordian.Core.Input
+namespace Gordian.Engine.Input
 {
     /// <summary>
     /// The user's input profile (key bindings, mouse and gamepad settings, the gamepad button map), shared by every

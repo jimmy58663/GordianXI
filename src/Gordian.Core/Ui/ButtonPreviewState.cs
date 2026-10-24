@@ -2,7 +2,7 @@
 using System;
 using System.Globalization;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// The <c>/buttonpreview</c> picker's state (#360): whether the candidate button glyphs are laid out over the screen, the folder

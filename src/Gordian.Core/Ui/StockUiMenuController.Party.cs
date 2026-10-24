@@ -3,7 +3,7 @@ using System;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 
-namespace Gordian.Core.Ui
+namespace Gordian.Engine.Ui
 {
     public sealed partial class StockUiMenuController
     {
