@@ -1250,6 +1250,13 @@ namespace Gordian.Engine.Ui
         {
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
+            bool pageMoved;
+            lock (_sync) pageMoved = TryMoveStatusPage(direction);
+            if (pageMoved)
+            {
+                Changed?.Invoke();
+                return;
+            }
             lock (_sync)
             {
                 var top = Top;

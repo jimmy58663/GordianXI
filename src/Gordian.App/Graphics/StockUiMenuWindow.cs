@@ -42,6 +42,8 @@ namespace Gordian.App.Graphics
             // image-2). It stays drawn, under the fill, as in retail.
             renderer.DrawMenu(definition, placement, includeButtons: false,
                 opaqueBody: true, frameImage: menu.FrameImage,
+                // A client-sized frame (a Status page fitted to its rows) stretches its images from their authored height.
+                frameHeight: definition.Frame.AuthoredHeight > 0 ? definition.Frame.Height : null,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);

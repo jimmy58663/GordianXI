@@ -1,4 +1,5 @@
 // src/Gordian.App/Graphics/StockUiStatusWindow.cs
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Gordian.Core.Resources.Ui;
@@ -15,10 +16,11 @@ namespace Gordian.App.Graphics
     /// separated, grey), and the EXP gauge filled pink;</item>
     /// <item>the help bar without its title box: the list entry's help line ("View all job levels achieved so far."), and
     /// "Title: New Adventurer" while Profile is open;</item>
-    /// <item>the pages in <c>fontshp</c> at 7/8: Job Levels (each job's name and level in two columns, the main job yellow, the row
-    /// under the cursor light blue), Combat / Magic Skills (two columns, the levels blue when capped), Craft Skills (one
-    /// column: craft, rank and level) and Profile (nation, race, home point, rank and mastery rank after the baked labels,
-    /// the Rank Points strip).</item>
+    /// <item>the pages in <c>fontshp</c> at 7/8: Job Levels (each job's name and level in two columns, the main job yellow, the
+    /// support job light blue; no cursor), Combat / Magic Skills (two columns, the levels blue when capped), Craft Skills (one
+    /// column: craft, rank and "(level)", round 1 capture image-2) and Profile (the nation's emblem and name, race, home
+    /// point, rank, mastery rank and the mentor flag, the Gladiator rank and prestige after the baked labels, the Rank
+    /// Points strip; round 1 capture image.png, 2026-10-25).</item>
     /// </list>
     /// </summary>
     public static class StockUiStatusWindow
@@ -34,8 +36,8 @@ namespace Gordian.App.Graphics
         /// <summary>A capped skill's level (71-98, 147-170, 201-215: the capture shows every listed level in this blue).</summary>
         private static readonly UiColor CappedTint = new(0x2C, 0x58, 0x77, 0x80);
 
-        /// <summary>The main job's row in Job Levels (210, 208, 136) and the row under the cursor (134, 185, 216).</summary>
-        private static readonly UiColor MainJobRowTint = new(0x7A, 0x79, 0x4F, 0x80), SelectedRowTint = new(0x4E, 0x6B, 0x7D, 0x80);
+        /// <summary>The main job's row in Job Levels (210, 208, 136) and the support job's (134, 185, 216).</summary>
+        private static readonly UiColor MainJobRowTint = new(0x7A, 0x79, 0x4F, 0x80), SubJobRowTint = new(0x4E, 0x6B, 0x7D, 0x80);
 
         /// <summary>The EXP gauge's pink (250, 147, 161 over the gauge texture).</summary>
         private static readonly UiColor ExpGaugeColor = new(0x9C, 0x5C, 0x64, 0x80);
@@ -46,11 +48,28 @@ namespace Gordian.App.Graphics
 
         // The pages: rows of 14 px from y 19 (joblevel's buttons), two columns at x 8 and 134; text 4 px in, levels right-aligned.
         private const float RowTop = 19, RowPitch = 14, LeftColumn = 8, RightColumn = 134, TextInset = 4, JobLevelRight = 101, SkillLevelRight = 114;
-        private const float CraftRankX = 112, CraftLevelRight = 240;
+        // Craft Skills (round 1 capture image-2): the rank at x 112, the level in brackets ending at 238.
+        private const float CraftRankX = 112, CraftLevelRight = 238;
 
-        // Profile: value x after each baked label, and the label rows' centres (from the DAT frame image).
-        private const float NationX = 74, RaceX = 52, HomePointX = 96, RankX = 60, MasteryX = 114;
-        private const float NationRow = 26, RaceRow = 42, HomePointRow = 58, RankRow = 74, MasteryRow = 112, RankGaugeX = 92, RankGaugeY = 86;
+        // Profile: value x after each baked label, and the label rows' centres (from the DAT frame image; the emblem, the
+        // flag, the Gladiator rank and prestige from the round 1 capture image.png, the window at 1:1).
+        private const float NationX = 69, RaceX = 52, HomePointX = 96, RankX = 60, MasteryX = 114, GladiatorX = 143, PrestigeX = 96;
+        private const float NationRow = 26, RaceRow = 42, HomePointRow = 58, RankRow = 74, MasteryRow = 112, GladiatorRow = 150, PrestigeRow = 166;
+        private const float RankGaugeX = 92, RankGaugeY = 86, EmblemX = 52, EmblemY = 18, EmblemSize = 15, FlagX = 214, FlagY = 104;
+
+        /// <summary>
+        /// The nations' emblems: <c>keytops3</c> #110 San d'Oria, #111 Bastok, #112 Windurst (the crests <c>scre</c>, <c>bcre</c>,
+        /// <c>wcre</c> at full alpha; <c>pname</c> #27-29 draw the same crests at alpha 32 for the search list).
+        /// </summary>
+        private const string EmblemGroup = "keytops3";
+        private const int FirstEmblemImage = 110;
+
+        /// <summary>
+        /// The mentor flags: <c>usgaiji</c> #16, #26, #36 are the bronze, silver and gold flags numbered 1 (the assist channel's
+        /// flag with the mastery rank); the Profile draws the flag without its number.
+        /// </summary>
+        private const string FlagGroup = "usgaiji";
+        private const int BronzeFlagImage = 16, FlagStride = 10;
 
         /// <summary>The stats side, the level box and the help bar, at their authored places (top left), while the Status window is up.</summary>
         public static void DrawPanels(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
@@ -163,7 +182,7 @@ namespace Gordian.App.Graphics
                 bool right = button > StockUiStatus.JobRowsPerColumn;
                 int row = right ? button - StockUiStatus.JobRowsPerColumn - 1 : button - 1;
                 float column = right ? RightColumn : LeftColumn;
-                var tint = button == menu.SelectedButtonId ? SelectedRowTint : job == info.MainJob ? MainJobRowTint : White;
+                var tint = job == info.MainJob ? MainJobRowTint : job == info.SubJob ? SubJobRowTint : White;
                 float y = RowTextY(p, row);
                 Name(renderer, font, StockUiCheck.JobName(job), p.X + (column + TextInset) * s, y, (JobLevelRight - TextInset - LevelRoom + 8) * s, s, tint);
                 int level = job < info.JobLevels.Count ? info.JobLevels[job] : 0;
@@ -193,10 +212,10 @@ namespace Gordian.App.Graphics
             for (int i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                float y = p.Y + (RowTop + i * (RowPitch - 1) + (RowPitch - 1) * 0.5f - TextHalfHeight) * s;
+                float y = RowTextY(p, i);
                 Text(renderer, font, logFont, line.Name, p.X + (LeftColumn + TextInset) * s, y, s, White);
                 if (line.Rank is { } rank) Text(renderer, font, logFont, rank, p.X + CraftRankX * s, y, s, White);
-                RightText(renderer, font, logFont, line.Level.ToString(inv), p.X + CraftLevelRight * s, y, s, line.Capped ? CappedTint : White);
+                RightText(renderer, font, logFont, "(" + line.Level.ToString(inv) + ")", p.X + CraftLevelRight * s, y, s, line.Capped ? CappedTint : White);
             }
         }
 
@@ -205,11 +224,31 @@ namespace Gordian.App.Graphics
         {
             float s = p.Scale;
             var inv = CultureInfo.InvariantCulture;
+            if (info.NationId >= 0 && library.TryGetGroup(EmblemGroup, out var names) && FirstEmblemImage + info.NationId < names.Images.Count)
+            {
+                // The crest's quad is bigger than the Profile's (15 x 15 in the capture): scaled into that box.
+                var emblem = names.Images[FirstEmblemImage + info.NationId];
+                if (emblem.Parts.Count > 0)
+                {
+                    var part = emblem.Parts[0];
+                    float size = Math.Max(1f, part.TopRight.X - part.TopLeft.X), k = EmblemSize / size;
+                    renderer.DrawImage(emblem, p.X + (EmblemX - part.TopLeft.X * k) * s, p.Y + (EmblemY - part.TopLeft.Y * k) * s, s * k);
+                }
+            }
             Text(renderer, font, logFont, info.Nation, p.X + NationX * s, CentredY(p, NationRow), s, White);
             Text(renderer, font, logFont, info.Race, p.X + RaceX * s, CentredY(p, RaceRow), s, White);
             Text(renderer, font, logFont, info.HomePoint, p.X + HomePointX * s, CentredY(p, HomePointRow), s, White);
             Text(renderer, font, logFont, info.Rank.ToString(inv), p.X + RankX * s, CentredY(p, RankRow), s, White);
             Text(renderer, font, logFont, info.MasteryRank.ToString(inv), p.X + MasteryX * s, CentredY(p, MasteryRow), s, White);
+            if (info.MentorRank is >= 1 and <= 3 && library.TryGetGroup(FlagGroup, out var flags)
+                && BronzeFlagImage + (info.MentorRank - 1) * FlagStride is var flagImage && flagImage < flags.Images.Count)
+            {
+                // The flag is the image's first part; the rest is its number.
+                var flag = flags.Images[flagImage];
+                if (flag.Parts.Count > 0) renderer.DrawPart(flag.Parts[0], p.X + FlagX * s, p.Y + FlagY * s, s);
+            }
+            Text(renderer, font, logFont, info.GladiatorRank, p.X + GladiatorX * s, CentredY(p, GladiatorRow), s, White);
+            Text(renderer, font, logFont, info.Prestige.ToString(inv), p.X + PrestigeX * s, CentredY(p, PrestigeRow), s, White);
             if (library.TryGetGroup(StockUiStatus.CraftFrameGroup, out var frames) && StockUiStatus.RankGaugeImage < frames.Images.Count)
             {
                 renderer.DrawImage(frames.Images[StockUiStatus.RankGaugeImage], p.X + RankGaugeX * s, p.Y + RankGaugeY * s, s);

@@ -136,6 +136,9 @@ namespace Gordian.Core.World
 
         /// <summary>The mastery rank shown with the mentor flag (S2C 0x01B <c>mastery_rank</c>); the Status window's Profile shows it.</summary>
         public byte MasteryRank { get; private set; }
+
+        /// <summary>The mentor flag (S2C 0x01B <c>mentor_rank</c>: 0 none, 1 bronze, 2 silver, 3 gold); the Status window's Profile shows it.</summary>
+        public byte MentorRank { get; private set; }
         #endregion
 
         #region Skills & Recasts
@@ -467,6 +470,7 @@ namespace Gordian.Core.World
                     MaxMp = jobInfo.MpMax;
                 }
                 MasteryRank = jobInfo.MasteryRank;
+                MentorRank = jobInfo.MentorRank;
                 for (int job = 1; job < JobLevels.Length; job++)
                 {
                     byte level = jobInfo.GetJobLevel((JobId)job);

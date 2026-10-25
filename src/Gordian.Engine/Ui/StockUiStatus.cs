@@ -2,6 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Models;
+using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui
 {
@@ -25,10 +28,16 @@ namespace Gordian.Engine.Ui
     /// </summary>
     /// <param name="JobLevels">Levels by job id (index 1 Warrior ... 22 Rune Fencer; 0 unused), from S2C 0x01B.</param>
     /// <param name="MainJob">The main job's id (its row in Job Levels is drawn yellow).</param>
+    /// <param name="SubJob">The support job's id (its row in Job Levels is drawn light blue).</param>
+    /// <param name="NationId">The nation (0 San d'Oria, 1 Bastok, 2 Windurst; -1 none): its emblem shows before the name.</param>
+    /// <param name="MentorRank">The mentor flag (S2C 0x01B: 0 none, 1 bronze, 2 silver, 3 gold) after "Mentor :".</param>
+    /// <param name="GladiatorRank">The Monstrosity Gladiator rank as the Profile writes it ("Gla", "CG", "HCG").</param>
+    /// <param name="Prestige">The Monstrosity prestige.</param>
     public sealed record StockUiStatusInfo(StockUiCharacterStats Stats, int Level, int ExpNow, int ExpNext,
         string Title, string Nation, string Race, string HomePoint, int Rank, int RankPoints, int MasteryRank,
         IReadOnlyList<byte> JobLevels, byte MainJob,
-        IReadOnlyList<StockUiSkillLine> CombatSkills, IReadOnlyList<StockUiSkillLine> MagicSkills, IReadOnlyList<StockUiSkillLine> CraftSkills);
+        IReadOnlyList<StockUiSkillLine> CombatSkills, IReadOnlyList<StockUiSkillLine> MagicSkills, IReadOnlyList<StockUiSkillLine> CraftSkills,
+        byte SubJob = 0, int NationId = -1, int MentorRank = 0, string GladiatorRank = "Gla", int Prestige = 0);
 
     /// <summary>
     /// The stock Status window (#23) from the English menu DAT (39542, ROM/119/51; read 2026-10-24 with the menu dump), laid
@@ -52,10 +61,36 @@ namespace Gordian.Engine.Ui
         public const string CommandMenu = "statcom2", WindowMenu = "statuswi", LevelMenu = "level";
         public const string ProfileMenu = "profile", JobLevelMenu = "joblevel", CombatSkillMenu = "btlskill", MagicSkillMenu = "mgcskill";
 
-        /// <summary>The "Craft Skills" frame image (<c>frames</c> #101, 252 x 152), drawn in <see cref="MagicSkillMenu"/>'s place.</summary>
+        /// <summary>The "Craft Skills" frame image (<c>frames</c> #101, 252 x 152), drawn in <see cref="MagicSkillMenu"/>'s place, stretched to the 10 crafts.</summary>
         public const string CraftFrameGroup = "frames";
         public const int CraftFrameImage = 101;
         public const short CraftFrameHeight = 152;
+
+        /// <summary>The height of <c>joblevel</c>'s frame image (<c>frames</c> #102): 166, short of the 22 rows the DAT window (182) holds.</summary>
+        public const short JobLevelImageHeight = 166;
+
+        /// <summary>The page rows' pitch and the room around them: a page is <c>PageChrome + rows * RowPitch</c> tall.</summary>
+        public const int RowPitch = 14, PageChrome = 22;
+
+        /// <summary>
+        /// A page's height for its rows: Job Levels' 11, the skills' rows (two skills a row for combat and magic), the crafts' 10.
+        /// Retail's border-to-border heights are 19 + 14 per row (173 for Job Levels, 47 for a 2-row Magic Skills; round 1
+        /// captures image-1 and image-3, 2026-10-25); our frame's edges sit 1 and 2 px inside it. Null for Profile, which keeps
+        /// its DAT height.
+        /// </summary>
+        public static short? PageHeight(StockUiStatusPage page, StockUiStatusInfo? info)
+        {
+            int rows = page switch
+            {
+                StockUiStatusPage.JobLevels => JobRowsPerColumn,
+                StockUiStatusPage.CombatSkills => ((info?.CombatSkills.Count ?? CombatSkills.Count) + 1) / 2,
+                StockUiStatusPage.MagicSkills => ((info?.MagicSkills.Count ?? MagicSkills.Count) + 1) / 2,
+                StockUiStatusPage.CraftSkills => CraftSkills.Count,
+                _ => -1,
+            };
+            if (rows < 0) return null;
+            return (short)(PageChrome + Math.Max(1, rows) * RowPitch);
+        }
 
         /// <summary>The Rank Points gauge's empty strip (<c>frames</c> #98) and its fill (#103), under "Rank Points".</summary>
         public const int RankGaugeImage = 98, RankGaugeFillImage = 103;
@@ -94,12 +129,12 @@ namespace Gordian.Engine.Ui
             (27, "Throwing"), (28, "Guarding"), (29, "Evasion"), (30, "Shield"), (31, "Parrying"),
         };
 
-        /// <summary>Magic skills (<c>xi.skill</c> 32-45).</summary>
+        /// <summary>Magic skills (<c>xi.skill</c> 32-45), named without "Magic" as retail's page writes them ("Divine", "Enfeebling"; round 1 capture image-3, 2026-10-25).</summary>
         public static readonly IReadOnlyList<(int Id, string Name)> MagicSkills = new[]
         {
-            (32, "Divine Magic"), (33, "Healing Magic"), (34, "Enhancing Magic"), (35, "Enfeebling Magic"), (36, "Elemental Magic"),
-            (37, "Dark Magic"), (38, "Summoning Magic"), (39, "Ninjutsu"), (40, "Singing"), (41, "String Instrument"),
-            (42, "Wind Instrument"), (43, "Blue Magic"), (44, "Geomancy"), (45, "Handbell"),
+            (32, "Divine"), (33, "Healing"), (34, "Enhancing"), (35, "Enfeebling"), (36, "Elemental"),
+            (37, "Dark"), (38, "Summoning"), (39, "Ninjutsu"), (40, "Singing"), (41, "String Instrument"),
+            (42, "Wind Instrument"), (43, "Blue"), (44, "Geomancy"), (45, "Handbell"),
         };
 
         /// <summary>Crafts (<c>xi.skill</c> 48-57).</summary>
@@ -162,6 +197,54 @@ namespace Gordian.Engine.Ui
             2 => "Windurst",
             _ => string.Empty,
         };
+
+        /// <summary>The Gladiator rank as the Profile writes it (S2C 0x063 type 3: 0 Gla, 1 CG, 2 HCG; XiPackets world/server/0x0063).</summary>
+        public static string GladiatorRankName(int rank) => rank switch
+        {
+            1 => "CG",
+            2 => "HCG",
+            _ => "Gla",
+        };
+
+        /// <summary>
+        /// The mastery rank the Profile writes: <c>mastery_rank</c> wraps every 10 onto the next mentor flag (11 is silver
+        /// rank 1, 21 gold rank 1; XiPackets world/server/0x001B).
+        /// </summary>
+        public static int MasteryRankShown(int masteryRank) => masteryRank <= 0 ? 0 : (masteryRank - 1) % 10 + 1;
+
+        /// <summary>The slots the item level averages: the main weapon and the five armour slots (the sub slot joins when it holds a weapon).</summary>
+        private static readonly EquipSlotId[] ItemLevelSlots =
+        {
+            EquipSlotId.Main, EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet,
+        };
+
+        /// <summary>
+        /// The item level the stats side writes ("ILv 119"): the average (rounded down) of the worn main weapon, head, body,
+        /// hands, legs and feet, and the sub weapon when there is one (a shield, a grip or an empty slot is left out: a level-99
+        /// Aegis does not lower it). Each item counts its item level, or its equip level when it has none. Null ("---", as the
+        /// retail capture of a character in level-99 gear shows) when nothing worn has an item level. PROVISIONAL: the
+        /// maintainer's account of retail (round 1 of the 2026-10-24 test); whether an empty armour slot counts as 0 is not
+        /// checked. The server's own field (S2C 0x061 <c>ilvl</c>) is not this: LandSandBoat sends the bonus over level 99
+        /// there (<c>charutils::getItemLevelDifference</c>, 20 in full item-level-119 gear).
+        /// </summary>
+        public static int? ItemLevel(InventoryState? inventory, Func<ushort, ItemRecord?>? lookup)
+        {
+            if (inventory == null || lookup == null) return null;
+            int sum = 0, count = 0;
+            bool any = false;
+            void Add(ItemRecord record)
+            {
+                any |= record.ItemLevel > 0;
+                sum += record.ItemLevel > 0 ? record.ItemLevel : record.Level;
+                count++;
+            }
+            foreach (var slot in ItemLevelSlots)
+            {
+                if (StockUiItems.EquippedItem(inventory, slot) is { } item && lookup(item.ItemId) is { } record) Add(record);
+            }
+            if (StockUiItems.EquippedItem(inventory, EquipSlotId.Sub) is { } sub && lookup(sub.ItemId) is { Damage: > 0, ShieldSize: 0 } weapon) Add(weapon);
+            return any && count > 0 ? sum / count : null;
+        }
 
         /// <summary>The race's name (the entity's race: 1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru, 7 Mithra, 8 Galka).</summary>
         public static string RaceName(int race) => race switch

@@ -25,7 +25,7 @@ namespace Gordian.App.Tests.Graphics
             raw[49] = (ushort)(60 * 0x20 + 6); raw[48] = 0xFFFF;
             return new StockUiStatusInfo(stats, 99, 55999, 56000, "New Adventurer", "San d'Oria", "Tarutaru", "SSandOria", 1, 0, 1, jobs, 18,
                 StockUiStatus.SkillLines(StockUiStatus.CombatSkills, raw), StockUiStatus.SkillLines(StockUiStatus.MagicSkills, raw),
-                StockUiStatus.CraftLines(raw));
+                StockUiStatus.CraftLines(raw), SubJob: 1, NationId: 0, MentorRank: 1);
         }
 
         private static byte[] RenderOpen(StockUiOffscreen screen, StockUiMenuController menus, string dump)
@@ -68,10 +68,12 @@ namespace Gordian.App.Tests.Graphics
             shot = RenderOpen(screen, menus, "gpu_status_profile.png");
             Assert.True(screen.HasLightPixel(shot, 130 + 74, 130 + 140, 48 + 26), "no nation");
 
-            menus.CloseTop();
+            // The D-pad on a page moves the list and shows the next entry's page (round 1); Job Levels has no cursor.
             menus.Move(InputAction.MenuDown); // Job Levels
-            menus.Activate();
             Assert.Equal(StockUiStatusPage.JobLevels, menus.Top!.StatusPage);
+            Assert.Empty(menus.Top!.Menu.Buttons);
+            Assert.Equal(StockUiStatus.PageHeight(StockUiStatusPage.JobLevels, info), menus.Top!.Menu.Frame.Height);
+            Assert.Equal(StockUiStatus.JobLevelsButton, menus.Top!.Parent!.SelectedButtonId);
             shot = RenderOpen(screen, menus, "gpu_status_jobs.png");
             Assert.True(screen.HasLightPixel(shot, 130 + 134 + 4, 130 + 200, 48 + 19 + 14 * 8 + 8, threshold: 150), "no Puppetmaster row");
 
@@ -88,7 +90,7 @@ namespace Gordian.App.Tests.Graphics
             menus.Move(InputAction.MenuDown); // Craft Skl.
             menus.Activate();
             Assert.Equal(StockUiStatusPage.CraftSkills, menus.Top!.StatusPage);
-            Assert.Equal(StockUiStatus.CraftFrameHeight, menus.Top!.Menu.Frame.Height);
+            Assert.Equal(StockUiStatus.PageHeight(StockUiStatusPage.CraftSkills, info), menus.Top!.Menu.Frame.Height);
             shot = RenderOpen(screen, menus, "gpu_status_craft.png");
             Assert.True(screen.HasLightPixel(shot, 130 + 12, 130 + 80, 48 + 19 + 8, threshold: 150), "no Fishing");
         }

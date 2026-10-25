@@ -506,7 +506,8 @@ namespace Gordian.Engine.Sessions
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string main = p.MainJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
             string sub = p.SubJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
-            string itemLevel = string.Create(inv, $"ILv {p.ItemLevel}/Su {p.SuperiorLevel}");
+            int? averaged = Ui.StockUiStatus.ItemLevel(Inventory, ActionService.Menus.ItemLookup);
+            string itemLevel = string.Create(inv, $"ILv {(averaged is { } level ? level.ToString(inv) : "---")}/Su {p.SuperiorLevel}");
             var bases = new int[7];
             var bonuses = new int[7];
             for (int i = 0; i < 7; i++)
@@ -534,9 +535,10 @@ namespace Gordian.Engine.Sessions
             return new Ui.StockUiStatusInfo(CharacterStats(), p.MainJobLevel, p.ExpNow, p.ExpNext,
                 menus.TitleName?.Invoke(p.TitleId) ?? string.Empty, Ui.StockUiStatus.NationName(p.Nation), Ui.StockUiStatus.RaceName(race),
                 p.HomePointZone != 0 ? menus.ZoneCompactName?.Invoke(p.HomePointZone) ?? string.Empty : string.Empty,
-                p.Rank, p.RankPoints, p.MasteryRank, (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
+                p.Rank, p.RankPoints, Ui.StockUiStatus.MasteryRankShown(p.MasteryRank), (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
                 Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.CombatSkills, skills), Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.MagicSkills, skills),
-                Ui.StockUiStatus.CraftLines(skills));
+                Ui.StockUiStatus.CraftLines(skills), (byte)p.SubJob, p.Nation <= 2 ? p.Nation : -1, p.MentorRank,
+                Ui.StockUiStatus.GladiatorRankName(Progression.GladiatorRank), Progression.Prestige);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

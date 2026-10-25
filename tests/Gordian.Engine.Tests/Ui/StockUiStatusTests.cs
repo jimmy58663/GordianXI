@@ -1,5 +1,9 @@
 // tests/Gordian.Engine.Tests/Ui/StockUiStatusTests.cs
+using System.Collections.Generic;
 using System.Linq;
+using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Models;
+using Gordian.Core.World;
 using Gordian.Engine.Ui;
 using Xunit;
 
@@ -55,6 +59,60 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal("Tarutaru", StockUiStatus.RaceName(6));
             Assert.Equal(StockUiStatus.MagicSkillMenu, StockUiStatus.MenuOf(StockUiStatusPage.CraftSkills));
             Assert.Equal(StockUiStatus.ProfileMenu, StockUiStatus.MenuOf(StockUiStatusPage.Profile));
+        }
+
+        /// <summary>
+        /// The stats side's item level (round 1 of the 2026-10-24 test): the average of the main weapon and the five armour
+        /// slots, with the sub weapon but never a shield; "---" (null) without item-level gear.
+        /// </summary>
+        [Fact]
+        public void ItemLevel_AveragesMainSubWeaponAndArmour_LeavingOutShields()
+        {
+            var items = new Dictionary<ushort, ItemRecord>
+            {
+                [1] = new() { ItemId = 1, Level = 99, ItemLevel = 119, Damage = 150 },  // main
+                [2] = new() { ItemId = 2, Level = 99, ItemLevel = 119 },               // armour
+                [3] = new() { ItemId = 3, Level = 99, ItemLevel = 119, ShieldSize = 5 }, // Aegis-like shield
+                [4] = new() { ItemId = 4, Level = 99, Damage = 40 },                   // a level-99 sub weapon, no item level
+                [5] = new() { ItemId = 5, Level = 75 },                                // old armour
+            };
+            ItemRecord? Lookup(ushort id) => items.TryGetValue(id, out var r) ? r : null;
+            var inventory = new InventoryState();
+            void Wear(EquipSlotId slot, byte bag, ushort item)
+            {
+                inventory.SetItem(ContainerId.Inventory, bag, item, 1, ItemLockFlag.Normal);
+                inventory.SetEquip(slot, ContainerId.Inventory, bag);
+            }
+            Wear(EquipSlotId.Main, 1, 1);
+            byte bagSlot = 2;
+            foreach (var slot in new[] { EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet }) Wear(slot, bagSlot++, 2);
+            Wear(EquipSlotId.Sub, 10, 3);
+            Assert.Equal(119, StockUiStatus.ItemLevel(inventory, Lookup)); // the shield is left out
+
+            Wear(EquipSlotId.Sub, 11, 4);
+            Assert.Equal((119 * 6 + 99) / 7, StockUiStatus.ItemLevel(inventory, Lookup)); // a sub weapon counts
+
+            var old = new InventoryState();
+            old.SetItem(ContainerId.Inventory, 1, 5, 1, ItemLockFlag.Normal);
+            old.SetEquip(EquipSlotId.Body, ContainerId.Inventory, 1);
+            Assert.Null(StockUiStatus.ItemLevel(old, Lookup));
+        }
+
+        /// <summary>The pages fit their rows (retail border to border 19 + 14 a row; round 1 captures, 2026-10-25).</summary>
+        [Fact]
+        public void PageHeight_FitsTheRows()
+        {
+            Assert.Equal((short)(22 + 11 * 14), StockUiStatus.PageHeight(StockUiStatusPage.JobLevels, null));
+            Assert.Equal((short)(22 + 10 * 14), StockUiStatus.PageHeight(StockUiStatusPage.CraftSkills, null));
+            var magic = new[] { new StockUiSkillLine("Divine", 150, true), new StockUiSkillLine("Healing", 150, true), new StockUiSkillLine("Enhancing", 139, false) };
+            var info = new StockUiStatusInfo(new StockUiCharacterStats("A", "", "", "", 0, 0, 0, 0, 0, new int[7], new int[7]), 1, 0, 0, "", "", "", "", 1, 0, 1,
+                new byte[24], 1, magic, magic, magic);
+            Assert.Equal((short)(22 + 2 * 14), StockUiStatus.PageHeight(StockUiStatusPage.MagicSkills, info));
+            Assert.Null(StockUiStatus.PageHeight(StockUiStatusPage.Profile, info));
+            Assert.Equal("HCG", StockUiStatus.GladiatorRankName(2));
+            Assert.Equal("Gla", StockUiStatus.GladiatorRankName(0));
+            Assert.Equal(1, StockUiStatus.MasteryRankShown(11));
+            Assert.Equal(8, StockUiStatus.MasteryRankShown(8));
         }
 
         [Fact]
