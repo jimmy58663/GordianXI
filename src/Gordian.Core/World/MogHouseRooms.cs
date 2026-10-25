@@ -111,6 +111,30 @@ namespace Gordian.Core.World
             _ => Array.Empty<ushort>(),
         };
 
+        /// <summary>
+        /// The Mog Garden's zone id. The exit menu's area list ends with it (exit mode <see cref="MogHouseExitMode.MogGarden"/>,
+        /// 127): LandSandBoat lets that mode leave any Mog House (packets/c2s/0x05e_maprect.cpp, unless the server turns
+        /// the Mog Garden off, when it leaves to the area entered from), and the maintainer's round 1 note (2026-10-24)
+        /// lists it under Adoulin's "Select an area to exit to.".
+        /// </summary>
+        public const ushort MogGardenZone = 280;
+
+        /// <summary>
+        /// Whether the exit menu offers "Change floors.": the client keeps <c>(MyroomSubMapNumber &gt;&gt; 1) &amp; 3</c> of
+        /// S2C 0x00A and picks the exit menu by it (XiPackets world/server/0x000A). LandSandBoat sends 2 on the second floor
+        /// ("ensure full exit menu appears") and 0 elsewhere, so on the first floor the row stays greyed as in retail's
+        /// image-23 (round 1, 2026-10-24); what retail sends on a first floor with the second floor unlocked is not known.
+        /// </summary>
+        public static bool CanChangeFloors(byte myroomSubMapNumber) => ((myroomSubMapNumber >> 1) & 3) != 0;
+
+        /// <summary>
+        /// The exit mode that changes floors: <see cref="MogHouseExitMode.Mog1F"/> (126) from a second-floor room (0x267-0x26A,
+        /// XiPackets world/server/0x000A), else <see cref="MogHouseExitMode.Mog2F"/> (125). LandSandBoat toggles the floor
+        /// on either mode (packets/c2s/0x05e_maprect.cpp).
+        /// </summary>
+        public static MogHouseExitMode FloorChangeMode(int myroomMapNumber) =>
+            myroomMapNumber is >= 0x267 and <= 0x26A ? MogHouseExitMode.Mog1F : MogHouseExitMode.Mog2F;
+
         /// <summary>The room number of a map zone key; false for a real zone id.</summary>
         public static bool TryGetRoomOfKey(int zoneKey, out int myroomMapNumber)
         {

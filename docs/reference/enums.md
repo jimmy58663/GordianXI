@@ -274,7 +274,7 @@ GordianXI types: `MogHouseExitBit`, `MogHouseExitMode` (`Network/Packets/Lifecyc
 | 6-8 | Ronfaure / Gustaberg / Sarutabaruta fronts | none |
 | 9 | Adoulin | 256, 257 |
 
-Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExitMenu` when S2C 0x00A sends the bit), 125 to the second floor, 126 to the first, 127 the Mog Garden (not offered yet).
+Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExitMenu` when S2C 0x00A sends the bit), 125 to the second floor, 126 to the first ("Change floors.", `MogHouseRooms.FloorChangeMode`; offered when `(MyroomSubMapNumber >> 1) & 3` is set), 127 the Mog Garden (the area list's last row). LandSandBoat toggles the floor on either 125 or 126.
 
 ## Races, look slots and jobs
 

@@ -300,8 +300,11 @@ namespace Gordian.App.Graphics
             for (int i = from; i <= to; i++)
             {
                 float ry = areaY + (i - first) * pitch * s;
+                // A greyed option (the Mog House exit's "Change floors.", image-23 of round 1, 2026-10-24) in the action
+                // lists' lavender grey.
+                bool greyed = i < menu.QueryOptions.Count && menu.QueryOptions[i].Greyed;
                 renderer.DrawText(font, menu.Rows[i].Text, areaX + QueryOptionTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
-                    i == selectedEntry ? SelectedGlyphTint : null);
+                    i == selectedEntry ? SelectedGlyphTint : greyed ? ActionGreyedTint : null);
             }
             renderer.ClearClip();
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);

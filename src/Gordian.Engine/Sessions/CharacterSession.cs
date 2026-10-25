@@ -433,16 +433,7 @@ namespace Gordian.Engine.Sessions
             ActionService.MogHouseExitRequested += () =>
             {
                 var exitBit = (MogHouseExitBit)(World.ZoneLoginInfo?.MyRoomExitBit ?? 0);
-                var options = Ui.MogHouseExitMenu.Options(exitBit, World.CurrentZoneId, ActionService.ZoneName, out int cursor);
-                if (options.Count > 0)
-                {
-                    var query = ActionService.Menus.OpenQuery(new[] { MogHouseRooms.ExitQuestion }, options, cursor, answer =>
-                    {
-                        if (Ui.MogHouseExitMenu.ModeOf(answer, options.Count) is not { } mode || World.MogHouseRoom == 0) return;
-                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, mode);
-                    });
-                    if (query != null) return;
-                }
+                if (Ui.MogHouseExitMenu.HasMenu(exitBit) && OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.Stay - 1)) return;
                 ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
                 {
                     if (answer != true || World.MogHouseRoom == 0) return;
@@ -531,6 +522,49 @@ namespace Gordian.Engine.Sessions
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)
             => World.TryGetByTargetIndex(targetIndex, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
+
+        /// <summary>
+        /// Retail's Mog House exit menu with a city exit unlocked (#354, <see cref="Ui.MogHouseExitMenu"/>): Stay closes it,
+        /// "Area you entered from." and "Change floors." send C2S 0x05E <c>zmrq</c>, "Select an area to exit to." opens the
+        /// area list. False when the UI is not loaded.
+        /// </summary>
+        private bool OpenMogHouseExitMenu(MogHouseExitBit exitBit, int cursorIndex)
+        {
+            var menus = ActionService.Menus;
+            var login = World.ZoneLoginInfo;
+            bool canChangeFloors = login != null && MogHouseRooms.CanChangeFloors(login.Value.MyroomSubMapNumber);
+            var options = Ui.MogHouseExitMenu.MainOptions(menus.MenuMessageText, canChangeFloors);
+            return menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursorIndex, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                switch (answer)
+                {
+                    case Ui.MogHouseExitMenu.AreaEnteredFrom:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseExitMode.AreaEnteredFrom);
+                        break;
+                    case Ui.MogHouseExitMenu.ChangeFloors:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseRooms.FloorChangeMode(World.MogHouseRoom));
+                        break;
+                    case Ui.MogHouseExitMenu.SelectArea:
+                        OpenMogHouseAreaList(exitBit);
+                        break;
+                }
+            }, Ui.MogHouseExitMenu.VisibleRows) != null;
+        }
+
+        /// <summary>The exit menu's area list: the chosen area is sent as its exit mode; Cancel goes back to the exit menu.</summary>
+        private void OpenMogHouseAreaList(MogHouseExitBit exitBit)
+        {
+            var menus = ActionService.Menus;
+            var options = Ui.MogHouseExitMenu.AreaOptions(exitBit, World.CurrentZoneId, ActionService.ZoneName, out int cursor);
+            int areaCount = options.Count - 1;
+            menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursor, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                if (Ui.MogHouseExitMenu.AreaModeOf(answer, areaCount) is { } mode) _ = NetworkManager.RequestMogHouseExitAsync(exitBit, mode);
+                else OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.SelectArea - 1);
+            }, Ui.MogHouseExitMenu.VisibleRows);
+        }
 
         public void Disconnect()
         {
