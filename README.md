@@ -121,7 +121,7 @@ GordianXI is engineered with a zero-allocation packet and simulation pipeline. F
 
 ## 🤝 Contributing
 
-Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments.
+Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments. How to report bugs, send a change, and the test policy are in **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## 📄 License & Legal
 
