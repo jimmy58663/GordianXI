@@ -188,15 +188,18 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind == StockUiListKind.GamepadAssign)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
-                        // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one).
+                        // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
+                        // window's Change Map lists (#23) the same way: the area or zone, its "[4]" / "(Area)" at the right
+                        // (round 1 capture image-6).
                         UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
-                        renderer.DrawText(font, row.Text, areaX + AssignRowTextInset * s, textY, s, tint);
+                        bool mapRow = menu.ListKind == StockUiListKind.MapAreas;
+                        renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
                         if (row.Value is { Length: > 0 } value)
                         {
-                            float valueRight = placement.X + (frame.Width - AssignValueRightPad) * s;
+                            float valueRight = placement.X + (frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
                             renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, tint);
                         }
                         continue;
@@ -722,6 +725,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>The gamepad key-assignment list: the function's text from the row's origin, its buttons ending this far from the window's right edge.</summary>
         private const float AssignRowTextInset = 4, AssignValueRightPad = 18;
+
+        /// <summary>The Change Map lists' text 23 px into the row and their "[4]" ending 44 px short of the frame's right edge (round 1 image-6).</summary>
+        private const float MapRowTextInset = 23, MapValueRightPad = 44;
 
         /// <summary>The Font Colors list's text inset (its rows start at the frame's edge; retail screenshot, 2026-10-04: about 30 px).</summary>
         private const float FontColorRowTextInset = 30;

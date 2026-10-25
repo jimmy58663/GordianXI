@@ -37,6 +37,9 @@ namespace Gordian.Engine.Ui
         /// row a function and its buttons; Confirm waits for the button to assign.
         /// </summary>
         GamepadAssign,
+
+        /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
+        MapAreas,
     }
 
     /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
@@ -1296,7 +1299,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1679,6 +1682,12 @@ namespace Gordian.Engine.Ui
             if (top.ListKind == StockUiListKind.GamepadAssign)
             {
                 ActivateGamepadAssign(top, button.ButtonId);
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.MapAreas)
+            {
+                ActivateMapList(top, button.ButtonId);
                 return;
             }
 

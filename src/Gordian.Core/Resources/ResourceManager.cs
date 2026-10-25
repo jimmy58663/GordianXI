@@ -422,6 +422,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.ZoneNames => Path.Combine("ROM", "165", "84.DAT"),
             DMsgCategory.ZoneNamesShort => Path.Combine("ROM", "165", "83.DAT"),
             DMsgCategory.ZoneNamesCompact => Path.Combine("ROM", "165", "85.DAT"),
+            DMsgCategory.RegionNames => Path.Combine("ROM", "165", "78.DAT"),
             DMsgCategory.WeatherNames => Path.Combine("ROM", "165", "79.DAT"),
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),

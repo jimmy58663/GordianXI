@@ -176,6 +176,9 @@ namespace Gordian.App.Graphics
                 // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
                 menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
                 menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
+                // The Map window's Change Map lists (#23): zone names (ROM/165/84) and region names (ROM/165/78).
+                menus.ZoneName = i => strings.TryGetString(DMsgCategory.ZoneNames, i, out var zone) ? zone : null;
+                menus.RegionName = i => strings.TryGetString(DMsgCategory.RegionNames, i, out var region) ? region : null;
             }
             if (session.ActionService.MountName == null && _resources is { } mountStrings)
             {
@@ -373,7 +376,7 @@ namespace Gordian.App.Graphics
                 _zoneMaps[key] = texture;
             }
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
-            StockUiMapWindow.Draw(renderer, library, font, _logFont, texture, zoneName, Layout.Scale, width, height);
+            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, texture, zoneName, Layout.Scale, width, height);
         }
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>
