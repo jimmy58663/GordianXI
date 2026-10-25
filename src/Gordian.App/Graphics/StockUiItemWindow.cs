@@ -83,7 +83,17 @@ namespace Gordian.App.Graphics
                 var at = StockUiWindowPlacement.Beside(placement, frame, StockUiItems.RecycleInventoryX, frame.Y);
                 DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
             }
+            else if (menu.ItemListKind == StockUiItemListKind.Storage && menu.StoragePartner != null && library.TryGetMenu(StockUiItems.ListMenu, out var other))
+            {
+                // View House (#23, image-7): the storage at the left, the inventory at the right; the list with the cursor is
+                // drawn on its own side (the HUD moved it right for the inventory), the other one beside it.
+                float shift = (StockUiViewHouse.InventoryX - frame.X) * s;
+                var at = placement with { X = menu.StorageInventorySide ? placement.X - shift : placement.X + shift };
+                DrawCompanion(renderer, library, font, menu, other, at, menu.CompanionRows);
+            }
 
+            // The help bar and the description keep to the storage's place while the inventory beside it has the cursor (#23).
+            if (menu.StorageInventorySide) placement = placement with { X = placement.X - (StockUiViewHouse.InventoryX - frame.X) * s };
             if (menu.ItemHelpBar is { } bar) DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
             if (menu.ItemListKind == StockUiItemListKind.Equipment) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 menu.EquipSetNumber > 0 ? EquipSetDescriptionX : StockUiItems.EquipDescriptionX, placement.Y + (DescriptionTop - frame.Y) * s);

@@ -567,6 +567,8 @@ namespace Gordian.App.Graphics
                 for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].OverlapsAuthored(menu);
                 // A main-menu spell list puts its Options window where the Magic categories were (retail image-16).
                 for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].ShowsActionOptions && menu.Name.Equals(StockUiActionMenu.MagicCategoryMenu, StringComparison.OrdinalIgnoreCase);
+                // A View House storage puts its Options window where the storage list was (#23, round 1 image-8).
+                for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].ItemListKind == StockUiItemListKind.Storage && menu.Name.Equals(StockUiViewHouse.MenuName, StringComparison.OrdinalIgnoreCase);
                 if (covered) continue;
 
                 StockUiPlacement placement;
@@ -613,6 +615,8 @@ namespace Gordian.App.Graphics
                     }
                     placement = new StockUiPlacement(x, y, root.Scale, false);
                 }
+                // A View House list with the cursor on the inventory draws at the inventory's place, the storage beside it (#23).
+                if (menu.StorageInventorySide) placement = placement with { X = placement.X + (StockUiViewHouse.InventoryX - menu.Menu.Frame.X) * placement.Scale };
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
                     screen: new StockUiScreen(width, height, _window1Top));
                 if (menu.IsTreasureList && !open.Any(m => m.IsTreasureDone) && library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var spoils))
@@ -620,6 +624,12 @@ namespace Gordian.App.Graphics
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.
                     var f = spoils.Frame;
                     renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (menu.ItemListKind == StockUiItemListKind.Storage && i == open.Count - 1 && library.TryGetMenu(StockUiViewHouse.OptionsMenu, out var storageOptions))
+                {
+                    // A storage's options ("+ : Sort": Auto, Manual, Switch) stand at the top right while its list takes input (image-8).
+                    var f = storageOptions.Frame;
+                    renderer.DrawMenu(storageOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
                 }
                 if (menu.ItemListKind == StockUiItemListKind.Items && i == open.Count - 1 && library.TryGetMenu(StockUiItems.OptionsMenu, out var itemOptions))
                 {

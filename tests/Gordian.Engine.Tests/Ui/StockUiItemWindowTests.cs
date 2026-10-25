@@ -112,6 +112,7 @@ namespace Gordian.Engine.Tests.Ui
             List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 2),
             List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 12),
             List(StockUiViewHouse.MenuName, 384, 48, UiAnchor.TopRight, 15),
+            List(StockUiViewHouse.OptionsMenu, 384, 48, UiAnchor.TopRight, 3),
         });
 
         private sealed class Harness
@@ -859,7 +860,29 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             Assert.Equal((1u, ContainerId.Wardrobe, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot), Assert.Single(h.Moves));
 
-            h.Menus.CloseTop();
+            // Right: the cursor on the inventory beside it (round 1 image-7); Confirm stores the item in the wardrobe.
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.True(wardrobe.StorageInventorySide);
+            Assert.Equal(ContainerId.Inventory, wardrobe.ItemContainer);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.StorageContainer);
+            Assert.Equal("Bronze Sword", Assert.Single(wardrobe.CompanionRows).Name);
+            Assert.Equal(new StockUiItemHelpBar("M.Ward.", 1, 80, StockUiViewHouse.HelpMoveTo(ContainerId.Wardrobe)), wardrobe.ItemHelpBar);
+            var stored = wardrobe.SelectedItemRow!.Value;
+            h.Menus.Activate();
+            Assert.Equal((stored.Count, ContainerId.Inventory, stored.Slot, ContainerId.Wardrobe, StockUiItems.AnyFreeSlot), h.Moves[^1]);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.False(wardrobe.StorageInventorySide);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.ItemContainer);
+
+            // + / Y: the storage's options (Auto, Manual, Switch; image-8); Switch goes back to the View House list.
+            Assert.True(h.Menus.ToggleItemOptions());
+            Assert.Equal(StockUiViewHouse.OptionsMenu, h.Menus.Top!.Name);
+            h.Menus.Top!.SelectedButtonId = StockUiViewHouse.SwitchButton;
+            h.Menus.Activate();
+            Assert.Same(storages, h.Menus.Top);
+            h.Moves.Clear();
+            h.Moves.Add((1u, ContainerId.Wardrobe, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot));
+
             storages.SelectedButtonId = 1;
             h.Menus.Activate();
             var safe = h.Menus.Top!;
