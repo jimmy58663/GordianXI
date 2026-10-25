@@ -654,6 +654,7 @@ namespace Gordian.Engine.Ui
             closed.QueryCompleted?.Invoke(255);
             if (IsFontColorEditor(closed)) _fontColorEditing = null;
             if (closed.IsQuantity && closed.Parent is { } list) list.ShowsQuantity = false;
+            if (closed.BlueMagicView == StockUiBlueMagicView.Learned && closed.Parent is { } slots) slots.BlueLearnedOpen = false;
             if (closed.IsShopList) lock (_sync) _confirmPending = null;
             if (closed.IsShopMenu) EndShopSession();
             Changed?.Invoke();
@@ -1548,7 +1549,7 @@ namespace Gordian.Engine.Ui
                 button = top?.SelectedButton;
             }
             // The Auction House windows (#90): the Price Set window has no button to select.
-            if (top != null && TryActivateAuction(top, button)) return;
+            if (top != null && (TryActivateAuction(top, button) || TryActivateBlueMagic(top))) return;
             if (top == null || button == null) return;
 
             if (top.IsPrompt)

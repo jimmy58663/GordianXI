@@ -1,7 +1,9 @@
 // src/Gordian.Engine/Sessions/CharacterSession.AuctionAndBlueMagic.cs
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Network.Search;
+using Gordian.Engine.Ui;
 
 namespace Gordian.Engine.Sessions
 {
@@ -30,6 +32,34 @@ namespace Gordian.Engine.Sessions
             auction.SalesChanged += menus.OnAuctionSalesChanged;
             auction.ResponseReceived += menus.OnAuctionResponse;
             World.ZoneChanged += _ => menus.CloseAuctionHouse();
+        }
+
+        /// <summary>
+        /// Blue Magic's Set Spells window (#363): the slots come from S2C 0x044 (the main job's data, or the support job's when
+        /// Blue Mage is the support job), the point bonus from S2C 0x063 (merits), the learned spells from S2C 0x0AA; sets and
+        /// removals go out as C2S 0x102, and the server answers with a new S2C 0x044.
+        /// </summary>
+        private void AttachBlueMagic()
+        {
+            var menus = ActionService.Menus;
+            menus.BlueMagicState = BlueMagicState;
+            menus.BlueMagicCatalog = () => ActionService.Catalog;
+            menus.BlueSpellSet = (slot, spell, subJob) => LoginDataModule.SendSetBlueSpellAsync(slot, spell, subJob);
+            menus.BlueSpellRemove = (slot, spell, subJob) => LoginDataModule.SendRemoveBlueSpellAsync(slot, spell, subJob);
+            LocalPlayer.ExtendedJobUpdated += menus.RefreshBlueMagic;
+            LocalPlayer.MagicLearnedUpdated += menus.RefreshBlueMagic;
+            Progression.MeritsUpdated += menus.RefreshBlueMagic;
+        }
+
+        private StockUiBlueMagicState? BlueMagicState()
+        {
+            var player = LocalPlayer;
+            bool main = player.MainJob == JobId.BlueMage, sub = !main && player.SubJob == JobId.BlueMage;
+            if (!main && !sub) return null;
+            var data = main ? player.MainJobData : player.SubJobData;
+            IReadOnlyList<byte> slots = data is { IsBlueMage: true } ? data.BlueSpells : new byte[StockUiBlueMagic.SlotCount];
+            int level = main ? player.MainJobLevel : player.SubJobLevel;
+            return new StockUiBlueMagicState(level, sub, slots, Progression.BluSpellPointBonus, player.HasSpell);
         }
 
         private async Task<IReadOnlyList<AuctionListItem>?> LoadAuctionListAsync(byte category)

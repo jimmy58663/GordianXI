@@ -56,7 +56,8 @@ namespace Gordian.Engine.Ui
             StockUiCheck.TryGetSlot(buttonId, out var slot) && EquipSet is { } set && set[slot].Kind == EquipmentSetPieceKind.Remove;
 
         /// <summary>A list or grid that scrolls and pages as the action lists do (the end rows link to themselves).</summary>
-        internal bool PagesAsList => IsKeyItemWindow || IsEquipSetList || IsAuctionList || AuctionView == StockUiAuctionView.History;
+        internal bool PagesAsList => IsKeyItemWindow || IsEquipSetList || IsAuctionList || AuctionView == StockUiAuctionView.History
+            || IsBlueMagicWindow;
 
         /// <summary>A set slot list's storage choice (<see cref="StockUiEquipSets.StorageMenu"/>).</summary>
         public bool IsEquipSetStorage { get; init; }

@@ -57,7 +57,7 @@ namespace Gordian.Engine.Tests.Actions
             return new ActionCatalog(tables, id => SpellNames.GetValueOrDefault(id), id => CommandNames.GetValueOrDefault(id));
         }
 
-        private static void Spell(byte[] table, int id, int kind, int flags, int mp, int menu, params (int Job, int Level)[] levels)
+        internal static void Spell(byte[] table, int id, int kind, int flags, int mp, int menu, params (int Job, int Level)[] levels)
         {
             var r = table.AsSpan(id * SpellCommandTables.SpellRecordSize, SpellCommandTables.SpellRecordSize);
             BinaryPrimitives.WriteUInt16LittleEndian(r, (ushort)id);
@@ -92,7 +92,7 @@ namespace Gordian.Engine.Tests.Actions
             SpellCommandTables.Scramble(r);
         }
 
-        private static byte[] Section(string tag, DatSectionType type, byte[] payload)
+        internal static byte[] Section(string tag, DatSectionType type, byte[] payload)
         {
             int units = (16 + payload.Length + 15) / 16;
             var section = new byte[units * 16];

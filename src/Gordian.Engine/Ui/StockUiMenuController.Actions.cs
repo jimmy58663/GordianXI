@@ -266,7 +266,7 @@ namespace Gordian.Engine.Ui
                 return true;
             }
             if (top is not { ShowsActionOptions: true } || library == null) return false;
-            string name = top.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu;
+            string name = OptionsMenuFor(top.ActionCategory);
             if (!library.TryGetMenu(name, out var definition)) return false;
             var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsActionOptions = true };
             options.SelectedButtonId = StockUiActionMenu.OptionsAutoButton;
@@ -282,11 +282,26 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
+        /// The Options window of a spell list: Blue Magic's is <c>blusortw</c> with a working Set Spells when Blue Mage is a job of
+        /// yours (#363), else <c>mgcsortw</c>, whose Set Spells is baked in greyed (image-17); the other kinds' is <c>mgcsort</c>.
+        /// </summary>
+        public string OptionsMenuFor(int category) => category != StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.OptionsMenu
+            : CanSetBlueSpells ? StockUiBlueMagic.OptionsMenu : StockUiActionMenu.BlueOptionsMenu;
+
+        /// <summary>
         /// The Options window: Auto sorts the list back into the spell table's order and returns to it; Manual (retail: pick
         /// a spell, then where to put it, as the item list's Manual) is not built yet.
         /// </summary>
         private void ActivateActionOptions(StockUiOpenMenu options, int buttonId)
         {
+            if (buttonId == StockUiBlueMagic.OptionsSetSpellsButton && options.Name.Equals(StockUiBlueMagic.OptionsMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                // Set Spells (#363) opens over the Blue Magic list.
+                var spells = options.Parent;
+                CloseMenu(options);
+                OpenSetSpells(spells);
+                return;
+            }
             if (buttonId == StockUiActionMenu.OptionsManualButton)
             {
                 NoticePosted?.Invoke("Manual sorting is not available yet.");

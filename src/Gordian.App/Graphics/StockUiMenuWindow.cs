@@ -119,6 +119,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiAuctionWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
             }
+            else if (font != null && menu.IsBlueMagicWindow)
+            {
+                StockUiBlueMagicWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
+            }
             else if (font != null && menu.IsTreasureList)
             {
                 StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default, timestamp);
@@ -327,8 +331,8 @@ namespace Gordian.App.Graphics
         /// <summary>An empty list's text ("No mounts available."): log font from (11, 20), lines 20 px apart (image-22, -23).</summary>
         private const float ActionEmptyTextX = 11, ActionEmptyTextY = 20, ActionEmptyPitch = 20, ActionEmptyWidth = 150;
 
-        private static readonly UiColor ActionSelectedTint = new(0x80, 0x41, 0x64, 0x80);
-        private static readonly UiColor ActionGreyedTint = new(0x4F, 0x4F, 0x65, 0x80);
+        internal static readonly UiColor ActionSelectedTint = new(0x80, 0x41, 0x64, 0x80);
+        internal static readonly UiColor ActionGreyedTint = new(0x4F, 0x4F, 0x65, 0x80);
 
         /// <summary>
         /// A spell, job ability, weapon skill, trait or pet command list: one action per row over the twelve invisible row
@@ -445,7 +449,7 @@ namespace Gordian.App.Graphics
         private const float InfoPetX = 6, InfoPetY = 4, InfoPetGaugeDx = 23, InfoPetGaugeDy = 12;
 
         /// <summary>Draws an element-group image scaled so its bounds fill a square of <paramref name="size"/> pixels.</summary>
-        private static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
+        internal static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
         {
             float left = float.MaxValue, top = float.MaxValue, right = float.MinValue, bottom = float.MinValue;
             foreach (var part in image.Parts)
@@ -752,7 +756,7 @@ namespace Gordian.App.Graphics
         private const string DefaultCursorGroup = "anc_s";
 
         private static readonly UiColor PointerColor = new(0x80, 0x80, 0x80, 0x80);
-        private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
+        internal static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>
         /// The pointer over a clickable entry (retail hides the system arrow there and draws a grey ring over the
