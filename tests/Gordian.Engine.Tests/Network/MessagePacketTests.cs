@@ -536,6 +536,51 @@ namespace Gordian.Engine.Tests.Network
             Assert.False(Assert.Single(actions.Menus.OpenMenus).IsCommandMenu);
         }
 
+        /// <summary>
+        /// #439 round 1 log: the locked-on target's death update comes first (ending the local engagement and the lock),
+        /// then the new target's 0x058 and LandSandBoat's stray 0x058 for target 0, with the server's status still engaged.
+        /// The engagement, the lock-on and the command menu all move to the new target.
+        /// </summary>
+        [Fact]
+        public void Assist_AfterTheLockedTargetDied_ReEngagesLocksAndOpensTheMenu()
+        {
+            var parser = NewParser(out var dispatcher);
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
+            actions.Menus.Library = Gordian.Engine.Tests.Ui.StockUiMenuControllerTests.SyntheticLibrary();
+            const uint First = 0x01001234, Next = 0x01005678;
+            var first = new WorldEntity(First, 0x234, EntityType.Monster) { Name = "Goblin Thug", Hpp = 100 };
+            parser.World.UpsertEntity(first);
+            parser.World.UpsertEntity(new WorldEntity(Next, 0x278, EntityType.Monster) { Name = "Goblin Mugger", Hpp = 100 });
+            var status = new byte[0x60];
+            status[44] = 1; // engaged
+            parser.LocalPlayer.UpdateFromCharStatus(new S2C_0x037_CharStatus(status));
+            Assert.True(actions.SetTargetByServerId(First));
+            parser.Combat.Engage(First, 0x234);
+            actions.SetLockOn(true);
+            Assert.True(actions.OpenTargetCommandMenu());
+
+            first.Hpp = 0;
+            first.AnimationState = 3;
+            parser.World.UpsertEntity(first);
+            Assert.False(parser.Combat.IsEngaged);
+            Assert.False(actions.IsLockedOn);
+
+            var p = new byte[12];
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0), LocalId);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), Next);
+            Receive(dispatcher, 0x058, p);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), 0);
+            Receive(dispatcher, 0x058, p);
+
+            Assert.True(parser.Combat.IsEngaged);
+            Assert.Equal(Next, parser.Combat.TargetServerId);
+            Assert.Equal(Next, actions.CurrentTarget?.ServerId);
+            Assert.True(actions.IsLockedOn);
+            var menu = Assert.Single(actions.Menus.OpenMenus);
+            Assert.True(menu.IsCommandMenu);
+            Assert.Equal(Next, menu.Target?.TargetServerId);
+        }
+
         // ---- the log lines ----
 
         private static (ClientMessageController Controller, PacketParser Parser, PacketDispatcher Dispatcher, List<(ChatLogChannel Channel, string Text)> Lines) Messages()
