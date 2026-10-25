@@ -51,6 +51,7 @@ The rows carry the details; these are the ones most useful to other client and s
 - S2C `0x05E`: a 176-byte payload layout from LSB where XiPackets has none.
 - S2C `0x061`: `ExpNow` / `ExpNext` must be read unsigned although both references say int16.
 - S2C `0x00A`: LSB fills only the current weather (`WeatherNumber`, `WeatherTime`); `WeatherNumber2`, `WeatherTime2` and `WeatherOffsetTime` stay 0.
+- S2C `0x00A`: LSB leaves `ShipStart` / `ShipEnd` 0, so the retail client never runs `FUNC_ShipInit` (XiPackets) in a voyage zone, yet it still moves the scenery by the Vana'diel clock; its older fork AirSkyBoat (`src/map/transport.cpp`) filled `ShipStart` with the clock when the voyage zone opened, `ShipEnd` with the run's length in seconds (Phanauet Channel 540 / 840 / 270, the Manaclipper 590 / 445) and a path byte of 0 / 8 / 16 / 24 (path = byte / 8). GordianXI keeps the timetable itself (`VoyageSchedule`, #434).
 - S2C `0x028`: XiPackets lists add-effect 23 (Haste); LSB's enum stops at 22. For weapon skills `proc_kind` is the skillchain id.
 - S2C `0x113`, `0x118`: the XiPackets structs are natural-aligned (a 4-byte field after a run of bytes starts on a multiple of 4); the offsets in `CurrencyLayout` account for it.
 - S2C `0x02A`: LSB sends the entity's own name in `String` with `Flag` 0 (a text parameter in retail); the speaker-name form is `Flag` set with `UniqueNo` 0.

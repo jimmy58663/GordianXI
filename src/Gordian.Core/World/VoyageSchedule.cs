@@ -31,22 +31,31 @@ namespace Gordian.Core.World
     /// coming up at the end), so the client keeps the time itself.
     /// </para>
     /// <para>
-    /// Which Route each leg plays is an *inference* from where the Routes run (**Beyond LandSandBoat / xi-tools**, which do not
-    /// name them): Phanauet Channel's <c>c002</c> runs from the south end to the north end, <c>c003</c> from the north end to
-    /// the central landing, <c>c000</c> and <c>c001</c> both from the south end to the central landing (<c>c000</c> taken as
-    /// the Emfea leg, <c>c001</c> run backwards for the two central-to-south legs: no Route starts at the central landing).
-    /// Round 1 in game (2026-10-20): the night central-to-south leg landed at the south landing at 23:40 as retail did, but
-    /// on <c>c000</c> it ran through another part of the channel than retail, so the two were swapped.
-    /// The Manaclipper's <c>c002</c> runs Bibiki Bay to Purgonorgo, <c>c003</c> back, <c>c000</c> / <c>c001</c> are loops
-    /// from Sunset Docks back to it. Its day is two halves that differ only in the tour (scripts/globals/manaclipper.lua):
-    /// the morning one goes to Dhalmel Rock (00:50-04:50), the afternoon one to Maliyakaleya Reef (12:50-16:50). Round 3
-    /// in game: the Maliyakaleya Reef shots (Vana'diel 14:19-15:38, <c>image-19</c>-<c>22</c>) show <c>c000</c>'s scenery
-    /// forwards (the cliffs, then the low green island ahead, then the cliffs of Bubunimu along the horizon), so the
-    /// morning tour is <c>c001</c> (*inference*: the only other loop; it starts and ends where the other Sunset Docks legs
-    /// do, so forwards). Before, both tours played <c>c000</c>, which is why the tour matched retail on one day and not on
-    /// the next (round 1). Phanauet Channel's South -> North leg checks out the same way: LandSandBoat's narration
-    /// (barge.lua <c>routeDialogue</c>) points out Ineuteniace Falls at 11:19, 19 % into the leg, and <c>c002</c> passes
-    /// the falls' generators (<c>tg01</c>-<c>tg06</c>) at 22 %. Zones without a timetable hold the vessel halfway along their
+    /// Which Route each leg plays (**Beyond LandSandBoat / xi-tools**, which do not name them). Retail picks it from S2C
+    /// 0x00A: <c>ShipStart</c> / <c>ShipEnd</c> start the client's ship clock (<c>ship_t</c> = time since the start over the
+    /// run's length), zone flag 0x20 runs the path backwards and the high byte of the fourth zone flags names the path
+    /// (XiPackets world/server/0x000A, <c>FUNC_ShipInit</c>; https://github.com/atom0s/XiPackets). LandSandBoat leaves all of
+    /// it 0; its older fork AirSkyBoat (https://github.com/AirSkyBoat/AirSkyBoat, src/map/transport.cpp) still sent it, with
+    /// a path byte of 0 / 8 / 16 / 24 per departure hour. Phanauet Channel (#434, 2026-10-24): the Emfea leg (South ->
+    /// Central) plays <c>c001</c> forwards, both Newtpool legs (Central -> South) <c>c000</c> backwards, South -> North
+    /// <c>c002</c>, North -> Central <c>c003</c>. Three checks agree: AirSkyBoat's path bytes (00h 8, 05h and 20h 0, 10h 16,
+    /// 17h 24); the Emfea narration's "awfully dangerous" bridge (LandSandBoat barge.lua <c>routeDialogue</c>, 96 minutes
+    /// before 04:35, 54-57 % into the leg) is the broken rope bridge <c>jag_k_turi</c> that <c>c001</c> passes under at 61 %;
+    /// and the retail night shot (round 4 <c>image-24</c>, 21:58) shows <c>c000</c>'s open pool, run backwards, at 60-66 %.
+    /// The Manaclipper's <c>c002</c> runs Bibiki Bay to Purgonorgo, <c>c003</c> back, <c>c000</c> / <c>c001</c> are loops from
+    /// Sunset Docks back to it; the morning tour (Dhalmel Rock) plays <c>c001</c>, the afternoon tour (Maliyakaleya Reef)
+    /// <c>c000</c>: the round 3 shots (<c>image-19</c>-<c>22</c>, 14:19-15:38) show <c>c000</c>'s reef, arch and islands, and
+    /// <c>c001</c> never comes within 1,500 yalms of them. **Differs from AirSkyBoat**, whose path bytes give the morning
+    /// tour 0 and the afternoon tour 8.
+    /// </para>
+    /// <para>
+    /// When: the vessel plays the Route's key times linearly over the leg's length, but <see cref="RouteLeadSeconds"/>
+    /// earlier than the leg in LandSandBoat's timetable, so it reaches the far end that long before the passengers
+    /// disembark. Fitted to eight retail shots with their clocks (Phanauet South -> North <c>image-14</c>-<c>18</c>: 16.5 %,
+    /// 28.5 %, 56.5 %, 67 % at 10:51, 11:22, 13:02, 13:45; the Maliyakaleya tour <c>image-19</c>-<c>21</c>: 47 %, 53 %,
+    /// 62-65 % at 14:19, 14:40, 15:08; the Newtpool night shot): each leads the timetable by 36-73 s, 52 s on average, and
+    /// every shot then lands within 4 % of where retail showed it. Playing the Route at constant speed instead
+    /// fits the barge's day leg but misses the tour by 8-11 %. Zones without a timetable hold the vessel halfway along their
     /// first Route.
     /// </para>
     /// </summary>
@@ -60,18 +69,25 @@ namespace Gordian.Core.World
         /// </summary>
         public static readonly Vector3 VesselForward = Vector3.UnitZ;
 
+        /// <summary>
+        /// How many Earth seconds the scenery runs ahead of LandSandBoat's timetable: each leg plays its Route over
+        /// [depart - lead, arrive - lead] (fitted to retail captures, see the class notes).
+        /// </summary>
+        public const double RouteLeadSeconds = 52;
+
         private readonly record struct Timetable(double CycleSeconds, VoyageLeg[] Legs);
 
         private static readonly Dictionary<int, Timetable> Timetables = new()
         {
-            // Phanauet Channel: South -> Central (Emfea), Central -> South (day), South -> North, North -> Central, Central -> South (night).
+            // Phanauet Channel: South -> Central (Emfea), Central -> South (Newtpool, day), South -> North, North -> Central,
+            // Central -> South (Newtpool, night).
             [1] = new Timetable(3456, new[]
             {
-                new VoyageLeg("c000", false, 129, 661),
-                new VoyageLeg("c001", true, 752, 1285),
+                new VoyageLeg("c001", false, 129, 661),
+                new VoyageLeg("c000", true, 752, 1285),
                 new VoyageLeg("c002", false, 1472, 2306),
                 new VoyageLeg("c003", false, 2514, 2774),
-                new VoyageLeg("c001", true, 2864, 3397),
+                new VoyageLeg("c000", true, 2864, 3397),
             }),
             // Manaclipper, twice a day: the tour (Dhalmel Rock in the morning, Maliyakaleya Reef in the afternoon), Bibiki Bay ->
             // Purgonorgo Isle, Purgonorgo Isle -> Bibiki Bay (the evening one arrives 31 s into the next day).
@@ -116,7 +132,7 @@ namespace Gordian.Core.World
                 for (int wrap = 0; wrap < 2; wrap++)
                 {
                     double shift = wrap == 0 ? 0 : -table.CycleSeconds;
-                    double depart = leg.DepartSeconds + shift, arrive = leg.ArriveSeconds + shift;
+                    double depart = leg.DepartSeconds - RouteLeadSeconds + shift, arrive = leg.ArriveSeconds - RouteLeadSeconds + shift;
                     if (t >= depart && t < arrive)
                     {
                         current = leg;

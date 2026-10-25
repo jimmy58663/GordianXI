@@ -43,7 +43,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 |---|---|---|
 | Console, action service & input | ✅ | [input/console-and-input.md](docs/input/console-and-input.md) |
 | 5A Graphics context & multi-box viewports | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
-| 5B Camera & zone terrain | ✅ (building interiors, the Mog House room and ship zones with their vessels done; open: ship routes #434) | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
+| 5B Camera & zone terrain | ✅ (building interiors, the Mog House room and ship zones with their vessels and routes done; open: ship-zone sea colour #430) | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; routine playback from the network (0x038 / 0x03A), generators riding actors, door effects, time-of-day weather effects, and mounted players (chocobos and mounts, seated per race from the data, mount menu) done; open: actor status visuals) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D Skeletal animation | ✅ | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |
 | 5D.1 Transient combat & action animation | ✅ (weapon skill, monster move, job ability and spell presentations with their cast and summon effects; melee swing pace and dual-wield packs with draw and sheathe) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |

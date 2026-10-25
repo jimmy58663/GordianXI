@@ -13,6 +13,7 @@ Dates in the evidence column are the dates the docs give.
 
 | Value | Where | Status | Evidence or what would settle it | Doc |
 |---|---|---|---|---|
+| 52 s scenery lead in voyage zones (each leg plays its Route over [depart - 52 s, arrive - 52 s] of LandSandBoat's timetable, linear in the Route's key times) | `VoyageSchedule.RouteLeadSeconds` | measured (fitted) | eight retail shots with their clocks (#434, `Retail Captures/Round feedback 2026-10-20` `image-14`-`18`, `image-19`-`21`, `image-24`): each leads the timetable by 36-73 s; with 52 s every shot lands within 4 % of its Route. Settle: more evening-leg shots (J24, `image-25`), or a server that fills S2C 0x00A `ShipStart` / `ShipEnd` | [viewport](../rendering/viewport-and-terrain.md) |
 | 0.5 yalm step-up | `PlayerLocomotionController.StepUpHeight` | estimated | chosen a little more forgiving than retail, which blocks the low side walls of Southern San d'Oria's ramps. Settle: the highest ledge retail climbs, from a Windower capture | [collision](../world/collision-and-physics.md) |
 | 0.9 yalm foot sphere (stair rounding) | `PlayerLocomotionController.FootRadius`, `ZoneCollisionMesh.TryGetSteppedGround` | measured | Windower capture of Southern San d'Oria's stairs (0.25-yalm risers): mean error 0.034 yalms against 0.217 for per-tread snapping | [collision](../world/collision-and-physics.md) |
 | 60 yalm deepest ground snap | `PlayerLocomotionController.MaxGroundDrop` | guessed | a search limit | [collision](../world/collision-and-physics.md) |
