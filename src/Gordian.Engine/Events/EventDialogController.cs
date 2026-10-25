@@ -868,6 +868,7 @@ namespace Gordian.Engine.Events
             {
                 entity.IsEventHidden = true;
                 _staged.Add(entity.ServerId);
+                GordianLog.Debug("EVENT", $"Event actor 0x{entity.ServerId:X8} ({entity.Name}) is hidden by the server: hidden until the event shows it.");
             }
         }
 
@@ -1530,6 +1531,7 @@ namespace Gordian.Engine.Events
             }
             entity.IsEventHidden = hidden;
             _staged.Add(serverId);
+            GordianLog.Debug("EVENT", $"Event {(hidden ? "hides" : "shows")} 0x{serverId:X8} ({entity.Name}).");
         }
 
         /// <summary>
@@ -1582,12 +1584,36 @@ namespace Gordian.Engine.Events
             else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
             if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
             Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
-            // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206).
-            if (_world != null && _world.TryGetByServerId(casterServerId, out var colored) && colored.ActorColor.Schedule(scene, ActorColorTrack.Now))
+            // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206),
+            // with those of the routines it starts (Iroha's kie0 / eff0, #237).
+            SceneRoutine? Resolve(string name) => resource.TryGetRoutine(name, out var started) ? started : null;
+            if (_world != null && _world.TryGetByServerId(casterServerId, out var colored) && HasActorColor(scene, Resolve, 0))
             {
+                // Retail's 0x6C (CodeTRANSPAR) and a routine's 0x29 write the same actor colour alpha (#238): Northern San
+                // d'Oria 898 makes the Trust Mumor invisible with 0x6C and brings her in only with 70612's main. The routine
+                // takes the alpha over from where 0x6C left it. *Inferred from that scene.*
+                double now = ActorColorTrack.Now;
+                if (colored.EventAlpha < WorldEntity.OpaqueEventAlpha)
+                {
+                    colored.ActorColor.FadeTo(now, 0, ActorColorTrack.AsDrawn with { W = Math.Max(0, colored.EventAlpha) / (float)WorldEntity.OpaqueEventAlpha });
+                    colored.EventAlpha = WorldEntity.OpaqueEventAlpha;
+                }
+                colored.ActorColor.Schedule(scene, now, Resolve);
                 if (!_colored.Contains(colored)) _colored.Add(colored);
             }
             return scene.TotalFrames;
+        }
+
+        /// <summary>Whether a routine, or one it starts (0x03), fades or holds its actor's colour (0x29 / 0x2E).</summary>
+        private static bool HasActorColor(SceneRoutine routine, Func<string, SceneRoutine?> resolve, int depth)
+        {
+            foreach (var command in routine.Commands)
+            {
+                if (command.Kind is SceneCommandKind.ActorColor or SceneCommandKind.ActorHold) return true;
+                if (command.Kind == SceneCommandKind.StartRoutine && depth < 4 && command.Reference != routine.Name
+                    && resolve(command.Reference) is { } started && HasActorColor(started, resolve, depth + 1)) return true;
+            }
+            return false;
         }
 
         void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);

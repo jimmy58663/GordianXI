@@ -1248,6 +1248,9 @@ namespace Gordian.Engine.Events
                     _pc += 15;
                     _retFlag = true;
                     return;
+                case 0x5F:
+                    ExecMotionDispatch();
+                    return;
                 case 0x50:
                     if (TryTaskActors(Code32(1), Code32(5), out uint stopped, out _))
                     {
@@ -1756,6 +1759,53 @@ namespace Gordian.Engine.Events
         private float _zoneOpenFrames = -1f;
 
         /// <summary>0x5E / 0x6B: the entity's event action ends and it returns to idle.</summary>
+        /// <summary>
+        /// 0x5F (XiEvents OpCodes/0x005F), the non-yielding forms of the motion opcodes, one byte on (#237): sub 2 is 0xC1's
+        /// body (the actor at +2 ends its last action, 6 bytes); subs 3 / 4 are 0x5B's / 0x66's body (resource at +2, actor
+        /// +4, target +8, routine +12; 16 bytes) and subs 5 / 6 the same with a work value at +16 that retail hands the actor
+        /// (an unknown call, not used here; 18 bytes); sub 7 is 0x53's wait (actor +2, target +6, routine +10; 14 bytes),
+        /// holding while the motion plays. None yields once done, where 0x5B / 0x66 do. Subs 0 / 1 set or clear
+        /// <c>Render.Flags1</c> bit 29 of the event's own entity, whose effect is not known: stepped. Retail stays on the
+        /// opcode for another sub; here the request ends.
+        /// </summary>
+        private void ExecMotionDispatch()
+        {
+            switch (Code8(1))
+            {
+                case 0:
+                case 1:
+                    _pc += 2;
+                    return;
+                case 2:
+                    if (TaskActor(Code32(2)) is var killed && killed != uint.MaxValue) ResetMotion(killed);
+                    _pc += 6;
+                    return;
+                case 3:
+                case 5:
+                    ExecEntityMotion(EventMotionSource.Bank, EventMotionBank.MotionBankFileId(GetWork(2)), 4);
+                    _pc += Code8(1) == 3 ? 16 : 18;
+                    return;
+                case 4:
+                case 6:
+                    ExecEntityMotion(EventMotionSource.Package, GetWork(2), 4);
+                    _pc += Code8(1) == 4 ? 16 : 18;
+                    return;
+                case 7:
+                    if (TryTaskActors(Code32(2), Code32(6), out uint waited, out _) && Scene.IsEntityActionPlaying(waited, unchecked((uint)Code32(10))))
+                    {
+                        _retFlag = true;
+                        return;
+                    }
+                    _pc += 14;
+                    return;
+                default:
+                    // No retail sub (table data walked as code): no length, so the request ends as for any such opcode.
+                    _host.OnSkippedOpcode(0x5F, _pc);
+                    EndRequest();
+                    return;
+            }
+        }
+
         private void ResetMotion(uint serverId)
         {
             Scene.EndEntityActions(serverId);

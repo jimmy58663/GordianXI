@@ -66,7 +66,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x2B | | 7 | runs | 6,344 | Prints a dialog message with a named actor as the speaker. |
 | 0x2C | `CodeSCHEDULOR` | 13 | runs | 3,340 | Plays one of the actor's own motion routines toward a target ([#165](https://github.com/jimmy58663/GordianXI/issues/165)). |
 | 0x2D | `CodeMAPSCHEDULOR` | 13 | runs | 464 | Plays a routine of the zone DAT on two actors, as an S2C 0x039 map scheduler does (doors and set pieces; [#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
-| 0x2E | | 1 | stepped | 1,044 | Arms the event cancel data flag (and the cancel flag when cancelling is allowed). |
+| 0x2E | | 1 | runs | 1,044 | Arms the event cancel data flag (and the cancel flag when cancelling is allowed): Cancel on a message may cut the event short ([#413](https://github.com/jimmy58663/GordianXI/issues/413), see [0x23](#0x23-codemeswait)). |
 | 0x2F | | 6 | ignored | 10,668 | Sets or clears `Render.Flags0` bit 19 of an actor. |
 | 0x30 | | 1 | stepped | 848 | Clears the client's "continue after control release" flag. |
 | 0x31 | `CodeSMOVE` | by sub | stepped | 308 | A floor-following walk in three axes with a time operand. |
@@ -86,7 +86,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x3F | | 7 | runs | 944 | Stores the remainder of two work values (0 when either is 0). |
 | 0x40 | `CodeSETBITWORK` | 9 | runs | 9,696 | Writes a value into a bit field (bits from..to) of a work value. |
 | 0x41 | `CodeGETBITWORK` | 9 | runs | 3,796 | Reads a bit field (bits from..to) of a work value. |
-| 0x42 | | 1 | ignored | 19,085 | Clears the event cancel data flag (and the cancel flag when cancelling is allowed). |
+| 0x42 | | 1 | runs | 19,085 | Clears the event cancel data flag (and the cancel flag when cancelling is allowed): Cancel on a message does nothing ([#413](https://github.com/jimmy58663/GordianXI/issues/413)). |
 | 0x43 | | 2 | runs | 6,818 | Sends the event update (C2S 0x05B mode 1) or waits for the server's answer. |
 | 0x44 | | 5 | runs | 74 | Jumps when the server id in a work value names no entity in the zone. |
 | 0x45 | `CodeLOADSCHEDULER` | 17 | runs | 10,696 | Plays a routine of a scene resource DAT as a task on two actors: camera shots and fades ([#165](https://github.com/jimmy58663/GordianXI/issues/165)). |
@@ -115,7 +115,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x5C | | by sub | runs | 2,888 | Sets the music of a music slot, or its volume ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x5D | | 5 | runs | 2,139 | Moves the music volume to a level over a time ([#167](https://github.com/jimmy58663/GordianXI/issues/167)). |
 | 0x5E | | 5 | partial | 3,008 | Ends the event entity's action and returns it to an idle motion it names. |
-| 0x5F | | by sub | stepped | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1. |
+| 0x5F | | by sub | runs | 1,508 | A dispatcher: a render flag, or non-yielding forms of 0x5B / 0x66 / 0x53 / 0xC1 ([#237](https://github.com/jimmy58663/GordianXI/issues/237)). |
 | 0x60 | | by sub | partial | 50 | Sets `Render.Flags1` bit 30 (subs 0/1, stepped) or plays a zone routine with no actors (sub 2, runs; [#226](https://github.com/jimmy58663/GordianXI/issues/226)). |
 | 0x61 | | 2 | stepped | 327 | Sets or clears `Render.Flags2` bit 0 of the event's own entity. |
 | 0x62 | `CodeLOADEVENTSCHEDULER` | 17 | runs | 1,701 | Like 0x45, from scheduler file 5012 + n: one effect package per file (warps `wp00` / `wp01`...). [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
@@ -160,7 +160,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x89 |  | 3 | stepped | 179 | Opens a zone map in the map window for the event. |
 | 0x8A |  | 1 | stepped | 229 | Closes that map window ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
 | 0x8B | `CodeSETEVENTMARK` | 25 | stepped | 101 | Places a named marker on a zone map ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
-| 0x8C |  | by sub | stepped | 55 | Crafting requests (recipes, synthesis support) sent as C2S 0x058, and the wait for the answer. |
+| 0x8C |  | by sub | runs | 55 | Crafting requests (recipes, synthesis support) sent as C2S 0x058, and the wait for the answer ([#405](https://github.com/jimmy58663/GordianXI/issues/405), see [0x8C](#0x8c)). |
 | 0x8D |  | 5 | stepped | 85 | Opens the map window on a map and sub-map without markers. |
 | 0x8E |  | 1 | stepped | 27 | Sets the event entity's event status to 45. |
 | 0x8F |  | 1 | stepped | 23 | Sets the event entity's event status to 46. |
@@ -301,7 +301,8 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x23 `CodeMESWAIT`
 
 - GordianXI yields while the scene's message is open (`EventScene.IsWaitingForConfirm`) and steps 1 once it closes.
-- Retail also ends the event as cancelled when it meets 0x23 while the message state is 2, and stops the speaker's mouth when it moves on (XiEvents OpCodes/0x0023). GordianXI does neither: its mouth clip plays once per line ([#185](https://github.com/jimmy58663/GordianXI/issues/185)).
+- Retail also ends the event as cancelled when it meets 0x23 while the message state is 2, and stops the speaker's mouth when it moves on (XiEvents OpCodes/0x0023). GordianXI's mouth clip plays once per line ([#185](https://github.com/jimmy58663/GordianXI/issues/185)).
+- **Cancel on a message ([#413](https://github.com/jimmy58663/GordianXI/issues/413), 2026-10-24, awaits the retail check):** the message state 2 is read as the player's Cancel on an open line where the event allows it. GordianXI: Cancel (`EventDialogController.CancelLine` → `EventScene.CancelMessage`) closes the line and marks it cancelled when `EventScene.MessageCancelAllowed` is set; the next 0x23 then ends the event as cancelled (`EventVm.CancelledEndParameter`, as a cancelled query). Where it is not allowed, Cancel does nothing (before, Cancel closed the line like Confirm). 0x2E allows it and 0x42 forbids it (XiEvents OpCodes/0x002E, 0x0042: `CliEventCancelSetData`, copied to `CliEventCancelFlag` while `CliEventCancelSetFlag` is set). It is on at the event's start: of the events with messages, 16,097 never touch it (plain NPC talk, Southern San d'Oria 509), 8,510 clear it with 0x42 before their first message (the cutscenes on the player's block, Southern San d'Oria 23) and 7,804 clear it later (Southern San d'Oria 650 before its image support animation); 988 arm it with 0x2E (a guild NPC's loop back to its menu, Southern San d'Oria 648). **Beyond XiEvents:** the start value and that the message state 2 comes from Cancel are inferred from that corpus scan (2026-10-24), not read from the client; `CliEventCancelSetFlag` is taken as always set. Retail check wanted: Cancel at a plain talk NPC ends it, Cancel on a cutscene line does nothing.
 
 ### 0x26
 
@@ -318,7 +319,7 @@ When a change makes an opcode run, update its row and detail section in the same
 ### 0x2D `CodeMAPSCHEDULOR`
 
 - Layout: `2D actor:u32 target:u32 routine:u32`; 0x51 stops it and 0x54 waits for it, same operands (XiEvents OpCodes/0x002D, 0x0051, 0x0054: `XiZone::SetAction`, `KillAction`, `IsMovingAction`). Retail runs it only when both actors' models are loaded (`Render.Flags0` bit 9). The routine is a Section 0x07 of the zone DAT, the same kind an S2C 0x039 map scheduler names (LandSandBoat sends `1pa1` / `1pb1` / `2pb1` after an Alzadaal zone-in; the zone's events 6-11 and 124-126 play the same three with 0x2D on the player, 117 / 118 play the activations `1pa2` / `1pb2` on the event's own entity, 116 and 405-410 the second portal's `2pb2`, `2pbk`, `2pb1`).
-- GordianXI ([#226](https://github.com/jimmy58663/GordianXI/issues/226), 2026-10-03, awaits the in-game test): `EventVm.ExecZoneScheduler` resolves both actors like the scene tasks (an actor not in the zone steps the opcode over), 0x2D asks the host to play the routine (`IEventVmHost.StartZoneScheduler` → `WorldState.PostMapScheduler` → `ZoneRoutinePlayer`, [particles.md](../rendering/particles.md#how-zone-routines-start-210)) and registers it as an `EventScene` task under the file key -1 with the routine's length from the loaded zone DAT (`EventDialogController.ZoneRoutineFrames`; the longest routine of that name), 0x54 waits while that task runs and 0x51 removes it and ends the routine (`ZoneRoutinePlayer.Stop`: the routines it started and its particles go on, as a scene task's stop leaves them). A routine the zone lacks lasts no frames, so a wait on it never holds the scene. Since [#232](https://github.com/jimmy58663/GordianXI/issues/232) the two actors bind the routine's generators that ride an actor (`ZoneRoutineActors`, [particles.md](../rendering/particles.md#generators-attached-to-an-actor-and-doors-232-121-227)). Since [#233](https://github.com/jimmy58663/GordianXI/issues/233) (2026-10-18) a 0x2D naming a door entity with `open` / `clos` / `into` / `intc` plays that door's own routine and moves its leaves, and the task lasts the door's leaf move (`EventDialogController.DoorRoutineFrames`), so a 0x54 on it waits while the door moves (no retail script does this: Mog Garden's 40 door waits, zone 280, wait on the door's own routine without a 0x2D and end at once; see [particles.md](../rendering/particles.md#generators-attached-to-an-actor-and-doors-232-121-227)); and an event's 0x2D / 0x51 is queued for the zone the scene shows (the event zone while one is open). Of the 476 uses naming routines outside the zone DAT, zone 14's are all in the cutscene stage file 641 (`e_cr`), likely its event zone ([particles.md](../rendering/particles.md#routines-outside-the-zone-dat-233)); which event zone number loads it is open.
+- GordianXI ([#226](https://github.com/jimmy58663/GordianXI/issues/226), 2026-10-03, awaits the in-game test): `EventVm.ExecZoneScheduler` resolves both actors like the scene tasks (an actor not in the zone steps the opcode over), 0x2D asks the host to play the routine (`IEventVmHost.StartZoneScheduler` → `WorldState.PostMapScheduler` → `ZoneRoutinePlayer`, [particles.md](../rendering/particles.md#how-zone-routines-start-210)) and registers it as an `EventScene` task under the file key -1 with the routine's length from the loaded zone DAT (`EventDialogController.ZoneRoutineFrames`; the longest routine of that name), 0x54 waits while that task runs and 0x51 removes it and ends the routine (`ZoneRoutinePlayer.Stop`: the routines it started and its particles go on, as a scene task's stop leaves them). A routine the zone lacks lasts no frames, so a wait on it never holds the scene. Since [#232](https://github.com/jimmy58663/GordianXI/issues/232) the two actors bind the routine's generators that ride an actor (`ZoneRoutineActors`, [particles.md](../rendering/particles.md#generators-attached-to-an-actor-and-doors-232-121-227)). Since [#233](https://github.com/jimmy58663/GordianXI/issues/233) (2026-10-18) a 0x2D naming a door entity with `open` / `clos` / `into` / `intc` plays that door's own routine and moves its leaves, and the task lasts the door's leaf move (`EventDialogController.DoorRoutineFrames`), so a 0x54 on it waits while the door moves (no retail script does this: Mog Garden's 40 door waits, zone 280, wait on the door's own routine without a 0x2D and end at once; see [particles.md](../rendering/particles.md#generators-attached-to-an-actor-and-doors-232-121-227)); and an event's 0x2D / 0x51 is queued for the zone the scene shows (the event zone while one is open). Of the 476 uses naming routines outside the zone DAT, most play in the zone the event opens with 0x34 first: zone 14's event 50 opens the cutscene stage zone 541, whose model DAT is file 641 (`e_cr`, 100 + the zone, as for every stage zone 500-699 since 2026-10-24), and Windurst Woods 588 opens zone 192 for its `skai` ([particles.md](../rendering/particles.md#routines-outside-the-zone-dat-233)).
 - Corpus (2026-10-03, operands read from the 1,500 0x2D, 96 0x54, 79 0x51 and 173 0x60 sub 2 occurrences the walk reaches; the `?1?2` / `?7??` tags with `NN80` actors in every city's event 30034 are script tables walked as code): 0x2D names its two actors alike in 1,440 uses, the event's own entity (0x7FFFFFF8) in 763, the player (0x7FFFFFF0) in 548 and an NPC id in 189; 1,024 of its routines are in the zone DAT (863 on demand, 93 under door directories, 6 ambient) and 476 are not (zone 14's `sc11` / `kaks` / `4aks`, all in file 641 `e_cr`; zone 9's, zone 32's `sc51`...). The most used names: `1pb1` 75, `sta1`-`sta4` 251 (zones 16-22's `dor1`-`dor3` doors, whose `sta3` / `stb3` / `stc3` 0x54 waits for), `2pb1` 34, `kill` 27, `1pb2` 22, `kaks` 20, `2end` / `3end` 18. 0x51's real uses are few: Pso'Xja (170) event 42's `hshi` / `kika` / `izum` / `yomi` and zone 192's `kbas` / `kkid` / `kkai` (the rest are table data). Starter-zone uses: Lower Jeuno (245) events 196 and 204 play `sc00` (`t_ju/effe/tama`, 80 frames) on the event's entity; Windurst Waters 976 names `1pb1` and Windurst Woods 588 `skai`, neither in those zones' DATs; San d'Oria, Bastok and the other Windurst and Jeuno zones have no real use. **Beyond XiEvents:** the counts and that the routine is the zone DAT's own.
 
 ### 0x31 `CodeSMOVE`
@@ -482,17 +483,17 @@ When a change makes an opcode run, update its row and detail section in the same
 
 | sub | bytes | events using | meaning | GordianXI |
 |---|---|---|---|---|
-| 0x00, 0x01 | 2 | 15, 18 | set `Render.Flags1` bit 29 of the event's own entity to the sub | stepped |
-| 0x02 | 6 | 41 | the body of 0xC1 at +1 | stepped |
-| 0x03 | 16 | 404 | the body of 0x5B at +1, without the closing yield | stepped |
-| 0x04 | 16 | 106 | the body of 0x66 at +1, without the closing yield | stepped |
-| 0x05 | 18 | 463 | as 0x03 with a work value at +16 handed to the actor | stepped |
-| 0x06 | 18 | 308 | as 0x04 with that work value | stepped |
-| 0x07 | 14 | 768 | the body of 0x53 at +1, waiting while the motion plays | stepped |
+| 0x00, 0x01 | 2 | 15, 18 | set `Render.Flags1` bit 29 of the event's own entity to the sub | stepped (effect unknown) |
+| 0x02 | 6 | 41 | the body of 0xC1 at +1 | runs: the actor's action ends |
+| 0x03 | 16 | 404 | the body of 0x5B at +1, without the closing yield | runs |
+| 0x04 | 16 | 106 | the body of 0x66 at +1, without the closing yield | runs |
+| 0x05 | 18 | 463 | as 0x03 with a work value at +16 handed to the actor | runs (the extra value is not used) |
+| 0x06 | 18 | 308 | as 0x04 with that work value | runs (the extra value is not used) |
+| 0x07 | 14 | 768 | the body of 0x53 at +1, waiting while the motion plays | runs |
 | 0x80 | ? | 37 | no retail sub-case | no length: ends the request |
 
 - Retail retries a sub-case from the 0x5F byte while its body cannot finish (motion resources still loading) (XiEvents OpCodes/0x005F). Lengths confirmed by the corpus walk (#73, [vm.md](vm.md#event-files)).
-- Subs 3-7 start and wait for gestures like 0x5B / 0x66 / 0x53; stepping over them leaves those gestures out of 1,508 events. No issue covers this yet.
+- GordianXI (`EventVm.ExecMotionDispatch`, [#237](https://github.com/jimmy58663/GordianXI/issues/237), 2026-10-24): subs 2-7 run as the opcodes they borrow, one byte on, and none yields once done (retail's RetFlag 0). Before, they were stepped over, which left those gestures out of 1,508 events: Upper Jeuno 10221's Iroha stood still instead of kneeling (`hiz0`, bank 70204), writhing (`kru0`, 70209) and getting up (`hiz1`). What retail does with subs 5 / 6's extra work value (an unnamed actor call in XiEvents) is open.
 
 ### 0x60
 
@@ -528,6 +529,7 @@ When a change makes an opcode run, update its row and detail section in the same
 - The alpha is half scale, like the other model colours: the scripts' targets are 0 (8,961 uses) and 128 (7,095), then 64, 127, 80 and 100. The frame count is 1 in 14,832 uses, which sets the alpha within one frame (corpus probe, 2026-10-03).
 - **Differs from XiEvents:** the decompiled pseudo code writes the target alpha on every step and never uses the stepped `NowAlpha` it computes; the final write subtracts the alpha byte instead of adding it. GordianXI reads both as decompiler slips: it writes the stepped alpha, so the fade is gradual, and it sets the target at the end.
 - Test scenes: Southern San d'Oria `!cs 686` fades NPC 0x010E60F5 in to about 0x48 and back out; `!cs 945` (Femitte's mithra dancer) sets 16 bystanders to 0x60 at once.
+- **0x6C and a scene routine's 0x29 share the alpha ([#238](https://github.com/jimmy58663/GordianXI/issues/238), 2026-10-24):** Northern San d'Oria 898 makes the Trust Mumor (0x010E7178) invisible with 0x6C at its start and brings her in only with the 0x29 fade of file 70612's `main` (alpha 0, then to 0x80 over frames 31-71); no later 0x6C restores her. So the two write one actor colour alpha. GordianXI: a scene task whose routine (or one it starts with 0x03) has colour commands takes the alpha over: the entity's `EventAlpha` goes back to opaque and its `ActorColorTrack` starts from the alpha 0x6C left (`EventDialogController.StartSceneTask`). *Inferred from that scene*, not read from the client.
 
 ### 0x6E `CodeEMOT`
 
@@ -659,6 +661,13 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - Layout: `87 sub`, `88 sub`. Subs 0 and 2 queue C2S 0x01B (world pass) with a mode (0x87: 0 / 2, 0x88: 1 / 3) and yield; sub 1 yields until the server's answer clears the wait flag (XiEvents OpCodes/0x0087, 0x0088).
 - Stepped. Most census hits are table data (25 of 37 and 20 of 32 uses); about 3 events use each as code.
+
+### 0x8C
+
+- Layout (operands are 16-bit work values, XiEvents OpCodes/0x008C): `8C 00 skill level param0` (8 bytes) sends C2S 0x058 mode 1; `8C 01` (2) waits for the answer; `8C 02 skill level rank first last` (12) mode 2 (`Param4` the rank, `Param1` / `Param2` the page's first and last index: 0 / 16, then 16 / 32...); `8C 03` / `8C 04 skill level rank index` (10) modes 3 / 4 (`Param4`, `Param3`); `8C 05 param1 skill level param4 param3 param0` (14) mode 5, which does not wait. Subs 0 and 2-4 set retail's `RecRecipeFlag`, which S2C 0x031 (`RecvRecipe`) clears; every sub yields a frame. Packet fields: XiPackets `world/client/0x0058`, `world/server/0x0031`.
+- GordianXI (`EventVm.ExecRecipe`, [#405](https://github.com/jimmy58663/GordianXI/issues/405), 2026-10-24): the host sends the request (`IEventVmHost.SendRecipeRequest` → `CraftingPacketModule.RequestRecipeAsync`) and holds sub 1 while the answer is pending; `EventDialogController` writes the S2C 0x031 answer into the work zone on the event thread before the scene ticks (`EventWorkZone.ApplyRecipe` / `ApplyRecipeList`). With no answer in 5 s (`RecipeAnswerTimeout`: LandSandBoat drops skill 0, the Fishermen's Guild's) the event goes on with an empty one, where retail would wait for ever.
+- Where the answer lands, read from the scripts (zone 48 event 222, Southern San d'Oria 650 / 651 and the other guild and image support NPCs): a recipe (kinds 1 / 3) in zone work 0x40 product, 0x41-0x43 sub-craft skills, 0x44 crystal, 0x45-0x4C the eight ingredients, 0x4D-0x54 their counts, 0x55 the key item (the scripts pick "Necessary key item" on 0x55 and print ingredients from 0x45, counts from 0x4D); a list page (kind 2) in message parameters 0-15 (zone work 2-9, then 1700 slots 0-7) and the next page's first item in 1700 slot 8. The list query hides each empty slot and "View more recipes." (option 17) when slot 8 is 0; that option asks for the next 16, a recipe asks for its materials by `first + choice - 1`. **Beyond XiEvents / XiPackets:** the work layout, and that the client moves the packet's key item (its sixth value) to the end, are inferred from the scripts, not read from `RecvRecipe`.
+- Corpus: sub 0 in 30 events, 1 in 53, 2 and 3 in 31, 4 and 5 in 3 (the Campaign Ops adjutants); the guild NPCs of the starter cities (Southern San d'Oria 648-652, Northern San d'Oria 621-630, Bastok Mines / Markets, Metalworks, Windurst Waters / Woods), zone 48 and zone 50.
 
 ### 0x90
 

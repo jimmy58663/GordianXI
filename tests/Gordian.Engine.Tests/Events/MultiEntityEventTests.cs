@@ -167,6 +167,101 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Upper Jeuno 10221 (#237): Iroha's poses come from opcode 0x5F sub 3 (0x5B's motion without its yield), which
+        /// was stepped over: she kneels (<c>hiz0</c>, bank 70204), writhes (<c>kru0</c>, 70209) and gets up (<c>hiz1</c>),
+        /// and her vanishing is the scene routine <c>kie1</c> of file 70795, whose 0x29 takes her to alpha 0.
+        /// </summary>
+        [Fact]
+        public void UpperJeunoNumberingDays_IrohaKneelsAndVanishes()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            const uint Iroha = 0x010F40FF;
+            var run = RunScene(rm, 244, 10221, host => host.EntityValues[7] = 5);
+            Assert.Equal(new[] { "hiz0", "kru0", "hiz1" }, run.Host.Motions.Where(m => m.Id == Iroha).Select(m => m.Routine));
+            Assert.All(run.Host.Motions.Where(m => m.Id == Iroha), m => Assert.True(run.Host.MotionSource!(m.Source, m.Resource, m.Routine) > 0));
+            Assert.DoesNotContain((byte)0x5F, run.Host.Skipped);
+            Assert.Contains(run.Host.SceneTasks, t => t.Caster == Iroha && t.FileId == 70795 && t.Routine == "kie1");
+
+            var scene = EventSceneResource.Parse(rm.LoadDatBytesByFileId(70795)!);
+            Gordian.Core.Resources.Events.SceneRoutine? Find(string name) => scene.TryGetRoutine(name, out var r) ? r : null;
+            var track = new Gordian.Core.World.ActorColorTrack();
+            Assert.True(track.Schedule(Find("kie1")!, 0, Find));
+            Assert.Equal(1f, track.Sample(170 / 60.0).W, 3);
+            Assert.Equal(0f, track.Sample(200 / 60.0).W, 3);
+            // kie0 dims her through eff0 (started at 183, 0x29 to alpha 0x6C at 109-199 of it).
+            var dim = new Gordian.Core.World.ActorColorTrack();
+            Assert.False(dim.Schedule(Find("kie0")!, 0));
+            Assert.True(dim.Schedule(Find("kie0")!, 0, Find));
+            Assert.Equal(0x6C / 128f, dim.Sample(400 / 60.0).W, 3);
+        }
+
+        /// <summary>
+        /// Northern San d'Oria 898 (#238, Sunbreeze Festival): the Moogle directs the scene and shows itself (<c>22 00</c>,
+        /// after the server's Disappear status hid it), the shots are its tasks of file 70987, the player summons with
+        /// <c>star</c> / <c>stop</c> of file 70609, and the second Mumor (the Trust) appears with <c>main</c> of 70612,
+        /// which fades her in from alpha 0.
+        /// </summary>
+        [Fact]
+        public void NorthernSandoriaSunbreeze_TheMoogleShowsItself_AndTheTrustMumorFadesIn()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            const uint Moogle = 0x010E7169, TrustMumor = 0x010E7178;
+            var run = RunScene(rm, 231, 898);
+            Assert.False(run.Host.Hidden[Moogle]);
+            Assert.Contains(run.Host.SceneTasks, t => t.Caster == Moogle && t.FileId == 70987);
+            Assert.Equal(new[] { "star", "stop" }, run.Host.SceneTasks.Where(t => t.FileId == 70609).Select(t => t.Routine));
+            Assert.Contains(run.Host.SceneTasks, t => t.Caster == TrustMumor && t.FileId == 70612 && t.Routine == "main");
+            Assert.False(run.Host.Hidden.GetValueOrDefault(TrustMumor));
+        }
+
+        /// <summary>
+        /// Northern San d'Oria 898 through the dialog controller (#238): the Moogle, hidden by the server, is drawn once
+        /// its script shows it; the Trust Mumor, made invisible by 0x6C at the start, is visible again once 70612's
+        /// <c>main</c> has faded her in (0x6C and the routine's 0x29 share one alpha, so the routine takes it over).
+        /// </summary>
+        [Fact]
+        public void NorthernSandoriaSunbreeze_TheTrustMumorAppearsWhenSummoned()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(),
+                new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
+            const uint Moogle = 0x010E7169, Mumor = 0x010E7177, TrustMumor = 0x010E7178, Blank = 0x010E7179;
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 231);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            foreach (uint id in new[] { Moogle, Mumor, TrustMumor, Blank })
+            {
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(id, (ushort)(id & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            }
+            parser.Progression.StartEvent(PlayerId, 0x400, 231, 898, 0);
+            bool moogleDrawn = false, trustHidden = false, trustBack = false;
+            for (int i = 0; i < 200_000 && (i < 600 || controller.IsActive); i++)
+            {
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                if (!controller.IsActive) continue;
+                parser.World.TryGetByServerId(Moogle, out var moogle);
+                parser.World.TryGetByServerId(TrustMumor, out var trust);
+                moogleDrawn |= moogle!.IsDrawn;
+                float alpha = trust!.EventAlpha / (float)Gordian.Core.World.WorldEntity.OpaqueEventAlpha;
+                if (trust.ActorColor.IsActive) alpha = Math.Min(alpha, trust.ActorColor.Sample(Gordian.Core.World.ActorColorTrack.Now + 2.0).W);
+                if (alpha <= 0) trustHidden = true;
+                else if (trustHidden && alpha >= 1) trustBack = true;
+            }
+            Assert.True(moogleDrawn);
+            Assert.True(trustHidden);
+            Assert.True(trustBack);
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.
