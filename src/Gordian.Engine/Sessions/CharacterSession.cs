@@ -376,6 +376,8 @@ namespace Gordian.Engine.Sessions
             // The Map window (#23): the zone's map, and Wide Scan as /widescan.
             ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
             ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
+            // View House (#23): the Mog Safes, Storage and Mog Locker give up their items only in the Mog House (S2C 0x00A).
+            ActionService.Menus.InMogHouse = () => World.ZoneLoginInfo?.InMogHouse == true;
             Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.

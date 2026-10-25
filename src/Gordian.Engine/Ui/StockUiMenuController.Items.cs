@@ -524,6 +524,7 @@ namespace Gordian.Engine.Ui
             var top = open[^1];
             string title = top.IsQuantity ? StockUiItems.TitleQuantity
                 : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
+                : window.ItemListKind == StockUiItemListKind.Storage ? StockUiViewHouse.Title(window.ItemContainer)
                 : window.IsSynthesisGrid || window.ItemListKind == StockUiItemListKind.SynthesisHistory ? StockUiSynthesis.Title
                 : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
@@ -535,6 +536,7 @@ namespace Gordian.Engine.Ui
                 {
                     case StockUiItemListKind.Items:
                     case StockUiItemListKind.RecycleBin:
+                    case StockUiItemListKind.Storage:
                         (int used, int total) = StockUiItems.Fill(Inventory, window.ItemContainer);
                         numerator = used;
                         denominator = total;
@@ -559,6 +561,9 @@ namespace Gordian.Engine.Ui
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
                 else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
+                // View House (#23): "Move an item to your inventory." where it can be, else the storage's own line ("View content of Mog Safe ...").
+                else if (menu.ItemListKind == StockUiItemListKind.Storage)
+                    help = CanMoveFromStorage(menu.ItemContainer) ? StockUiViewHouse.HelpMoveToInventory : menu.Parent?.SelectedButton?.HelpTextId ?? -1;
                 else if (menu.SelectedButton is { HelpTextId: >= 0 } button) help = button.HelpTextId;
                 else if (menu.Menu.Frame.HelpTextId >= 0) help = menu.Menu.Frame.HelpTextId;
                 else if (menu.IsItemList) help = StockUiItems.HelpSelectItem;
@@ -630,6 +635,9 @@ namespace Gordian.Engine.Ui
                     return;
                 case StockUiItemListKind.GuildSell:
                     PickGuildSale(list, row);
+                    return;
+                case StockUiItemListKind.Storage:
+                    MoveFromStorage(list, row);
                     return;
             }
             if (list.IsManualSort)

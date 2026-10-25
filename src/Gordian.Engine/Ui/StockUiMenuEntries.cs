@@ -35,6 +35,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The Map window's Change Map: the zone's next map.</summary>
         MapChange,
 
+        /// <summary>Main menu View House: the storage list (<see cref="StockUiViewHouse"/>).</summary>
+        ViewHouse,
+
+        /// <summary>A View House storage: opens its item list (the Argument is a <c>ContainerId</c>).</summary>
+        ViewStorage,
+
         /// <summary>One choice of a config page's option row (<see cref="StockUiConfigPages"/>): confirm selects it.</summary>
         ConfigOption,
 
@@ -234,7 +240,7 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 1)] = new("Missions", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 2)] = new("Quests", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.KeyItems),
-            [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.ViewHouse),
             [(MainMenuPage2, 5)] = new("Bazaar", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 6)] = new("Macros", Opens: StockUiEquipSets.MacroMenu),
             [(MainMenuPage2, 7)] = new("Config", Opens: ConfigMenu),
@@ -245,6 +251,23 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            // View House (#23): mogcont's storages.
+            [(StockUiViewHouse.MenuName, 1)] = new("Mog Safe", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSafe),
+            [(StockUiViewHouse.MenuName, 8)] = new("Mog Safe 2", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSafe2),
+            [(StockUiViewHouse.MenuName, 2)] = new("Storage", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Storage),
+            [(StockUiViewHouse.MenuName, 3)] = new("Mog Locker", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogLocker),
+            [(StockUiViewHouse.MenuName, 4)] = new("Mog Satchel", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSatchel),
+            [(StockUiViewHouse.MenuName, 5)] = new("Mog Sack", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSack),
+            [(StockUiViewHouse.MenuName, 6)] = new("Mog Case", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogCase),
+            [(StockUiViewHouse.MenuName, 7)] = new("Mog Wardrobe", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe),
+            [(StockUiViewHouse.MenuName, 9)] = new("Mog Wardrobe 2", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe2),
+            [(StockUiViewHouse.MenuName, 10)] = new("Mog Wardrobe 3", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe3),
+            [(StockUiViewHouse.MenuName, 11)] = new("Mog Wardrobe 4", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe4),
+            [(StockUiViewHouse.MenuName, 12)] = new("Mog Wardrobe 5", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe5),
+            [(StockUiViewHouse.MenuName, 13)] = new("Mog Wardrobe 6", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe6),
+            [(StockUiViewHouse.MenuName, 14)] = new("Mog Wardrobe 7", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe7),
+            [(StockUiViewHouse.MenuName, 15)] = new("Mog Wardrobe 8", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe8),
+
             // Map (#23).
             [(StockUiMap.MenuName, StockUiMap.MarkersButton)] = new("Markers", Command: StockUiMenuCommand.NotAvailable),
             [(StockUiMap.MenuName, StockUiMap.WideScanButton)] = new("Wide Scan", Command: StockUiMenuCommand.MapWideScan),

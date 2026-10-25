@@ -110,6 +110,8 @@ namespace Gordian.Engine.Tests.Ui
             EquipGrid(),
             QuantityFrame(),
             List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 2),
+            List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 12),
+            List(StockUiViewHouse.MenuName, 384, 48, UiAnchor.TopRight, 15),
         });
 
         private sealed class Harness
@@ -824,6 +826,50 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(244, grid.ItemHelpBar!.Value.HelpTextId); // "Head (Helms, hats, etc.)"
             h.Menus.Activate();
             Assert.True(h.Menus.Top!.IsItemList);
+        }
+
+        /// <summary>
+        /// View House (#23): the storage list greys storages the server has not given; a Wardrobe's item moves to the inventory
+        /// (C2S 0x029 to the first free slot), while the Mog Safe can only be viewed outside the Mog House.
+        /// </summary>
+        [Fact]
+        public void ViewHouse_ListsStorages_MovesFromTheWardrobe_ViewsTheMogSafe()
+        {
+            var h = new Harness();
+            h.Inventory.SetContainerSizes(ContainerId.MogSafe, 50, 50);
+            h.Inventory.SetItem(ContainerId.MogSafe, 3, Chestnut, 7, ItemLockFlag.Normal);
+            bool inMogHouse = false;
+            h.Menus.InMogHouse = () => inMogHouse;
+            Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenuPage2));
+            h.Menus.Top!.SelectedButtonId = 4; // View House
+            h.Menus.Activate();
+            var storages = h.Menus.Top!;
+            Assert.Equal(StockUiViewHouse.MenuName, storages.Name);
+            Assert.False(storages.IsGreyed(1));  // Mog Safe
+            Assert.False(storages.IsGreyed(7));  // Mog Wardrobe
+            Assert.True(storages.IsGreyed(4));   // Mog Satchel: no size from the server
+
+            storages.SelectedButtonId = 7;
+            h.Menus.Activate();
+            var wardrobe = h.Menus.Top!;
+            Assert.Equal(StockUiItemListKind.Storage, wardrobe.ItemListKind);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.ItemContainer);
+            Assert.Equal("Bronze Sword", Assert.Single(wardrobe.ItemRows).Name);
+            Assert.Equal(new StockUiItemHelpBar("M.Ward.", 1, 80, StockUiViewHouse.HelpMoveToInventory), wardrobe.ItemHelpBar);
+            h.Menus.Activate();
+            Assert.Equal((1u, ContainerId.Wardrobe, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot), Assert.Single(h.Moves));
+
+            h.Menus.CloseTop();
+            storages.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var safe = h.Menus.Top!;
+            Assert.Equal(ContainerId.MogSafe, safe.ItemContainer);
+            h.Menus.Activate();
+            Assert.Single(h.Moves);
+            Assert.Contains("Mog House", h.Notices[^1]);
+            inMogHouse = true;
+            h.Menus.Activate();
+            Assert.Equal((7u, ContainerId.MogSafe, (byte)3, ContainerId.Inventory, StockUiItems.AnyFreeSlot), h.Moves[1]);
         }
     }
 }

@@ -1867,6 +1867,16 @@ namespace Gordian.Engine.Ui
                     if (mapped) Changed?.Invoke();
                     break;
 
+                case StockUiMenuCommand.ViewHouse:
+                    bool housed;
+                    lock (_sync) housed = OpenViewHouse(from) != null;
+                    if (housed) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.ViewStorage:
+                    OpenStorage(from, (Gordian.Core.Network.Packets.ContainerId)entry.Argument);
+                    break;
+
                 case StockUiMenuCommand.MapChange:
                     ChangeMap(from);
                     break;
