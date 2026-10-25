@@ -876,8 +876,16 @@ namespace Gordian.Engine.Events
                     EndEvent(false);
                     return;
                 case 0x23:
-                    if (Scene.IsWaitingForConfirm) _retFlag = true;
+                    // A message the player cancelled where the event allows it ends the event as cancelled (#413).
+                    if (Scene.IsMessageCancelled) EndEvent(true);
+                    else if (Scene.IsWaitingForConfirm) _retFlag = true;
                     else _pc++;
+                    return;
+                case 0x2E:
+                case 0x42:
+                    // Allows (0x2E) or forbids (0x42) cutting the event short with Cancel on a message (#413).
+                    Scene.MessageCancelAllowed = op == 0x2E;
+                    _pc++;
                     return;
                 case 0x24:
                     OpenQuery(1);
@@ -1136,6 +1144,9 @@ namespace Gordian.Engine.Events
                     return;
                 case 0xA6:
                     ExecSubMapNumber();
+                    return;
+                case 0x8C:
+                    ExecRecipe();
                     return;
                 case 0x5C:
                 case 0x5D:
@@ -1443,7 +1454,6 @@ namespace Gordian.Engine.Events
                     _pc += 5;
                     return;
                 case 0x2F:
-                case 0x42:
                 case 0x7C:
                     // Opcodes with no effect on a client that draws no render-flag variants. The
                     // scripts' use of 0x2F (Render.Flags0 bit 19) always sits next to the 0x22 / 0x4E hide that does the work.
@@ -1591,6 +1601,45 @@ namespace Gordian.Engine.Events
                 default:
                     // Retail does nothing and does not move on for another sub; step over it instead of hanging.
                     _host.OnSkippedOpcode(0x75, _pc);
+                    _pc += 2;
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// 0x8C (XiEvents OpCodes/0x008C), the crafting guild NPCs' recipe requests (#405). Subs 0 and 2-5 send C2S 0x058
+        /// (XiPackets world/client/0x0058) with the work values they name and go on by their length; sub 1 holds until S2C
+        /// 0x031 has answered, whose values the client has written into the work zone by then (<c>RecvRecipe</c>). The
+        /// operands, as 16-bit work values: sub 0 <c>skill level param0</c> (mode 1); sub 2 <c>skill level rank first last</c>
+        /// (mode 2: <c>Param4</c> the rank, <c>Param1</c> / <c>Param2</c> the page's first and last index); subs 3 / 4
+        /// <c>skill level rank index</c> (modes 3 / 4: <c>Param4</c>, <c>Param3</c>); sub 5 <c>param1 skill level param4
+        /// param3 param0</c> (mode 5). A request that cannot be queued is tried again next frame. Every sub yields a
+        /// frame (RetFlag); another sub stays on the opcode in retail and is stepped over here.
+        /// </summary>
+        private void ExecRecipe()
+        {
+            _retFlag = true;
+            ushort W(int offset) => unchecked((ushort)GetWork(offset));
+            switch (Code8(1))
+            {
+                case 0:
+                    if (_host.SendRecipeRequest(1, W(2), W(4), W(6), 0, 0, 0, 0)) _pc += 8;
+                    return;
+                case 1:
+                    if (!_host.RecipePending) _pc += 2;
+                    return;
+                case 2:
+                    if (_host.SendRecipeRequest(2, W(2), W(4), 0, W(8), W(10), 0, W(6))) _pc += 12;
+                    return;
+                case 3:
+                case 4:
+                    if (_host.SendRecipeRequest(Code8(1), W(2), W(4), 0, 0, 0, W(8), W(6))) _pc += 10;
+                    return;
+                case 5:
+                    if (_host.SendRecipeRequest(5, W(4), W(6), W(12), W(2), 0, W(10), W(8))) _pc += 14;
+                    return;
+                default:
+                    _host.OnSkippedOpcode(0x8C, _pc);
                     _pc += 2;
                     return;
             }

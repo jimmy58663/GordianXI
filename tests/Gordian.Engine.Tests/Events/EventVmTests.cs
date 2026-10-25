@@ -18,6 +18,8 @@ namespace Gordian.Engine.Tests.Events
         public List<bool> Locks { get; } = new();
         public List<byte> Skipped { get; } = new();
         public HashSet<int> PromptMessages { get; } = new();
+        /// <summary>Every message waits for Confirm (retail lines ending in the prompt code).</summary>
+        public bool PromptAll { get; set; }
         public Dictionary<int, int> EntityValues { get; } = new();
         public int QueryResult { get; set; }
         public bool ReceivePending { get; set; }
@@ -30,7 +32,7 @@ namespace Gordian.Engine.Tests.Events
         public double PrintMessage(int messageId, EventSpeaker speaker, uint speakerServerId, ushort speakerIndex)
         {
             Printed.Add((messageId, speaker, speakerServerId));
-            return PromptMessages.Contains(messageId) ? PromptSeconds : 0;
+            return PromptAll || PromptMessages.Contains(messageId) ? PromptSeconds : 0;
         }
 
         public void OpenQuery(int messageId, int defaultIndex, uint hiddenMask) => Queries.Add((messageId, defaultIndex, hiddenMask));
@@ -53,6 +55,24 @@ namespace Gordian.Engine.Tests.Events
         public bool EntityExists(uint serverId) => serverId == 0x010E6001 || Entities.ContainsKey(serverId);
         public int GetEntityValue(uint serverId, int key) => EntityValues.TryGetValue(key, out int v) ? v : 0;
         public void OnSkippedOpcode(byte opcode, int pc) => Skipped.Add(opcode);
+
+        /// <summary>Recipe requests of opcode 0x8C (#405): mode, skill, level, Param0-Param4.</summary>
+        public List<(ushort Mode, ushort Skill, ushort Level, ushort P0, ushort P1, ushort P2, ushort P3, ushort P4)> Recipes { get; } = new();
+        /// <summary>Answers a recipe request at once (writes the work zone as S2C 0x031 would); null leaves it pending.</summary>
+        public Action<(ushort Mode, ushort Skill, ushort Level, ushort P0, ushort P1, ushort P2, ushort P3, ushort P4)>? AnswerRecipe { get; set; }
+        public bool RecipePending { get; set; }
+        public bool SendRecipeRequest(ushort mode, ushort skill, ushort level, ushort param0, ushort param1, ushort param2, ushort param3, ushort param4)
+        {
+            var request = (mode, skill, level, param0, param1, param2, param3, param4);
+            Recipes.Add(request);
+            RecipePending = mode != 5;
+            if (AnswerRecipe != null)
+            {
+                AnswerRecipe(request);
+                RecipePending = false;
+            }
+            return true;
+        }
 
         /// <summary>Music and sound volume calls (#167): "slot s=m", "music v/t", "sound mask=v/t".</summary>
         public List<string> Sound { get; } = new();

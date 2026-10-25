@@ -191,6 +191,19 @@ namespace Gordian.Engine.Events
         /// <summary>Opcode 0xA6 sub 2: the player's sub-map number (S2C 0x10E, else S2C 0x00A's).</summary>
         int SubMapNumber => 0;
 
+        /// <summary>
+        /// Opcode 0x8C subs 0 and 2-5: sends a guild NPC recipe request (C2S 0x058) with the mode and the six values the
+        /// sub names; modes 1-4 mark the S2C 0x031 answer pending (retail's <c>RecRecipeFlag</c>; mode 5 does not). False
+        /// when it could not be queued, and the opcode tries again next frame. Default: done, nothing pending.
+        /// </summary>
+        bool SendRecipeRequest(ushort mode, ushort skill, ushort level, ushort param0, ushort param1, ushort param2, ushort param3, ushort param4) => true;
+
+        /// <summary>
+        /// Opcode 0x8C sub 1: whether the S2C 0x031 answer is still pending. Once it has arrived, its values are in the
+        /// work zone (<see cref="EventWorkZone.ApplyRecipe"/> / <see cref="EventWorkZone.ApplyRecipeList"/>). Default: no.
+        /// </summary>
+        bool RecipePending => false;
+
         /// <summary>Opcode 0x5C subs 0-7 / 0x80-0x87: sets music slot <paramref name="slot"/> (0-7) to a track (#167).</summary>
         void SetMusicSlot(int slot, int musicNum)
         {

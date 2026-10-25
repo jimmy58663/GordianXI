@@ -55,6 +55,49 @@ namespace Gordian.Engine.Events
             for (int i = 0; i < parameters.Length && ParameterBase + i < Zone.Length; i++) Zone[ParameterBase + i] = parameters[i];
         }
 
+        /// <summary>The zone work index where an S2C 0x031 recipe's values start (the guild scripts read 0x40-0x55).</summary>
+        public const int RecipeBase = 0x40;
+
+        /// <summary>
+        /// Writes one recipe of S2C 0x031 (kinds 1 / 3) where the guild scripts read it after opcode 0x8C sub 1 (#405):
+        /// zone work 0x40 the product, 0x41-0x43 the sub-craft skills, 0x44 the crystal, 0x45-0x4C the eight ingredients,
+        /// 0x4D-0x54 their counts and 0x55 the key item. The order is read from the scripts (every guild and image-support
+        /// script prints ingredients from 0x45 / counts from 0x4D and picks the "Necessary key item" line on 0x55), so the
+        /// client moves the packet's key item (its sixth value) to the end. *Inferred from the scripts, not from the
+        /// client's <c>RecvRecipe</c>.*
+        /// </summary>
+        public void ApplyRecipe(ushort product, ReadOnlySpan<ushort> subCraftSkills, ushort crystal, ushort keyItem,
+            ReadOnlySpan<ushort> ingredients, ReadOnlySpan<ushort> counts)
+        {
+            Zone[RecipeBase] = product;
+            for (int i = 0; i < 3; i++) Zone[RecipeBase + 1 + i] = i < subCraftSkills.Length ? subCraftSkills[i] : 0;
+            Zone[RecipeBase + 4] = crystal;
+            for (int i = 0; i < 8; i++)
+            {
+                Zone[RecipeBase + 5 + i] = i < ingredients.Length ? ingredients[i] : 0;
+                Zone[RecipeBase + 13 + i] = i < counts.Length ? counts[i] : 0;
+            }
+            Zone[RecipeBase + 21] = keyItem;
+        }
+
+        /// <summary>
+        /// Writes a page of the recipe list of S2C 0x031 (kind 2) where the guild scripts read it (#405): the sixteen
+        /// items as message parameters 0-15 (zone work 2-9, then 1700 slots 0-7), the next page's first item in 1700 slot 8.
+        /// The script offers each non-zero slot in its "Which synthesis recipe do you ask about?" query, and "View more
+        /// recipes." when slot 8 is set. *Inferred from the scripts (Fishermen's Guild, zone 48 event 222), not from the
+        /// client's <c>RecvRecipe</c>.*
+        /// </summary>
+        public void ApplyRecipeList(ReadOnlySpan<ushort> items, ushort nextPageItem)
+        {
+            for (int i = 0; i < 16; i++)
+            {
+                int value = i < items.Length ? items[i] : 0;
+                if (i < 8) Zone[ParameterBase + i] = value;
+                else Zone1700[i - 8] = value;
+            }
+            Zone1700[8] = nextPageItem;
+        }
+
         public void Clear()
         {
             Array.Clear(Zone);

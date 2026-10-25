@@ -18,6 +18,8 @@ namespace Gordian.Engine.Tests.Resources
         [InlineData(0, 100)]
         [InlineData(44, 144)]
         [InlineData(255, 355)]
+        [InlineData(516, 616)]
+        [InlineData(541, 641)]
         [InlineData(256, 0x147B3)]
         [InlineData(257, 0x147B4)]
         public void GetZoneModelFileId_ReturnsAccurateFileId(int zoneId, int expectedFileId)

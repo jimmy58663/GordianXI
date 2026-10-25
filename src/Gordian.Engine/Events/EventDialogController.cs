@@ -349,6 +349,7 @@ namespace Gordian.Engine.Events
             }
             if (numbers != null) _zone.SetParameters(numbers);
             if (strings != null && _info != null) _info = _info with { StringParams = strings };
+            ApplyPendingRecipe();
         }
 
         /// <summary>Advances the running event; starts a queued one.</summary>
@@ -418,15 +419,30 @@ namespace Gordian.Engine.Events
         }
 
         /// <summary>
-        /// Reads the dialog's input: Confirm (or Cancel) dismisses a waiting line. Returns true while an event runs
-        /// and no menu is open, so the action keys stay with the dialog.
+        /// Reads the dialog's input: Confirm dismisses a waiting line; Cancel cuts the event short where the event allows
+        /// it (<see cref="CancelLine"/>). Returns true while an event runs and no menu is open, so the action keys stay with
+        /// the dialog.
         /// </summary>
         public bool ProcessInput(InputState input)
         {
             var scene = _scene;
             if (scene == null) return false;
-            if (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)) Confirm();
+            if (input.WasActionTriggered(InputAction.Confirm)) Confirm();
+            else if (input.WasActionTriggered(InputAction.Cancel)) CancelLine();
             return true;
+        }
+
+        /// <summary>
+        /// Cancel on the line the running event waits on (#413): where the event allows it (opcode 0x2E / 0x42,
+        /// <see cref="EventScene.MessageCancelAllowed"/>) the line closes and the event ends as cancelled at its next 0x23;
+        /// otherwise (cutscenes clear it) nothing happens.
+        /// </summary>
+        public void CancelLine()
+        {
+            var scene = _scene;
+            if (scene == null || !scene.CancelMessage()) return;
+            GordianLog.Info("EVENT", "The player cancelled the event's message.");
+            Changed?.Invoke();
         }
 
         /// <summary>Dismisses the line the running event waits on (Confirm or Cancel on it).</summary>
@@ -507,6 +523,7 @@ namespace Gordian.Engine.Events
             foreach (var v in scene.Actors) blocks.Add(v.CarriesEvent ? $"0x{v.EntityServerId:X8}" : $"0x{v.EntityServerId:X8} (catch-all)");
             GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} on {scene.Actors.Count} entities: {string.Join(", ", blocks)}.");
             _receivePending = false;
+            _recipePending = false;
             _scene = scene;
             MarkParticipants(scene);
             ApplyCutsceneFlags(scene, (CutsceneFlags)info.Mode);
@@ -1248,6 +1265,103 @@ namespace Gordian.Engine.Events
         bool IEventVmHost.SubMapNumberPending => _world?.SubMap.RequestPending ?? false;
 
         int IEventVmHost.SubMapNumber => _world?.SubMap.SubMapNumber ?? 0;
+
+        /// <summary>
+        /// The zone module that sends C2S 0x058 for event opcode 0x8C (#405); null in tests, where the opcode goes on
+        /// without waiting. Setting it listens for the S2C 0x031 answers on its <see cref="CraftingPacketModule.State"/>.
+        /// </summary>
+        public CraftingPacketModule? Crafting
+        {
+            get => _crafting;
+            set
+            {
+                if (_crafting != null)
+                {
+                    _crafting.State.RecipeReceived -= OnRecipeReceived;
+                    _crafting.State.RecipeListReceived -= OnRecipeListReceived;
+                }
+                _crafting = value;
+                if (value != null)
+                {
+                    value.State.RecipeReceived += OnRecipeReceived;
+                    value.State.RecipeListReceived += OnRecipeListReceived;
+                }
+            }
+        }
+
+        private CraftingPacketModule? _crafting;
+
+        /// <summary>
+        /// How long opcode 0x8C sub 1 waits for S2C 0x031 before going on with an empty answer. Retail waits for ever;
+        /// a server that refuses the request (LandSandBoat drops skill 0, the Fishermen's Guild's) would hold the event
+        /// and the player for good.
+        /// </summary>
+        internal static readonly TimeSpan RecipeAnswerTimeout = TimeSpan.FromSeconds(5);
+
+        private volatile bool _recipePending;
+        private ushort _recipeMode;
+        private long _recipeRequestedAt;
+        private object? _recipeAnswer;
+
+        private void OnRecipeReceived(RecipeDetail recipe)
+        {
+            lock (_sync) _recipeAnswer = recipe;
+        }
+
+        private void OnRecipeListReceived(RecipeListPage page)
+        {
+            lock (_sync) _recipeAnswer = page;
+        }
+
+        /// <summary>
+        /// Writes the S2C 0x031 answer into the work zone where the guild scripts read it, as retail's <c>RecvRecipe</c>
+        /// does, and ends opcode 0x8C sub 1's wait. Runs on the event thread before the scene ticks.
+        /// </summary>
+        private void ApplyPendingRecipe()
+        {
+            object? answer;
+            lock (_sync)
+            {
+                answer = _recipeAnswer;
+                _recipeAnswer = null;
+            }
+            if (answer == null && _recipePending
+                && System.Diagnostics.Stopwatch.GetElapsedTime(_recipeRequestedAt) > RecipeAnswerTimeout)
+            {
+                GordianLog.Warning("EVENT", $"No recipe answer (S2C 0x031) to the mode {_recipeMode} request; the event goes on with none.");
+                answer = _recipeMode == (ushort)RecipeRequestMode.RecipeList ? new RecipeListPage([], 0) : (object)new RecipeDetail(RecipeKind.Detail2, 0, [], 0, 0, [], []);
+            }
+            switch (answer)
+            {
+                case RecipeDetail recipe:
+                    _zone.ApplyRecipe(recipe.ProductItem, recipe.SubCraftSkills, recipe.CrystalItem, recipe.KeyItem, recipe.IngredientItems, recipe.IngredientCounts);
+                    _recipePending = false;
+                    break;
+                case RecipeListPage page:
+                    _zone.ApplyRecipeList(page.ItemIds, page.NextPageItem);
+                    _recipePending = false;
+                    break;
+            }
+        }
+
+        bool IEventVmHost.SendRecipeRequest(ushort mode, ushort skill, ushort level, ushort param0, ushort param1, ushort param2, ushort param3, ushort param4)
+        {
+            var crafting = _crafting;
+            if (crafting == null) return true; // nothing to wait for
+            lock (_sync) _recipeAnswer = null;
+            // Mode 5 (a Campaign Ops list completed) does not wait for an answer (XiEvents OpCodes/0x008C).
+            if (mode != (ushort)RecipeRequestMode.CampaignComplete)
+            {
+                _recipeMode = mode;
+                _recipeRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _recipePending = true;
+            }
+            GordianLog.Info("EVENT", $"Event recipe request: mode {mode}, skill {skill}, level {level}, params {param0}/{param1}/{param2}/{param3}/{param4}.");
+            _ = crafting.RequestRecipeAsync(skill, level, (RecipeRequestMode)mode, param0, param1, param2, param3, param4);
+            return true;
+        }
+
+        bool IEventVmHost.RecipePending => _recipePending;
 
         byte[]? IEventVmHost.LoadDat(int fileId)
         {

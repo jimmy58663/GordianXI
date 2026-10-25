@@ -337,6 +337,8 @@ namespace Gordian.Engine.Sessions
             Locomotion.Events = Events;
             // Event opcodes 0xA6 / 0x75 send the sub-map packets (C2S 0x0EB / 0x0F2) through the zone module.
             Events.Lifecycle = NetworkManager.Parser.LifecycleModule;
+            // Event opcode 0x8C asks guild NPCs for recipes (C2S 0x058) and reads the S2C 0x031 answers (#405).
+            Events.Crafting = NetworkManager.Parser.CraftingModule;
             // System messages (S2C 0x053) and everyone's emotes (S2C 0x05A, ours included): text from the client's own
             // message tables, the emote motion on the caster.
             Messages.Attach(Commands, World, LocalPlayer, Chat, () => CharacterName);
