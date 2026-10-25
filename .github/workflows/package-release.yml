@@ -1,15 +1,11 @@
-﻿name: Package Release
+name: Package Release
 
 on:
   release:
     types: [published]
   workflow_dispatch:
 
-permissions:
-  contents: write          # upload release assets
-  id-token: write          # Sigstore signing certificate for attestations
-  attestations: write      # store build provenance and SBOM attestations
-  artifact-metadata: write # artifact storage records for attestations
+permissions: {}
 
 env:
   # CycloneDX .NET tool that writes each release's SBOM (#278)
@@ -19,6 +15,11 @@ jobs:
   package-windows:
     name: Package Windows (x64)
     runs-on: windows-latest
+    permissions:
+      contents: write          # upload release assets
+      id-token: write          # Sigstore signing certificate for attestations
+      attestations: write      # store build provenance and SBOM attestations
+      artifact-metadata: write # artifact storage records for attestations
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag')
     steps:
       - name: Determine target release tag
@@ -36,11 +37,17 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.vars.outputs.tag }}
+          persist-credentials: false
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+
+      # Rebuild the proxy from dllmain.cpp so the released DLL comes from the tagged source, not the checked-in copy.
+      - name: Build the proxy DLL (x86)
+        shell: cmd
+        run: call src\Gordian.Proxy\build_proxy.bat
 
       - name: Publish Gordian.App (win-x64, self-contained)
         run: |
@@ -108,6 +115,11 @@ jobs:
   package-linux:
     name: Package Linux (x64)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # upload release assets
+      id-token: write          # Sigstore signing certificate for attestations
+      attestations: write      # store build provenance and SBOM attestations
+      artifact-metadata: write # artifact storage records for attestations
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag')
     steps:
       - name: Determine target release tag
@@ -125,6 +137,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.vars.outputs.tag }}
+          persist-credentials: false
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v6

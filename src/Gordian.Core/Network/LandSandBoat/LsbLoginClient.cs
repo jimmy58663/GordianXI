@@ -256,7 +256,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 }
             }
 
-            GordianLog.Info("LSB_LOGIN", $"Auth success! Account ID: {accountId}. Session hash acquired ({sessionHash.Length} bytes).");
+            // The account id stays out of the log: logs are shared in bug reports (CodeQL cs/cleartext-storage, #441).
+            GordianLog.Info("LSB_LOGIN", $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
             return ((accountId, sessionHash), null);
         }
 

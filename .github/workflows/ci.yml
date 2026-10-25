@@ -11,15 +11,16 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  actions: read
-  checks: write
+permissions: {}
 
 jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+      checks: write # the test reporter publishes a check run
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +33,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect code changes
         id: changes
