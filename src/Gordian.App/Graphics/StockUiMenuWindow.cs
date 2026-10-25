@@ -115,6 +115,10 @@ namespace Gordian.App.Graphics
             {
                 DrawQuantity(renderer, library, font, menu, placement);
             }
+            else if (font != null && menu.AuctionView != StockUiAuctionView.None)
+            {
+                StockUiAuctionWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
+            }
             else if (font != null && menu.IsTreasureList)
             {
                 StockUiTreasureWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default, timestamp);
@@ -462,7 +466,7 @@ namespace Gordian.App.Graphics
         // text insets and how it prints the price).
 
         /// <summary>Half-scale tint of a row that cannot be sold (the item's NoSale flag): a mid grey.</summary>
-        private static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
+        internal static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
 
         /// <summary>
         /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), right under the list, and that is where

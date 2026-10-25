@@ -270,6 +270,7 @@ namespace Gordian.App.Graphics
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0)
                 {
                     DrawPartyHelpBar(renderer, library, session, width, height);
+                    DrawAuctionHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
             }
@@ -352,6 +353,20 @@ namespace Gordian.App.Graphics
             if (StockUiParty.TitleOf(top.Name) is not { } title) return;
             string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The help bar over the Auction House windows (#90; capture Aucion_House.mp4): the window's title ("Auction", "Bid" or the
+        /// category, "Price Set", "Price History") and the selected entry's help line. The Sell list's item list draws its own.
+        /// </summary>
+        private void DrawAuctionHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || !menus.IsAuctionOpen || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (menus.OpenMenus.Any(m => m.ItemListKind == StockUiItemListKind.AuctionSell)) return;
+            var prompt = top.IsPrompt && menus.OpenMenus.Count > 1 ? top : null;
+            if (StockUiAuctionWindow.HelpBar(prompt != null && !prompt.IsAuctionWindow ? menus.OpenMenus[^2] : top, menus.MenuHelpText) is not { } bar) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -548,7 +563,7 @@ namespace Gordian.App.Graphics
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
                     // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow
                         || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));

@@ -34,6 +34,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The guild Sell list's "Select from your inventory.": the items the guild buys; Confirm asks the count to sell (#330).</summary>
         GuildSell,
+
+        /// <summary>The Auction House's Sell: the inventory, worn and NoAuction items greyed; Confirm asks the price (#90).</summary>
+        AuctionSell,
     }
 
     /// <summary>

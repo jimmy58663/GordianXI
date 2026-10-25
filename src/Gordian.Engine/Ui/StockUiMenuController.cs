@@ -1160,6 +1160,7 @@ namespace Gordian.Engine.Ui
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
+            if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
@@ -1546,6 +1547,8 @@ namespace Gordian.Engine.Ui
                 top = Top;
                 button = top?.SelectedButton;
             }
+            // The Auction House windows (#90): the Price Set window has no button to select.
+            if (top != null && TryActivateAuction(top, button)) return;
             if (top == null || button == null) return;
 
             if (top.IsPrompt)
