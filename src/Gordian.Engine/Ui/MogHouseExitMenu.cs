@@ -13,7 +13,7 @@ namespace Gordian.Engine.Ui
     /// menu (image-23 of round 1, 2026-10-24): "Which area do you want to exit to?" over "Stay in your room.", "Area you
     /// entered from.", "Change floors." (greyed unless <see cref="MogHouseRooms.CanChangeFloors"/>) and "Select an area to
     /// exit to.", the cursor on the first row. The last opens the area list: the city's areas
-    /// (<see cref="MogHouseRooms.ExitAreas"/>, named from the zone name table) and the Mog Garden. The texts are the menus'
+    /// (<see cref="MogHouseRooms.ExitAreas"/>, named from the zone name table) and, once it is open to the character, the Mog Garden. The texts are the menus'
     /// own messages (ROM/165/72, <c>DMsgCategory.MenuMessages</c>).
     /// </summary>
     public static class MogHouseExitMenu
@@ -48,22 +48,22 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// The area list for <paramref name="exitBit"/>: one row per city area, numbered by its exit mode (Option1 = 1, ...),
-        /// then the Mog Garden (mode 127), each named by <paramref name="zoneName"/> (or "Zone N" when the table has no
+        /// then the Mog Garden (mode 127) when <paramref name="mogGarden"/> (<see cref="MogHouseRooms.OffersMogGarden"/>), each named by <paramref name="zoneName"/> (or "Zone N" when the table has no
         /// name). The cursor starts on <paramref name="currentZone"/>, the area the player entered from, else on the first
         /// row. Empty when the bit has no areas.
         /// </summary>
-        public static IReadOnlyList<StockUiQueryOption> AreaOptions(MogHouseExitBit exitBit, ushort currentZone, Func<int, string?>? zoneName, out int cursorIndex)
+        public static IReadOnlyList<StockUiQueryOption> AreaOptions(MogHouseExitBit exitBit, ushort currentZone, Func<int, string?>? zoneName, bool mogGarden, out int cursorIndex)
         {
             cursorIndex = 0;
             var areas = MogHouseRooms.ExitAreas(exitBit);
             if (areas.Count == 0) return Array.Empty<StockUiQueryOption>();
-            var options = new StockUiQueryOption[areas.Count + 1];
+            var options = new StockUiQueryOption[areas.Count + (mogGarden ? 1 : 0)];
             for (int i = 0; i < areas.Count; i++)
             {
                 options[i] = new StockUiQueryOption(i + 1, ZoneText(zoneName, areas[i]));
                 if (areas[i] == currentZone) cursorIndex = i;
             }
-            options[^1] = new StockUiQueryOption((int)MogHouseExitMode.MogGarden, ZoneText(zoneName, MogHouseRooms.MogGardenZone));
+            if (mogGarden) options[^1] = new StockUiQueryOption((int)MogHouseExitMode.MogGarden, ZoneText(zoneName, MogHouseRooms.MogGardenZone));
             return options;
         }
 

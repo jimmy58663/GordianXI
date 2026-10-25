@@ -113,11 +113,26 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// The Mog Garden's zone id. The exit menu's area list ends with it (exit mode <see cref="MogHouseExitMode.MogGarden"/>,
-        /// 127): LandSandBoat lets that mode leave any Mog House (packets/c2s/0x05e_maprect.cpp, unless the server turns
-        /// the Mog Garden off, when it leaves to the area entered from), and the maintainer's round 1 note (2026-10-24)
-        /// lists it under Adoulin's "Select an area to exit to.".
+        /// 127) when <see cref="OffersMogGarden"/>: LandSandBoat lets that mode leave any Mog House
+        /// (packets/c2s/0x05e_maprect.cpp, unless the server turns the Mog Garden off, when it leaves to the area entered
+        /// from), and the maintainer's round 1 note (2026-10-24) lists it under Adoulin's "Select an area to exit to.".
         /// </summary>
         public const ushort MogGardenZone = 280;
+
+        /// <summary>The Pioneer's Badge key item (2157, LandSandBoat scripts/enum/key_item), given by Seekers of Adoulin mission 1-5, Pioneer Registration.</summary>
+        public const ushort PioneersBadgeKeyItem = 2157;
+
+        /// <summary>The nation rank that opens the Mog Garden without the Pioneer's Badge (BG wiki, Mog Garden: "Rank 3 in any nation").</summary>
+        public const int MogGardenNationRank = 3;
+
+        /// <summary>
+        /// Whether the exit menu's area list offers the Mog Garden: once the garden is open to the character (the Pioneer's
+        /// Badge, or <see cref="MogGardenNationRank"/> in a nation; BG wiki, Mog Garden). BG wiki has the exit menu reach it
+        /// only when the exit quest of the city being left is complete, which is when the server sends that city's exit bit
+        /// and the area list exists at all (Adoulin's exit is always open).
+        /// </summary>
+        public static bool OffersMogGarden(MogHouseExitBit exitBit, ProgressionState progression, int nationRank) =>
+            ExitAreas(exitBit).Count > 0 && (progression.HasKeyItem(PioneersBadgeKeyItem) || nationRank >= MogGardenNationRank);
 
         /// <summary>
         /// Whether the exit menu offers "Change floors.": the client keeps <c>(MyroomSubMapNumber &gt;&gt; 1) &amp; 3</c> of

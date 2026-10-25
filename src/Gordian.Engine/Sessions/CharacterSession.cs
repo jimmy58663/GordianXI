@@ -556,8 +556,9 @@ namespace Gordian.Engine.Sessions
         private void OpenMogHouseAreaList(MogHouseExitBit exitBit)
         {
             var menus = ActionService.Menus;
-            var options = Ui.MogHouseExitMenu.AreaOptions(exitBit, World.CurrentZoneId, ActionService.ZoneName, out int cursor);
-            int areaCount = options.Count - 1;
+            bool mogGarden = MogHouseRooms.OffersMogGarden(exitBit, Progression, LocalPlayer.Rank);
+            var options = Ui.MogHouseExitMenu.AreaOptions(exitBit, World.CurrentZoneId, ActionService.ZoneName, mogGarden, out int cursor);
+            int areaCount = MogHouseRooms.ExitAreas(exitBit).Count;
             menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursor, answer =>
             {
                 if (World.MogHouseRoom == 0) return;

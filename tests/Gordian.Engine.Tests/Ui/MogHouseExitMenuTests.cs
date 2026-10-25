@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using Gordian.Core.Network.Packets;
@@ -18,7 +19,7 @@ namespace Gordian.Engine.Tests.Ui
         public void NoExitUnlocked_IsTheYesNoPrompt()
         {
             Assert.False(MogHouseExitMenu.HasMenu(MogHouseExitBit.Default));
-            Assert.Empty(MogHouseExitMenu.AreaOptions(MogHouseExitBit.Default, 230, _ => "x", out int cursor));
+            Assert.Empty(MogHouseExitMenu.AreaOptions(MogHouseExitBit.Default, 230, _ => "x", true, out int cursor));
             Assert.Equal(0, cursor);
             Assert.True(MogHouseExitMenu.HasMenu(MogHouseExitBit.Adoulin));
         }
@@ -48,14 +49,36 @@ namespace Gordian.Engine.Tests.Ui
         public void AreaList_IsTheCitysAreasThenTheMogGarden_WithTheCursorOnTheAreaEnteredFrom()
         {
             string? Name(int zone) => zone switch { 256 => "Western Adoulin", 257 => "Eastern Adoulin", 280 => "Mog Garden", _ => null };
-            var options = MogHouseExitMenu.AreaOptions(MogHouseExitBit.Adoulin, 257, Name, out int cursor);
+            var options = MogHouseExitMenu.AreaOptions(MogHouseExitBit.Adoulin, 257, Name, true, out int cursor);
             Assert.Equal(new[] { "Western Adoulin", "Eastern Adoulin", "Mog Garden" }, options.Select(o => o.Text));
             Assert.Equal(new[] { 1, 2, 127 }, options.Select(o => o.Number));
             Assert.Equal(1, cursor);
 
-            var jeuno = MogHouseExitMenu.AreaOptions(MogHouseExitBit.Jeuno, 245, null, out cursor);
+            var jeuno = MogHouseExitMenu.AreaOptions(MogHouseExitBit.Jeuno, 245, null, true, out cursor);
             Assert.Equal(new[] { "Zone 243", "Zone 244", "Zone 245", "Zone 246", "Zone 280" }, jeuno.Select(o => o.Text));
             Assert.Equal(2, cursor);
+
+            // Retail hides the Mog Garden until it is open to the character.
+            var hidden = MogHouseExitMenu.AreaOptions(MogHouseExitBit.Adoulin, 257, Name, false, out _);
+            Assert.Equal(new[] { "Western Adoulin", "Eastern Adoulin" }, hidden.Select(o => o.Text));
+        }
+
+        [Fact]
+        public void MogGarden_NeedsTheGardenOpen()
+        {
+            var progression = new ProgressionState();
+            Assert.False(MogHouseRooms.OffersMogGarden(MogHouseExitBit.Adoulin, progression, nationRank: 2));
+            Assert.True(MogHouseRooms.OffersMogGarden(MogHouseExitBit.Adoulin, progression, nationRank: 3));
+
+            // The Pioneer's Badge (2157: key item table 4, bit 109) opens it without the rank.
+            var acquired = new uint[16];
+            acquired[109 / 32] = 1u << (109 % 32);
+            progression.UpdateKeyItems(4, acquired, new uint[16]);
+            Assert.True(MogHouseRooms.OffersMogGarden(MogHouseExitBit.Adoulin, progression, nationRank: 1));
+
+            // Any city with its exit unlocked; none without (no area list then).
+            Assert.True(MogHouseRooms.OffersMogGarden(MogHouseExitBit.Jeuno, progression, nationRank: 1));
+            Assert.False(MogHouseRooms.OffersMogGarden(MogHouseExitBit.Default, progression, nationRank: 5));
         }
 
         [Fact]
