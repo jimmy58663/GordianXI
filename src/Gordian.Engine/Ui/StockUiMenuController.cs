@@ -1861,6 +1861,12 @@ namespace Gordian.Engine.Ui
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
                     break;
 
+                case StockUiMenuCommand.StatusPage:
+                    bool paged;
+                    lock (_sync) paged = OpenStatusPage((StockUiStatusPage)entry.Argument, from) != null;
+                    if (paged) Changed?.Invoke();
+                    break;
+
                 case StockUiMenuCommand.LogOut:
                 case StockUiMenuCommand.ShutDown:
                     _ = ConfirmLogoutAsync(entry.Command == StockUiMenuCommand.ShutDown);

@@ -173,6 +173,9 @@ namespace Gordian.App.Graphics
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
+                // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
+                menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
+                menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
             }
             if (session.ActionService.MountName == null && _resources is { } mountStrings)
             {
@@ -270,6 +273,7 @@ namespace Gordian.App.Graphics
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0)
                 {
                     DrawPartyHelpBar(renderer, library, session, width, height);
+                    DrawStatus(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
             }
@@ -352,6 +356,14 @@ namespace Gordian.App.Graphics
             if (StockUiParty.TitleOf(top.Name) is not { } title) return;
             string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
+
+        /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>
+        private void DrawStatus(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || !menus.IsStatusOpen) return;
+            StockUiStatusWindow.DrawPanels(renderer, library, font, _logFont, menus, Layout.Scale, width, height);
         }
 
         /// <summary>

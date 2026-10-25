@@ -147,6 +147,10 @@ namespace Gordian.App.Graphics
             {
                 DrawActionList(renderer, library, font, logFont, menu, placement, firstActionRow, timestamp);
             }
+            else if (font != null && menu.StatusPage != StockUiStatusPage.None)
+            {
+                StockUiStatusWindow.DrawPage(renderer, library, font, logFont, menu, placement);
+            }
             else if (font != null && (menu.IsKeyItemWindow || menu.IsEquipSetWindow))
             {
                 StockUiKeyItemWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);

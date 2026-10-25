@@ -23,6 +23,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Posts the Vana'diel and Earth time.</summary>
         CurrentTime,
 
+        /// <summary>A Status list entry: opens its page (the Argument is a <see cref="StockUiStatusPage"/>).</summary>
+        StatusPage,
+
         /// <summary>One choice of a config page's option row (<see cref="StockUiConfigPages"/>): confirm selects it.</summary>
         ConfigOption,
 
@@ -205,7 +208,7 @@ namespace Gordian.Engine.Ui
         private static readonly Dictionary<(string Menu, int Button), StockUiMenuEntry> Entries = new(new MenuKeyComparer())
         {
             // Commands, page 1 (buttons in their authored top-to-bottom order).
-            [(MainMenu, 1)] = new("Status", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 1)] = new("Status", Opens: StockUiStatus.CommandMenu),
             [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.Equipment),
             [(MainMenu, 3)] = new("Magic", Opens: StockUiActionMenu.MagicCategoryMenu),
             [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.Items),
@@ -233,6 +236,21 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            // Status (#23): statcom2's entries in their top-to-bottom order.
+            [(StockUiStatus.CommandMenu, StockUiStatus.ProfileButton)] = new("Profile", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Profile),
+            [(StockUiStatus.CommandMenu, StockUiStatus.JobLevelsButton)] = new("Job Levels", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobLevels),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MasterLevelsButton)] = new("Master Levels", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CombatSkillsButton)] = new("Combat Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CombatSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MagicSkillsButton)] = new("Magic Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.MagicSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CraftSkillsButton)] = new("Craft Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CraftSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CurrenciesButton)] = new("Currencies", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.Currencies2Button)] = new("Currencies 2", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.UnityButton)] = new("Unity", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.PlayTimeButton)] = new("Play Time", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MeritPointsButton)] = new("Merit Points", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.NotAvailable),
+
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),
 

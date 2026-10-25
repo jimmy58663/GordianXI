@@ -372,6 +372,7 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.ItemSort = container => InventoryModule.SortContainerAsync(container);
             ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
             ActionService.Menus.CharacterStats = CharacterStats;
+            ActionService.Menus.StatusInfo = StatusInfo;
             Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.
@@ -512,6 +513,25 @@ namespace Gordian.Engine.Sessions
             for (int i = 0; i < 8; i++) resistances[i] = p.ElementalResistances[i];
             return new Ui.StockUiCharacterStats(CharacterName, main, sub, itemLevel, p.CurrentHp, p.MaxHp, p.CurrentMp, p.MaxMp, p.CurrentTp,
                 bases, bonuses, p.Attack, p.Defense, resistances);
+        }
+
+        /// <summary>
+        /// The Status window (#23): the stats side, the level box (main job level, EXP and the EXP to the next level, S2C
+        /// 0x061), the profile (title, nation, race, home point, rank, from 0x061 and the character's appearance), every job's
+        /// level (0x01B) and the skills (0x062). Names come from the client's tables through the menu controller's resolvers.
+        /// </summary>
+        private Ui.StockUiStatusInfo StatusInfo()
+        {
+            var p = LocalPlayer;
+            var menus = ActionService.Menus;
+            int race = World.TryGetByServerId(p.ServerId, out var self) && self != null ? (self.Appearance.FaceModel >> 8) & 0xFF : 0;
+            var skills = p.SkillBase;
+            return new Ui.StockUiStatusInfo(CharacterStats(), p.MainJobLevel, p.ExpNow, p.ExpNext,
+                menus.TitleName?.Invoke(p.TitleId) ?? string.Empty, Ui.StockUiStatus.NationName(p.Nation), Ui.StockUiStatus.RaceName(race),
+                p.HomePointZone != 0 ? menus.ZoneCompactName?.Invoke(p.HomePointZone) ?? string.Empty : string.Empty,
+                p.Rank, p.RankPoints, p.MasteryRank, (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
+                Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.CombatSkills, skills), Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.MagicSkills, skills),
+                Ui.StockUiStatus.CraftLines(skills));
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

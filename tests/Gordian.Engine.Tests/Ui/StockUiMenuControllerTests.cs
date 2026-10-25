@@ -466,10 +466,10 @@ namespace Gordian.Engine.Tests.Ui
             var menus = Controller();
             var notices = new List<string>();
             menus.NoticePosted += notices.Add;
-            menus.OpenMainMenu();
-            menus.Activate(); // Status
+            Assert.True(menus.Open(StockUiMenuEntries.MainMenuPage2));
+            menus.Activate(); // Missions
             Assert.Single(notices);
-            Assert.StartsWith("Status:", notices[0]);
+            Assert.StartsWith("Missions:", notices[0]);
             Assert.True(menus.IsOpen);
         }
 

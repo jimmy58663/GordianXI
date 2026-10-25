@@ -203,11 +203,22 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
             var at = StockUiWindowPlacement.Beside(placement, frame, persona.Frame);
-            renderer.DrawMenu(persona, at, includeButtons: false, opaqueBody: true);
-            if (menu.CharacterStats?.Invoke() is not { } stats) return;
+            DrawStatsSide(renderer, font, persona, at, menu.CharacterStats?.Invoke());
+        }
+
+        /// <summary>
+        /// A stats side (<c>windowps</c> #8: the Equipment window's <c>persona</c> and the Status window's <c>statuswi</c>) at
+        /// <paramref name="at"/>, with <paramref name="stats"/> laid out in it.
+        /// </summary>
+        internal static void DrawStatsSide(StockUiRenderer renderer, UiFont font, UiMenuDefinition panel, StockUiPlacement at, StockUiCharacterStats? stats)
+        {
+            float s = at.Scale;
+            renderer.DrawMenu(panel, at, includeButtons: false, opaqueBody: true);
+            if (stats == null) return;
             float ts = s * StockUiPartyWindow.TextScale;
-            void Left(int line, string text, UiColor? tint = null) =>
-                renderer.DrawText(font, text, at.X + StatsTextX * s, at.Y + TopLinesY[line] * s, ts, tint);
+            // A long main job ("Lv99 Puppetmaster") is squeezed into the panel, as retail does (Status capture 0:08).
+            void Left(int line, string text, UiColor? tint = null) => StockUiTextBoxes.DrawFitted(renderer, font, text, at.X + StatsTextX * s,
+                at.Y + TopLinesY[line] * s, ts, (panel.Frame.Width - StatsTextX - 2) * s, font.LineHeight * ts, tint);
             void Right(float right, float y, string text, UiColor? tint = null) =>
                 renderer.DrawText(font, text, at.X + right * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, tint);
             Left(0, stats.Name);
