@@ -62,6 +62,7 @@ namespace Gordian.Engine.Tests.Ui
             List(StockUiBlueMagic.LearnedMenu, 314, StockUiBlueMagic.HelpLearned, 10),
             List(StockUiBlueMagic.OptionsMenu, 384, -1, 3),
             List(StockUiMenuEntries.MessageYesNoMenu, 130, -1, 2),
+            List(StockUiBlueMagic.TypeMenu, 384, StockUiBlueMagic.HelpType, 18),
         });
 
         private sealed class Harness
@@ -166,12 +167,13 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal((2, 25), slots.BluePoints);
 
             var learned = slots.BlueSpells;
-            Assert.True(learned[0].RemoveAll);
-            Assert.Equal(new[] { Pollen, Sandspin, MetallicBody, VenomShell, Maelstrom }, learned.Skip(1).Select(r => r.SpellId));
-            Assert.True(learned[2].IsSet);
-            Assert.Null(learned[3].GreyedReason); // Metallic Body, level 8
-            Assert.Equal("You cannot set Venom Shell at your current level.", learned[4].GreyedReason); // level 42
-            Assert.Equal("You cannot set Maelstrom at your current level.", learned[5].GreyedReason);
+            Assert.True(learned[0].TypeHeader);
+            Assert.True(learned[1].RemoveAll);
+            Assert.Equal(new[] { Pollen, Sandspin, MetallicBody, VenomShell, Maelstrom }, learned.Skip(2).Select(r => r.SpellId));
+            Assert.True(learned[3].IsSet);
+            Assert.Null(learned[4].GreyedReason); // Metallic Body, level 8
+            Assert.Equal("You cannot set Venom Shell at your current level.", learned[5].GreyedReason); // level 42
+            Assert.Equal("You cannot set Maelstrom at your current level.", learned[6].GreyedReason);
             Assert.Equal(Sandspin, slots.BlueDescribedSpell);
         }
 
@@ -186,9 +188,9 @@ namespace Gordian.Engine.Tests.Ui
             var learned = h.Menus.Top!;
             Assert.Equal(StockUiBlueMagicView.Learned, learned.BlueMagicView);
             Assert.True(slots.BlueLearnedOpen);
-            Assert.Equal(Pollen, learned.BlueDescribedSpell); // past "(Remove All)"
+            Assert.Equal(Pollen, learned.BlueDescribedSpell); // past "Type" and "(Remove All)"
 
-            learned.SelectedButtonId = 5; // Venom Shell
+            learned.SelectedButtonId = 6; // Venom Shell
             h.Menus.Activate();
             SpinUntil(() => h.HasSent($"set 0 {VenomShell - 512} False"));
             Assert.Same(slots, h.Menus.Top);
@@ -211,19 +213,19 @@ namespace Gordian.Engine.Tests.Ui
             slots.SelectedButtonId = 6;
             h.Menus.Activate();
             var learned = h.Menus.Top!;
-            Assert.Equal("You do not have enough Blue Magic Points to set Pollen.", learned.BlueSpells[1].GreyedReason);
-            learned.SelectedButtonId = 2;
+            Assert.Equal("You do not have enough Blue Magic Points to set Pollen.", learned.BlueSpells[2].GreyedReason);
+            learned.SelectedButtonId = 3;
             h.Menus.Activate();
             Assert.Contains("You do not have enough Blue Magic Points to set Pollen.", h.Notices);
 
             // The merit and job point bonus the server reports raises the cap.
             h.Bonus = 5;
             h.Menus.RefreshBlueMagic();
-            Assert.Null(learned.BlueSpells[1].GreyedReason);
+            Assert.Null(learned.BlueSpells[2].GreyedReason);
         }
 
         [Fact]
-        public void ConfirmOnASetSlot_RemovesIt_AndALockedSlotSaysWhenItOpens()
+        public void ConfirmOnASetSlot_OffersTheList_ThePickedSpellAgainRemovesIt()
         {
             var h = new Harness();
             h.SubJob = true;
@@ -232,11 +234,72 @@ namespace Gordian.Engine.Tests.Ui
             var slots = h.Menus.OpenSetSpells(null)!;
             slots.SelectedButtonId = 2;
             h.Menus.Activate();
+            var learned = h.Menus.Top!;
+            Assert.Equal(StockUiBlueMagicView.Learned, learned.BlueMagicView);
+            Assert.Equal(Pollen, learned.BlueDescribedSpell); // the cursor on the set spell, drawn green
+            Assert.Empty(h.Sent);
+            h.Menus.Activate();
             SpinUntil(() => h.HasSent($"remove 1 {Pollen - 512} True"));
+            Assert.Same(slots, h.Menus.Top);
 
             slots.SelectedButtonId = 10; // 8 slots at level 20
             h.Menus.Activate();
             Assert.Contains("Set 10 opens at Blue Mage level 21.", h.Notices);
+        }
+
+        [Fact]
+        public void ConfirmOnASetSlot_ThenAnotherSpell_SwapsItIn()
+        {
+            var h = new Harness();
+            h.Level = 50;
+            h.Slots[0] = (byte)(Pollen - 512);
+            h.Slots[1] = (byte)(Sandspin - 512);
+            var slots = h.Menus.OpenSetSpells(null)!;
+            slots.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var learned = h.Menus.Top!;
+            learned.SelectedButtonId = 4; // Sandspin, set in slot 2
+            h.Menus.Activate();
+            Assert.Contains("Sandspin is already set.", h.Notices);
+            learned.SelectedButtonId = 5; // Metallic Body
+            h.Menus.Activate();
+            SpinUntil(() => h.HasSent($"set 0 {MetallicBody - 512} False"));
+        }
+
+        [Fact]
+        public void TypeHeader_NarrowsTheListByFamily_AndAgainClearsIt()
+        {
+            var h = new Harness();
+            h.Level = 75;
+            var slots = h.Menus.OpenSetSpells(null)!;
+            h.Menus.Activate();
+            var learned = h.Menus.Top!;
+            learned.FirstRow = 0;
+            learned.SelectedButtonId = 1; // Type
+            h.Menus.Activate();
+            var type = h.Menus.Top!;
+            Assert.Equal(StockUiBlueMagic.TypeMenu, type.Name);
+            type.SelectedButtonId = 1; // Aquans
+            h.Menus.Activate();
+            Assert.Same(learned, h.Menus.Top);
+            Assert.Equal(1, h.Menus.BlueFamily);
+            Assert.Equal(new[] { VenomShell, Maelstrom, MetallicBody }.OrderBy(i => i), learned.BlueSpells.Skip(2).Select(r => r.SpellId).OrderBy(i => i));
+            Assert.Equal(5, learned.BlueAllSpells.Count - 2);
+
+            learned.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal(0, h.Menus.BlueFamily);
+            Assert.Equal(5, learned.BlueSpells.Count - 2);
+        }
+
+        [Fact]
+        public void SpellFacts_NameTheFamily_TheBonus_AndTheTrait()
+        {
+            var venom = StockUiBlueSpellFacts.Of(VenomShell)!.Value;
+            Assert.Equal("Aquans", StockUiBlueSpellFacts.FamilyName(venom.Family));
+            Assert.Equal(("Magical", "MND+2", "Clear Mind", 4), (venom.Type, venom.Bonus, venom.Trait, venom.TraitPoints));
+            Assert.Equal(18, StockUiBlueSpellFacts.Families.Count);
+            Assert.Null(StockUiBlueSpellFacts.Of(1));
         }
 
         [Fact]
@@ -251,7 +314,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             var learned = h.Menus.Top!;
             learned.FirstRow = 0;
-            learned.SelectedButtonId = 1; // (Remove All)
+            learned.SelectedButtonId = 2; // (Remove All)
             h.Menus.Activate();
             Assert.Equal(StockUiMenuEntries.MessageYesNoMenu, h.Menus.Top!.Name);
             h.Menus.Top.SelectedButtonId = 1;

@@ -19,10 +19,11 @@ namespace Gordian.Engine.Ui
 
     /// <summary>
     /// One learned blue spell: its level, MP cost and Blue Magic Points, whether it is set, and why it cannot be set (null when it
-    /// can). <see cref="RemoveAll"/> marks the list's first row, "(Remove All)".
+    /// can). <see cref="TypeHeader"/> marks the list's first row, "Type ▶" (the monster family filter), and
+    /// <see cref="RemoveAll"/> the second, "(Remove All)".
     /// </summary>
     public readonly record struct StockUiBlueSpellRow(ushort SpellId, string Name, int Icon, int Level, int MpCost, int Points, bool IsSet,
-        string? GreyedReason, string? Help, bool RemoveAll = false);
+        string? GreyedReason, string? Help, bool RemoveAll = false, bool TypeHeader = false);
 
     /// <summary>
     /// Blue Magic's Set Spells window (#363), from the English menu DAT: <c>blusortw</c> (the Blue Magic list's Options, + / Y:
@@ -30,9 +31,11 @@ namespace Gordian.Engine.Ui
     /// "Blue Magic", ten 132 x 16 rows at an 18 px pitch: the set slots), <c>bluinven</c> (314,48, the same frame, help 637 "View
     /// list of blue magic. Exceeding certain values (8/16/24) allows the bestowal of Job Trait effects.": the learned spells),
     /// <c>bluepoin</c> (16,240, 112 x 56, "Total Points/Max" baked in) and <c>bluehelp</c> (130,240, 366 x 56: the spell's
-    /// details); <c>bluesibo</c> ("Refine by Type", the monster families) is not used, as the spell table carries no family.
-    /// The maintainer's retail capture (image-38 of the 2026-10-11 notes) shows the same panel with a status column on the left;
-    /// the menus' own texts are ROM/165/72 #227 "(Remove All)" and #228 "Remove all set blue magic spells?".
+    /// details, grown to fit them); <c>bluesibo</c> (384,48, title 105 "Refine by Type", help 650: the eighteen monster
+    /// families, baked into the frame) filters the learned list by <see cref="StockUiBlueSpellFacts"/>; the status column on
+    /// the left is the Equipment window's <c>persona</c>. The maintainer's retail captures (image-38 of the 2026-10-11 notes,
+    /// image-20 to image-22 of the 2026-10-24 round 1) show the panel; the menus' own texts are ROM/165/72 #227 "(Remove All)"
+    /// and #228 "Remove all set blue magic spells?".
     /// <para>
     /// The rules are the server's, from LandSandBoat (<c>utils/blueutils.cpp</c>): slots <c>clamp(((level - 1) / 10) * 2 + 6, 6,
     /// 20)</c>, points <c>clamp(((level - 1) / 10) * 5 + 10, 0, 55)</c> plus the merit and job point bonus the server reports, a
@@ -43,12 +46,16 @@ namespace Gordian.Engine.Ui
     /// </summary>
     public static class StockUiBlueMagic
     {
-        public const string OptionsMenu = "blusortw", SlotsMenu = "bluequip", LearnedMenu = "bluinven", PointsMenu = "bluepoin", DetailMenu = "bluehelp";
+        public const string OptionsMenu = "blusortw", SlotsMenu = "bluequip", LearnedMenu = "bluinven", PointsMenu = "bluepoin", DetailMenu = "bluehelp",
+            TypeMenu = "bluesibo";
         public const int OptionsSetSpellsButton = 3;
         public const int SlotCount = S2C_0x044_ExtendedJob.BlueSpellSlots;
-        public const int HelpSetSpells = 643, HelpLearned = 637;
+        public const int HelpSetSpells = 643, HelpLearned = 637, HelpType = 650;
         public const int MessageRemoveAllLabel = 227, MessageRemoveAllPrompt = 228;
-        public const string Title = "Blue Magic";
+        public const string Title = "Blue Magic", TypeTitle = "Refine by Type", TypeLabel = "Type";
+
+        /// <summary>The learned list's fixed rows: "Type ▶" (index 0) and "(Remove All)" (index 1); the spells follow.</summary>
+        public const int FirstSpellRow = 2;
 
         /// <summary>Blue Magic Points by spell id from 512 (LandSandBoat <c>blue_spell_list.set_points</c>); 0 past the table.</summary>
         private static readonly byte[] Points =
@@ -110,11 +117,13 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The learned list: "(Remove All)" first, then every learned blue spell in the spell table's menu order with its level,
-        /// MP and points; one not yet set is greyed when its level is above the Blue Mage level or its points do not fit (the
-        /// points of the spell in <paramref name="targetSlot"/>, which it would replace, are freed first).
+        /// The learned list: "Type ▶" and "(Remove All)" first, then every learned blue spell (of <paramref name="family"/>
+        /// when one is picked, <see cref="StockUiBlueSpellFacts"/>) in the spell table's menu order with its level, MP and
+        /// points; one not yet set is greyed when its level is above the Blue Mage level or its points do not fit (the points of
+        /// the spell in <paramref name="targetSlot"/>, which it would replace, are freed first).
         /// </summary>
-        public static List<StockUiBlueSpellRow> LearnedRows(StockUiBlueMagicState state, ActionCatalog catalog, int targetSlot, Func<int, string?>? menuText = null)
+        public static List<StockUiBlueSpellRow> LearnedRows(StockUiBlueMagicState state, ActionCatalog catalog, int targetSlot, Func<int, string?>? menuText = null,
+            int family = 0)
         {
             var (used, max) = PointsIn(state);
             int freed = targetSlot >= 0 && targetSlot < state.Slots.Count && state.Slots[targetSlot] != 0
@@ -130,6 +139,7 @@ namespace Gordian.Engine.Ui
             {
                 var spell = spells[id];
                 if (spell == null || spell.Kind != StockUiActionMenu.BlueMagicKind || !state.HasSpell((ushort)id) || catalog.SpellName(id) is not { } name) continue;
+                if (family != 0 && StockUiBlueSpellFacts.Of(id)?.Family != family) continue;
                 int level = spell.LevelFor((int)JobId.BlueMage) ?? 0;
                 int points = PointsOf(id);
                 bool isSet = set.Contains(id);
@@ -141,8 +151,9 @@ namespace Gordian.Engine.Ui
                 found.Add((spell.MenuIndex, new StockUiBlueSpellRow((ushort)id, name, icon, level, spell.MpCost, points, isSet, reason, catalog.SpellHelp(id))));
             }
             found.Sort((a, b) => a.Order != b.Order ? a.Order.CompareTo(b.Order) : a.Row.SpellId.CompareTo(b.Row.SpellId));
-            var rows = new List<StockUiBlueSpellRow>(found.Count + 1)
+            var rows = new List<StockUiBlueSpellRow>(found.Count + FirstSpellRow)
             {
+                new(0, TypeLabel, -1, 0, 0, 0, false, null, null, TypeHeader: true),
                 new(0, menuText?.Invoke(MessageRemoveAllLabel) is { Length: > 0 } label ? label : "(Remove All)", -1, 0, 0, 0, false, null, null, RemoveAll: true),
             };
             rows.AddRange(found.ConvertAll(f => f.Row));

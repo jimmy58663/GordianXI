@@ -120,6 +120,7 @@ namespace Gordian.Engine.Ui
             : IsTreasureList ? SelectedTreasureRow?.ItemId ?? 0
             : IsShopList ? SelectedShopRow?.ItemId ?? 0
             : IsAuctionList ? SelectedAuctionRow?.ItemId ?? 0
+            : AuctionView == StockUiAuctionView.History ? AuctionItem.ItemId
             : (ushort)0;
 
         private ushort _pagesItem;

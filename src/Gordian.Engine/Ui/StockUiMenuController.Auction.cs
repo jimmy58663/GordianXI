@@ -40,6 +40,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The help line (ROM/165/75) the help bar shows over a window whose selected button has none; -1 for none.</summary>
         public int AuctionHelpId { get; internal set; } = -1;
 
+        /// <summary>The Price Set cursor's digit (0 = ones; <see cref="StockUiAuction.StepPrice"/>).</summary>
+        public int AuctionPriceDigit { get; internal set; }
+
+        /// <summary>A Price History opened for a sale: the Price Set window sits under it and it closes with that window (image-17).</summary>
+        public bool AuctionForSale { get; init; }
+
         /// <summary>A category list or the Sales Status list.</summary>
         public bool IsAuctionList => AuctionView is StockUiAuctionView.List or StockUiAuctionView.Sales;
 
@@ -89,10 +95,35 @@ namespace Gordian.Engine.Ui
         private volatile bool _auctionOpen;
         private StockUiOpenMenu? _priceMenu;
         private bool _priceCommitted;
+        private string _priceText = string.Empty;
         private (StockUiAuctionRow Item, uint Price, bool Stack)? _pendingSale;
+        private System.Numerics.Vector3? _auctionAnchor;
 
         /// <summary>Whether the Auction House window is open.</summary>
         public bool IsAuctionOpen => _auctionOpen;
+
+        /// <summary>
+        /// How far (yalms, on the ground) the character may move from where the Auction House was opened before its windows
+        /// close (the maintainer's round 1 note: retail closes them past about 10 yalms from the counter; PROVISIONAL distance).
+        /// </summary>
+        public const float AuctionReach = 10f;
+
+        /// <summary>
+        /// Where the Auction House was opened from: the counter talked to (or the character's place when no counter was
+        /// targeted). Set by the session as S2C 0x04C MOPEN comes in.
+        /// </summary>
+        public void SetAuctionAnchor(System.Numerics.Vector3? anchor) => _auctionAnchor = anchor;
+
+        /// <summary>The character moved: past <see cref="AuctionReach"/> from the anchor the Auction House closes.</summary>
+        public void CheckAuctionDistance(System.Numerics.Vector3 position)
+        {
+            if (!_auctionOpen || _auctionAnchor is not { } anchor) return;
+            float dx = position.X - anchor.X, dz = position.Z - anchor.Z;
+            if (dx * dx + dz * dz <= AuctionReach * AuctionReach) return;
+            GordianLog.Info("AUCTION", "Moved away from the Auction Counter; closing the Auction House.");
+            CloseAuctionHouse();
+            Changed?.Invoke();
+        }
 
         /// <summary>
         /// The server opened the Auction House (S2C 0x04C MOPEN): <c>auc1</c> opens as the root, closing whatever menus were open,
@@ -128,6 +159,7 @@ namespace Gordian.Engine.Ui
             if (!_auctionOpen) return;
             _auctionOpen = false;
             _pendingSale = null;
+            _auctionAnchor = null;
             StockUiOpenMenu? root = null;
             foreach (var menu in _open)
             {
@@ -196,8 +228,15 @@ namespace Gordian.Engine.Ui
                 ActivateAuctionRow(top);
                 return true;
             }
-            if (top.AuctionView == StockUiAuctionView.History) return true;
+            if (top.AuctionView == StockUiAuctionView.History)
+            {
+                // Confirm on a sale prints it in full (image-14).
+                int index = top.EntryIndex(top.SelectedButtonId);
+                if (index >= 0 && index < top.AuctionHistory.Count) NoticePosted?.Invoke(StockUiAuction.HistoryLine(top.AuctionHistory[index]));
+                return true;
+            }
             if (button == null) return false;
+            if (top.IsGreyed(button.ButtonId)) return true;
             string name = top.Name;
             if (name.Equals(StockUiAuction.MainMenu, StringComparison.OrdinalIgnoreCase))
             {
@@ -226,7 +265,7 @@ namespace Gordian.Engine.Ui
                 switch (button.ButtonId)
                 {
                     case StockUiAuction.ItemHistoryButton:
-                        OpenPriceHistory(top, top.AuctionItem);
+                        OpenPriceHistoryInstead(top);
                         break;
                     case StockUiAuction.ItemBidButton:
                         OpenPriceSet(top, top.AuctionItem, StockUiAuctionPriceFor.Bid);
@@ -239,7 +278,7 @@ namespace Gordian.Engine.Ui
             }
             if (name.Equals(StockUiAuction.SaleMenu, StringComparison.OrdinalIgnoreCase))
             {
-                if (button.ButtonId == StockUiAuction.SaleHistoryButton) OpenPriceHistory(top, top.AuctionItem);
+                if (button.ButtonId == StockUiAuction.SaleHistoryButton) OpenPriceHistoryInstead(top);
                 else AskCancelSale(top, top.AuctionItem);
                 return true;
             }
@@ -251,15 +290,16 @@ namespace Gordian.Engine.Ui
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiAuction.ListMenu, out var definition)) return;
+            // The help bar reads "Bid" and "Select an item." over the list (image-11), the frame's title 121 and help 3.
             var list = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, VisibleRowsOf(definition))
             {
                 AuctionView = StockUiAuctionView.List,
                 AuctionCategory = category.Category,
-                AuctionTitle = category.Name,
+                AuctionTitle = StockUiAuction.BidTitle,
                 ItemLookup = ItemLookup,
             };
             list.AuctionLoading = true;
-            list.AuctionHelpId = StockUiAuction.HelpSelectBidItem;
+            list.AuctionHelpId = StockUiAuction.HelpSelectItem;
             list.SelectedButtonId = 1;
             lock (_sync) PushOpen(list);
             Changed?.Invoke();
@@ -282,13 +322,27 @@ namespace Gordian.Engine.Ui
             {
                 GordianLog.Warning("AUCTION", $"Category {list.AuctionCategory} list failed: {ex.Message}");
             }
+            var character = Character();
+            var worn = WornItemIds();
             lock (_sync)
             {
                 list.AuctionLoading = false;
-                FillAuctionRows(list, StockUiAuction.ListRows(items ?? Array.Empty<AuctionListItem>(), ItemLookup));
+                FillAuctionRows(list, StockUiAuction.ListRows(items ?? Array.Empty<AuctionListItem>(), ItemLookup,
+                    record => StockUiAuction.ToneOf(record, character, worn)));
             }
             if (items == null) NoticePosted?.Invoke(StockUiAuction.UnavailableMessage);
             Changed?.Invoke();
+        }
+
+        /// <summary>The item ids worn now (a category list draws them green).</summary>
+        private HashSet<ushort> WornItemIds()
+        {
+            var worn = new HashSet<ushort>();
+            foreach (EquipSlotId slot in Enum.GetValues<EquipSlotId>())
+            {
+                if (StockUiItems.EquippedItem(Inventory, slot) is { } item) worn.Add(item.ItemId);
+            }
+            return worn;
         }
 
         /// <summary>Puts rows into a list (under the lock), keeping the cursor on a row that exists.</summary>
@@ -331,19 +385,34 @@ namespace Gordian.Engine.Ui
             if (library == null || !library.TryGetMenu(name, out var definition)) return;
             var menu = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null) { AuctionItem = row };
             menu.SelectedButtonId = FirstSelectable(definition);
+            // Nothing to buy: Bid is greyed (round 1, N4).
+            if (list.AuctionView == StockUiAuctionView.List && row.Listings == 0) menu.SetGreyed(new HashSet<int> { StockUiAuction.ItemBidButton });
             lock (_sync) PushOpen(menu);
             Changed?.Invoke();
         }
 
+        /// <summary>
+        /// Price History from <c>auc3</c> / <c>auc4</c>: the item's menu gives way to it, so Cancel goes back to the list (round
+        /// 1, N3: retail returns to the daggers, not to Price History / Bid / Sort).
+        /// </summary>
+        private void OpenPriceHistoryInstead(StockUiOpenMenu itemMenu)
+        {
+            var list = itemMenu.Parent;
+            var item = itemMenu.AuctionItem;
+            CloseMenu(itemMenu);
+            OpenPriceHistory(list, item);
+        }
+
         /// <summary>Price History: <c>auchisto</c> with the item's last ten sales (singles or stacks, as the row is).</summary>
-        private void OpenPriceHistory(StockUiOpenMenu parent, StockUiAuctionRow item)
+        private StockUiOpenMenu? OpenPriceHistory(StockUiOpenMenu? parent, StockUiAuctionRow item, bool forSale = false)
         {
             var library = _library;
-            if (library == null || !library.TryGetMenu(StockUiAuction.HistoryMenu, out var definition)) return;
+            if (library == null || !library.TryGetMenu(StockUiAuction.HistoryMenu, out var definition)) return null;
             var history = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, VisibleRowsOf(definition))
             {
                 AuctionView = StockUiAuctionView.History,
                 AuctionItem = item,
+                AuctionForSale = forSale,
                 ItemLookup = ItemLookup,
             };
             history.AuctionLoading = true;
@@ -351,6 +420,7 @@ namespace Gordian.Engine.Ui
             lock (_sync) PushOpen(history);
             Changed?.Invoke();
             _ = LoadHistoryAsync(history);
+            return history;
         }
 
         private async Task LoadHistoryAsync(StockUiOpenMenu history)
@@ -412,8 +482,10 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on an item to sell: a full stack of a stackable item asks whether the stack goes on auction (PROVISIONAL: the
-        /// capture's log names the rule, not the question), then the price.
+        /// Confirm on an item to sell (round 1, N6): a full stack of a stackable item goes on auction as the stack, with no
+        /// question; one short of a stack prints "You can only place a single item or a set of 12 such items on auction."
+        /// (image-16) and sells as a single. The item's Price History (singles or stacks, as it sells) opens with the price
+        /// under it (image-17).
         /// </summary>
         private void PickAuctionSale(StockUiOpenMenu list, StockUiItemRow row)
         {
@@ -422,22 +494,18 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke(row.GreyedReason ?? $"{row.Name} cannot be placed on auction.");
                 return;
             }
-            var item = new StockUiAuctionRow(row.ItemId, row.Name, false, row.StackSize, 0, InventorySlot: row.Slot);
-            if (row.StackSize > 1 && row.Count >= row.StackSize)
-            {
-                OpenYesNo("Place the whole stack on auction?", defaultYes: true, answer =>
-                {
-                    if (answer is { } stack) OpenPriceSet(list, item with { Stack = stack }, StockUiAuctionPriceFor.Sell);
-                });
-                return;
-            }
-            OpenPriceSet(list, item, StockUiAuctionPriceFor.Sell);
+            bool stack = row.StackSize > 1 && row.Count >= row.StackSize;
+            if (row.StackSize > 1 && !stack) NoticePosted?.Invoke(StockUiAuction.PartialStackMessage(row.StackSize));
+            var item = new StockUiAuctionRow(row.ItemId, row.Name, stack, row.StackSize, 0, InventorySlot: row.Slot);
+            var history = OpenPriceHistory(list, item, forSale: true);
+            OpenPriceSet(history ?? list, item, StockUiAuctionPriceFor.Sell);
         }
 
         /// <summary>
-        /// Price Set (<c>moneyctr</c>, title 88, help 352 / 55 / 58): the price is typed in the shared text field (digits); for the
-        /// gamepad the frame's arrows work as drawn: + / - (Up / Down) step it (<see cref="StockUiAuction.PriceStep"/>), "All" (Left)
-        /// puts in all the gil in hand for a bid, "0" (Right) clears it. Confirm keeps it, Cancel closes the window.
+        /// Price Set (<c>moneyctr</c> at 130,240 beside "Current Gil", title 88, help 352 / 55 / 58): the price is typed in the
+        /// shared text field (digits), or set with the frame's arrows (<see cref="StockUiAuction.StepPrice"/>: Up / Down change
+        /// the digit under the cursor, Left moves it up a digit or reaches "All", Right moves it down or reaches "0"). Confirm
+        /// keeps it, Cancel closes the window.
         /// </summary>
         private void OpenPriceSet(StockUiOpenMenu parent, StockUiAuctionRow item, StockUiAuctionPriceFor purpose, uint price = 0)
         {
@@ -450,8 +518,10 @@ namespace Gordian.Engine.Ui
                 PriceFor = purpose,
                 ItemLookup = ItemLookup,
                 MacroField = MacroField,
+                Inventory = Inventory,
             };
-            menu.AuctionHelpId = purpose == StockUiAuctionPriceFor.Bid ? StockUiAuction.HelpSpecifyBid : StockUiAuction.HelpSetReserve;
+            // A sale's Price Set reads "Specify the price." (the frame's help 352, image-17).
+            menu.AuctionHelpId = purpose == StockUiAuctionPriceFor.Bid ? StockUiAuction.HelpSpecifyBid : definition.Frame.HelpTextId;
             if (MacroField.IsOpen) MacroField.Commit();
             lock (_sync)
             {
@@ -467,7 +537,8 @@ namespace Gordian.Engine.Ui
 
         private void OpenPriceField(StockUiOpenMenu menu, uint price)
         {
-            MacroField.Open(price == 0 ? string.Empty : price.ToString(System.Globalization.CultureInfo.InvariantCulture), 9, (text, _) =>
+            _priceText = price == 0 ? string.Empty : price.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            MacroField.Open(_priceText, StockUiAuction.PriceDigits, (text, _) =>
             {
                 _priceCommitted = true;
                 ConfirmPrice(menu, StockUiAuction.ParsePrice(text));
@@ -475,9 +546,10 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The Price Set window's input while it is open: Confirm keeps the price, Cancel closes the window, Up / Down step the
-        /// price, Left / Right are the "All" and "0" arrows; a field the keyboard closed (Escape) closes the window on the next tick. Returns
-        /// true while the window has the input.
+        /// The Price Set window's input while it is open: Confirm keeps the price, Cancel closes the window, the arrows step it
+        /// (<see cref="StockUiAuction.StepPrice"/>, capped at the gil in hand for a bid); typed digits put the cursor back on
+        /// the ones; a field the keyboard closed (Escape) closes the window on the next tick. Returns true while the window has
+        /// the input.
         /// </summary>
         private bool ProcessAuctionPrice(InputState input)
         {
@@ -495,6 +567,7 @@ namespace Gordian.Engine.Ui
                 _priceMenu = null;
                 _pendingSale = null;
                 if (MacroField.IsOpen) MacroField.Cancel();
+                if (menu.Parent is { AuctionForSale: true } history && ReferenceEquals(Top, history)) CloseMenu(history);
                 return false;
             }
             if (!MacroField.IsOpen)
@@ -503,24 +576,24 @@ namespace Gordian.Engine.Ui
                 return false;
             }
             if (!ReferenceEquals(Top, menu)) return false;
+            if (MacroField.Text != _priceText)
+            {
+                // Typed digits: the cursor goes back to the ones.
+                _priceText = MacroField.Text;
+                menu.AuctionPriceDigit = 0;
+            }
+            StockUiPriceKey? key = input.WasActionTriggered(InputAction.MenuUp) ? StockUiPriceKey.Up
+                : input.WasActionTriggered(InputAction.MenuDown) ? StockUiPriceKey.Down
+                : input.WasActionTriggered(InputAction.MenuLeft) ? StockUiPriceKey.Left
+                : input.WasActionTriggered(InputAction.MenuRight) ? StockUiPriceKey.Right
+                : null;
             if (input.WasActionTriggered(InputAction.Confirm)) MacroField.Commit();
             else if (input.WasActionTriggered(InputAction.Cancel)) ClosePriceSet(menu);
-            else if (input.WasActionTriggered(InputAction.MenuUp) || input.WasActionTriggered(InputAction.MenuDown))
+            else if (key is { } k)
             {
-                uint price = StockUiAuction.ParsePrice(MacroField.Text);
-                uint step = StockUiAuction.PriceStep(price);
-                price = input.WasActionTriggered(InputAction.MenuUp)
-                    ? (uint)Math.Min(StockUiAuction.MaxPrice, (ulong)price + step)
-                    : price > step ? price - step : 1;
-                MacroField.Cancel();
-                OpenPriceField(menu, price);
-                Changed?.Invoke();
-            }
-            else if (input.WasActionTriggered(InputAction.MenuLeft) || input.WasActionTriggered(InputAction.MenuRight))
-            {
-                // The frame's "All" arrow (left) and "0" arrow (right): all the gil in hand for a bid (a sale keeps its price), or none.
-                uint price = input.WasActionTriggered(InputAction.MenuRight) ? 0
-                    : menu.PriceFor == StockUiAuctionPriceFor.Bid ? Math.Min(Gil, StockUiAuction.MaxPrice) : StockUiAuction.ParsePrice(MacroField.Text);
+                uint cap = menu.PriceFor == StockUiAuctionPriceFor.Bid ? Math.Min(Gil, StockUiAuction.MaxPrice) : StockUiAuction.MaxPrice;
+                var (price, digit) = StockUiAuction.StepPrice(StockUiAuction.ParsePrice(MacroField.Text), menu.AuctionPriceDigit, k, cap);
+                menu.AuctionPriceDigit = digit;
                 MacroField.Cancel();
                 OpenPriceField(menu, price);
                 Changed?.Invoke();
@@ -528,12 +601,13 @@ namespace Gordian.Engine.Ui
             return true;
         }
 
+        /// <summary>Closes Price Set, and with a sale's the Price History opened with it.</summary>
         private void ClosePriceSet(StockUiOpenMenu menu)
         {
             if (MacroField.IsOpen) MacroField.Cancel();
             _priceMenu = null;
             if (ListUnder(menu) is { } list) list.ShowsQuantity = false;
-            CloseMenu(menu);
+            CloseMenu(menu.Parent is { AuctionForSale: true } history ? history : menu);
         }
 
         /// <summary>The Auction House list a window was opened over, if any.</summary>
@@ -608,12 +682,14 @@ namespace Gordian.Engine.Ui
                 if (_priceMenu is { } failed) ClosePriceSet(failed);
                 return;
             }
-            NoticePosted?.Invoke(StockUiAuction.FeeMessage(response.Price));
-            AskAuctionYesNo(StockUiAuction.HelpPlaceOnAuction, yes =>
+            // The fee in a Yes / No window and the log (image-18), then LotIn on Yes.
+            string fee = StockUiAuction.FeeMessage(response.Price, sale.Stack ? sale.Item.StackSize : 1);
+            NoticePosted?.Invoke(fee);
+            OpenYesNo(fee, defaultYes: true, answer =>
             {
                 _pendingSale = null;
                 if (_priceMenu is { } menu) ClosePriceSet(menu);
-                if (!yes) return;
+                if (answer != true) return;
                 sbyte slot = AuctionHouse?.Invoke()?.NextFreeSlot ?? 0;
                 if (slot < 0)
                 {
@@ -658,6 +734,7 @@ namespace Gordian.Engine.Ui
                 AuctionTitle = StockUiAuction.AuctionTitle,
                 ItemLookup = ItemLookup,
             };
+            list.AuctionHelpId = StockUiAuction.HelpSelectItem;
             list.SelectedButtonId = 1;
             lock (_sync)
             {

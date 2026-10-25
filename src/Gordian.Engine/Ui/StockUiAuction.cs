@@ -35,14 +35,36 @@ namespace Gordian.Engine.Ui
     }
 
     /// <summary>
+    /// How a category list draws an item's name (the maintainer's round 1 capture image-11, 2026-10-24): yellow when the
+    /// current job and level can equip it, green when one is worn, white otherwise; a stack row is pink (image-15).
+    /// </summary>
+    public enum StockUiAuctionTone
+    {
+        Plain,
+        Equippable,
+        Equipped,
+        Stack,
+    }
+
+    /// <summary>A Price Set arrow: Up / Down change the digit under the cursor, Left / Right move the cursor (or reach All / 0).</summary>
+    public enum StockUiPriceKey
+    {
+        Up,
+        Down,
+        Left,
+        Right,
+    }
+
+    /// <summary>
     /// One row of an Auction House list: the item, whether the row is its stack, how many listings the category list counts
     /// for it, and for a Sales Status row the sale slot, the asking price and the parcel's state.
     /// </summary>
     public readonly record struct StockUiAuctionRow(ushort ItemId, string Name, bool Stack, int StackSize, uint Listings,
-        sbyte SaleSlot = -1, uint Price = 0, AuctionParcelStat Stat = AuctionParcelStat.None, byte InventorySlot = 0);
+        sbyte SaleSlot = -1, uint Price = 0, AuctionParcelStat Stat = AuctionParcelStat.None, byte InventorySlot = 0,
+        StockUiAuctionTone Tone = StockUiAuctionTone.Plain);
 
-    /// <summary>One sale of an item's Price History: the date, the seller, the buyer and the price.</summary>
-    public readonly record struct StockUiAuctionHistoryRow(string Date, string Seller, string Buyer, uint Price);
+    /// <summary>One sale of an item's Price History: the date, the seller, the buyer, the price and the sale's time (Unix seconds).</summary>
+    public readonly record struct StockUiAuctionHistoryRow(string Date, string Seller, string Buyer, uint Price, uint Time = 0);
 
     /// <summary>A category entry of an Auction House category menu: the AH category it lists, or the menu it opens.</summary>
     public readonly record struct StockUiAuctionCategory(int Button, byte Category, string? Opens, string Name);
@@ -83,7 +105,13 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The help lines (ROM/165/75) the windows show where the DAT button carries none.</summary>
         public const int HelpSelectSellItem = 54, HelpSetReserve = 55, HelpPlaceOnAuction = 56, HelpSpecifyBid = 58, HelpPlaceBid = 59,
-            HelpSelectBidItem = 554, HelpSaleOnAuction = 67;
+            HelpSelectBidItem = 554, HelpSaleOnAuction = 67, HelpSelectItem = 3;
+
+        /// <summary>
+        /// Texts the round 1 captures show that the menu tables (ROM/165/72, 75) do not hold: an empty Price History (image-12)
+        /// and an empty Sales Status (image-10), both in the pink of retail's notices.
+        /// </summary>
+        public const string NoEntriesText = "No applicable entries.", NoSalesText = "You have no items up for auction.";
 
         /// <summary>The menus' messages (ROM/165/72) the Auction House prints.</summary>
         public const int MessagePlaced = 54, MessagePlaceFailed = 55, MessageBidSuccessful = 56, MessageBidFailed = 57,
@@ -180,9 +208,11 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// A category list's rows: each item once as a single, and its stack as a second row when it stacks, with the number
-        /// of listings the search server counts for each (PROVISIONAL: the capture shows the list's rows only partly).
+        /// of listings the search server counts for each (retail shows "[7]", and nothing for none, image-15) and the tone its
+        /// name is drawn in (<see cref="ToneOf"/>; stacks pink).
         /// </summary>
-        public static List<StockUiAuctionRow> ListRows(IReadOnlyList<AuctionListItem> items, Func<ushort, ItemRecord?>? lookup)
+        public static List<StockUiAuctionRow> ListRows(IReadOnlyList<AuctionListItem> items, Func<ushort, ItemRecord?>? lookup,
+            Func<ItemRecord, StockUiAuctionTone>? tone = null)
         {
             var rows = new List<StockUiAuctionRow>(items.Count);
             foreach (var item in items)
@@ -190,11 +220,25 @@ namespace Gordian.Engine.Ui
                 if (item.ItemId == 0) continue;
                 var record = StockUiShop.Lookup(lookup, item.ItemId);
                 int stack = Math.Max(1, (int)record.StackSize);
-                rows.Add(new StockUiAuctionRow(item.ItemId, record.Name, false, stack, item.SingleCount));
-                if (stack > 1) rows.Add(new StockUiAuctionRow(item.ItemId, record.Name, true, stack, item.StackCount));
+                rows.Add(new StockUiAuctionRow(item.ItemId, record.Name, false, stack, item.SingleCount, Tone: tone?.Invoke(record) ?? StockUiAuctionTone.Plain));
+                if (stack > 1) rows.Add(new StockUiAuctionRow(item.ItemId, record.Name, true, stack, item.StackCount, Tone: StockUiAuctionTone.Stack));
             }
             return rows;
         }
+
+        /// <summary>
+        /// The tone of a single's name: green when an item of that kind is worn, yellow when it is equipment the main job and
+        /// level can wear (<see cref="StockUiItems.CannotEquipReason"/>), white otherwise.
+        /// </summary>
+        public static StockUiAuctionTone ToneOf(ItemRecord record, StockUiEquipCharacter character, IReadOnlySet<ushort> worn)
+        {
+            if (worn.Contains((ushort)record.ItemId)) return StockUiAuctionTone.Equipped;
+            if (record.EquipSlotsMask == 0 || record.JobsMask == 0 || character.MainJob == 0) return StockUiAuctionTone.Plain;
+            return StockUiItems.CannotEquipReason(record, character) == null ? StockUiAuctionTone.Equippable : StockUiAuctionTone.Plain;
+        }
+
+        /// <summary>The listings count right of a list row: "[7]", nothing when there are none (image-15).</summary>
+        public static string ListingsText(uint listings) => listings == 0 ? string.Empty : $"[{listings.ToString(CultureInfo.InvariantCulture)}]";
 
         /// <summary>The Sales Status rows: the filled sale slots in slot order.</summary>
         public static List<StockUiAuctionRow> SalesRows(IReadOnlyList<AuctionSale?> sales, Func<ushort, ItemRecord?>? lookup)
@@ -210,17 +254,38 @@ namespace Gordian.Engine.Ui
             return rows;
         }
 
-        /// <summary>The Price History rows, newest first as the server sends them; the date as the server's Unix time in UTC.</summary>
-        public static List<StockUiAuctionHistoryRow> HistoryRows(IReadOnlyList<AuctionHistoryEntry> sales)
+        /// <summary>
+        /// The Price History rows, newest first as the server sends them; the date "yy/MM/dd" (image-13: "26/10/17") of the
+        /// server's Unix time in <paramref name="zone"/> (the local zone when null).
+        /// </summary>
+        public static List<StockUiAuctionHistoryRow> HistoryRows(IReadOnlyList<AuctionHistoryEntry> sales, TimeZoneInfo? zone = null)
         {
             var rows = new List<StockUiAuctionHistoryRow>(sales.Count);
             foreach (var sale in sales)
             {
-                string date = sale.Data == 0 ? string.Empty
-                    : DateTimeOffset.FromUnixTimeSeconds(sale.Data).UtcDateTime.ToString("yy/MM/dd", CultureInfo.InvariantCulture);
-                rows.Add(new StockUiAuctionHistoryRow(date, sale.Seller, sale.Buyer, sale.Price));
+                string date = sale.Data == 0 ? string.Empty : SaleTime(sale.Data, zone).ToString("yy/MM/dd", CultureInfo.InvariantCulture);
+                rows.Add(new StockUiAuctionHistoryRow(date, sale.Seller, sale.Buyer, sale.Price, sale.Data));
             }
             return rows;
+        }
+
+        private static DateTime SaleTime(uint unix, TimeZoneInfo? zone) =>
+            TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), zone ?? TimeZoneInfo.Local).DateTime;
+
+        /// <summary>
+        /// The log line Confirm on a Price History entry prints (image-14): "(2026, Oct. 17 7:17:56) Gemini→Gemini [10G]".
+        /// PROVISIONAL: the other months' abbreviations are not captured.
+        /// </summary>
+        public static string HistoryLine(StockUiAuctionHistoryRow row, TimeZoneInfo? zone = null)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            string when = row.Date;
+            if (row.Time != 0)
+            {
+                var t = SaleTime(row.Time, zone);
+                when = $"{t.Year.ToString(inv)}, {t.ToString("MMM", inv)}. {t.Day.ToString(inv)} {t.ToString("H:mm:ss", inv)}";
+            }
+            return $"({when}) {row.Seller}→{row.Buyer} [{row.Price.ToString(inv)}G]";
         }
 
         /// <summary>Whether an inventory item can go on the Auction House: not gil, not worn, not flagged NoAuction.</summary>
@@ -258,8 +323,18 @@ namespace Gordian.Engine.Ui
             _ => "On auction",
         };
 
-        /// <summary>The fee line the log shows before the listing is confirmed (the capture at 0:20-0:45).</summary>
-        public static string FeeMessage(uint fee) => $"You have to pay a transaction fee of {StockUiShop.FormatGil(fee)} gil.";
+        /// <summary>
+        /// The fee the server quotes, shown in the Yes / No window and the log before the listing is confirmed: a stack's as
+        /// image-18 words it ("The total transaction fee for a set of 12 items is 4 gil."), a single's as the first capture's log
+        /// (0:20-0:45, "You have to pay a transaction fee of 1 gil."; PROVISIONAL that it is the single's wording).
+        /// </summary>
+        public static string FeeMessage(uint fee, int stackSize = 1) => stackSize > 1
+            ? $"The total transaction fee for a set of {stackSize.ToString(CultureInfo.InvariantCulture)} items is {StockUiShop.FormatGil(fee)} gil."
+            : $"You have to pay a transaction fee of {StockUiShop.FormatGil(fee)} gil.";
+
+        /// <summary>The warning a stackable item short of a full stack prints when picked to sell (image-16); it then sells as a single.</summary>
+        public static string PartialStackMessage(int stackSize) =>
+            $"You can only place a single item or a set of {stackSize.ToString(CultureInfo.InvariantCulture)} such items on auction.";
 
         /// <summary>Parses a typed price: its digits, capped at <see cref="MaxPrice"/>; 0 when there are none.</summary>
         public static uint ParsePrice(string text)
@@ -273,16 +348,51 @@ namespace Gordian.Engine.Ui
             return (uint)value;
         }
 
+        /// <summary>The most digits a price has (999,999,999).</summary>
+        public const int PriceDigits = 9;
+
         /// <summary>
-        /// The Up / Down step of the price entry (the gamepad has no digits): one gil below 100, then the price's leading power of
-        /// ten over ten (1,234 steps by 100), so a few presses reach any size (PROVISIONAL: retail's digit entry is not captured).
+        /// Price Set's arrows, as the maintainer described retail's (round 1, N4): the cursor sits on a digit (0 = ones); Up /
+        /// Down add or take that digit's place value; Left moves the cursor one digit up (a zero shows there), and when that
+        /// digit would be worth more than <paramref name="cap"/> (the gil in hand for a bid) the price becomes the cap, the
+        /// frame's "All" arrow; Right moves the cursor down, and on the ones clears the price, the "0" arrow. No step passes
+        /// the cap (11 gil: Left, Up, Up gives 11). PROVISIONAL: Down below zero and Right are not described.
         /// </summary>
-        public static uint PriceStep(uint price)
+        public static (uint Price, int Digit) StepPrice(uint price, int digit, StockUiPriceKey key, uint cap)
         {
-            uint step = 1;
-            while (step * 100 <= price && step < 100_000_000) step *= 10;
-            return step;
+            cap = Math.Min(cap, MaxPrice);
+            digit = Math.Clamp(digit, 0, PriceDigits - 1);
+            ulong place = Place(digit);
+            switch (key)
+            {
+                case StockUiPriceKey.Up:
+                    price = (uint)Math.Min(cap, price + place);
+                    break;
+                case StockUiPriceKey.Down:
+                    price = price >= place ? (uint)(price - place) : 0;
+                    break;
+                case StockUiPriceKey.Left:
+                    if (digit + 1 >= PriceDigits || Place(digit + 1) > cap) price = cap;
+                    else digit++;
+                    break;
+                case StockUiPriceKey.Right:
+                    if (digit > 0) digit--;
+                    else price = 0;
+                    break;
+            }
+            return (Math.Min(price, cap), digit);
         }
+
+        private static ulong Place(int digit)
+        {
+            ulong place = 1;
+            for (int i = 0; i < digit; i++) place *= 10;
+            return place;
+        }
+
+        /// <summary>The price as the field shows it: its digits, zero-padded to the cursor's digit (Left x3 from 0 shows "0000").</summary>
+        public static string PriceDigitsText(uint price, int digit) =>
+            price.ToString(CultureInfo.InvariantCulture).PadLeft(Math.Clamp(digit, 0, PriceDigits - 1) + 1, '0');
 
         /// <summary>
         /// The message a 0x04C answer prints, or null for none: the ROM/165/72 texts by id (<paramref name="message"/>), else

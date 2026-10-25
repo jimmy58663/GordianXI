@@ -641,6 +641,9 @@ namespace Gordian.Engine.Ui
                     // Cancel on the History list leaves History: its grid goes with it (#330).
                     if (closed.ItemListKind == StockUiItemListKind.SynthesisHistory && _open.Length > 0 && ReferenceEquals(_open[^1], closed.Parent)
                         && closed.Parent is { IsSynthesisHistory: true }) _open = _open[..^1];
+                    // Cancel on a sale's Price Set closes the Price History opened with it (#90).
+                    if (closed.AuctionView == StockUiAuctionView.Price && _open.Length > 0 && ReferenceEquals(_open[^1], closed.Parent)
+                        && closed.Parent is { AuctionForSale: true }) _open = _open[..^1];
                 }
             }
             if (closed == null)

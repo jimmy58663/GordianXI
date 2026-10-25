@@ -339,6 +339,8 @@ namespace Gordian.App.Graphics
                 return;
             }
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
+            // Set Spells over the Magic list draws its own help bar; only one is ever drawn (round 1, N11, image-19).
+            if (actions.Menus.OpenMenus.Any(m => m.IsBlueMagicWindow)) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
         }

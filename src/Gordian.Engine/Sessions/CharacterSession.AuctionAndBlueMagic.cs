@@ -28,10 +28,20 @@ namespace Gordian.Engine.Sessions
             menus.AuctionCancelSale = slot => InventoryModule.CancelAuctionSaleAsync(slot);
             menus.AuctionListRequested = LoadAuctionListAsync;
             menus.AuctionHistoryRequested = LoadAuctionHistoryAsync;
+            // The counter talked to anchors the window: walking off past StockUiMenuController.AuctionReach closes it.
+            auction.Opened += () => menus.SetAuctionAnchor(AuctionAnchor());
             auction.Opened += menus.OnAuctionOpened;
             auction.SalesChanged += menus.OnAuctionSalesChanged;
             auction.ResponseReceived += menus.OnAuctionResponse;
+            ActionService.LocalPlayerMoved += (position, _) => menus.CheckAuctionDistance(position);
             World.ZoneChanged += _ => menus.CloseAuctionHouse();
+        }
+
+        /// <summary>Where the Auction House opened from: the targeted counter, else the character's place; null when neither is known.</summary>
+        private System.Numerics.Vector3? AuctionAnchor()
+        {
+            if (ActionService.CurrentTarget is { Type: Core.World.EntityType.Npc } counter) return counter.Position;
+            return World.TryGetByServerId(LocalPlayer.ServerId, out var self) ? self.Position : null;
         }
 
         /// <summary>

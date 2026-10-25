@@ -31,6 +31,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The learned spells (both windows: drawn beside the slots, and the Learned window's rows).</summary>
         public IReadOnlyList<StockUiBlueSpellRow> BlueSpells { get; internal set; } = Array.Empty<StockUiBlueSpellRow>();
 
+        /// <summary>Every learned spell whatever the family filter (the details window describes from it).</summary>
+        public IReadOnlyList<StockUiBlueSpellRow> BlueAllSpells { get; internal set; } = Array.Empty<StockUiBlueSpellRow>();
+
         /// <summary>The points in use and the most allowed.</summary>
         public (int Used, int Max) BluePoints { get; internal set; }
 
@@ -75,6 +78,11 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether the Blue Magic list's Options window is <c>blusortw</c>, whose Set Spells works: Blue Mage is a job of yours.</summary>
         public bool CanSetBlueSpells => BlueMagicState?.Invoke() is { Level: > 0 };
 
+        private int _blueFamily;
+
+        /// <summary>The monster family the learned list is narrowed to ("Refine by Type", 1-18); 0 for every spell.</summary>
+        public int BlueFamily => _blueFamily;
+
         /// <summary>
         /// Set Spells (the Options window's button 3): <c>bluequip</c> takes the cursor on its first slot, the learned list,
         /// the points and the details beside it.
@@ -88,13 +96,16 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("You cannot set blue magic spells on your current job.");
                 return null;
             }
+            // The status column left of the slots is the Equipment window's (image-20).
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, VisibleRowsOf(definition))
             {
                 BlueMagicView = StockUiBlueMagicView.Slots,
+                CharacterStats = CharacterStats,
             };
             menu.SelectedButtonId = 1;
             lock (_sync)
             {
+                _blueFamily = 0;
                 FillBlueMagic(menu);
                 PushOpen(menu);
             }
@@ -126,7 +137,10 @@ namespace Gordian.Engine.Ui
             if (state == null) return;
             menu.BluePoints = StockUiBlueMagic.PointsIn(state);
             menu.BlueSlots = StockUiBlueMagic.SlotRows(state, catalog);
-            menu.BlueSpells = catalog != null ? StockUiBlueMagic.LearnedRows(state, catalog, menu.BlueTargetSlot, MenuMessageText) : Array.Empty<StockUiBlueSpellRow>();
+            menu.BlueSpells = catalog != null ? StockUiBlueMagic.LearnedRows(state, catalog, menu.BlueTargetSlot, MenuMessageText, _blueFamily)
+                : Array.Empty<StockUiBlueSpellRow>();
+            menu.BlueAllSpells = _blueFamily == 0 || catalog == null ? menu.BlueSpells
+                : StockUiBlueMagic.LearnedRows(state, catalog, menu.BlueTargetSlot, MenuMessageText);
             int count = menu.BlueMagicView == StockUiBlueMagicView.Slots ? menu.BlueSlots.Count : menu.BlueSpells.Count;
             var rows = new List<StockUiListRow>(count);
             for (int i = 0; i < count; i++)
@@ -151,29 +165,62 @@ namespace Gordian.Engine.Ui
                 ActivateLearnedSpell(top);
                 return true;
             }
+            if (top.Name.Equals(StockUiBlueMagic.TypeMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                if (top.SelectedButton is { } family && IsSelectable(family)) PickBlueFamily(top, family.ButtonId);
+                return true;
+            }
             return false;
         }
 
         /// <summary>
-        /// Confirm on a slot: an empty one opens the learned list for it, a set one is emptied (C2S 0x102 with the spell in its
-        /// slot and no spell to add; PROVISIONAL: what retail's Confirm on a set slot does is not captured), a locked one says so.
+        /// Confirm on a slot: the learned list takes the cursor for it, an empty one's or a set one's (round 1, N13: retail
+        /// offers spells to swap in, the set one green, and picking it again empties the slot); a locked one says so.
         /// </summary>
         private void ActivateBlueSlot(StockUiOpenMenu slots)
         {
             int index = slots.EntryIndex(slots.SelectedButtonId);
-            if (index < 0 || index >= slots.BlueSlots.Count || BlueMagicState?.Invoke() is not { } state) return;
+            if (index < 0 || index >= slots.BlueSlots.Count || BlueMagicState?.Invoke() is null) return;
             var slot = slots.BlueSlots[index];
             if (slot.Locked)
             {
                 NoticePosted?.Invoke($"Set {slot.Slot:00} opens at Blue Mage level {slot.UnlockLevel}.");
                 return;
             }
-            if (slot.SpellId != 0)
+            OpenLearned(slots, index);
+        }
+
+        /// <summary>"Type ▶": <c>bluesibo</c> over the learned list, or, with a family picked, the whole list again (image-21, image-22).</summary>
+        private void ToggleBlueFamily(StockUiOpenMenu learned)
+        {
+            if (_blueFamily != 0)
             {
-                Remove(state, index, slot.SpellId, slot.Name);
+                PickBlueFamily(null, 0);
                 return;
             }
-            OpenLearned(slots, index);
+            StockUiOpenMenu? menu;
+            lock (_sync)
+            {
+                menu = Push(StockUiBlueMagic.TypeMenu, learned, Array.Empty<string>(), null, null);
+                if (menu != null) menu.SelectedButtonId = 1;
+            }
+            Changed?.Invoke();
+        }
+
+        /// <summary>Narrows the learned list to a family (0 = every spell) and closes the family window.</summary>
+        private void PickBlueFamily(StockUiOpenMenu? typeMenu, int family)
+        {
+            if (typeMenu != null) CloseMenu(typeMenu);
+            lock (_sync)
+            {
+                _blueFamily = family;
+                foreach (var menu in _open)
+                {
+                    if (!menu.IsBlueMagicWindow) continue;
+                    FillBlueMagic(menu);
+                }
+            }
+            Changed?.Invoke();
         }
 
         private void OpenLearned(StockUiOpenMenu slots, int targetSlot)
@@ -189,11 +236,13 @@ namespace Gordian.Engine.Ui
             lock (_sync)
             {
                 FillBlueMagic(learned);
-                // The cursor starts on the first spell that can be set, past "(Remove All)".
+                // The cursor starts on the slot's spell when it holds one, else on the first spell that can be set.
+                ushort current = targetSlot < slots.BlueSlots.Count ? slots.BlueSlots[targetSlot].SpellId : (ushort)0;
                 int first = -1;
-                for (int i = 1; i < learned.BlueSpells.Count && first < 0; i++)
+                for (int i = StockUiBlueMagic.FirstSpellRow; i < learned.BlueSpells.Count && first < 0; i++)
                 {
-                    if (learned.BlueSpells[i] is { IsSet: false, GreyedReason: null }) first = i;
+                    var row = learned.BlueSpells[i];
+                    if (current != 0 ? row.SpellId == current : row is { IsSet: false, GreyedReason: null }) first = i;
                 }
                 if (first > 0)
                 {
@@ -208,15 +257,22 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on a learned spell: "(Remove All)" asks "Remove all set blue magic spells?" (ROM/165/72 #228); a set spell is
-        /// removed from its slot (PROVISIONAL); a greyed one says why; any other is set into the slot and the cursor goes back to
-        /// the slots, on the next empty one.
+        /// Confirm on a learned spell: "Type ▶" narrows the list by monster family (or widens it again); "(Remove All)" asks
+        /// "Remove all set blue magic spells?" (ROM/165/72 #228); the spell set in the slot being changed (green) is removed
+        /// from it, one set in another slot says so (PROVISIONAL: the server would empty this slot and set nothing); a greyed one
+        /// says why; any other is set into the slot, replacing what was there (LandSandBoat <c>blueutils::SetBlueSpell</c>), and
+        /// the cursor goes back to the slots, on the next empty one.
         /// </summary>
         private void ActivateLearnedSpell(StockUiOpenMenu learned)
         {
             int index = learned.EntryIndex(learned.SelectedButtonId);
             if (index < 0 || index >= learned.BlueSpells.Count || BlueMagicState?.Invoke() is not { } state) return;
             var row = learned.BlueSpells[index];
+            if (row.TypeHeader)
+            {
+                ToggleBlueFamily(learned);
+                return;
+            }
             if (row.RemoveAll)
             {
                 OpenYesNo(MenuText(StockUiBlueMagic.MessageRemoveAllPrompt, "Remove all set blue magic spells?"), defaultYes: false, answer =>
@@ -228,7 +284,15 @@ namespace Gordian.Engine.Ui
             if (row.IsSet)
             {
                 int slot = StockUiBlueMagic.SlotOf(state, row.SpellId);
-                if (slot >= 0) Remove(state, slot, row.SpellId, row.Name);
+                if (slot >= 0 && slot == learned.BlueTargetSlot)
+                {
+                    Remove(state, slot, row.SpellId, row.Name);
+                    CloseLearned(learned, slot);
+                }
+                else
+                {
+                    NoticePosted?.Invoke($"{row.Name} is already set.");
+                }
                 return;
             }
             if (row.GreyedReason != null)

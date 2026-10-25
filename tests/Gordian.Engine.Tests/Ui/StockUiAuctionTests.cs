@@ -172,7 +172,8 @@ namespace Gordian.Engine.Tests.Ui
             h.Choose(2); // Daggers: category 2
             var list = h.Menus.Top!;
             Assert.Equal(StockUiAuctionView.List, list.AuctionView);
-            Assert.Equal("Daggers", list.AuctionTitle);
+            Assert.Equal(StockUiAuction.BidTitle, list.AuctionTitle);
+            Assert.Equal(StockUiAuction.HelpSelectItem, list.AuctionHelpId);
             SpinUntil(() => !list.AuctionLoading);
             Assert.Equal(new byte[] { 2 }, h.ListsAsked);
             var row = Assert.Single(list.AuctionRows);
@@ -181,13 +182,21 @@ namespace Gordian.Engine.Tests.Ui
 
             h.Menus.Activate();
             Assert.Equal(StockUiAuction.ItemMenu, h.Menus.Top!.Name);
+            Assert.False(h.Menus.Top!.IsGreyed(StockUiAuction.ItemBidButton));
             h.Choose(StockUiAuction.ItemHistoryButton);
             var history = h.Menus.Top!;
             Assert.Equal(StockUiAuctionView.History, history.AuctionView);
+            Assert.Same(list, history.Parent); // Price History / Bid / Sort gives way: Cancel goes back to the list
+            Assert.Equal(BronzeDagger, history.DescribedItem);
             SpinUntil(() => history.AuctionHistory.Count == 1);
-            Assert.Equal(new StockUiAuctionHistoryRow("23/11/14", "Seller", "Buyer", 160), history.AuctionHistory[0]);
+            string date = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000).ToLocalTime().ToString("yy/MM/dd", System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(new StockUiAuctionHistoryRow(date, "Seller", "Buyer", 160, 1_700_000_000), history.AuctionHistory[0]);
+            h.Menus.Activate();
+            Assert.Contains(StockUiAuction.HistoryLine(history.AuctionHistory[0]), h.Notices);
             h.Menus.CloseTop();
+            Assert.Same(list, h.Menus.Top);
 
+            h.Menus.Activate();
             h.Choose(StockUiAuction.ItemBidButton);
             Assert.Equal(StockUiAuctionView.Price, h.Menus.Top!.AuctionView);
             Assert.True(list.ShowsQuantity);
@@ -237,26 +246,106 @@ namespace Gordian.Engine.Tests.Ui
             var cap = list.ItemRows.Single(r => r.ItemId == BronzeCap);
             Assert.True(hatchet.Greyed && cap.Greyed);
 
-            // A full stack asks whether the stack goes on auction.
+            // A full stack sells as the stack with no question: its stack Price History, then Price Set over it (image-17).
             list.SelectedButtonId = list.ItemRows.ToList().FindIndex(r => r.ItemId == FireCrystal) + 1;
             h.Menus.Activate();
-            Assert.Equal(StockUiMenuEntries.MessageYesNoMenu, h.Menus.Top!.Name);
-            h.Choose(1);
-            SpinUntil(() => h.Menus.Top!.AuctionView == StockUiAuctionView.Price);
-            Assert.True(h.Menus.Top!.AuctionItem.Stack);
+            var price = h.Menus.Top!;
+            Assert.Equal(StockUiAuctionView.Price, price.AuctionView);
+            Assert.True(price.AuctionItem.Stack);
+            Assert.Equal(352, price.AuctionHelpId);
+            var history = price.Parent!;
+            Assert.True(history.AuctionForSale);
+            SpinUntil(() => history.AuctionHistory.Count == 1);
+            Assert.Equal(1800u, history.AuctionHistory[0].Price);
             h.TypePrice("2000");
             SpinUntil(() => h.HasSent($"askcommit 1 {FireCrystal} 2000 stack"));
 
+            // The fee in a Yes / No window and the log (image-18).
             h.Server(AuctionCommand.AskCommit, -1, 1, FireCrystal, 15, paramStacks: 0, paramWorkIndex: 1);
-            Assert.Contains("You have to pay a transaction fee of 15 gil.", h.Notices);
-            Assert.Equal(StockUiAuction.YesNoMenu, h.Menus.Top!.Name);
-            Assert.Equal(StockUiAuction.HelpPlaceOnAuction, h.Menus.Top!.AuctionHelpId);
+            Assert.Contains("The total transaction fee for a set of 12 items is 15 gil.", h.Notices);
+            SpinUntil(() => h.Menus.Top!.Name == StockUiMenuEntries.MessageYesNoMenu);
             h.Choose(1);
             SpinUntil(() => h.HasSent("lotin 1 1 2000 stack"));
 
             h.Server(AuctionCommand.LotIn, -1, 1);
             Assert.Contains("Merchandise placed on auction.", h.Notices);
             Assert.Contains("If merchandise remains unsold after 30 weeks (Vana'diel time), it will be returned to your current residence.", h.Notices);
+        }
+
+        [Fact]
+        public void Sell_ShortOfAStack_WarnsAndSellsASingle()
+        {
+            var h = new Harness();
+            h.Inventory.SetItem(ContainerId.Inventory, 1, FireCrystal, 5, ItemLockFlag.Normal);
+            h.Open();
+            h.Choose(StockUiAuction.SellButton);
+            var list = h.Menus.Top!;
+            list.SelectedButtonId = list.ItemRows.ToList().FindIndex(r => r.ItemId == FireCrystal) + 1;
+            h.Menus.Activate();
+            Assert.Contains("You can only place a single item or a set of 12 such items on auction.", h.Notices);
+            Assert.False(h.Menus.Top!.AuctionItem.Stack);
+
+            // Cancel closes Price Set and the history opened with it.
+            h.Menus.CloseTop();
+            SpinUntil(() => ReferenceEquals(h.Menus.Top, list));
+        }
+
+        [Fact]
+        public void Bid_IsGreyedWhenNoneAreListed()
+        {
+            var h = new Harness();
+            h.Menus.AuctionListRequested = _ => Task.FromResult<IReadOnlyList<AuctionListItem>?>(new[] { new AuctionListItem(BronzeDagger, 0, 0) });
+            h.Open();
+            h.Choose(StockUiAuction.BidButton);
+            h.Choose(1);
+            h.Choose(2);
+            var list = h.Menus.Top!;
+            SpinUntil(() => list.AuctionRows.Count == 1);
+            h.Menus.Activate();
+            var item = h.Menus.Top!;
+            Assert.True(item.IsGreyed(StockUiAuction.ItemBidButton));
+            h.Choose(StockUiAuction.ItemBidButton);
+            Assert.Same(item, h.Menus.Top);
+        }
+
+        [Fact]
+        public void MovingAwayFromTheCounter_ClosesTheWindow()
+        {
+            var h = new Harness();
+            h.Open();
+            h.Menus.SetAuctionAnchor(new System.Numerics.Vector3(10, 0, 10));
+            h.Menus.CheckAuctionDistance(new System.Numerics.Vector3(16, 5, 16));
+            Assert.True(h.Menus.IsAuctionOpen);
+            h.Menus.CheckAuctionDistance(new System.Numerics.Vector3(18, 0, 18));
+            Assert.False(h.Menus.IsAuctionOpen);
+            Assert.Empty(h.Menus.OpenMenus);
+        }
+
+        [Fact]
+        public void ListTones_FollowTheJobAndTheWornGear()
+        {
+            var character = new StockUiEquipCharacter((byte)JobId.Warrior, 10);
+            var worn = new HashSet<ushort> { BronzeCap };
+            var cap = new ItemRecord { ItemId = BronzeCap, EquipSlotsMask = 1, JobsMask = 1u << (int)JobId.Warrior, Level = 1 };
+            var sword = new ItemRecord { ItemId = 1, EquipSlotsMask = 1, JobsMask = 1u << (int)JobId.Warrior, Level = 5 };
+            var high = new ItemRecord { ItemId = 2, EquipSlotsMask = 1, JobsMask = 1u << (int)JobId.Warrior, Level = 50 };
+            var mage = new ItemRecord { ItemId = 3, EquipSlotsMask = 1, JobsMask = 1u << (int)JobId.WhiteMage, Level = 1 };
+            Assert.Equal(StockUiAuctionTone.Equipped, StockUiAuction.ToneOf(cap, character, worn));
+            Assert.Equal(StockUiAuctionTone.Equippable, StockUiAuction.ToneOf(sword, character, worn));
+            Assert.Equal(StockUiAuctionTone.Plain, StockUiAuction.ToneOf(high, character, worn));
+            Assert.Equal(StockUiAuctionTone.Plain, StockUiAuction.ToneOf(mage, character, worn));
+            Assert.Equal(StockUiAuctionTone.Plain, StockUiAuction.ToneOf(Records[FireCrystal], character, worn));
+            Assert.Equal(new[] { StockUiAuctionTone.Plain, StockUiAuctionTone.Stack },
+                StockUiAuction.ListRows(new[] { new AuctionListItem(FireCrystal, 0, 7) }, id => Records[id], r => StockUiAuction.ToneOf(r, character, worn)).Select(r => r.Tone));
+            Assert.Equal(("", "[7]"), (StockUiAuction.ListingsText(0), StockUiAuction.ListingsText(7)));
+        }
+
+        [Fact]
+        public void HistoryLine_PrintsTheSaleInFull()
+        {
+            var row = StockUiAuction.HistoryRows(new[] { new AuctionHistoryEntry(10, 1_760_685_476, "Gemini", "Gemini") }, TimeZoneInfo.Utc)[0];
+            Assert.Equal("25/10/17", row.Date);
+            Assert.Equal("(2025, Oct. 17 7:17:56) Gemini\u2192Gemini [10G]", StockUiAuction.HistoryLine(row, TimeZoneInfo.Utc));
         }
 
         [Fact]
@@ -319,12 +408,29 @@ namespace Gordian.Engine.Tests.Ui
         [InlineData("9999999999", 999_999_999u)]
         public void ParsePrice_KeepsDigits(string text, uint price) => Assert.Equal(price, StockUiAuction.ParsePrice(text));
 
-        [Theory]
-        [InlineData(0u, 1u)]
-        [InlineData(99u, 1u)]
-        [InlineData(1234u, 100u)]
-        [InlineData(15000u, 1000u)]
-        public void PriceStep_GrowsWithThePrice(uint price, uint step) => Assert.Equal(step, StockUiAuction.PriceStep(price));
+        private static uint Keys(uint cap, params StockUiPriceKey[] keys)
+        {
+            uint price = 0;
+            int digit = 0;
+            foreach (var key in keys) (price, digit) = StockUiAuction.StepPrice(price, digit, key, cap);
+            return price;
+        }
+
+        [Fact]
+        public void StepPrice_FollowsRetailsDigitCursor()
+        {
+            const StockUiPriceKey L = StockUiPriceKey.Left, U = StockUiPriceKey.Up, D = StockUiPriceKey.Down, R = StockUiPriceKey.Right;
+            // The maintainer's round 1 examples: 1000 is Left x3, Up; with 10 gil a second Left gives 10; with 11 gil Left, Up, Up gives 11.
+            Assert.Equal(1000u, Keys(StockUiAuction.MaxPrice, L, L, L, U));
+            Assert.Equal(10u, Keys(10, L, L));
+            Assert.Equal(11u, Keys(11, L, U, U));
+            Assert.Equal(1500u, Keys(StockUiAuction.MaxPrice, L, L, L, U, R, U, U, U, U, U));
+            Assert.Equal(900u, Keys(StockUiAuction.MaxPrice, L, L, L, U, R, D));
+            Assert.Equal(0u, Keys(StockUiAuction.MaxPrice, U, U, R));
+            Assert.Equal(StockUiAuction.MaxPrice, Keys(StockUiAuction.MaxPrice, L, L, L, L, L, L, L, L, L));
+            Assert.Equal("0000", StockUiAuction.PriceDigitsText(0, 3));
+            Assert.Equal("1500", StockUiAuction.PriceDigitsText(1500, 2));
+        }
 
         [Fact]
         public void ZoneChange_ClosesTheWindow()
