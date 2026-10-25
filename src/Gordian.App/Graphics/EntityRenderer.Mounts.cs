@@ -26,13 +26,13 @@ namespace Gordian.App.Graphics
         /// riders stand, the Spectral Chair's sit) from its race's mount rider pack. Else <paramref name="character"/> itself
         /// (on foot, a costume, a race without the packs).
         /// </summary>
-        private static EntityModel RiderOrSelf(WorldEntity entity, EntityModel character, ResourceManager? resources)
+        private static EntityModel RiderOrSelf(WorldEntity entity, in MountFrame frame, EntityModel character, ResourceManager? resources)
         {
-            if (!entity.Mount.IsMounted || resources == null || !character.IsCharacter || entity.Appearance.ModelId != 0) return character;
+            if (!frame.RiderSeated || resources == null || !character.IsCharacter || entity.Appearance.ModelId != 0) return character;
             var race = RaceOf(entity);
-            if (!entity.Mount.RidesChocobo)
+            if (!frame.Mount.RidesChocobo)
             {
-                byte pose = resources.GetRideData(entity.Mount)?.PoseFor(race) ?? MountSeating.StraddlePose;
+                byte pose = resources.GetRideData(frame.Mount)?.PoseFor(race) ?? MountSeating.StraddlePose;
                 if (resources.TryGetPoseRiderModel(character, race, pose, out var posed) && posed != null) return posed;
             }
             return resources.TryGetRiderModel(character, race, out var rider) && rider != null ? rider : character;
@@ -43,7 +43,7 @@ namespace Gordian.App.Graphics
         /// rider's name plate is raised.
         /// </summary>
         private readonly record struct MountRide(EntityModel Mount, GpuEntityModel Gpu, JointPaletteEntry Palette, uint Key, float Scale,
-            Matrix4x4 RiderShift, float PlateLift);
+            Matrix4x4 RiderShift, float PlateLift, float ForwardYalms = 0f, float Alpha = 1f);
 
         /// <summary>
         /// How much higher a straddling rider's name plate sits over its head than on foot (#87 round 9, yalms). The plate rises
@@ -66,11 +66,11 @@ namespace Gordian.App.Graphics
         /// </list>
         /// Frees the mount's palette and returns null when the entity does not ride.
         /// </summary>
-        private MountRide? PrepareMount(CommandList cl, WorldEntity entity, EntityModel? character, ResourceManager? resources,
+        private MountRide? PrepareMount(CommandList cl, WorldEntity entity, in MountFrame frame, EntityModel? character, ResourceManager? resources,
             bool engaged, bool isLocalPlayer, float deltaSeconds)
         {
             uint key = MountPaletteKey(entity.ServerId);
-            if (!entity.Mount.IsMounted || resources == null || !resources.TryLoadMountModel(entity.Mount, out var mount)
+            if (!frame.Mount.IsMounted || resources == null || !resources.TryLoadMountModel(frame.Mount, out var mount)
                 || mount?.Skeleton is not { Count: > 0 })
             {
                 if (_jointPaletteByEntity.TryRemove(key, out var stale)) stale.Dispose();
@@ -79,7 +79,8 @@ namespace Gordian.App.Graphics
             var gpuModel = GetOrUploadGpuModel(mount);
             if (gpuModel.Submeshes.Count == 0) return null;
 
-            var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
+            // A leaving mount plays its coff whatever its former rider does (#437).
+            var category = frame.Departing ? AnimationCategory.Idle : AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
             if (!entity.IsMotionStopped || entity.MountAnimation.CurrentClip == null)
             {
                 entity.MountAnimation.Advance(entity.MountAnimation.ClaimFrameTime(deltaSeconds), category, 0, mount);
@@ -87,22 +88,28 @@ namespace Gordian.App.Graphics
             var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
             UpdateJointPalette(cl, palette.Buffer, mount, entity.MountAnimation, null, Vector2.Zero, null, out var pose);
 
-            var rider = character != null ? RiderOrSelf(entity, character, resources) : null;
+            var rider = character != null ? RiderOrSelf(entity, frame, character, resources) : null;
             bool riding = rider != null && !ReferenceEquals(rider, character);
-            // The straddling pack's chocobo is scaled by the race (the pose rider's idle is the straddle's on a straddle).
-            float raceScale = riding ? resources.GetMountScale(rider!) : 1f;
             var race = RaceOf(entity);
-            if (entity.Mount.RidesChocobo)
+            // Every mount takes the chocobo's race factor (round 7: retail's Fenrir grows from the Tarutaru to the Galka,
+            // image-13.png); the straddling pack's chocobo is scaled by it alone.
+            float raceFactor = riding && frame.Mount.RidesChocobo ? resources.GetMountScale(rider!)
+                : character is { IsCharacter: true } ? resources.GetRaceMountScale(character, race) : 1f;
+            if (frame.Departing)
+            {
+                // Leaving after a dismount: at the rider's origin, run forward and faded by its coff; the rider is not moved.
+                float departScale = frame.Mount.RidesChocobo ? raceFactor : (resources.GetRideData(frame.Mount)?.BaseScale ?? 1f) * raceFactor;
+                return new MountRide(mount, gpuModel, palette, key, departScale, Matrix4x4.Identity, 0f, frame.ForwardYalms, frame.Alpha);
+            }
+            if (frame.Mount.RidesChocobo)
             {
                 // The name plate: the rider's own overhead point raised with its seated head (round 9).
                 float plate = riding ? resources.GetRiderHeadRise(rider!) + StraddlePlateMargin : 0f;
-                return new MountRide(mount, gpuModel, palette, key, raceScale, Matrix4x4.Identity, plate);
+                return new MountRide(mount, gpuModel, palette, key, raceFactor, Matrix4x4.Identity, plate);
             }
 
-            // Every mount takes the chocobo's race factor (round 7: retail's Fenrir grows from the Tarutaru to the Galka,
-            // image-13.png) times its own size (Info byte 10).
-            var data = resources.GetRideData(entity.Mount);
-            float raceFactor = character is { IsCharacter: true } ? resources.GetRaceMountScale(character, race) : 1f;
+            // Any other mount is drawn at its own size (Info byte 10) times the race factor.
+            var data = resources.GetRideData(frame.Mount);
             float scale = (data?.BaseScale ?? 1f) * raceFactor;
             byte riderPose = data?.PoseFor(race) ?? MountSeating.StraddlePose;
             int seatReference = MountSeating.SeatReference(race);
@@ -134,6 +141,20 @@ namespace Gordian.App.Graphics
             Matrix4x4 headingRot, Vector3 pos, bool faded, bool isLocalPlayer, float deltaSeconds)
         {
             var uniform = riderUniform;
+            if (ride.Alpha <= 0f) return 0;
+            if (ride.ForwardYalms > 0f)
+            {
+                // A leaving mount runs ahead along the heading (the model faces +X before its heading turn).
+                var forward = Vector3.TransformNormal(Vector3.UnitX, headingRot);
+                if (forward.LengthSquared() > 1e-6f) pos += Vector3.Normalize(forward) * ride.ForwardYalms;
+            }
+            if (ride.Alpha < 1f)
+            {
+                // Its coff fades it out (op 0x29): drawn through the event fade path, as a fading rider is.
+                float riderOpacity = faded ? 1f - riderUniform.SkyLayerParams.W : 1f;
+                uniform.SkyLayerParams.W = 1f - (riderOpacity * ride.Alpha);
+                faded = true;
+            }
             uniform.World = Matrix4x4.CreateScale(ride.Scale) * EntityRotMatrix * headingRot * Matrix4x4.CreateTranslation(pos);
             cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
             cl.SetPipeline(faded ? _skinnedDepthPipeline : _skinnedPipeline);
