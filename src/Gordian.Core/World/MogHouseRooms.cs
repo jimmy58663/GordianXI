@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.World
@@ -88,6 +89,27 @@ namespace Gordian.Core.World
                 IsSpawned = true,
             };
         }
+
+        /// <summary>
+        /// The city areas the Mog House exit can lead to when the city's exit is unlocked, in exit-mode order: the area at
+        /// index i is <see cref="MogHouseExitMode"/> Option(i + 1) of C2S 0x05E <c>zmrq</c> with the given exit bit. The
+        /// server says which city's exits the character has with S2C 0x00A <c>MyRoomExitBit</c> (+170; 0 when none, so
+        /// the exit returns to the area entered from). Areas and their order referenced from LandSandBoat
+        /// (https://github.com/LandSandBoat/server, packets/c2s/0x05e_maprect.cpp moghouseCityExit, and
+        /// s2c/0x00a_login.cpp GetMogHouseLeavingFlag: San d'Oria, Bastok, Windurst and Jeuno need the city's Mog House
+        /// exit quest, Whitegate its own, Adoulin is always open). The fronts (bits 6-8) have no areas there. Empty for
+        /// <see cref="MogHouseExitBit.Default"/> or a bit with no areas.
+        /// </summary>
+        public static IReadOnlyList<ushort> ExitAreas(MogHouseExitBit exitBit) => exitBit switch
+        {
+            MogHouseExitBit.SandOria => new ushort[] { 230, 231, 232 },     // Southern, Northern, Port San d'Oria
+            MogHouseExitBit.Bastok => new ushort[] { 234, 235, 236 },       // Bastok Mines, Bastok Markets, Port Bastok
+            MogHouseExitBit.Windurst => new ushort[] { 238, 239, 240, 241 }, // Windurst Waters, Walls, Port Windurst, Woods
+            MogHouseExitBit.Jeuno => new ushort[] { 243, 244, 245, 246 },   // Ru'Lude Gardens, Upper, Lower, Port Jeuno
+            MogHouseExitBit.Whitegate => new ushort[] { 48, 50 },           // Al Zahbi, Aht Urhgan Whitegate
+            MogHouseExitBit.Adoulin => new ushort[] { 256, 257 },           // Western, Eastern Adoulin
+            _ => Array.Empty<ushort>(),
+        };
 
         /// <summary>The room number of a map zone key; false for a real zone id.</summary>
         public static bool TryGetRoomOfKey(int zoneKey, out int myroomMapNumber)

@@ -428,12 +428,27 @@ namespace Gordian.Engine.Sessions
             {
                 if (status != ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             };
-            // Confirm on the Mog House door asks "Heading outside, kupo?" (No under the cursor) before the exit is sent (#354).
-            ActionService.MogHouseExitRequested += () => ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+            // Confirm on the Mog House door asks "Heading outside, kupo?" before the exit is sent (#354): Yes / No (No under
+            // the cursor), or the city's areas when the server unlocked its exits (S2C 0x00A MyRoomExitBit).
+            ActionService.MogHouseExitRequested += () =>
             {
-                if (answer != true || World.MogHouseRoom == 0) return;
-                _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
-            });
+                var exitBit = (MogHouseExitBit)(World.ZoneLoginInfo?.MyRoomExitBit ?? 0);
+                var options = Ui.MogHouseExitMenu.Options(exitBit, World.CurrentZoneId, ActionService.ZoneName, out int cursor);
+                if (options.Count > 0)
+                {
+                    var query = ActionService.Menus.OpenQuery(new[] { MogHouseRooms.ExitQuestion }, options, cursor, answer =>
+                    {
+                        if (Ui.MogHouseExitMenu.ModeOf(answer, options.Count) is not { } mode || World.MogHouseRoom == 0) return;
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, mode);
+                    });
+                    if (query != null) return;
+                }
+                ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+                {
+                    if (answer != true || World.MogHouseRoom == 0) return;
+                    _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
+                });
+            };
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();

@@ -1083,6 +1083,12 @@ namespace Gordian.Engine.Actions
         /// </summary>
         public Func<int, string?>? MountName { get; set; }
 
+        /// <summary>
+        /// A zone's name by zone id (the zone name table, ROM/165/84), for the Mog House exit's area list (#354); set by
+        /// the app, null in tests and without the game's tables.
+        /// </summary>
+        public Func<int, string?>? ZoneName { get; set; }
+
         /// <summary>A mount's help line by client mount id (ROM/351/85), for the mount list's help bar; set by the app.</summary>
         public Func<int, string?>? MountHelp { get; set; }
 
