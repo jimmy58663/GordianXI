@@ -267,6 +267,7 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
+                if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -356,6 +357,23 @@ namespace Gordian.App.Graphics
             if (StockUiParty.TitleOf(top.Name) is not { } title) return;
             string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
+
+        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Graphics.DecodedTexture?> _zoneMaps = new();
+
+        /// <summary>The Map window's zone map and help bar under the open <c>map0</c> list (#23); maps decode once and stay cached.</summary>
+        private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || menus.MapWindow is not { } map) return;
+            var key = (map.MapZone, map.MapNumber);
+            if (!_zoneMaps.TryGetValue(key, out var texture))
+            {
+                texture = _resources != null ? Gordian.Core.Resources.Tables.ZoneMapFiles.Load(_resources, map.MapZone, map.MapNumber) : null;
+                _zoneMaps[key] = texture;
+            }
+            string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
+            StockUiMapWindow.Draw(renderer, library, font, _logFont, texture, zoneName, Layout.Scale, width, height);
         }
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>

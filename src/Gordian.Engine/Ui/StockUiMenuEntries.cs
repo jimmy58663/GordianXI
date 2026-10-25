@@ -26,6 +26,15 @@ namespace Gordian.Engine.Ui
         /// <summary>A Status list entry: opens its page (the Argument is a <see cref="StockUiStatusPage"/>).</summary>
         StatusPage,
 
+        /// <summary>Main menu Map: opens the Map window on the zone's map (<see cref="StockUiMap"/>).</summary>
+        Map,
+
+        /// <summary>The Map window's Wide Scan.</summary>
+        MapWideScan,
+
+        /// <summary>The Map window's Change Map: the zone's next map.</summary>
+        MapChange,
+
         /// <summary>One choice of a config page's option row (<see cref="StockUiConfigPages"/>): confirm selects it.</summary>
         ConfigOption,
 
@@ -219,7 +228,7 @@ namespace Gordian.Engine.Ui
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 11)] = new("Region Info", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.Map),
 
             // Commands, page 2.
             [(MainMenuPage2, 1)] = new("Missions", Command: StockUiMenuCommand.NotAvailable),
@@ -236,6 +245,11 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            // Map (#23).
+            [(StockUiMap.MenuName, StockUiMap.MarkersButton)] = new("Markers", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiMap.MenuName, StockUiMap.WideScanButton)] = new("Wide Scan", Command: StockUiMenuCommand.MapWideScan),
+            [(StockUiMap.MenuName, StockUiMap.ChangeMapButton)] = new("Change Map", Command: StockUiMenuCommand.MapChange),
+
             // Status (#23): statcom2's entries in their top-to-bottom order.
             [(StockUiStatus.CommandMenu, StockUiStatus.ProfileButton)] = new("Profile", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Profile),
             [(StockUiStatus.CommandMenu, StockUiStatus.JobLevelsButton)] = new("Job Levels", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobLevels),

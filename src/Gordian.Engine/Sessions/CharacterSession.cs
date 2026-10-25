@@ -373,6 +373,9 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
             ActionService.Menus.CharacterStats = CharacterStats;
             ActionService.Menus.StatusInfo = StatusInfo;
+            // The Map window (#23): the zone's map, and Wide Scan as /widescan.
+            ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
             Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.

@@ -1861,6 +1861,21 @@ namespace Gordian.Engine.Ui
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
                     break;
 
+                case StockUiMenuCommand.Map:
+                    bool mapped;
+                    lock (_sync) mapped = OpenMap(from) != null;
+                    if (mapped) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.MapChange:
+                    ChangeMap(from);
+                    break;
+
+                case StockUiMenuCommand.MapWideScan:
+                    if (WideScanRequested is { } wideScan) _ = wideScan();
+                    else NoticePosted?.Invoke("Wide Scan is not available in this session.");
+                    break;
+
                 case StockUiMenuCommand.StatusPage:
                     bool paged;
                     lock (_sync) paged = OpenStatusPage((StockUiStatusPage)entry.Argument, from) != null;
