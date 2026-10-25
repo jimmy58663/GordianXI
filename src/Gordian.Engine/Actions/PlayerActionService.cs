@@ -405,11 +405,16 @@ namespace Gordian.Engine.Actions
         /// cursor moves to it, as XiPackets describes the client's handler. PROVISIONAL: whether retail also locks on is
         /// not checked (LandSandBoat's comments say "lock on to the new target"); the lock-on state is left as it is. An
         /// id of 0 (no target) or an entity not in the zone changes nothing.
+        /// While engaged, the swap also brings up the engaged command menu on the new target, as retail does after an
+        /// auto-target swap (#439, maintainer's retail note in the #433 round 1): moving the cursor closed the old target's
+        /// menu, so it opens again for the new one. Another open menu (the main menu, a list) is left alone.
         /// </summary>
         private void OnAssistTargetReceived(uint serverId)
         {
             if (serverId == 0 || serverId == _localPlayer.ServerId) return;
-            if (_world.TryGetByServerId(serverId, out var entity) && entity != null) SetTarget(entity);
+            if (!_world.TryGetByServerId(serverId, out var entity) || entity == null) return;
+            SetTarget(entity);
+            if (Combat is { IsEngaged: true } && Menus.OpenMenus.Count == 0) OpenTargetCommandMenu();
         }
 
         /// <summary>

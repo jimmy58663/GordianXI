@@ -495,6 +495,45 @@ namespace Gordian.Engine.Tests.Network
             BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), 0);
             Receive(dispatcher, 0x058, p);
             Assert.Equal(Goblin, actions.CurrentTarget?.ServerId);
+            // Not engaged: the cursor alone moves, no menu opens.
+            Assert.Empty(actions.Menus.OpenMenus);
+        }
+
+        /// <summary>
+        /// #439: an auto-target swap while engaged (the server picks the next battle target through 0x058) brings up the engaged
+        /// command menu on the new target, replacing the old target's; another open menu is left alone.
+        /// </summary>
+        [Fact]
+        public void Assist_WhileEngaged_OpensTheEngagedCommandMenuOnTheNewTarget()
+        {
+            var parser = NewParser(out var dispatcher);
+            var actions = Gordian.Engine.Actions.PlayerActionService.ForParser(parser);
+            actions.Menus.Library = Gordian.Engine.Tests.Ui.StockUiMenuControllerTests.SyntheticLibrary();
+            const uint First = 0x01001234, Next = 0x01005678;
+            parser.World.UpsertEntity(new WorldEntity(First, 0x234, EntityType.Monster) { Name = "Goblin Thug", Hpp = 100 });
+            parser.World.UpsertEntity(new WorldEntity(Next, 0x278, EntityType.Monster) { Name = "Goblin Mugger", Hpp = 100 });
+            Assert.True(actions.SetTargetByServerId(First));
+            parser.Combat.Engage(First, 0x234);
+            Assert.True(actions.OpenTargetCommandMenu());
+
+            var p = new byte[12];
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0), LocalId);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), Next);
+            Receive(dispatcher, 0x058, p);
+
+            Assert.Equal(Next, actions.CurrentTarget?.ServerId);
+            var menu = Assert.Single(actions.Menus.OpenMenus);
+            Assert.True(menu.IsCommandMenu);
+            Assert.Equal(Next, menu.Target?.TargetServerId);
+            Assert.True(menu.Target?.Engaged);
+
+            // The main menu open over the battle: a swap moves the cursor but does not take the menu away.
+            actions.Menus.CloseAll();
+            Assert.True(actions.Menus.OpenMainMenu());
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4), First);
+            Receive(dispatcher, 0x058, p);
+            Assert.Equal(First, actions.CurrentTarget?.ServerId);
+            Assert.False(Assert.Single(actions.Menus.OpenMenus).IsCommandMenu);
         }
 
         // ---- the log lines ----
