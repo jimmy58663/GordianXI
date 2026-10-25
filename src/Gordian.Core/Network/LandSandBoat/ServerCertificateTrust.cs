@@ -105,7 +105,9 @@ namespace Gordian.Core.Network.LandSandBoat
     /// <summary>
     /// The auth server certificates the user approved, one SHA-256 fingerprint per server (<c>host:port</c>), kept in
     /// <c>known_servers.json</c> under <see cref="GordianStorage.UserSettingsDirectory"/> so every profile on the same
-    /// server shares the approval.
+    /// server shares the approval. The pins are kept in memory and read again whenever the file's last-write time or
+    /// size changed since it was read or written here, so a hand edit or delete made while GordianXI runs takes effect
+    /// at the next login and is not overwritten by the next approval (#450).
     /// </summary>
     public sealed class KnownServerCertificateStore
     {
@@ -116,6 +118,7 @@ namespace Gordian.Core.Network.LandSandBoat
         private readonly string _filePath;
         private readonly object _gate = new();
         private Dictionary<string, string>? _pins;
+        private (bool Exists, DateTime LastWriteUtc, long Length) _loadedStamp;
 
         /// <summary>The store in the user's settings folder.</summary>
         public static KnownServerCertificateStore Default => s_default.Value;
@@ -150,22 +153,40 @@ namespace Gordian.Core.Network.LandSandBoat
                     string? directory = Path.GetDirectoryName(_filePath);
                     if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
                     File.WriteAllText(_filePath, JsonSerializer.Serialize(pins, new JsonSerializerOptions { WriteIndented = true }));
+                    _loadedStamp = Stamp();
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // The pin still holds for this run; the user is asked again next launch.
+                    // The pin holds in memory until the file changes or GordianXI restarts; then the user is asked again.
                     GordianLog.Warning("LSB_LOGIN", $"Could not save the trusted server certificate to {_filePath}: {ex.Message}");
                 }
             }
         }
 
-        private Dictionary<string, string> Load()
+        /// <summary>The file's existence, last-write time and size: what tells a changed file from the one in memory.</summary>
+        private (bool Exists, DateTime LastWriteUtc, long Length) Stamp()
         {
-            if (_pins != null) return _pins;
-            _pins = new Dictionary<string, string>(StringComparer.Ordinal);
             try
             {
-                if (File.Exists(_filePath))
+                var info = new FileInfo(_filePath);
+                return info.Exists ? (true, info.LastWriteTimeUtc, info.Length) : default;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return default;
+            }
+        }
+
+        /// <summary>The pins, read from the file the first time and again whenever the file changed on disk.</summary>
+        private Dictionary<string, string> Load()
+        {
+            var stamp = Stamp();
+            if (_pins != null && stamp == _loadedStamp) return _pins;
+            _pins = new Dictionary<string, string>(StringComparer.Ordinal);
+            _loadedStamp = stamp;
+            try
+            {
+                if (stamp.Exists)
                 {
                     var saved = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(_filePath));
                     if (saved != null)

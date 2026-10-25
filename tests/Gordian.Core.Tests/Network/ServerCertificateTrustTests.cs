@@ -71,6 +71,45 @@ namespace Gordian.Core.Tests.Network
             Assert.Null(new KnownServerCertificateStore(path).Get("127.0.0.1", 54231));
         }
 
+        /// <summary>Writes the pin file as a user editing it by hand would, with a later last-write time.</summary>
+        private static void EditByHand(string path, string json)
+        {
+            File.WriteAllText(path, json);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+        }
+
+        [Fact]
+        public void Store_SeesHandEditsMadeWhileRunning()
+        {
+            string path = ScratchPath();
+            var store = new KnownServerCertificateStore(path);
+            store.Set("127.0.0.1", 54231, Fp);
+            Assert.Equal(Fp, store.Get("127.0.0.1", 54231));
+
+            // A changed fingerprint is seen at the next lookup, without a restart (#450).
+            EditByHand(path, "{ \"127.0.0.1:54231\": \"CC:DD\" }");
+            Assert.Equal("CC:DD", store.Get("127.0.0.1", 54231));
+
+            // Deleting the file forgets every server.
+            File.Delete(path);
+            Assert.Null(store.Get("127.0.0.1", 54231));
+        }
+
+        [Fact]
+        public void Store_AnApprovalKeepsHandEdits()
+        {
+            string path = ScratchPath();
+            var store = new KnownServerCertificateStore(path);
+            store.Set("a.example.net", 54231, Fp);
+            EditByHand(path, "{ \"a.example.net:54231\": \"AA:BB\", \"b.example.net:54231\": \"CC:DD\" }");
+
+            store.Set("c.example.net", 54231, "EE:FF");
+
+            var reloaded = new KnownServerCertificateStore(path);
+            Assert.Equal("CC:DD", reloaded.Get("b.example.net", 54231));
+            Assert.Equal("EE:FF", reloaded.Get("c.example.net", 54231));
+        }
+
         [Fact]
         public async Task Login_WithoutAPromptRefusesAnUntrustedServerBeforeSendingCredentials()
         {
