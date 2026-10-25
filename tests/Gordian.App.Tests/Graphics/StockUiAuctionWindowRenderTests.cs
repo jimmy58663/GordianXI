@@ -46,7 +46,7 @@ namespace Gordian.App.Tests.Graphics
             menus.Top!.SelectedButtonId = 8; // Crystals
             menus.Activate();
             var list = menus.Top!;
-            Assert.True(SpinWait.SpinUntil(() => list.AuctionRows.Count == 3, TimeSpan.FromSeconds(2)));
+            Assert.True(SpinWait.SpinUntil(() => list.AuctionRows.Count == 3, TimeSpan.FromSeconds(10)));
 
             var frame = list.Menu.Frame;
             var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);

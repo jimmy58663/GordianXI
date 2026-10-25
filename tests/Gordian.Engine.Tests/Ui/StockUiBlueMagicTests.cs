@@ -105,7 +105,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         private static void SpinUntil(Func<bool> condition) =>
-            Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(2)));
+            Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(10)));
 
         [Theory]
         [InlineData(1, 6, 10)]

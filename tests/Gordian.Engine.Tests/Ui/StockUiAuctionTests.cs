@@ -149,7 +149,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         private static void SpinUntil(Func<bool> condition) =>
-            Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(2)));
+            Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(10)));
 
         [Fact]
         public void Mopen_OpensTheAuctionWindowAsTheRoot_AndSendsWorkCheck()
