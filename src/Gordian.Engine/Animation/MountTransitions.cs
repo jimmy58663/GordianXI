@@ -23,13 +23,16 @@ namespace Gordian.Engine.Animation
     }
 
     /// <summary>
-    /// Plays a player's mount-up and dismount (#437) from the riding routines in the retail data, and keeps a dismounted
+    /// Plays a player's dismount and chocobo dig (#437) from the riding routines in the retail data, and keeps a dismounted
     /// player's mount drawn while it leaves.
     /// <list type="bullet">
-    /// <item><b>Mount-up</b> (a chocobo): the rider plays its pack's <c>chor</c> and the chocobo its own <c>chor</c>, both
-    /// <c>chh</c> for 168 ticks (<c>ROM/90/14</c> <c>hm_c/chor</c>, <c>ROM/169/11</c> <c>cyl_/chor</c>). <c>chh</c> starts and
-    /// ends seated (Hume male hips 1.78 yalms at both ends, 1.40 mid-flourish), so nothing pops. Other mounts carry no
-    /// <c>chor</c> (the raptor, file 102706, and the mount rider pack <c>ROM/351/61</c> have only <c>coff</c> / <c>cdam</c>).</item>
+    /// <item><b>Mount-up</b> plays nothing: the rider appears seated on the mount at once.</item>
+    /// <item><b>Dig</b> (S2C 0x02F, <see cref="PlayDig"/>): the rider plays its pack's <c>chor</c> and the chocobo its own
+    /// <c>chor</c>, both <c>chh</c> for 168 ticks (<c>ROM/90/14</c> <c>hm_c/chor</c>, <c>ROM/169/11</c> <c>cyl_/chor</c>); the
+    /// chocobo's starts the generators <c>chov</c> / <c>cho0</c> / <c>cho1</c> and sound 8077 at ticks 64, 78, 102 and 110.
+    /// <c>chh</c> starts and ends seated (Hume male hips 1.78 yalms at both ends, 1.40 in the middle), so nothing pops. Round 1
+    /// (2026-10-24) played it on mounting and the maintainer saw the chocobo dig. Other mounts carry no <c>chor</c> (the raptor,
+    /// file 102706, and the mount rider pack <c>ROM/351/61</c> have only <c>coff</c> / <c>cdam</c>), and only a chocobo digs.</item>
     /// <item><b>Dismount, chocobo</b>: the rider plays <c>coff</c> (<c>ch1</c> 104 ticks, then <c>ch2</c> 72, 180 in all), which
     /// ends standing at the rider's origin (Hume male hips 1.04, 0.06 behind). The chocobo's <c>coff</c> plays <c>ch1</c> 0-104,
     /// <c>run</c> from 100, op 0x6E from tick 102 for 72 ticks with 3.0, and op 0x29 to alpha 0 from tick 150 over 12.</item>
@@ -39,14 +42,14 @@ namespace Gordian.Engine.Animation
     /// *Inference*: op 0x6E is read as moving the actor forward by its float in yalms over its duration; 10 yalms in 72 ticks
     /// is 8.3 yalms/s, the mounted speed the retail capture measures (Mounts.mp4: 7.8-8.2). No reference names the op.
     /// <para>
-    /// A player first seen already mounted (zone-in, coming into range) plays nothing. Shared by every viewport and timed in
+    /// A player first seen already mounted (zone-in, coming into range) plays nothing either. Shared by every viewport and timed in
     /// wall time, so two windows drawing one world play each transition once.
     /// </para>
     /// </summary>
     public static class MountTransitions
     {
-        /// <summary>The mount-up routine (chocobo and its rider).</summary>
-        public const string MountUpRoutine = "chor";
+        /// <summary>The chocobo dig routine (the chocobo and its rider).</summary>
+        public const string DigRoutine = "chor";
 
         /// <summary>The dismount routine (every mount and rider pack).</summary>
         public const string DismountRoutine = "coff";
@@ -93,7 +96,7 @@ namespace Gordian.Engine.Animation
             {
                 if (current.IsMounted != state.Last.IsMounted)
                 {
-                    if (current.IsMounted) StartMountUp(entity, current, state);
+                    if (current.IsMounted) state.Departing = MountAppearance.None;
                     else StartDismount(entity, state.Last, state, now);
                 }
                 state.Last = current;
@@ -134,12 +137,16 @@ namespace Gordian.Engine.Animation
         public static float Alpha(in DepartProfile profile, float ticks) =>
             ticks >= profile.TotalTicks ? 0f : 1f - Math.Clamp((ticks - profile.FadeStart) / profile.FadeTicks, 0f, 1f);
 
-        private static void StartMountUp(WorldEntity entity, in MountAppearance mount, State state)
+        /// <summary>
+        /// Plays a chocobo dig (S2C 0x02F) on <paramref name="entity"/>: <c>chor</c> on the rider and on its chocobo. Nothing
+        /// plays for a player not riding a chocobo.
+        /// </summary>
+        public static void PlayDig(WorldEntity entity)
         {
-            state.Departing = MountAppearance.None;
-            if (!mount.RidesChocobo) return;
-            Play(entity.Animation, entity.ServerId, MountUpRoutine);
-            Play(entity.MountAnimation, entity.ServerId, MountUpRoutine);
+            ArgumentNullException.ThrowIfNull(entity);
+            if (!entity.Mount.RidesChocobo) return;
+            Play(entity.Animation, entity.ServerId, DigRoutine);
+            Play(entity.MountAnimation, entity.ServerId, DigRoutine);
         }
 
         private static void StartDismount(WorldEntity entity, in MountAppearance mount, State state, long now)

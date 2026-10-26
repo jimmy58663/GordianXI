@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Gordian.Engine.Tests.Animation
 {
-    /// <summary>Mount-up and dismount (#437): the riding routines chor / coff and the mount left behind.</summary>
+    /// <summary>Dismount and chocobo dig (#437): the riding routines coff / chor and the mount left behind.</summary>
     public class MountTransitionTests
     {
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
@@ -89,6 +89,26 @@ namespace Gordian.Engine.Tests.Animation
         }
 
         [Fact]
+        public void MountingPlaysNothing_DiggingPlaysChorOnAChocoboOnly()
+        {
+            var player = new PlayerEntity(1, 1);
+            MountTransitions.Observe(player, moving: false, 1000);
+            player.Mount = Chocobo;
+            MountTransitions.Observe(player, moving: false, 1000);
+            Assert.False(player.Animation.HasQueuedActions);
+            Assert.False(player.MountAnimation.HasQueuedActions);
+
+            MountTransitions.PlayDig(player);
+            Assert.True(player.Animation.HasQueuedActions);
+            Assert.True(player.MountAnimation.HasQueuedActions);
+
+            var raptorRider = new PlayerEntity(2, 2) { Mount = Raptor };
+            MountTransitions.PlayDig(raptorRider);
+            Assert.False(raptorRider.Animation.HasQueuedActions);
+            Assert.False(raptorRider.MountAnimation.HasQueuedActions);
+        }
+
+        [Fact]
         public void MountingAgainEndsTheDeparture()
         {
             var player = new PlayerEntity(1, 1) { Mount = Raptor };
@@ -103,10 +123,10 @@ namespace Gordian.Engine.Tests.Animation
 
         /// <summary>
         /// The retail data the profiles are read from: the chocobo rider pack's chor (168) and coff (180), the chocobo's own
-        /// chor and coff, and the raptor's coff; mounting up starts chor on the rider.
+        /// chor and coff, and the raptor's coff; a dig starts chor on the rider and the chocobo.
         /// </summary>
         [Fact]
-        public void Retail_RidersAndMountsCarryTheirRoutines_AndMountingPlaysChor()
+        public void Retail_RidersAndMountsCarryTheirRoutines_AndDiggingPlaysChor()
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
@@ -122,10 +142,8 @@ namespace Gordian.Engine.Tests.Animation
             Assert.Contains("coff", raptor!.MotionRoutines.Keys);
             Assert.DoesNotContain("chor", raptor.MotionRoutines.Keys);
 
-            var player = new PlayerEntity(1, 1);
-            MountTransitions.Observe(player, moving: false);
-            player.Mount = Chocobo;
-            MountTransitions.Observe(player, moving: false);
+            var player = new PlayerEntity(1, 1) { Mount = Chocobo };
+            MountTransitions.PlayDig(player);
             player.Animation.Advance(1f / 60f, AnimationCategory.Idle, 0, rider);
             Assert.Equal("chor", player.Animation.ActiveRoutine?.Name);
             player.MountAnimation.Advance(1f / 60f, AnimationCategory.Idle, 0, chocobo);

@@ -415,6 +415,14 @@ namespace Gordian.Engine.Sessions
             // The synthesis animation (S2C 0x030) plays on the crafters. The guild shop's purchases and sales print to the log;
             // its lists and the open status print only for /guild while the guild shop window (#330) is not up.
             SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
+            // A chocobo dig (S2C 0x02F) plays the riding routine chor on the rider and the chocobo (#437).
+            Combat.DigReceived += (serverId, targetIndex) =>
+            {
+                if ((World.TryGetByServerId(serverId, out var digger) || World.TryGetByTargetIndex(targetIndex, out digger)) && digger != null)
+                {
+                    Animation.MountTransitions.PlayDig(digger);
+                }
+            };
             Inventory.GuildTransactionReceived += t =>
             {
                 foreach (string line in Ui.GuildShopLog.FormatTransaction(t, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
