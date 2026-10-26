@@ -120,6 +120,27 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// The item info's top while a bid's Yes / No is up: image-27 has it just under the help bar, 6 px above the list's top
+        /// (layout y 42 of the list's 48, measured on the 2556-px capture).
+        /// </summary>
+        private const float BidInfoOffsetY = -6;
+
+        /// <summary>
+        /// A list under a bid's Yes / No (round 2, image-27): the list and its frame give way; the item's info sits at the list's
+        /// top and "Current Gil" (<c>money</c>, 16,240) at its own place.
+        /// </summary>
+        public static void DrawBidConfirm(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+            StockUiPlacement placement, long timestamp)
+        {
+            float s = placement.Scale;
+            StockUiItemInfoWindow.Draw(renderer, library, font, logFont, menu, placement with { Y = placement.Y + BidInfoOffsetY * s }, timestamp, emptyWhenNone: true);
+            if (menu.Inventory != null && library.TryGetMenu(StockUiItems.GilMenu, out var gil))
+            {
+                StockUiMenuWindow.DrawGilWindow(renderer, font, gil, StockUiWindowPlacement.Beside(placement, menu.Menu.Frame, gil.Frame), StockUiShop.Gil(menu.Inventory));
+            }
+        }
+
         /// <summary>"Downloading..." while the search server answers, else a list's empty text in retail's pink.</summary>
         private static void DrawEmpty(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiPlacement placement, string? empty)
         {
@@ -230,6 +251,8 @@ namespace Gordian.App.Graphics
         public static (string Title, string? Help)? HelpBar(StockUiOpenMenu top, Func<int, string?>? helpText)
         {
             if (!top.IsAuctionWindow && top.ItemListKind != StockUiItemListKind.AuctionSell) return null;
+            // Under a bid's Yes / No the bar reads only "Auction" (image-27).
+            if (top.AuctionBidConfirm) return (StockUiAuction.AuctionTitle, null);
             string title = top.AuctionView switch
             {
                 StockUiAuctionView.List => top.AuctionTitle ?? StockUiAuction.BidTitle,

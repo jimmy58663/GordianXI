@@ -10,6 +10,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
+using Gordian.Engine.Input;
 using Gordian.Engine.Ui;
 using Xunit;
 
@@ -24,7 +25,7 @@ namespace Gordian.Engine.Tests.Ui
 
         private static readonly Dictionary<ushort, ItemRecord> Records = new()
         {
-            [FireCrystal] = new ItemRecord { ItemId = FireCrystal, Name = "Fire Crystal", LogName = "fire crystal", StackSize = 12 },
+            [FireCrystal] = new ItemRecord { ItemId = FireCrystal, Name = "Fire Crystal", LogName = "fire crystal", LogPlural = "fire crystals", StackSize = 12 },
             [BronzeDagger] = new ItemRecord { ItemId = BronzeDagger, Name = "Bronze Dagger", LogName = "bronze dagger", StackSize = 1 },
             [Hatchet] = new ItemRecord { ItemId = Hatchet, Name = "Hatchet", LogName = "hatchet", StackSize = 12, Flags = StockUiAuction.NoAuctionFlag },
             [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", LogName = "bronze cap", EquipSlotsMask = 1 << (int)EquipSlotId.Head, ItemType = 5 },
@@ -201,11 +202,16 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(StockUiAuctionView.Price, h.Menus.Top!.AuctionView);
             Assert.True(list.ShowsQuantity);
             h.TypePrice("1500");
-            Assert.Equal(StockUiAuction.YesNoMenu, h.Menus.Top!.Name);
-            Assert.Equal(StockUiAuction.HelpPlaceBid, h.Menus.Top!.AuctionHelpId);
+            // Price Set and Price History / Bid / Sort close; the list gives way to the question, the cursor on No (image-27).
+            var question = h.Menus.Top!;
+            Assert.Equal((StockUiMenuEntries.MessageYesNoMenu, "Make a bid of 1,500 gil\nfor the bronze dagger?", 2),
+                (question.Name, question.Message, question.SelectedButtonId));
+            Assert.Same(list, question.Parent);
+            Assert.True(list.AuctionBidConfirm);
             h.Choose(1); // Yes
             SpinUntil(() => h.HasSent($"bid {BronzeDagger} 1500 single 0"));
-            SpinUntil(() => !h.Menus.OpenMenus.Any(m => m.AuctionView == StockUiAuctionView.Price));
+            SpinUntil(() => !list.AuctionBidConfirm);
+            Assert.Same(list, h.Menus.Top);
             Assert.False(list.ShowsQuantity);
 
             h.Server(AuctionCommand.Bid, 0, 1, BronzeDagger, 1500);
@@ -230,6 +236,15 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Contains("You do not have enough gil.", h.Notices);
             Assert.True(h.Menus.MacroField.IsOpen); // the field opens again with the price
             Assert.Equal("6000", h.Menus.MacroField.Text);
+
+            // A stack's question names the log plural; No sends nothing and brings the list back.
+            for (int i = 0; i < 4; i++) h.Menus.MacroField.HandleKey(GordianKey.Backspace, InputModifiers.None);
+            h.TypePrice("110");
+            Assert.Equal("Make a bid of 110 gil\nfor the fire crystals?", h.Menus.Top!.Message);
+            h.Menus.CloseTop();
+            SpinUntil(() => !list.AuctionBidConfirm);
+            Assert.Same(list, h.Menus.Top);
+            Assert.False(h.HasSent($"bid {FireCrystal} 110 stack 0"));
         }
 
         [Fact]

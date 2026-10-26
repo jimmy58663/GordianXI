@@ -46,6 +46,12 @@ namespace Gordian.Engine.Ui
         /// <summary>A Price History opened for a sale: the Price Set window sits under it and it closes with that window (image-17).</summary>
         public bool AuctionForSale { get; init; }
 
+        /// <summary>
+        /// A list giving way to a bid's Yes / No (image-27): only the item's info (at the list's top) and "Current Gil" are drawn
+        /// while the question is up.
+        /// </summary>
+        public bool AuctionBidConfirm { get; internal set; }
+
         /// <summary>A category list or the Sales Status list.</summary>
         public bool IsAuctionList => AuctionView is StockUiAuctionView.List or StockUiAuctionView.Sales;
 
@@ -297,6 +303,7 @@ namespace Gordian.Engine.Ui
                 AuctionCategory = category.Category,
                 AuctionTitle = StockUiAuction.BidTitle,
                 ItemLookup = ItemLookup,
+                Inventory = Inventory, // "Current Gil" under a bid's Yes / No
             };
             list.AuctionLoading = true;
             list.AuctionHelpId = StockUiAuction.HelpSelectItem;
@@ -620,7 +627,7 @@ namespace Gordian.Engine.Ui
             return null;
         }
 
-        /// <summary>A price was kept: a bid asks "Place this bid?" (<c>aucyn</c>), a sale asks the server for the fee (AskCommit).</summary>
+        /// <summary>A price was kept: a bid asks "Make a bid of ... ?" (<see cref="ConfirmBid"/>), a sale asks the server for the fee (AskCommit).</summary>
         private void ConfirmPrice(StockUiOpenMenu menu, uint price)
         {
             var item = menu.AuctionItem;
@@ -640,19 +647,7 @@ namespace Gordian.Engine.Ui
                     OpenPriceField(menu, price);
                     return;
                 }
-                AskAuctionYesNo(StockUiAuction.HelpPlaceBid, yes =>
-                {
-                    ClosePriceSet(menu);
-                    if (!yes) return;
-                    if (AuctionBid is not { } bid)
-                    {
-                        NoticePosted?.Invoke("Bidding is not available in this session.");
-                        return;
-                    }
-                    sbyte slot = Math.Max((sbyte)0, AuctionHouse?.Invoke()?.NextFreeSlot ?? 0);
-                    GordianLog.Info("AUCTION", $"Bidding {price} gil on {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (item {item.ItemId}).");
-                    _ = SendAsync(() => bid(item.ItemId, price, item.Stack, slot), "Auction bid");
-                });
+                ConfirmBid(menu, item, price);
                 return;
             }
             if (AuctionHouse?.Invoke()?.NextFreeSlot is < 0)
@@ -758,27 +753,39 @@ namespace Gordian.Engine.Ui
             });
         }
 
-        /// <summary>The Auction House's own Yes / No window (<c>aucyn</c>, top right) with a help line; cancelling answers No.</summary>
-        private void AskAuctionYesNo(int helpId, Action<bool> answered)
+        /// <summary>
+        /// A bid's question (round 2, image-27): Price Set and Price History / Bid / Sort close, the list gives way to the item's
+        /// info and "Current Gil" (<see cref="StockUiOpenMenu.AuctionBidConfirm"/>), and the message Yes / No asks "Make a bid of
+        /// 110 gil for the fire crystals?" with the cursor on No. Yes sends the bid; either answer brings the list back.
+        /// </summary>
+        private void ConfirmBid(StockUiOpenMenu menu, StockUiAuctionRow item, uint price)
         {
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            StockUiOpenMenu? prompt;
-            lock (_sync)
+            var list = ListUnder(menu);
+            if (MacroField.IsOpen) MacroField.Cancel();
+            _priceMenu = null;
+            if (list != null)
             {
-                prompt = Push(StockUiAuction.YesNoMenu, Top, Array.Empty<string>(), null, tcs);
-                if (prompt != null)
+                list.ShowsQuantity = false;
+                list.AuctionBidConfirm = true;
+            }
+            CloseMenu(menu.Parent is { IsAuctionList: false } itemMenu ? itemMenu : menu);
+            var record = ItemLookup?.Invoke(item.ItemId);
+            string name = (item.Stack ? record?.LogPlural : record?.LogName) is { Length: > 0 } logName ? logName : item.Name;
+            var prompt = OpenYesNo(StockUiAuction.BidPrompt(price, name), defaultYes: false, answer =>
+            {
+                if (list != null) list.AuctionBidConfirm = false;
+                Changed?.Invoke();
+                if (answer != true) return;
+                if (AuctionBid is not { } bid)
                 {
-                    prompt.SelectedButtonId = 1;
-                    prompt.AuctionHelpId = helpId;
+                    NoticePosted?.Invoke("Bidding is not available in this session.");
+                    return;
                 }
-            }
-            if (prompt == null)
-            {
-                answered(false);
-                return;
-            }
-            _ = tcs.Task.ContinueWith(t => answered(!prompt.Cancelled && t.Result), TaskScheduler.Default);
-            Changed?.Invoke();
+                sbyte slot = Math.Max((sbyte)0, AuctionHouse?.Invoke()?.NextFreeSlot ?? 0);
+                GordianLog.Info("AUCTION", $"Bidding {price} gil on {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (item {item.ItemId}).");
+                _ = SendAsync(() => bid(item.ItemId, price, item.Stack, slot), "Auction bid");
+            });
+            if (prompt == null && list != null) list.AuctionBidConfirm = false;
         }
     }
 }

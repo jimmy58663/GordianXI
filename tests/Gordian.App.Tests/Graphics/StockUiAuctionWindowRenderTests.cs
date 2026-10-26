@@ -94,7 +94,25 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(screen.HasLightPixel(pricePixels, px + 60, px + 112, py + 29), "no price in the field");
             Assert.True(screen.HasLightPixel(pricePixels, px + 127, px + 230, py + 41 + 5), "no cap under the field");
             Assert.True(screen.HasLightPixel(pricePixels, px - 114 + 30, px - 114 + 104, py + 30 + 5), "no Current Gil beside the field");
-            menus.MacroField.Cancel();
+
+            // Confirm: the list gives way to the bid's question; the item info at its top and Current Gil stay (image-27).
+            menus.MacroField.Commit();
+            Assert.True(list.AuctionBidConfirm);
+            byte[] confirmPixels = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, placement, 0, logFont: screen.LogFont,
+                screen: new StockUiScreen(screen.Width, screen.Height, null)), "gpu_auction_bid_confirm.png");
+            Assert.True(screen.HasLightPixel(confirmPixels, lx + 48, lx + 200, ly - 6 + 10), "no item info at the list's top");
+            Assert.False(screen.HasLightPixel(confirmPixels, lx + 24, lx + 200, ly + 120), "the list is still drawn");
+            Assert.True(screen.HasLightPixel(confirmPixels, lx + 4, lx + 90, ly + 192 + 12), "no Current Gil");
+            menus.CloseTop();
+        }
+
+        [Fact]
+        public void LogFont_DrawsTheSaleArrow()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen?.LogFont is not { } font) return;
+            // moji cell 199 (CP932 0x81A8): retail prints it between seller and buyer (round 2, N21).
+            Assert.InRange(font.GetAdvance('→'), 8, 16);
         }
     }
 }

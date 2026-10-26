@@ -28,18 +28,25 @@ namespace Gordian.Engine.Sessions
             menus.AuctionCancelSale = slot => InventoryModule.CancelAuctionSaleAsync(slot);
             menus.AuctionListRequested = LoadAuctionListAsync;
             menus.AuctionHistoryRequested = LoadAuctionHistoryAsync;
-            // The counter talked to anchors the window: walking off past StockUiMenuController.AuctionReach closes it.
+            // The NPC talked to (the counter, or an auction NPC in Port Jeuno) anchors the window: walking off past
+            // StockUiMenuController.AuctionReach closes it. Walking reports through the locomotion controller, /moveto
+            // through LocalPlayerMoved.
             auction.Opened += () => menus.SetAuctionAnchor(AuctionAnchor());
             auction.Opened += menus.OnAuctionOpened;
             auction.SalesChanged += menus.OnAuctionSalesChanged;
             auction.ResponseReceived += menus.OnAuctionResponse;
+            Locomotion.LocomotionUpdated += (position, _, _) => menus.CheckAuctionDistance(position);
             ActionService.LocalPlayerMoved += (position, _) => menus.CheckAuctionDistance(position);
             World.ZoneChanged += _ => menus.CloseAuctionHouse();
         }
 
-        /// <summary>Where the Auction House opened from: the targeted counter, else the character's place; null when neither is known.</summary>
+        /// <summary>
+        /// Where the Auction House opened from: the NPC last talked to, else the targeted NPC, else the character's place;
+        /// null when none is known.
+        /// </summary>
         private System.Numerics.Vector3? AuctionAnchor()
         {
+            if (ActionService.LastTalkedToId != 0 && World.TryGetByServerId(ActionService.LastTalkedToId, out var talked)) return talked.Position;
             if (ActionService.CurrentTarget is { Type: Core.World.EntityType.Npc } counter) return counter.Position;
             return World.TryGetByServerId(LocalPlayer.ServerId, out var self) ? self.Position : null;
         }

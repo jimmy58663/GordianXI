@@ -332,6 +332,12 @@ namespace Gordian.Engine.Ui
             ? $"The total transaction fee for a set of {stackSize.ToString(CultureInfo.InvariantCulture)} items is {StockUiShop.FormatGil(fee)} gil."
             : $"You have to pay a transaction fee of {StockUiShop.FormatGil(fee)} gil.";
 
+        /// <summary>
+        /// A bid's question (round 2, image-27: "Make a bid of 110 gil" / "for the fire crystals?" on two lines, a stack's log
+        /// plural; a single's log name is PROVISIONAL, not captured). Neither ROM/165/72 nor ROM/165/75 holds it.
+        /// </summary>
+        public static string BidPrompt(uint price, string logName) => $"Make a bid of {StockUiShop.FormatGil(price)} gil\nfor the {logName}?";
+
         /// <summary>The warning a stackable item short of a full stack prints when picked to sell (image-16); it then sells as a single.</summary>
         public static string PartialStackMessage(int stackSize) =>
             $"You can only place a single item or a set of {stackSize.ToString(CultureInfo.InvariantCulture)} such items on auction.";

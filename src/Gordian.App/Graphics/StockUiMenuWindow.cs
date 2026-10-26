@@ -34,6 +34,12 @@ namespace Gordian.App.Graphics
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
             long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null, StockUiScreen? screen = null)
         {
+            if (font != null && menu.AuctionBidConfirm)
+            {
+                // An Auction House list under a bid's Yes / No shows only the item's info and "Current Gil" (image-27).
+                StockUiAuctionWindow.DrawBidConfirm(renderer, library, font, logFont, menu, placement, timestamp);
+                return;
+            }
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;

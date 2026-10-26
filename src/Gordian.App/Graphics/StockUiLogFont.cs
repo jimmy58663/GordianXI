@@ -18,6 +18,11 @@ namespace Gordian.App.Graphics
     /// The ASCII cells are copied into a small atlas of their own (with room for the outline) that the stock UI
     /// renderer draws like any other texture.
     /// </para>
+    /// <para>
+    /// After the ASCII the cells follow the CP932 (Shift-JIS) order from 0x8140 (cell 96; checked on the dump: 0x819F
+    /// "◆" ends row 2, 0x81A1 "■" starts row 3). The few non-ASCII symbols the client writes itself are copied too
+    /// (<see cref="Symbols"/>).
+    /// </para>
     /// </summary>
     public sealed class StockUiLogFont
     {
@@ -31,7 +36,15 @@ namespace Gordian.App.Graphics
         private const int SpaceAdvance = 7, InkGap = 2;
         private const byte OutlineAlpha = 200;
 
-        private readonly float[] _advances = new float[LastChar - FirstChar + 1];
+        private const int AsciiCount = LastChar - FirstChar + 1;
+
+        /// <summary>
+        /// Non-ASCII characters the log draws, with their <c>moji</c> cell: the arrow of an Auction House sale line
+        /// (CP932 0x81A8, cell 96 + 0xA8 - 0x40 = 199; round 2 N21, retail prints it between seller and buyer).
+        /// </summary>
+        private static readonly (char Char, int Cell)[] Symbols = { ('→', 199) };
+
+        private readonly float[] _advances = new float[AsciiCount + Symbols.Length];
         private readonly int _columns;
 
         public DecodedTexture Atlas { get; }
@@ -44,8 +57,19 @@ namespace Gordian.App.Graphics
             CacheKey = cacheKey;
         }
 
-        /// <summary>Pen advance of a character in layout pixels (printable ASCII only; others advance 0).</summary>
-        public float GetAdvance(char c) => c >= FirstChar && c <= LastChar ? _advances[c - FirstChar] : 0;
+        /// <summary>Pen advance of a character in layout pixels (printable ASCII and <see cref="Symbols"/>; others advance 0).</summary>
+        public float GetAdvance(char c) => SlotOf(c) is var i and >= 0 ? _advances[i] : 0;
+
+        /// <summary>The character's slot in the atlas (ASCII first, then <see cref="Symbols"/>), or -1 without a glyph.</summary>
+        private static int SlotOf(char c)
+        {
+            if (c >= FirstChar && c <= LastChar) return c - FirstChar;
+            for (int i = 0; i < Symbols.Length; i++)
+            {
+                if (Symbols[i].Char == c) return AsciiCount + i;
+            }
+            return -1;
+        }
 
         public float MeasureWidth(ReadOnlySpan<char> text)
         {
@@ -64,9 +88,8 @@ namespace Gordian.App.Graphics
             float pen = x;
             foreach (char c in text)
             {
-                if (c > FirstChar && c <= LastChar)
+                if (c != ' ' && SlotOf(c) is var i and >= 0)
                 {
-                    int i = c - FirstChar;
                     renderer.DrawTextureRegion(CacheKey, Atlas, i % _columns * cell, i / _columns * cell, cell, cell,
                         MathF.Round(pen - Pad * scale), MathF.Round(y - Pad * scale), cell * scale, cell * scale, color);
                 }
@@ -83,13 +106,13 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Copies the ASCII cells of a <c>moji</c>-layout texture into an outlined atlas and measures each glyph's
+        /// Copies the ASCII and <see cref="Symbols"/> cells of a <c>moji</c>-layout texture into an outlined atlas and measures each glyph's
         /// advance.
         /// </summary>
         public static StockUiLogFont Build(DecodedTexture moji, string cacheKey)
         {
             const int cell = SourceCell + 2 * Pad, columns = 16;
-            int count = LastChar - FirstChar + 1;
+            int count = AsciiCount + Symbols.Length;
             int rows = (count + columns - 1) / columns;
             int width = columns * cell, height = rows * cell;
             var rgba = new byte[width * height * 4];
@@ -99,7 +122,8 @@ namespace Gordian.App.Graphics
             byte[] src = moji.RgbaPixels;
             for (int i = 0; i < count; i++)
             {
-                int sx = i % SourceColumns * SourceCell, sy = i / SourceColumns * SourceCell;
+                int source = i < AsciiCount ? i : Symbols[i - AsciiCount].Cell;
+                int sx = source % SourceColumns * SourceCell, sy = source / SourceColumns * SourceCell;
                 int dx = i % columns * cell, dy = i / columns * cell;
                 Array.Clear(mask);
                 int right = -1;
