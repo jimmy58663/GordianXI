@@ -845,6 +845,8 @@ namespace Gordian.Engine.Ui
                 Y = template.Frame.Y,
                 Width = template.Frame.Width,
                 Height = (short)(top + visible * QueryRowPitch),
+                // The background image is authored for the template's height; the window stretches it to the rows shown.
+                AuthoredHeight = template.Frame.ImageHeight,
                 Anchor = template.Frame.Anchor,
                 Shapes = template.Frame.Shapes,
                 CursorOffsetX = template.Frame.CursorOffsetX,

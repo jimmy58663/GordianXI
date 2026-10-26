@@ -86,6 +86,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(4, menu!.VisibleRows);
             Assert.False(menu.CanScroll);
             Assert.Equal(108, menu.Menu.Frame.Height);
+            Assert.Equal(88, menu.Menu.Frame.ImageHeight); // the background stretches from the authored 88 px to the rows shown
             Assert.True(menu.IsQueryOptionGreyed(3));
             menus.Activate();
             Assert.Equal(-1, answer);
