@@ -238,7 +238,8 @@ namespace Gordian.Engine.Tests.Graphics
 
         /// <summary>
         /// The zone an event opens with 0x34 holds the routines its 0x2D names that the event's own zone lacks (#233): the
-        /// cutscene stage zone 541 (file 641, <c>e_cr</c>) that zone 14's event 50 opens loads as a zone and has them.
+        /// cutscene stage zone 541 (file 641, <c>e_cr</c>) that zone 14's event 50 and Pso'Xja's event 2 open loads as a zone and
+        /// has them; so does 540 (file 640), which Lower Delkfutt's Tower's event 36 opens.
         /// </summary>
         [Fact]
         public void EventZones_HoldTheRoutinesTheirEventsName()
@@ -249,6 +250,8 @@ namespace Gordian.Engine.Tests.Graphics
             if (LoadZone(14) is { } hall) Assert.Empty(hall.MapRoutines.Find("kaks"));
             // Windurst Woods 588 opens 192 for its skai.
             if (LoadZone(192) is { } ruins) Assert.NotEmpty(ruins.MapRoutines.Find("skai"));
+            // Lower Delkfutt's Tower 36 (the Crystal Line scene) opens 540 for its main / gass / del1 / del2.
+            if (LoadZone(540) is { } line) foreach (string routine in new[] { "main", "gass", "del1", "del2" }) Assert.NotEmpty(line.MapRoutines.Find(routine));
         }
 
         /// <summary>

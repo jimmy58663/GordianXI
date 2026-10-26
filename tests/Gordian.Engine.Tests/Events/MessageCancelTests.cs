@@ -70,6 +70,20 @@ namespace Gordian.Engine.Tests.Events
         }
 
         [Fact]
+        public void Cancel_DoesNothing_WhileTheEventHoldsTheCamera()
+        {
+            // 46 01 (take the camera) ; 1D msg 500 ; 23 ; 21: a cutscene that never clears the flag (Upper Jeuno 10038's kind)
+            var host = PromptHost();
+            var vm = Make(new byte[] { 0x46, 0x01, 0x1D, 0x00, 0x80, 0x23, 0x21 }, host);
+            vm.Tick(Frame);
+            Assert.True(vm.IsWaitingForConfirm);
+
+            Assert.False(vm.Scene.CancelMessage());
+            vm.Tick(Frame);
+            Assert.True(vm.IsWaitingForConfirm);
+        }
+
+        [Fact]
         public void Opcode2E_AllowsTheCancelAgain()
         {
             // 42 ; 2E ; 1D msg 500 ; 23 ; 21

@@ -40,8 +40,9 @@ namespace Gordian.App.Graphics
             // conf5w1 / conf5w2 bake an orange block (gauge texels 48,16; x 88-126 of the 192-px Maximum lines bar, y 93-111)
             // into their frame: it is retail's marker for the lowest Maximum lines value, 4 of 20 (retail capture 2026-10-18,
             // image-2). It stays drawn, under the fill, as in retail.
+            // A client-sized frame (an event query with fewer or more rows than the DAT's three) stretches its images to its height.
             renderer.DrawMenu(definition, placement, includeButtons: false,
-                opaqueBody: true, frameImage: menu.FrameImage,
+                opaqueBody: true, frameImage: menu.FrameImage, frameHeight: frame.AuthoredHeight > 0 && frame.AuthoredHeight != frame.Height ? frame.Height : null,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);

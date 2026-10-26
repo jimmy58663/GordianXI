@@ -199,6 +199,9 @@ namespace Gordian.Engine.Events
         /// </summary>
         private readonly List<WorldEntity> _banked = new();
 
+        /// <summary>Scene routines' motions waiting for their first clip's tick (<see cref="PlaySceneMotion"/>; game tick thread only).</summary>
+        private readonly List<(double Seconds, WorldEntity Entity, string Routine)> _sceneMotions = new();
+
         /// <summary>Entities whose colour a scene routine changed (0x29 / 0x2E, #206): drawn as is again when the event ends.</summary>
         private readonly List<WorldEntity> _colored = new();
 
@@ -413,6 +416,7 @@ namespace Gordian.Engine.Events
             SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
+            StartDueSceneMotions(elapsed.TotalSeconds);
             if (wasWaiting && !scene.IsWaitingForConfirm) StopTalker();
             if (scene.IsFinished) FinishEvent(scene);
             else if (wasWaiting != scene.IsWaitingForConfirm) Changed?.Invoke();
@@ -625,6 +629,7 @@ namespace Gordian.Engine.Events
                 });
             }
             _banked.Clear();
+            _sceneMotions.Clear();
             foreach (var entity in _colored) entity.ActorColor.Reset();
             _colored.Clear();
             var world = _world;
@@ -1584,6 +1589,7 @@ namespace Gordian.Engine.Events
             else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
             if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
             Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
+            PlaySceneMotion(fileId, routine, casterServerId);
             // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206),
             // with those of the routines it starts (Iroha's kie0 / eff0, #237).
             SceneRoutine? Resolve(string name) => resource.TryGetRoutine(name, out var started) ? started : null;
@@ -1602,6 +1608,48 @@ namespace Gordian.Engine.Events
                 if (!_colored.Contains(colored)) _colored.Add(colored);
             }
             return scene.TotalFrames;
+        }
+
+        /// <summary>
+        /// Plays the motion clips of a scene task's routine on its actor (op 0x05, in the routine or one it starts with 0x03):
+        /// the scene file is loaded onto the actor as an event motion bank and the routine plays as an event gesture, its
+        /// clips (<c>ri0?</c>) resolved on the actor's model. Northern San d'Oria 898's <c>star</c> kneels the player into the
+        /// crafting pose (<c>mot0</c>, <c>ri0?</c> held) and <c>stop</c> stands them up at tick 271 (<c>mot1</c>, <c>rx2?</c>) (#238,
+        /// round 1: the player did not kneel). Clip reference and fields per xi-tools docs/anim/schedule.md (op 0x05).
+        /// </summary>
+        private void PlaySceneMotion(int fileId, string routine, uint casterServerId)
+        {
+            if (_world == null || !_world.TryGetByServerId(casterServerId, out var entity)) return;
+            if (LoadMotionBank(fileId) is not { } bank) return;
+            int first = bank.FirstClipTick(routine);
+            if (first < 0) return;
+            entity.Animation.AddEventMotionBank(bank);
+            if (!_banked.Contains(entity)) _banked.Add(entity);
+            _sceneMotions.Add((first / 60.0, entity, routine));
+            GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId} plays its motion on {casterServerId:X8} at tick {first}.");
+        }
+
+        /// <summary>Starts the scene routines' motions whose first clip is due (the gesture's clips start at its tick 0).</summary>
+        private void StartDueSceneMotions(double elapsedSeconds)
+        {
+            for (int i = 0; i < _sceneMotions.Count; i++)
+            {
+                var (seconds, entity, routine) = _sceneMotions[i];
+                seconds -= elapsedSeconds;
+                if (seconds > 0)
+                {
+                    _sceneMotions[i] = (seconds, entity, routine);
+                    continue;
+                }
+                _sceneMotions.RemoveAt(i--);
+                entity.Animation.EnqueueAction(new ActionRequest
+                {
+                    ActorId = entity.ServerId,
+                    Motion = ActionMotion.EventMotion,
+                    Routine = routine,
+                    ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+                });
+            }
         }
 
         /// <summary>Whether a routine, or one it starts (0x03), fades or holds its actor's colour (0x29 / 0x2E).</summary>

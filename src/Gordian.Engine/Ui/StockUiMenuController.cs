@@ -835,6 +835,9 @@ namespace Gordian.Engine.Ui
                 Y = template.Frame.Y,
                 Width = template.Frame.Width,
                 Height = (short)(top + visible * QueryRowPitch),
+                // The background images are authored for the 88 px window and stretch to this height (#405 round 1: a
+                // two-option rank query drew its bottom border at 68 px over an 88 px background).
+                AuthoredHeight = template.Frame.Height,
                 Anchor = template.Frame.Anchor,
                 Shapes = template.Frame.Shapes,
                 CursorOffsetX = template.Frame.CursorOffsetX,

@@ -107,11 +107,17 @@ namespace Gordian.Engine.Events
 
         /// <summary>
         /// The player pressed Cancel on the open message: when the event allows it (<see cref="MessageCancelAllowed"/>)
-        /// the message closes and the event ends at its 0x23; otherwise nothing happens. True when the cancel was taken.
+        /// and is not a cutscene holding the camera (<see cref="IsCameraHeld"/>), the message closes and the event ends at
+        /// its 0x23; otherwise nothing happens. True when the cancel was taken.
         /// </summary>
+        /// <remarks>
+        /// The camera rule is the maintainer's (round 1 of #413: Cancel on every event that is not a cutscene). It only adds
+        /// to 0x42: of the retail events that take the camera before their first message, all but 11 clear the flag first
+        /// (corpus scan 2026-10-25; Upper Jeuno 244 event 10038 and Port Jeuno 246 event 428 are two that do not).
+        /// </remarks>
         public bool CancelMessage()
         {
-            if (!IsWaitingForConfirm || !MessageCancelAllowed) return false;
+            if (!IsWaitingForConfirm || !MessageCancelAllowed || IsCameraHeld) return false;
             _messageOpenSeconds = 0;
             IsMessageCancelled = true;
             return true;

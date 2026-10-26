@@ -54,6 +54,16 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void ShorterQuery_StretchesTheAuthoredImagesToItsHeight()
+        {
+            // A guild's rank query with two options (round 1 of #405, image-45): the window is 68 px tall, and its 88 px
+            // background must shrink with it, or the bottom border lands inside the background.
+            var menu = Controller().OpenQuery(new[] { "Which rank of synthesis do you ask about?" }, Options("Never mind.", "Amateur."), 1, _ => { });
+            Assert.Equal(68, menu!.Menu.Frame.Height);
+            Assert.Equal(88, menu.Menu.Frame.ImageHeight);
+        }
+
+        [Fact]
         public void Confirm_AnswersWithTheOptionNumber_CancelWith255()
         {
             var menus = Controller();

@@ -217,6 +217,23 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Northern San d'Oria 898 (#238 round 1): the player kneels into the crafting pose while summoning. 70609's scene
+        /// routines play the actor's own clips with op 0x05: <c>star</c> starts <c>mot0</c> at once, whose <c>ri0?</c> is held
+        /// until replaced, and <c>stop</c> starts <c>mot1</c> at tick 271, whose <c>rx2?</c> plays once (the rise).
+        /// </summary>
+        [Fact]
+        public void NorthernSandoriaSunbreeze_ThePlayerKneelsWhileSummoning()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var bank = Gordian.Core.Animation.EventMotionBank.Parse(rm.LoadDatBytesByFileId(70609)!, 70609)!;
+            Assert.Equal(0, bank.FirstClipTick("star"));
+            Assert.Equal(271, bank.FirstClipTick("stop"));
+            Assert.False(bank.PlaysClip("kill"));
+            Assert.False(bank.PlaysClip("sesp"));
+        }
+
+        /// <summary>
         /// Northern San d'Oria 898 through the dialog controller (#238): the Moogle, hidden by the server, is drawn once
         /// its script shows it; the Trust Mumor, made invisible by 0x6C at the start, is visible again once 70612's
         /// <c>main</c> has faded her in (0x6C and the routine's 0x29 share one alpha, so the routine takes it over).
