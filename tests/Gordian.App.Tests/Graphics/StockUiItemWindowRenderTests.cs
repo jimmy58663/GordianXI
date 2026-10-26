@@ -81,7 +81,8 @@ namespace Gordian.App.Tests.Graphics
             var inventory = new InventoryState();
             inventory.SetContainerSizes(ContainerId.Inventory, 80, 80);
             inventory.SetContainerSizes(ContainerId.Wardrobe, 80, 80);
-            inventory.SetItem(ContainerId.Inventory, 1, 4112, 12, ItemLockFlag.Normal);   // Potion x12
+            inventory.SetItem(ContainerId.Inventory, 1, 12448, 1, ItemLockFlag.Normal);   // Bronze Cap (a Wardrobe greys what is not equipment)
+            inventory.SetItem(ContainerId.Inventory, 2, 4112, 12, ItemLockFlag.Normal);   // Potion x12
             inventory.SetItem(ContainerId.Wardrobe, 1, 16535, 1, ItemLockFlag.Normal);    // Bronze Sword
             var menus = new StockUiMenuController
             {
@@ -101,7 +102,7 @@ namespace Gordian.App.Tests.Graphics
             int px = (int)placement.X, py = (int)placement.Y;
             var layout = new StockUiScreen(screen.Width, screen.Height, null);
             byte[] shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, placement, 0, logFont: screen.LogFont, screen: layout), "gpu_viewhouse_storage.png");
-            // The wardrobe's sword on the left list's first row, the inventory's potion on the right list's.
+            // The wardrobe's sword on the left list's first row, the inventory's cap on the right list's.
             Assert.True(screen.HasLightPixel(shot, px + 24, px + 120, py + 6 + 8), "no item on the storage's first row");
             Assert.True(screen.HasLightPixel(shot, px + 182 + 24, px + 182 + 120, py + 6 + 8), "no item on the inventory's first row");
 

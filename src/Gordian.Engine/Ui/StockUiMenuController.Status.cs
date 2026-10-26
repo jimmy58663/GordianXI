@@ -62,9 +62,10 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The D-pad's Up / Down on a Status page moves the list under it to the next entry and shows that entry's page in its
-        /// place (round 1 of the 2026-10-24 test: retail keeps the list live while a page shows); an entry without a page here
-        /// leaves the list showing alone. False when the top menu is not a Status page. Call under the lock.
+        /// The D-pad's Up / Down on a Status page moves the cursor on the list under it while the page stays shown; Confirm then
+        /// shows the entry under the cursor (<see cref="StatusPageConfirm"/>; round 2 of the 2026-10-24 test: retail keeps the
+        /// list live while a page shows, and the page changes only on Confirm). False when the top menu is not a Status page.
+        /// Call under the lock.
         /// </summary>
         private bool TryMoveStatusPage(InputAction direction)
         {
@@ -75,12 +76,20 @@ namespace Gordian.Engine.Ui
             int link = direction == InputAction.MenuUp ? button.NavUp : button.NavDown;
             if (link < 0 || link == button.ButtonId || list.Menu.FindButton(link) == null) return true;
             list.SelectedButtonId = link;
-            _open = _open[..^1];
-            if (TryGetEntry(list, link, out var entry) && entry.Command == StockUiMenuCommand.StatusPage)
-            {
-                OpenStatusPage((StockUiStatusPage)entry.Argument, list);
-            }
             return true;
+        }
+
+        /// <summary>
+        /// Confirm on a Status page: the page closes and the list's entry under the cursor runs as if confirmed on the list (its
+        /// page shows). Returns the list, or null when the top menu is not a Status page. Call under the lock.
+        /// </summary>
+        private StockUiOpenMenu? StatusPageConfirm()
+        {
+            if (_open.Length < 2) return null;
+            var page = _open[^1];
+            if (page.StatusPage == StockUiStatusPage.None || page.Parent is not { IsStatusList: true } list || !ReferenceEquals(_open[^2], list)) return null;
+            _open = _open[..^1];
+            return list;
         }
 
         /// <summary>A page's DAT window without its buttons, as tall as its rows, its frame image stretched to fit (its authored height kept).</summary>

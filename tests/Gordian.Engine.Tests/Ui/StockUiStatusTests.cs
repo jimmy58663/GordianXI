@@ -62,11 +62,12 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         /// <summary>
-        /// The stats side's item level (round 1 of the 2026-10-24 test): the average of the main weapon and the five armour
-        /// slots, with the sub weapon but never a shield; "---" (null) without item-level gear.
+        /// The stats side's item level (round 2 of the 2026-10-24 test, BG Wiki's formula): the level plus half the best weapon's
+        /// lead and a tenth of each armour piece's, rounded down; a lower sub weapon changes nothing; "---" (null) without
+        /// item-level gear.
         /// </summary>
         [Fact]
-        public void ItemLevel_AveragesMainSubWeaponAndArmour_LeavingOutShields()
+        public void ItemLevel_AddsHalfTheBestWeaponsLeadAndATenthOfEachArmourPiece()
         {
             var items = new Dictionary<ushort, ItemRecord>
             {
@@ -75,6 +76,7 @@ namespace Gordian.Engine.Tests.Ui
                 [3] = new() { ItemId = 3, Level = 99, ItemLevel = 119, ShieldSize = 5 }, // Aegis-like shield
                 [4] = new() { ItemId = 4, Level = 99, Damage = 40 },                   // a level-99 sub weapon, no item level
                 [5] = new() { ItemId = 5, Level = 75 },                                // old armour
+                [6] = new() { ItemId = 6, Level = 99, ItemLevel = 118 },               // 118 feet
             };
             ItemRecord? Lookup(ushort id) => items.TryGetValue(id, out var r) ? r : null;
             var inventory = new InventoryState();
@@ -87,15 +89,18 @@ namespace Gordian.Engine.Tests.Ui
             byte bagSlot = 2;
             foreach (var slot in new[] { EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet }) Wear(slot, bagSlot++, 2);
             Wear(EquipSlotId.Sub, 10, 3);
-            Assert.Equal(119, StockUiStatus.ItemLevel(inventory, Lookup)); // the shield is left out
+            Assert.Equal(119, StockUiStatus.ItemLevel(inventory, Lookup, 99)); // 99 + 10 + 5 x 2
 
             Wear(EquipSlotId.Sub, 11, 4);
-            Assert.Equal((119 * 6 + 99) / 7, StockUiStatus.ItemLevel(inventory, Lookup)); // a sub weapon counts
+            Assert.Equal(119, StockUiStatus.ItemLevel(inventory, Lookup, 99)); // a lower sub weapon changes nothing
+
+            Wear(EquipSlotId.Feet, 12, 6);
+            Assert.Equal(118, StockUiStatus.ItemLevel(inventory, Lookup, 99)); // 10 + 4 x 2 + 1.8 = 19.8, rounded down
 
             var old = new InventoryState();
             old.SetItem(ContainerId.Inventory, 1, 5, 1, ItemLockFlag.Normal);
             old.SetEquip(EquipSlotId.Body, ContainerId.Inventory, 1);
-            Assert.Null(StockUiStatus.ItemLevel(old, Lookup));
+            Assert.Null(StockUiStatus.ItemLevel(old, Lookup, 99));
         }
 
         /// <summary>The pages fit their rows (retail border to border 19 + 14 a row; round 1 captures, 2026-10-25).</summary>

@@ -17,7 +17,9 @@ namespace Gordian.Engine.Ui
     /// the map covering the window (zoomed out) to <see cref="MaxZoom"/> times that (zoomed in: the round 1 shots' icons are
     /// 4.06 times apart). Change Map opens <c>arealist</c> (366 x 88 at 16,208, bottom left, over the chat; 5 rows): "Current
     /// Area" "(Area)", then every region (ROM/165/78) with the number of its zones that have a map ("San d'Oria [4]", round 1
-    /// image-6); a region lists its zones in <c>maplist</c>, a zone with more than one map its maps. Retail opens the map on
+    /// image-6); a region lists its zones in <c>maplist</c>, each with its compact name (ROM/165/85) at the right ("Southern
+    /// San d'Oria (SSandOria)", round 2 image-26), and a zone with more than one map its maps. Both lists sit on the chat log
+    /// and write their rows in the log font (round 2 image-25). Retail opens the map on
     /// the player with a position marker and the grid square under the help bar ("(F-10)"); GordianXI opens it centred,
     /// without the marker: the world-to-map scale is not known (see <see cref="ZoneMapFiles"/>).
     /// </summary>
@@ -225,8 +227,9 @@ namespace Gordian.Engine.Ui
                             int count = ZoneMapFiles.MapsOf(zone).Count;
                             if (count == 0) continue;
                             entries.Add(new StockUiMapListEntry(StockUiMapListLevel.Zone, entry.Region, zone, 0));
+                            string? compact = ZoneCompactName?.Invoke(zone);
                             rows.Add(new StockUiListRow(rows.Count + 1, ZoneName?.Invoke(zone) ?? string.Empty, false,
-                                Value: count > 1 ? "[" + count.ToString(CultureInfo.InvariantCulture) + "]" : null));
+                                Value: compact is { Length: > 0 } ? "(" + compact + ")" : null));
                         }
                         OpenMapList(StockUiMap.MapListMenu, list, rows, entries);
                         break;

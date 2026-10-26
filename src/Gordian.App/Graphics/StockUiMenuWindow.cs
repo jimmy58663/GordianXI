@@ -192,11 +192,16 @@ namespace Gordian.App.Graphics
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
                         // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
-                        // window's Change Map lists (#23) the same way: the area or zone, its "[4]" / "(Area)" at the right
-                        // (round 1 capture image-6).
+                        // window's Change Map lists (#23) the same way: the area or zone in white in the log font (upright,
+                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right.
                         UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
                         bool mapRow = menu.ListKind == StockUiListKind.MapAreas;
-                        renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
+                        if (mapRow && logFont != null)
+                        {
+                            logFont.Draw(renderer, row.Text, areaX + MapRowTextInset * s, ry + (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, White);
+                            tint = null;
+                        }
+                        else renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
                         if (row.Value is { Length: > 0 } value)
                         {
                             float valueRight = placement.X + (frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;

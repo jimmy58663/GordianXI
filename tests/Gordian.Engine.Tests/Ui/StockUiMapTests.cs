@@ -46,6 +46,7 @@ namespace Gordian.Engine.Tests.Ui
                 CurrentZone = () => zone,
                 ZoneName = z => z switch { 230 => "Southern San d'Oria", 231 => "Northern San d'Oria", 50 => "Aht Urhgan Whitegate", _ => $"zone {z}" },
                 RegionName = r => r switch { 0 => "San d'Oria", 1 => "Bastok", _ => $"region {r}" },
+                ZoneCompactName = z => z == 230 ? "SSandOria" : null,
             };
             menus.NoticePosted += notices.Add;
             return menus;
@@ -94,6 +95,7 @@ namespace Gordian.Engine.Tests.Ui
             var zones = menus.Top!;
             Assert.Equal(4, zones.Rows.Count);
             Assert.Equal("Southern San d'Oria", zones.Rows[0].Text);
+            Assert.Equal("(SSandOria)", zones.Rows[0].Value); // the compact name (round 2 image-26)
             menus.Move(InputAction.MenuDown); // Northern San d'Oria
             menus.Activate();
             Assert.Same(map, menus.Top);

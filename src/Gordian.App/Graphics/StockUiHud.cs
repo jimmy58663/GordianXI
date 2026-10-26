@@ -250,6 +250,8 @@ namespace Gordian.App.Graphics
                 }
                 StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetCursorTint);
             }
+            // The Map window's map goes under the party, log and target windows (retail round 1 image-4: the chat over the map).
+            if (!zoning && !cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
             if (zoning)
             {
                 // Nothing but the black and the loading sprite below.
@@ -270,7 +272,6 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
-                if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -613,7 +614,16 @@ namespace Gordian.App.Graphics
                         x = authored.X;
                         y = Math.Clamp(listTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
-                    placement = new StockUiPlacement(x, y, root.Scale, false);
+                    float scale = root.Scale;
+                    if (menu.ListKind == StockUiListKind.MapAreas && _window1Top is { } chatTop && _window1Left.Scale > 0)
+                    {
+                        // The Change Map lists sit on the chat log at its left edge and scale, moving with it (#23, round 2;
+                        // retail round 1 image-6).
+                        scale = _window1Left.Scale;
+                        x = Math.Clamp(_window1Left.X, 0, Math.Max(0, width - frame.Width * scale));
+                        y = Math.Clamp(chatTop - frame.Height * scale, 0, Math.Max(0, height - frame.Height * scale));
+                    }
+                    placement = new StockUiPlacement(x, y, scale, false);
                 }
                 // A View House list with the cursor on the inventory draws at the inventory's place, the storage beside it (#23).
                 if (menu.StorageInventorySide) placement = placement with { X = placement.X + (StockUiViewHouse.InventoryX - menu.Menu.Frame.X) * placement.Scale };
@@ -676,6 +686,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>Window 1's top edge (screen px) as drawn this frame, null while the log is hidden: the command menu sits on it.</summary>
         private float? _window1Top;
+
+        /// <summary>Window 1's left edge (screen px) and scale as drawn this frame: the Map window's Change Map lists sit on the log.</summary>
+        private (float X, float Scale) _window1Left;
 
         /// <summary>
         /// Over a clickable menu entry the system cursor is hidden and the hover pointer (arrow and ring) is drawn here,
@@ -850,6 +863,7 @@ namespace Gordian.App.Graphics
                     Settings.GetValue(StockUiSettingKey.LogTimestamp), Settings);
                 if (pageRows > 0) chat.FullLogPageLines = pageRows;
                 _window1Top = StockUiChatWindow.FullLogTop * s;
+                _window1Left = (placement.X, s);
                 return;
             }
 
@@ -860,6 +874,7 @@ namespace Gordian.App.Graphics
             float rise1 = (fullHeight1 - height1) / StockUiChatWindow.RowPitch;
             var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
             _window1Top = window1.Y;
+            _window1Left = (placement.X, s);
             bool hasInline = library.TryGetMenu("inline", out var inline);
             bool inputOpen = input.IsOpen && hasInline;
 

@@ -68,8 +68,12 @@ namespace Gordian.App.Tests.Graphics
             shot = RenderOpen(screen, menus, "gpu_status_profile.png");
             Assert.True(screen.HasLightPixel(shot, 130 + 74, 130 + 140, 48 + 26), "no nation");
 
-            // The D-pad on a page moves the list and shows the next entry's page (round 1); Job Levels has no cursor.
+            // The D-pad on a page moves the list's cursor while the page stays; Confirm shows the entry under it (round 2).
+            // Job Levels has no cursor.
             menus.Move(InputAction.MenuDown); // Job Levels
+            Assert.Equal(StockUiStatusPage.Profile, menus.Top!.StatusPage);
+            Assert.Equal(StockUiStatus.JobLevelsButton, menus.Top!.Parent!.SelectedButtonId);
+            menus.Activate();
             Assert.Equal(StockUiStatusPage.JobLevels, menus.Top!.StatusPage);
             Assert.Empty(menus.Top!.Menu.Buttons);
             Assert.Equal(StockUiStatus.PageHeight(StockUiStatusPage.JobLevels, info), menus.Top!.Menu.Frame.Height);

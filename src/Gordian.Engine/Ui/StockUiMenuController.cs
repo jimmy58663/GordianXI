@@ -1553,7 +1553,7 @@ namespace Gordian.Engine.Ui
             UiMenuButton? button;
             lock (_sync)
             {
-                top = Top;
+                top = StatusPageConfirm() ?? Top;
                 button = top?.SelectedButton;
             }
             if (top == null || button == null) return;

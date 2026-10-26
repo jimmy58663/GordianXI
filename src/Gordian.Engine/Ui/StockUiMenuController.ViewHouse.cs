@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Models;
 using Gordian.Engine.Input;
 
 namespace Gordian.Engine.Ui
@@ -18,7 +19,10 @@ namespace Gordian.Engine.Ui
     /// View House list gives way to <c>itmsortw</c> ("Options", "+ : Sort": Auto, Manual, Switch; image-8): + / Y puts the
     /// cursor on it, Switch (help 1067 "Display a different storage system.") returns to the View House list, as Cancel does.
     /// The Mog Safes, Storage and Mog Locker can only be viewed outside the Mog House (help 640-642: "Items can only be removed
-    /// or stored when inside your Mog House").
+    /// or stored when inside your Mog House"): there they show their own list alone, without the inventory (round 2). A stack
+    /// asks how many to move first (the quantity prompt), and in a Mog Wardrobe the inventory's items that are not equipment
+    /// are greyed (round 2). With the cursor on the inventory the help bar reads "Items" and the inventory's count / size
+    /// (round 2, retail).
     /// </summary>
     public static class StockUiViewHouse
     {
@@ -72,8 +76,25 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Whether a storage's items can be moved out away from the Mog House: the Satchel, Sack, Case and Wardrobes (LandSandBoat's 0x029 handler).</summary>
         public static bool MovableAnywhere(ContainerId container) =>
-            container is ContainerId.MogSatchel or ContainerId.MogSack or ContainerId.MogCase || container == ContainerId.Wardrobe
-            || container is >= ContainerId.Wardrobe2 and <= ContainerId.Wardrobe8;
+            container is ContainerId.MogSatchel or ContainerId.MogSack or ContainerId.MogCase || IsWardrobe(container);
+
+        /// <summary>Whether a storage is one of the Mog Wardrobes, which take equipment only.</summary>
+        public static bool IsWardrobe(ContainerId container) =>
+            container == ContainerId.Wardrobe || container is >= ContainerId.Wardrobe2 and <= ContainerId.Wardrobe8;
+
+        /// <summary>
+        /// The inventory's rows beside a Mog Wardrobe: what is not equipment greyed, saying why on Confirm (LandSandBoat's 0x029
+        /// handler refuses it; the wording is GordianXI's).
+        /// </summary>
+        public static List<StockUiItemRow> GreyForWardrobe(List<StockUiItemRow> rows, ContainerId wardrobe, Func<ushort, ItemRecord?>? lookup)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (lookup?.Invoke(rows[i].ItemId) is { EquipSlotsMask: not 0 }) continue;
+                rows[i] = rows[i] with { Greyed = true, GreyedReason = $"{rows[i].Name} cannot be stored in your {StockUiItems.ContainerName(wardrobe)}." };
+            }
+            return rows;
+        }
 
         /// <summary>
         /// The help bar's title over a storage's list. The capture shows "M.Ward." for the Mog Wardrobe (the title box leaves room
@@ -137,7 +158,8 @@ namespace Gordian.Engine.Ui
             {
                 ItemListKind = StockUiItemListKind.Storage,
                 ItemContainer = container,
-                StoragePartner = ContainerId.Inventory,
+                // A storage that can only be viewed here shows its own list alone (round 2).
+                StoragePartner = CanMoveFromStorage(container) ? ContainerId.Inventory : null,
                 ItemLookup = ItemLookup,
                 ItemOwner = this,
             };
@@ -152,12 +174,18 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on a View House item: C2S 0x029 moves the whole stack to the other list's first free slot (the storage's item
-        /// to the inventory, the inventory's to the storage). A full destination prints the error, a storage that can only be
-        /// viewed here says so, and a worn item stays (LandSandBoat refuses to move equipped items).
+        /// Confirm on a View House item: C2S 0x029 moves it to the other list's first free slot (the storage's item to the
+        /// inventory, the inventory's to the storage), a stack after the quantity prompt asks how many. A full destination
+        /// prints the error, a storage that can only be viewed here says so, a greyed row says why, and a worn item stays
+        /// (LandSandBoat refuses to move equipped items).
         /// </summary>
         private void MoveFromStorage(StockUiOpenMenu list, StockUiItemRow row)
         {
+            if (row.Greyed)
+            {
+                NoticePosted?.Invoke(row.GreyedReason ?? $"{row.Name} cannot be moved.");
+                return;
+            }
             var storage = list.StorageContainer;
             if (!CanMoveFromStorage(storage))
             {
@@ -180,13 +208,22 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("You cannot move an item you are wearing.");
                 return;
             }
-            var move = ItemMove;
-            if (move == null)
+            if (ItemMove == null)
             {
                 NoticePosted?.Invoke("Items cannot be moved in this session.");
                 return;
             }
-            _ = SendItemAsync(() => move(row.Count, list.ItemContainer, row.Slot, to, StockUiItems.AnyFreeSlot), "Move");
+            if (row.Count > 1) OpenItemQuantity(list, list, row, restore: false, storageMove: true);
+            else SendStorageMove(list, row, 1);
+        }
+
+        /// <summary>Sends C2S 0x029 for <paramref name="count"/> of a View House row to the other list's first free slot.</summary>
+        private void SendStorageMove(StockUiOpenMenu list, StockUiItemRow row, uint count)
+        {
+            var move = ItemMove;
+            if (move == null) return;
+            var to = list.StorageInventorySide ? list.StorageContainer : ContainerId.Inventory;
+            _ = SendItemAsync(() => move(count, row.Container, row.Slot, to, StockUiItems.AnyFreeSlot), "Move");
         }
 
         /// <summary>

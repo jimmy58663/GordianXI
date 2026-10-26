@@ -61,6 +61,18 @@ namespace Gordian.App.Tests.Graphics
                     StockUiMenuWindow.Draw(r, screen.Library, screen.Font, open, at, Stopwatch.GetTimestamp(), logFont: screen.LogFont);
                 }
             }, "gpu_map_arealist.png");
+
+            // Beyond retail (round 2): zoomed out and panned to the top, the map stops a margin under the help bar, black above.
+            menus.CloseTop();
+            menus.MoveMapView(0, -10, 0, -100);
+            shot = screen.Render(r => StockUiMapWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, map, texture, "Northern San d'Oria", 1, screen.Width, screen.Height),
+                "gpu_map_margin.png");
+            float margin = StockUiMapWindow.Margin(screen.Library, 1, screen.Width, screen.Height);
+            Assert.True(margin > 20, $"margin {margin}");
+            var above = screen.Pixel(shot, (int)screen.Width / 2, (int)margin - 3);
+            Assert.True(above.R < 16 && above.G < 16 && above.B < 16, $"margin pixel {above}");
+            var below = screen.Pixel(shot, (int)screen.Width / 2, (int)margin + 6);
+            Assert.True(below.R > 60, $"map's top edge pixel {below}");
         }
     }
 }

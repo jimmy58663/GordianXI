@@ -212,38 +212,38 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public static int MasteryRankShown(int masteryRank) => masteryRank <= 0 ? 0 : (masteryRank - 1) % 10 + 1;
 
-        /// <summary>The slots the item level averages: the main weapon and the five armour slots (the sub slot joins when it holds a weapon).</summary>
-        private static readonly EquipSlotId[] ItemLevelSlots =
-        {
-            EquipSlotId.Main, EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet,
-        };
+        /// <summary>The weapon slots: the highest item level among them counts half its lead over the character's level.</summary>
+        private static readonly EquipSlotId[] ItemLevelWeaponSlots = { EquipSlotId.Main, EquipSlotId.Sub, EquipSlotId.Ranged, EquipSlotId.Ammo };
+
+        /// <summary>The armour slots: each counts a tenth of its item level's lead over the character's level.</summary>
+        private static readonly EquipSlotId[] ItemLevelArmourSlots = { EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Hands, EquipSlotId.Legs, EquipSlotId.Feet };
 
         /// <summary>
-        /// The item level the stats side writes ("ILv 119"): the average (rounded down) of the worn main weapon, head, body,
-        /// hands, legs and feet, and the sub weapon when there is one (a shield, a grip or an empty slot is left out: a level-99
-        /// Aegis does not lower it). Each item counts its item level, or its equip level when it has none. Null ("---", as the
-        /// retail capture of a character in level-99 gear shows) when nothing worn has an item level. PROVISIONAL: the
-        /// maintainer's account of retail (round 1 of the 2026-10-24 test); whether an empty armour slot counts as 0 is not
-        /// checked. The server's own field (S2C 0x061 <c>ilvl</c>) is not this: LandSandBoat sends the bonus over level 99
-        /// there (<c>charutils::getItemLevelDifference</c>, 20 in full item-level-119 gear).
+        /// The item level the stats side writes ("ILv 118"), by BG Wiki's formula (round 2 of the 2026-10-24 test): the
+        /// character's level plus, rounded down, half the lead of the highest item level among the main, sub, ranged and ammo
+        /// slots over that level and a tenth of each armour piece's lead (head, body, hands, legs, feet). 119 main (+10), 119
+        /// head, body, hands and legs (+2 each) and 118 feet (+1.8) at level 99 make 99 + 19 = 118; a lower sub weapon or a
+        /// shield changes nothing. Null ("---", as the retail capture of a character in level-99 gear shows) when nothing worn
+        /// has an item level. LandSandBoat sends the same bonus over level 99 in S2C 0x061 <c>ilvl</c>
+        /// (<c>charutils::getItemLevelDifference</c>, 20 in full item-level-119 gear).
         /// </summary>
-        public static int? ItemLevel(InventoryState? inventory, Func<ushort, ItemRecord?>? lookup)
+        public static int? ItemLevel(InventoryState? inventory, Func<ushort, ItemRecord?>? lookup, int level)
         {
             if (inventory == null || lookup == null) return null;
-            int sum = 0, count = 0;
-            bool any = false;
-            void Add(ItemRecord record)
+            int ItemLevelIn(EquipSlotId slot) =>
+                StockUiItems.EquippedItem(inventory, slot) is { } item && lookup(item.ItemId) is { ItemLevel: > 0 } record ? record.ItemLevel : 0;
+            int highestWeapon = 0;
+            foreach (var slot in ItemLevelWeaponSlots) highestWeapon = Math.Max(highestWeapon, ItemLevelIn(slot));
+            bool any = highestWeapon > 0;
+            // In tenths, so the sum rounds down exactly.
+            int tenths = Math.Max(0, highestWeapon - level) * 5;
+            foreach (var slot in ItemLevelArmourSlots)
             {
-                any |= record.ItemLevel > 0;
-                sum += record.ItemLevel > 0 ? record.ItemLevel : record.Level;
-                count++;
+                int itemLevel = ItemLevelIn(slot);
+                any |= itemLevel > 0;
+                tenths += Math.Max(0, itemLevel - level);
             }
-            foreach (var slot in ItemLevelSlots)
-            {
-                if (StockUiItems.EquippedItem(inventory, slot) is { } item && lookup(item.ItemId) is { } record) Add(record);
-            }
-            if (StockUiItems.EquippedItem(inventory, EquipSlotId.Sub) is { } sub && lookup(sub.ItemId) is { Damage: > 0, ShieldSize: 0 } weapon) Add(weapon);
-            return any && count > 0 ? sum / count : null;
+            return any ? level + tenths / 10 : null;
         }
 
         /// <summary>The race's name (the entity's race: 1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru, 7 Mithra, 8 Galka).</summary>

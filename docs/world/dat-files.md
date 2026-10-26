@@ -108,7 +108,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Jobs | `ROM/165/86` | 55467 |
 | Key items | `ROM/175/35` | 55714 |
 | Zone names / short zone names | `ROM/165/84` / `ROM/165/83` | 55465 / 55661 |
-| Compact zone names (`DMsgCategory.ZoneNamesCompact`) | `ROM/165/85` | 55466 |
+| Compact zone names (`DMsgCategory.ZoneNamesCompact`; the party window's other-zone text, the Status Profile's home point and the Map window's Change Map zone rows, "(SSandOria)", [#23](https://github.com/jimmy58663/GordianXI/issues/23) round 2 image-26) | `ROM/165/85` | 55466 |
 | Region names in the client's order (`DMsgCategory.RegionNames`, 55 rows: 0 "San d'Oria" ... 3 "Jeuno", 4 "Ronfaure" ... 28 "Empire of Aht Urhgan" ... 49 "The Sacred City of Adoulin", 50 "The Adoulin Islands", 51 "East Ulbuka Territory", 52 "Ra'Kaznar", 53 "Escha", 54 "Far East"), the Map window's Change Map list ([#23](https://github.com/jimmy58663/GordianXI/issues/23)); found 2026-10-25. **Beyond xi-tools:** xi-tools names the older `ROM/97/48` (34 regions, up to Aht Urhgan) | `ROM/165/78` | - |
 | Weather names by weather id (`DMsgCategory.WeatherNames`, 20 rows of noun and adjective: 0 "fine patches" / "fine", 1 "sunshine" / "sunny" ... 19 "darkness" / "dark"; the dialog's 0x01 kind `18` names the noun, `17` the adjective) | `ROM/165/79` | 55657 |
 | Quests San d'Oria, Bastok, Windurst, Jeuno | `ROM/176/60`-`63` | 55706-55709 |
