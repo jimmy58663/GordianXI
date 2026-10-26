@@ -1279,7 +1279,8 @@ namespace Gordian.App.Graphics
                                 vesselZone.Routes.Find(r => r.Name == pinned.Route) is { } pinnedRoute
                 ? VoyageSchedule.SceneryTransform(new VoyagePosition(pinnedRoute, pinned.Progress, pinned.Reversed))
                 : LoadedZone?.Vessel is { IsVoyage: true }
-                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
+                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow),
+                    VoyageClockOverride == null && World?.ZoneEnteredUtc is { } entered ? World.Clock.GetEarthSecondsSinceEpoch(entered) : null)
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
@@ -2109,7 +2110,9 @@ namespace Gordian.App.Graphics
                 layer.FogEnabled ? 1.0f : 0.0f,
                 layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
-                layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                layer.OnVessel && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
+                    ? 2.0f + layer.DepthOffset
+                    : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet

@@ -303,7 +303,16 @@ void main()
     // SkyLayerParams.w = 1: a world-effect overlay that does not write depth (e.g. a cave-mouth fog gradient laid
     // over the tunnel it re-tessellates) is pulled toward the eye like a decal, so it wins the depth test against the
     // coincident terrain instead of z-fighting with it.
-    if (SkyLayerParams.w > 0.5) clipPos.z -= 0.00015 * clipPos.w;
+    // SkyLayerParams.w = 2 + d: a vessel's surface overlay with a positive z offset (op 0x30, #430) is depth-tested d yalms
+    // farther along the view ray, which keeps it under the sea it lies just above.
+    if (SkyLayerParams.w > 1.5)
+    {
+        vec3 away = worldPos.xyz - EyePosition.xyz;
+        float dist = length(away);
+        vec4 pushed = Projection * View * vec4(worldPos.xyz + (dist > 1e-4 ? away / dist : vec3(0.0)) * (SkyLayerParams.w - 2.0), 1.0);
+        clipPos.z = pushed.z / pushed.w * clipPos.w;
+    }
+    else if (SkyLayerParams.w > 0.5) clipPos.z -= 0.00015 * clipPos.w;
     gl_Position = clipPos;
 }
 ";

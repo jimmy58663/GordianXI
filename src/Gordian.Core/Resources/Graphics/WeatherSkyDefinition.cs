@@ -294,6 +294,17 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public bool OnVessel { get; set; }
 
+        /// <summary>
+        /// The generator's z offset (Section 2 opcode 0x30, <c>InitZOffset</c> in the PS2 beta's names, xi-tools
+        /// docs/reference/ps2_beta_2001.md): negative pulls it toward the camera (wakes and splashes, -0.01 to -55), sky and
+        /// backdrop layers carry painter weights of 10,000 and more. A vessel's surface overlays with a small positive offset
+        /// (the Selbina ship's <c>col1</c> +5 and <c>sea1</c> +10) are pushed that far back and so stay under the sea (#430).
+        /// </summary>
+        public float DepthOffset { get; set; }
+
+        /// <summary>The largest <see cref="DepthOffset"/> drawn as a distance; larger ones are painter weights.</summary>
+        public const float MaxDepthOffsetDistance = 1000f;
+
         public override string ToString() =>
             $"WeatherSkyLayer [{Name}] Weather: '{WeatherId ?? "Universal"}' Celestial: {IsCelestial} (Attach: {AttachType}, UVScroll: {UVScroll})";
     }

@@ -97,6 +97,12 @@ namespace Gordian.Core.World
         /// </summary>
         public double TransportClockSkewSeconds { get; set; }
 
+        /// <summary>
+        /// When the client last entered a zone (S2C 0x00A arrived), UTC; null before the first zone-in. A voyage zone's vessel
+        /// starts its Route here (<see cref="VoyageSchedule"/>).
+        /// </summary>
+        public DateTime? ZoneEnteredUtc { get; set; }
+
         public ushort CurrentZoneId
         {
             get

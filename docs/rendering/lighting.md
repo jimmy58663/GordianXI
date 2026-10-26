@@ -52,5 +52,5 @@
 
 ## Ship-zone sea surfaces (#430)
 
-The Manaclipper's open sea (`umim` / `umin`) is a lit generator layer, so its brightness depends on the zone's 0x2F sun and ambient as particle lighting (`clamp(colour x ambient + colour x N.L x sun)`, then modulate-2x). By day zone 3's lights (sun 1.14, ambient 0.65 at 14:19) lift the sea about 1.4x over unlit, and retail's sea is darker than even our unlit one; see [Ship zones' water](particles.md#ship-zones-water-430-424). Not changed: the lighting held for #414 / #404 / #428 is not touched for this.
+The Manaclipper's open sea (`umim` / `umin`) is a lit generator layer, so its brightness depends on the zone's 0x2F sun and ambient as particle lighting (`clamp(colour x ambient + colour x N.L x sun)`, then modulate-2x). By day zone 3's lights (sun 1.14, ambient 0.65 at 14:19) lift the sea about 1.4x over unlit, and retail's sea is darker than even our unlit one. Retail's sea also darkens about 4x under clouds ((11, 17, 20) against (45, 54, 53)), where zone 3's clouds environment (sun 1.0, ambient 0.55) dims ours by about 13 %; see [Ship zones' water](particles.md#ship-zones-water-430-424). Not changed: the lighting held for #414 / #404 / #428 is not touched for this.
 

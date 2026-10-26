@@ -92,6 +92,7 @@ namespace Gordian.Core.Network
             _lifecycleModule.Register(_dispatcher);
             _lifecycleModule.ZoneReceived += zoneId =>
             {
+                _world.ZoneEnteredUtc = DateTime.UtcNow;
                 _world.CurrentZoneId = zoneId;
                 _localPlayer.ZoneId = zoneId;
                 // Trusts are dismissed by every zone change and the server never tells the client (#373, PartyState.RemoveTrusts).
