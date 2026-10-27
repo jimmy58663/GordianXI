@@ -2109,7 +2109,9 @@ namespace Gordian.App.Graphics
                 layer.FogEnabled ? 1.0f : 0.0f,
                 layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
-                layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                layer.OnVessel && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
+                    ? 2.0f + layer.DepthOffset
+                    : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet

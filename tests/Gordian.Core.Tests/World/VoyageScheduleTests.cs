@@ -59,17 +59,30 @@ namespace Gordian.Core.Tests.World
                 zone.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
             }
 
-            // South -> North leaves 1472 s into the day and lands at 2306 s (LandSandBoat barge_south_north).
+            // South -> North leaves 1472 s into the day and lands at 2306 s (LandSandBoat barge_south_north); the scenery
+            // runs RouteLeadSeconds ahead of that.
             double day = 3456 * 1000.0;
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1472 + 417, out var mid));
+            double lead = VoyageSchedule.RouteLeadSeconds;
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1472 + 417 - lead, out var mid));
             Assert.Equal("c002", mid.Route.Name);
             Assert.Equal(0.5f, mid.Progress, 3);
             Assert.False(mid.Reversed);
+            // Retail at 10:51 (image-14) was 16.5 % along it.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 10.85 * 144, out var shot));
+            Assert.InRange(shot.Progress, 0.145f, 0.185f);
 
-            // The two central-to-south legs run c001 backwards (round 1: c000 took another branch of the channel than retail).
+            // The Emfea leg runs c001 forwards (it passes under the broken rope bridge), both Newtpool legs c000 backwards.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 400, out var emfea));
+            Assert.Equal("c001", emfea.Route.Name);
+            Assert.False(emfea.Reversed);
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 800, out var south));
-            Assert.Equal("c001", south.Route.Name);
+            Assert.Equal("c000", south.Route.Name);
             Assert.True(south.Reversed);
+            // Retail at 21:58 (image-24) was in the Newtpool, 60-66 % along the night leg.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + (21 + 58 / 60.0) * 144, out var night));
+            Assert.Equal("c000", night.Route.Name);
+            Assert.True(night.Reversed);
+            Assert.InRange(night.Progress, 0.6f, 0.67f);
 
             // Between legs the vessel waits at the end of the leg that landed last (North -> Central lands at 2774 s).
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 2800, out var docked));
@@ -89,11 +102,14 @@ namespace Gordian.Core.Tests.World
             // Its morning tour (Dhalmel Rock) and afternoon tour (Maliyakaleya Reef) take different loops (round 3).
             Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 400, out var morning));
             Assert.Equal("c001", morning.Route.Name);
-            // Vana'diel 14:19 (the first Maliyakaleya Reef shot) is 2061.6 s into the day.
+            // Vana'diel 14:19 and 15:08 (Maliyakaleya Reef shots image-19 and image-21) are 2061.6 s and 2179.2 s into the
+            // day; retail showed 47 % and 62-65 % of c000.
             Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2061.6, out var afternoon));
             Assert.Equal("c000", afternoon.Route.Name);
             Assert.False(afternoon.Reversed);
-            Assert.InRange(afternoon.Progress, 0.33f, 0.4f);
+            Assert.InRange(afternoon.Progress, 0.44f, 0.5f);
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2179.2, out var arch));
+            Assert.InRange(arch.Progress, 0.61f, 0.67f);
         }
 
         [Fact]
@@ -165,6 +181,13 @@ namespace Gordian.Core.Tests.World
             Assert.True(rm.TryLoadZone(3, out var clipper, out _));
             Assert.Contains(clipper!.EffectLayers, l => l.Name == "ykf1" && l.OnVessel);
             Assert.Contains(clipper.EffectLayers, l => l.Name == "skb1" && !l.OnVessel);
+            // Phanauet Channel's river surface is the barge's own layer (cors, texture rinkawa, about 310 x 360 yalms around
+            // it): without it the channel draws as a dark bed (#424).
+            Assert.True(rm.TryLoadZone(1, out var channel, out _));
+            var river = Assert.Single(channel!.EffectLayers, l => l.DatId == "cors");
+            Assert.True(river.OnVessel);
+            Assert.Contains("rinkawa", river.TextureName);
+            Assert.True(river.Scale.X * 23f > 250f && river.Scale.Z * 23f > 250f, river.Scale.ToString());
             // The Selbina ship's cabin doors swing with their door entities.
             Assert.True(rm.TryLoadZone(220, out var ship, out _));
             foreach (string id in new[] { "_640", "_641", "_642", "_643" })
@@ -172,6 +195,10 @@ namespace Gordian.Core.Tests.World
                 Assert.True(ship!.Vessel!.DoorLeaves.ContainsKey(id), id);
                 Assert.True(ship.DoorLeaves.ContainsKey(id), id);
             }
+            // Its surface overlays carry a small positive z offset that keeps them under the sea (#430); the wakes pull forward.
+            Assert.Equal(5f, Assert.Single(ship!.EffectLayers, l => l.DatId == "lowc").DepthOffset);
+            Assert.Equal(10f, Assert.Single(ship.EffectLayers, l => l.DatId == "1low").DepthOffset);
+            Assert.All(ship.EffectLayers.Where(l => l.GeneratorId is "awa1" or "awa2" or "awa3" or "vstr"), l => Assert.True(l.DepthOffset < 0, l.GeneratorId));
         }
 
         [Fact]

@@ -99,6 +99,7 @@ namespace Gordian.Core.Resources
             layer.AlphaOverride = gen.AlphaOverride;
             layer.GroundColored = gen.GroundColored;
             layer.AuthoredOrder = authoredOrder.TryGetValue(gen, out int order) ? order : int.MaxValue;
+            layer.DepthOffset = gen.ProjectionBias;
             layer.DayOfWeekColors = gen.DayOfWeekColors;
             layer.MoonPhaseColors = gen.MoonPhaseColors;
             layer.ClockAlphaCurve = ResolveCurve(gen.ClockAlphaKeyFrameId);
