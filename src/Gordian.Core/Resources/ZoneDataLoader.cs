@@ -21,6 +21,12 @@ namespace Gordian.Core.Resources
     {
         private const int ModelBaseHi = 0x147B3;
 
+        /// <summary>
+        /// The cutscene stage zones (event zones) whose model DAT is 100 + the zone, as below 256 (#233): the retail scripts
+        /// open 516-594 with 0x34 / 0x35, and files 604-694 hold their ZoneDefs. The 700-745 they also open are elsewhere.
+        /// </summary>
+        public const int EventStageZoneFirst = 500, EventStageZoneLast = 699;
+
         private static readonly HashSet<string> WeatherDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "fine", "suny", "clod", "mist", "dryw", "heat", "rain", "squl",
@@ -382,7 +388,9 @@ namespace Gordian.Core.Resources
         {
             // A Mog House room's map zone key (#354, World.MogHouseRooms).
             if (World.MogHouseRooms.TryGetRoomOfKey(zoneId, out int room) && World.MogHouseRooms.TryGetRoomFileId(room, out int roomFile)) return roomFile;
-            if (zoneId < 256)
+            // Below 256, and the cutscene stage zones 500-699 that event opcodes 0x34 / 0x35 open (#233: zone 14 event 50
+            // opens 541, file 641 `e_cr`; the scripts open 516-594, files 616-694), the file is 100 + the zone.
+            if (zoneId < 256 || (zoneId >= EventStageZoneFirst && zoneId <= EventStageZoneLast))
             {
                 return 100 + zoneId;
             }
