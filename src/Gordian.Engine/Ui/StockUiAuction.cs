@@ -334,7 +334,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// A bid's question (round 2, image-27: "Make a bid of 110 gil" / "for the fire crystals?" on two lines, a stack's log
-        /// plural; a single's log name is PROVISIONAL, not captured). Neither ROM/165/72 nor ROM/165/75 holds it.
+        /// plural; a single takes its log name, "for the fire crystal?", confirmed in-game in round 3). Neither ROM/165/72 nor ROM/165/75 holds it.
         /// </summary>
         public static string BidPrompt(uint price, string logName) => $"Make a bid of {StockUiShop.FormatGil(price)} gil\nfor the {logName}?";
 

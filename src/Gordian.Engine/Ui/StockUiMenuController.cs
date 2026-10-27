@@ -340,6 +340,8 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public bool OverlapsAuthored(StockUiOpenMenu other)
         {
+            // An Auction House list under a bid's Yes / No keeps its item info and "Current Gil" drawn (image-27).
+            if (other.AuctionBidConfirm) return false;
             var a = AuthoredBounds;
             var b = other.Menu.Frame;
             return a.X < b.X + b.Width && b.X < a.Right && a.Y < b.Y + b.Height && b.Y < a.Bottom;

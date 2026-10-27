@@ -98,6 +98,8 @@ namespace Gordian.App.Tests.Graphics
             // Confirm: the list gives way to the bid's question; the item info at its top and Current Gil stay (image-27).
             menus.MacroField.Commit();
             Assert.True(list.AuctionBidConfirm);
+            // The HUD skips a window a later one covers; the Yes / No must not hide the list under it (round 3, N35).
+            Assert.All(menus.OpenMenus.SkipWhile(m => !ReferenceEquals(m, list)).Skip(1), later => Assert.False(later.OverlapsAuthored(list)));
             byte[] confirmPixels = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, placement, 0, logFont: screen.LogFont,
                 screen: new StockUiScreen(screen.Width, screen.Height, null)), "gpu_auction_bid_confirm.png");
             Assert.True(screen.HasLightPixel(confirmPixels, lx + 48, lx + 200, ly - 6 + 10), "no item info at the list's top");
