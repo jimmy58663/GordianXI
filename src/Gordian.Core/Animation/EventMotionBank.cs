@@ -49,6 +49,48 @@ namespace Gordian.Core.Animation
         /// <summary>The bank's routines as read, before links are followed (an action presentation links the actor's own).</summary>
         internal IReadOnlyDictionary<string, RawMotionRoutine> RawRoutines => _raw;
 
+        /// <summary>
+        /// Whether routine <paramref name="name"/>, or a routine of this bank it starts (op 0x03 / 0x3B), plays a clip (op 0x05),
+        /// wherever the clip comes from: a cutscene scene file's routines name the actor's own clips (Northern San d'Oria 898's
+        /// 70609 <c>star</c> starts <c>mot0</c>, which plays the crafter's <c>ri0?</c>; #238).
+        /// </summary>
+        public bool PlaysClip(string name) => FirstClipTick(name) >= 0;
+
+        /// <summary>The routine tick its first clip (op 0x05) starts at, through the routines it starts; -1 when it plays none.</summary>
+        public int FirstClipTick(string name) => FirstClipTick(name, 0);
+
+        private int FirstClipTick(string name, int depth)
+        {
+            if (depth > 4 || !_raw.TryGetValue(name, out var routine)) return -1;
+            int first = -1;
+            foreach (var command in routine.Commands)
+            {
+                int tick = -1;
+                if (command.Op == 0x05) tick = command.StartTick;
+                else if (command.Op is 0x03 or 0x3B && command.Reference != name && FirstClipTick(command.Reference, depth + 1) is >= 0 and var inner)
+                {
+                    tick = command.StartTick + inner;
+                }
+                if (tick >= 0 && (first < 0 || tick < first)) first = tick;
+            }
+            return first;
+        }
+
+        /// <summary>
+        /// Routine <paramref name="name"/> built on <paramref name="model"/> (<see cref="BuildOnModel"/>) with its clips moved to
+        /// start at tick 0: a scene routine's clip plays partway through it (70609's <c>stop</c> stands the crafter up at tick
+        /// 271), and the event dialog starts the gesture at that tick, as an event gesture's first clip starts at once.
+        /// </summary>
+        public MotionRoutine? BuildClipsOnModel(EntityModel model, string name)
+        {
+            var built = BuildOnModel(model, name);
+            if (built == null || built.Segments.Count == 0 || built.FirstClipTick <= 0) return built;
+            int shift = built.FirstClipTick;
+            var segments = new List<MotionSegment>(built.Segments.Count);
+            foreach (var segment in built.Segments) segments.Add(segment with { StartTick = segment.StartTick - shift });
+            return new MotionRoutine { Name = built.Name, TotalTicks = Math.Max(0, built.TotalTicks - shift), Segments = segments };
+        }
+
         private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, MotionRoutine?[]> _onModel = new();
 
         /// <summary>

@@ -37,10 +37,16 @@ namespace Gordian.Engine.Ui
         /// row a function and its buttons; Confirm waits for the button to assign.
         /// </summary>
         GamepadAssign,
+
+        /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
+        MapAreas,
     }
 
-    /// <summary>One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.</summary>
-    public readonly record struct StockUiQueryOption(int Number, string Text);
+    /// <summary>
+    /// One option of an event query: its number in the message's choice list (1-based, hidden ones counted) and its text.
+    /// A greyed option is drawn in grey and Confirm on it does nothing (the Mog House exit menu's "Change floors.", #354).
+    /// </summary>
+    public readonly record struct StockUiQueryOption(int Number, string Text, bool Greyed = false);
 
     /// <summary>Client text drawn beside a button's label, starting at layout <paramref name="X"/> from the frame's left edge.</summary>
     public readonly record struct StockUiSideText(string Text, float X, float Y = 0);
@@ -245,6 +251,13 @@ namespace Gordian.Engine.Ui
         {
             int index = EntryIndex(buttonId);
             return index >= 0 && index < QueryOptions.Count ? QueryOptions[index].Number : 0;
+        }
+
+        /// <summary>Whether the option a row button shows is greyed (Confirm on it does nothing).</summary>
+        public bool IsQueryOptionGreyed(int buttonId)
+        {
+            int index = EntryIndex(buttonId);
+            return index >= 0 && index < QueryOptions.Count && QueryOptions[index].Greyed;
         }
 
         /// <summary>Whether this is the shop's Buy / Sell window ("shopmain", the root of the shop windows).</summary>
@@ -806,16 +819,16 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// Opens an event query (opcode 0x24): a window built from the "query" DAT frame with one row per shown
-        /// option (up to <see cref="QueryMaxRows"/>, then scrolling) under the comment lines; with one comment and
-        /// three rows it is the authored 366 x 88 window. Confirm answers with
+        /// option (up to <paramref name="maxRows"/>, by default <see cref="QueryMaxRows"/>, then scrolling) under the comment
+        /// lines; with one comment and three rows it is the authored 366 x 88 window. Confirm answers with
         /// the option's number, Cancel with 255, through <paramref name="completed"/>. Returns the open menu, or null
         /// when the UI is not loaded (the caller then treats the query as cancelled).
         /// </summary>
-        public StockUiOpenMenu? OpenQuery(IReadOnlyList<string> comments, IReadOnlyList<StockUiQueryOption> options, int cursorIndex, Action<int> completed)
+        public StockUiOpenMenu? OpenQuery(IReadOnlyList<string> comments, IReadOnlyList<StockUiQueryOption> options, int cursorIndex, Action<int> completed, int maxRows = QueryMaxRows)
         {
             var library = _library;
             if (library == null || options.Count == 0 || !library.TryGetMenu(QueryMenu, out var template)) return null;
-            int visible = Math.Min(options.Count, QueryMaxRows);
+            int visible = Math.Min(options.Count, Math.Max(1, maxRows));
             var rowTemplate = template.FindButton(1) ?? new UiMenuButton { X = QueryRowX, Y = 28, Width = 132, Height = 16 };
             int top = QueryFirstRowY + Math.Max(0, comments.Count - 1) * QueryCommentPitch;
             var buttons = new List<UiMenuButton>(visible);
@@ -841,6 +854,8 @@ namespace Gordian.Engine.Ui
                 Y = template.Frame.Y,
                 Width = template.Frame.Width,
                 Height = (short)(top + visible * QueryRowPitch),
+                // The background image is authored for the template's height; the window stretches it to the rows shown.
+                AuthoredHeight = template.Frame.ImageHeight,
                 Anchor = template.Frame.Anchor,
                 Shapes = template.Frame.Shapes,
                 CursorOffsetX = template.Frame.CursorOffsetX,
@@ -1257,6 +1272,13 @@ namespace Gordian.Engine.Ui
         {
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
+            bool pageMoved;
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction);
+            if (pageMoved)
+            {
+                Changed?.Invoke();
+                return;
+            }
             lock (_sync)
             {
                 var top = Top;
@@ -1296,7 +1318,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1550,7 +1572,7 @@ namespace Gordian.Engine.Ui
             UiMenuButton? button;
             lock (_sync)
             {
-                top = Top;
+                top = StatusPageConfirm() ?? Top;
                 button = top?.SelectedButton;
             }
             // The Auction House windows (#90): the Price Set window has no button to select.
@@ -1572,7 +1594,7 @@ namespace Gordian.Engine.Ui
             if (top.IsQuery)
             {
                 int number = top.QueryOptionNumber(button.ButtonId);
-                if (number == 0) return;
+                if (number == 0 || top.IsQueryOptionGreyed(button.ButtonId)) return;
                 lock (_sync)
                 {
                     if (ReferenceEquals(Top, top)) _open = _open[..^1];
@@ -1681,6 +1703,12 @@ namespace Gordian.Engine.Ui
             if (top.ListKind == StockUiListKind.GamepadAssign)
             {
                 ActivateGamepadAssign(top, button.ButtonId);
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.MapAreas)
+            {
+                ActivateMapList(top, button.ButtonId);
                 return;
             }
 
@@ -1868,6 +1896,37 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.CurrentTime:
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
+                    break;
+
+                case StockUiMenuCommand.Map:
+                    bool mapped;
+                    lock (_sync) mapped = OpenMap(from) != null;
+                    if (mapped) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.ViewHouse:
+                    bool housed;
+                    lock (_sync) housed = OpenViewHouse(from) != null;
+                    if (housed) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.ViewStorage:
+                    OpenStorage(from, (Gordian.Core.Network.Packets.ContainerId)entry.Argument);
+                    break;
+
+                case StockUiMenuCommand.MapChange:
+                    ChangeMap(from);
+                    break;
+
+                case StockUiMenuCommand.MapWideScan:
+                    if (WideScanRequested is { } wideScan) _ = wideScan();
+                    else NoticePosted?.Invoke("Wide Scan is not available in this session.");
+                    break;
+
+                case StockUiMenuCommand.StatusPage:
+                    bool paged;
+                    lock (_sync) paged = OpenStatusPage((StockUiStatusPage)entry.Argument, from) != null;
+                    if (paged) Changed?.Invoke();
                     break;
 
                 case StockUiMenuCommand.LogOut:

@@ -525,7 +525,12 @@ namespace Gordian.App.Graphics
                 var headingRot = Matrix4x4.CreateRotationY(-headingRad - MathF.PI);
                 // A player's size (small / medium / large) scales the whole model (PlayerSizeScale; guessed values); mounted, the
                 // rider and its mount together (#87; retail-confirmed in round 7: a Large Elvaan's Fenrir is larger than a Small one's).
-                bool mounted = entity.Type == EntityType.Player && entity.Mount.IsMounted;
+                // The mount drawn this frame: the one ridden, or one leaving after a dismount (#437, MountTransitions).
+                var mountFrame = entity.Type == EntityType.Player
+                    ? MountTransitions.Observe(entity, moving: entity.Animation.Current is not (AnimationCategory.Idle or AnimationCategory.Combat
+                        or AnimationCategory.Death or AnimationCategory.Healing or AnimationCategory.Sitting))
+                    : MountFrame.None;
+                bool mounted = mountFrame.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
 
                 // Actor effects follow the entity even while its body is off screen; the pose is the last one drawn.
@@ -598,7 +603,7 @@ namespace Gordian.App.Graphics
                 bool isLocalEntity = entity.ServerId == localPlayerServerId;
                 bool engagedNow = isLocalEntity ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
                 var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
-                    ? PrepareMount(cl, entity, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
+                    ? PrepareMount(cl, entity, mountFrame, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
                     : null;
                 var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
                 if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
@@ -637,7 +642,7 @@ namespace Gordian.App.Graphics
 
                 var skinnedModel = gpuModel.IsSkinned && entityModel?.Skeleton is { Count: > 0 } ? entityModel : null;
                 // Mounted, the same meshes play the riding pack (#87).
-                if (skinnedModel != null && mounted) skinnedModel = RiderOrSelf(entity, skinnedModel, resourceManager);
+                if (skinnedModel != null && mounted) skinnedModel = RiderOrSelf(entity, mountFrame, skinnedModel, resourceManager);
                 bool isSkinned = skinnedModel != null;
 
                 cl.SetPipeline(faded ? (isSkinned ? _skinnedDepthPipeline : _depthPipeline) : (isSkinned ? _skinnedPipeline : _pipeline));

@@ -237,6 +237,24 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         /// <summary>
+        /// The zone an event opens with 0x34 holds the routines its 0x2D names that the event's own zone lacks (#233): the
+        /// cutscene stage zone 541 (file 641, <c>e_cr</c>) that zone 14's event 50 and Pso'Xja's event 2 open loads as a zone and
+        /// has them; so does 540 (file 640), which Lower Delkfutt's Tower's event 36 opens.
+        /// </summary>
+        [Fact]
+        public void EventZones_HoldTheRoutinesTheirEventsName()
+        {
+            if (LoadZone(541) is not { } stage) return;
+            // sc21-sc41 / kc21-kc41, which the event names too, are in no stage zone 540-546 (nor, per the file scan, anywhere).
+            foreach (string routine in new[] { "sc11", "kaks", "kaki", "kc11", "4aks", "lop6" }) Assert.NotEmpty(stage.MapRoutines.Find(routine));
+            if (LoadZone(14) is { } hall) Assert.Empty(hall.MapRoutines.Find("kaks"));
+            // Windurst Woods 588 opens 192 for its skai.
+            if (LoadZone(192) is { } ruins) Assert.NotEmpty(ruins.MapRoutines.Find("skai"));
+            // Lower Delkfutt's Tower 36 (the Crystal Line scene) opens 540 for its main / gass / del1 / del2.
+            if (LoadZone(540) is { } line) foreach (string routine in new[] { "main", "gass", "del1", "del2" }) Assert.NotEmpty(line.MapRoutines.Find(routine));
+        }
+
+        /// <summary>
         /// Alzadaal Undersea Ruins (zone 72): the door _20t's effect routines are reachable by its directory, its idle
         /// meshes g000-g009 ride the door (ZoneActor0xA), and a map scheduler's name does not start them (#227, #232).
         /// </summary>

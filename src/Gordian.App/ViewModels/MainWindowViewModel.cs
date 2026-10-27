@@ -245,6 +245,48 @@ namespace Gordian.App.ViewModels
         }
 
         public ICommand CancelDeleteModalCommand { get; }
+
+        private bool _isCertificateModalVisible;
+        private bool _isCertificateChanged;
+        private string _certificateModalTitle = string.Empty;
+        private string _certificateModalMessage = string.Empty;
+        private TaskCompletionSource<bool>? _certificateDecision;
+
+        /// <summary>Whether the "trust this server's certificate?" prompt is showing (#445).</summary>
+        public bool IsCertificateModalVisible
+        {
+            get => _isCertificateModalVisible;
+            set => SetProperty(ref _isCertificateModalVisible, value);
+        }
+
+        /// <summary>Whether the prompt is for a certificate that changed since it was trusted (shown as a warning).</summary>
+        public bool IsCertificateChanged
+        {
+            get => _isCertificateChanged;
+            set
+            {
+                if (SetProperty(ref _isCertificateChanged, value)) OnPropertyChanged(nameof(CertificateModalBorder));
+            }
+        }
+
+        /// <summary>The prompt's border: red for a changed certificate, blue for a first connection.</summary>
+        public Avalonia.Media.IBrush CertificateModalBorder =>
+            IsCertificateChanged ? Avalonia.Media.Brushes.Firebrick : Avalonia.Media.Brushes.SteelBlue;
+
+        public string CertificateModalTitle
+        {
+            get => _certificateModalTitle;
+            set => SetProperty(ref _certificateModalTitle, value);
+        }
+
+        public string CertificateModalMessage
+        {
+            get => _certificateModalMessage;
+            set => SetProperty(ref _certificateModalMessage, value);
+        }
+
+        public ICommand TrustCertificateCommand { get; }
+        public ICommand RejectCertificateCommand { get; }
         public ICommand OpenProfilesDirectoryCommand { get; }
 
         public ICommand SaveProfileCommand { get; }
@@ -264,6 +306,8 @@ namespace Gordian.App.ViewModels
             Console = new CommandConsoleViewModel(_sessionRegistry);
 
             CancelDeleteModalCommand = new RelayCommand(() => IsConfirmDeleteModalVisible = false);
+            TrustCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(true));
+            RejectCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(false));
             OpenProfilesDirectoryCommand = new RelayCommand(OpenProfilesDirectory);
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
@@ -1264,7 +1308,7 @@ namespace Gordian.App.ViewModels
             {
                 _ = Task.Run(async () =>
                 {
-                    var client = new LsbLoginClient();
+                    var client = new LsbLoginClient { ConfirmServerCertificate = ConfirmServerCertificateAsync };
                     client.PacketInspected += (s, entry) =>
                     {
                         Inspector.OnPacketInspected(s, entry);
@@ -1419,6 +1463,64 @@ namespace Gordian.App.ViewModels
                     });
                 }
             }
+        }
+
+        /// <summary>
+        /// Asks the user whether to trust an auth server certificate that does not verify (#445): the first time a
+        /// self-signed LandSandBoat server is used, or, as a warning, when a trusted server's certificate changed.
+        /// Completes with the answer; a cancelled login counts as a refusal.
+        /// </summary>
+        private Task<bool> ConfirmServerCertificateAsync(ServerCertificateInfo info, System.Threading.CancellationToken ct)
+        {
+            var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ct.Register(() =>
+            {
+                if (!decision.TrySetResult(false)) return;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (_certificateDecision != decision) return;
+                    _certificateDecision = null;
+                    IsCertificateModalVisible = false;
+                });
+            });
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                _certificateDecision?.TrySetResult(false);
+                _certificateDecision = decision;
+                string details =
+                    $"SHA-256: {info.Sha256Fingerprint}\nSubject: {info.Subject}\nIssuer: {info.Issuer}\n" +
+                    $"Valid: {info.NotBefore:yyyy-MM-dd} to {info.NotAfter:yyyy-MM-dd}";
+                IsCertificateChanged = info.IsChanged;
+                if (info.IsChanged)
+                {
+                    CertificateModalTitle = $"Certificate of {info.Host}:{info.Port} changed";
+                    CertificateModalMessage =
+                        "This server's certificate is not the one you trusted before. The server's operator may have replaced it, " +
+                        "but it can also mean someone is intercepting the connection to read your password. Only trust it if the " +
+                        "operator announced a new certificate and its fingerprint matches.\n\n" +
+                        $"Previously trusted SHA-256: {info.PreviousFingerprint}\n\nNew certificate:\n{details}";
+                }
+                else
+                {
+                    CertificateModalTitle = $"Trust the certificate of {info.Host}:{info.Port}?";
+                    CertificateModalMessage =
+                        "GordianXI cannot verify this server's identity. Private LandSandBoat servers usually use a self-signed " +
+                        "certificate, so this is expected the first time you connect. If your server's operator publishes its " +
+                        "fingerprint, check that it matches. GordianXI remembers your answer and only asks again if the " +
+                        $"certificate changes. Your password is not sent until you trust it.\n\n{details}";
+                }
+                IsCertificateModalVisible = true;
+            });
+            return decision.Task;
+        }
+
+        private void AnswerCertificatePrompt(bool trust)
+        {
+            IsCertificateModalVisible = false;
+            var decision = _certificateDecision;
+            _certificateDecision = null;
+            decision?.TrySetResult(trust);
+            if (!trust) StatusMessage = "Login stopped: the server's certificate was not trusted.";
         }
 
         /// <summary>

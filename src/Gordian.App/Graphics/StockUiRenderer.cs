@@ -103,7 +103,7 @@ void main()
         /// </summary>
         public float Opacity { get; set; } = 1f;
 
-        /// <summary>Height of a menu window's title band in layout pixels; the body below it is drawn opaque (see <see cref="DrawMenu"/>).</summary>
+        /// <summary>Height of a menu window's title band in layout pixels (see <see cref="DrawMenu"/>'s <c>opaqueTop</c>).</summary>
         public const float MenuBandHeight = 20;
 
         private UiClip? _clip;
@@ -472,8 +472,8 @@ void main()
         /// Frames are the persistent windows; buttons draw their unselected state. <paramref name="frameWidth"/>
         /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch;
         /// <paramref name="frameHeight"/> does the same vertically (its bottom half moves). With
-        /// <paramref name="opaqueBody"/> the background below <paramref name="opaqueTop"/> is drawn opaque (menus keep
-        /// their translucent title band; 0 makes the whole body opaque). <paramref name="topBorderGap"/> breaks the
+        /// <paramref name="opaqueBody"/> and <paramref name="opaqueTop"/> 0 the whole background is drawn opaque; a window
+        /// with a title band (<paramref name="opaqueTop"/> above 0) keeps the authored translucent gradient (#442). <paramref name="topBorderGap"/> breaks the
         /// top border line for a title. <paramref name="border"/> false leaves out the client's border lines (the lobby's
         /// screens and prompts, whose frames carry their own edges).
         /// </summary>
@@ -521,11 +521,12 @@ void main()
                 {
                     if (!IsBackground(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
-                    // Menu windows: retail's body below the title band is opaque (nothing shows through it, only
-                    // the band lets the scene through, per captures 2026-09-26), although the DAT authors the same
-                    // 0x40 -> 0x7F alpha gradient as the translucent HUD windows. The body is drawn again with full
-                    // alpha and the authored colour gradient, leaving the band as authored.
-                    if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch, opaqueTop);
+                    // A window without a title band asked to be opaque (the chat input line, the Font Colors and key item
+                    // lists) is drawn again with full alpha and the authored colour gradient. Windows with a title band keep
+                    // the DAT's 0x40 -> 0x7F alpha gradient, as the HUD windows do (#442, round 1 of the 2026-10-24 test: an
+                    // opaque body under the translucent band read as a near-white header row over a bright scene; retail's
+                    // Job Levels measures 0.47 opaque at 16 px, 0.52 at 31 and 0.64 at 43, the authored gradient's line).
+                    if (opaqueBody && opaqueTop <= 0) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch, opaqueTop);
                     hasBackground = true;
                 }
                 if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);

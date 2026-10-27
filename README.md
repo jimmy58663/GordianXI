@@ -4,6 +4,7 @@
 [![Platform](https://img.shields.io/badge/platform-Avalonia-8A2BE2)](https://avaloniatechnologies.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jimmy58663/GordianXI/badge)](https://scorecard.dev/viewer/?uri=github.com/jimmy58663/GordianXI)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15890/badge)](https://www.bestpractices.dev/projects/15890)
 
 **GordianXI** is a next-generation, open-source custom client architecture for Final Fantasy XI built from scratch in modern **C# (.NET 10)**. 
 
@@ -121,7 +122,7 @@ GordianXI is engineered with a zero-allocation packet and simulation pipeline. F
 
 ## 🤝 Contributing
 
-Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments.
+Contributions from systems engineers, reverse-engineers, and community script creators are incredibly welcome. Please ensure that all contributions strictly practice **Clean-Room Reverse Engineering methodologies**. Do not reference or commit leaked material, internal company data briefs, or copyrighted binary fragments. How to report bugs, send a change, and the test policy are in **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## 📄 License & Legal
 

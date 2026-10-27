@@ -36,6 +36,19 @@ namespace Gordian.App.Graphics
         public static Func<string, float> Measure(UiFont font, StockUiLogFont? logFont) => t => MeasureLine(font, logFont, t);
 
         /// <summary>The line pitch of the font text boxes draw with (layout px).</summary>
+        /// <summary>
+        /// Draws <paramref name="text"/> in <c>fontshp</c> at <paramref name="scale"/>, shrunk to fit <paramref name="maxWidth"/>
+        /// screen pixels when it is wider (retail squeezes a long name into its field: "Lv99 Puppetmaster" in the 112-px stats
+        /// side, "Puppetmaster" before its level), kept centred on the line of <paramref name="lineHeight"/> screen pixels.
+        /// </summary>
+        public static void DrawFitted(StockUiRenderer renderer, UiFont font, string text, float x, float y, float scale, float maxWidth, float lineHeight,
+            UiColor? color = null)
+        {
+            float width = font.MeasureWidth(text) * scale;
+            float fitted = width > maxWidth && width > 0 ? scale * maxWidth / width : scale;
+            renderer.DrawText(font, text, x, y + lineHeight * (1 - fitted / scale) * 0.5f, fitted, color);
+        }
+
         public static float LinePitch(UiFont font, StockUiLogFont? logFont) => logFont != null ? StockUiLogFont.CellHeight : font.LineHeight;
 
         /// <summary>The width of one line in the font text boxes draw with (layout px), element icons included.</summary>

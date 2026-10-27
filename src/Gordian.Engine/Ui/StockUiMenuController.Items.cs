@@ -57,6 +57,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether the quantity prompt restores a Recycling Bin item rather than dropping one.</summary>
         public bool ItemRestore { get; init; }
 
+        /// <summary>Whether the quantity prompt moves part of a View House stack to the other list (#23).</summary>
+        public bool ItemStorageMove { get; init; }
+
         /// <summary>The main menu Items window's options (<see cref="StockUiItems.OptionsMenu"/>: Auto / Manual / Recycle Bin).</summary>
         public bool IsItemOptions { get; init; }
 
@@ -399,6 +402,15 @@ namespace Gordian.Engine.Ui
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
+            if (menu.ItemListKind == StockUiItemListKind.Storage && menu.StoragePartner is { } partner)
+            {
+                // A Mog Wardrobe takes equipment only: the inventory's other items are greyed (round 2).
+                bool wardrobe = StockUiViewHouse.IsWardrobe(menu.StorageContainer);
+                var companion = OrderedRows(partner);
+                if (wardrobe && !menu.StorageInventorySide) StockUiViewHouse.GreyForWardrobe(companion, menu.StorageContainer, ItemLookup);
+                if (wardrobe && menu.StorageInventorySide) rows = StockUiViewHouse.GreyForWardrobe(new List<StockUiItemRow>(rows), menu.StorageContainer, ItemLookup);
+                menu.CompanionRows = companion;
+            }
             var listRows = new List<StockUiListRow>(rows.Count);
             foreach (var row in rows) listRows.Add(new StockUiListRow(listRows.Count + 1, row.Name, false));
             menu.ItemRows = rows;
@@ -488,7 +500,7 @@ namespace Gordian.Engine.Ui
             top.IsManualSort = false;
             top.ManualSortFrom = null;
             var library = _library;
-            if (library != null && library.TryGetMenu(StockUiItems.OptionsMenu, out var definition))
+            if (library != null && library.TryGetMenu(OptionsMenuOf(top), out var definition))
             {
                 var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = true };
                 options.SelectedButtonId = StockUiItems.ManualSortButton;
@@ -497,16 +509,20 @@ namespace Gordian.Engine.Ui
             return true;
         }
 
-        /// <summary>The main menu's Items list nearest the top of the stack.</summary>
+        /// <summary>The main menu's Items list, or a View House storage's list, nearest the top of the stack.</summary>
         private StockUiOpenMenu? ItemsList()
         {
             var open = _open;
             for (int i = open.Length - 1; i >= 0; i--)
             {
-                if (open[i].ItemListKind == StockUiItemListKind.Items) return open[i];
+                if (open[i].ItemListKind is StockUiItemListKind.Items or StockUiItemListKind.Storage) return open[i];
             }
             return null;
         }
+
+        /// <summary>The options window of a list: <c>itmsort2</c> for the Items list, <c>itmsortw</c> (with Switch) for a storage's.</summary>
+        private static string OptionsMenuOf(StockUiOpenMenu list) =>
+            list.ItemListKind == StockUiItemListKind.Storage ? StockUiViewHouse.OptionsMenu : StockUiItems.OptionsMenu;
 
         /// <summary>
         /// The help bar of the item windows (the maintainer's retail captures, 2026-10-11): the title ("Items", "Equipment",
@@ -529,6 +545,8 @@ namespace Gordian.Engine.Ui
                     ? top.AuctionView == StockUiAuctionView.Price ? StockUiAuction.PriceTitle : StockUiAuction.AuctionTitle
                 : top.IsQuantity ? StockUiItems.TitleQuantity
                 : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
+                // View House: the storage's short name, or "Items" with the cursor on the inventory (round 2, retail).
+                : window.ItemListKind == StockUiItemListKind.Storage ? window.StorageInventorySide ? StockUiItems.TitleItems : StockUiViewHouse.Title(window.StorageContainer)
                 : window.IsSynthesisGrid || window.ItemListKind == StockUiItemListKind.SynthesisHistory ? StockUiSynthesis.Title
                 : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
@@ -540,6 +558,7 @@ namespace Gordian.Engine.Ui
                 {
                     case StockUiItemListKind.Items:
                     case StockUiItemListKind.RecycleBin:
+                    case StockUiItemListKind.Storage:
                         (int used, int total) = StockUiItems.Fill(Inventory, window.ItemContainer);
                         numerator = used;
                         denominator = total;
@@ -565,6 +584,11 @@ namespace Gordian.Engine.Ui
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
                 else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
+                // View House (#23): "Move an item to your inventory." / "... to your Mog Wardrobe." where it can be, else the
+                // storage's own line ("View content of Mog Safe ...").
+                else if (menu.ItemListKind == StockUiItemListKind.Storage)
+                    help = !CanMoveFromStorage(menu.StorageContainer) ? menu.Parent?.SelectedButton?.HelpTextId ?? -1
+                        : menu.StorageInventorySide ? StockUiViewHouse.HelpMoveTo(menu.StorageContainer) : StockUiViewHouse.HelpMoveToInventory;
                 else if (menu.SelectedButton is { HelpTextId: >= 0 } button) help = button.HelpTextId;
                 else if (menu.Menu.Frame.HelpTextId >= 0) help = menu.Menu.Frame.HelpTextId;
                 else if (menu.IsItemList) help = StockUiItems.HelpSelectItem;
@@ -587,8 +611,8 @@ namespace Gordian.Engine.Ui
                 return true;
             }
             var library = _library;
-            if (top is not { ItemListKind: StockUiItemListKind.Items, IsManualSort: false } || library == null
-                || !library.TryGetMenu(StockUiItems.OptionsMenu, out var definition)) return false;
+            if (top is not { ItemListKind: StockUiItemListKind.Items or StockUiItemListKind.Storage, IsManualSort: false } || library == null
+                || !library.TryGetMenu(OptionsMenuOf(top), out var definition)) return false;
             var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = true };
             options.SelectedButtonId = StockUiItems.AutoSortButton;
             lock (_sync) PushOpen(options);
@@ -636,6 +660,9 @@ namespace Gordian.Engine.Ui
                     return;
                 case StockUiItemListKind.GuildSell:
                     PickGuildSale(list, row);
+                    return;
+                case StockUiItemListKind.Storage:
+                    MoveFromStorage(list, row);
                     return;
                 case StockUiItemListKind.AuctionSell:
                     PickAuctionSale(list, row);
@@ -807,7 +834,7 @@ namespace Gordian.Engine.Ui
         /// The quantity prompt (<c>itemctrl</c>) for dropping part of a stack or restoring part of a bin stack, starting at 1;
         /// the HUD draws it at the bottom left with the description beside it (retail capture 2026-10-11, the bin's restore).
         /// </summary>
-        private void OpenItemQuantity(StockUiOpenMenu over, StockUiOpenMenu list, StockUiItemRow row, bool restore)
+        private void OpenItemQuantity(StockUiOpenMenu over, StockUiOpenMenu list, StockUiItemRow row, bool restore, bool storageMove = false)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition)) return;
@@ -816,6 +843,7 @@ namespace Gordian.Engine.Ui
                 IsQuantity = true,
                 ItemDropRow = row,
                 ItemRestore = restore,
+                ItemStorageMove = storageMove,
                 QuantityMax = Math.Max(1, row.Count),
                 QuantityTotal = Math.Max(1, row.Count),
                 ItemLookup = ItemLookup,
@@ -843,6 +871,11 @@ namespace Gordian.Engine.Ui
             if (prompt.ItemRestore)
             {
                 RestoreItem(row, count);
+                return;
+            }
+            if (prompt.ItemStorageMove)
+            {
+                if (prompt.Parent is { } storageList) SendStorageMove(storageList, row, count);
                 return;
             }
             StockUiOpenMenu? action = null;
@@ -924,6 +957,9 @@ namespace Gordian.Engine.Ui
                         list.ManualSortFrom = null;
                     }
                     Changed?.Invoke();
+                    break;
+                case StockUiViewHouse.SwitchButton when list.ItemListKind == StockUiItemListKind.Storage:
+                    SwitchStorage(options);
                     break;
                 case StockUiItems.RecycleBinButton:
                 {

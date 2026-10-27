@@ -655,6 +655,25 @@ namespace Gordian.Core.Tests.Network
             Assert.True(new S2C_0x063_MiscData(MiscPayload(S2C_0x063_MiscData.TypeUnknown0A, 0)).IsValid);
         }
 
+        /// <summary>
+        /// #23: S2C 0x063 type 3 (Monstrosity data 1) gives the Profile's Gladiator rank (<c>(flags &gt;&gt; 2) &amp; 3</c>) and
+        /// prestige (<c>prestige &amp; 0xFFFF</c>), as XiPackets world/server/0x0063 lays it out.
+        /// </summary>
+        [Fact]
+        public void S2C_0x063_Monstrosity_GivesGladiatorRankAndPrestige()
+        {
+            var (progression, _, dispatcher) = MiscSetup();
+            byte[] p = MiscPayload(S2C_0x063_MiscData.TypeMonstrosity1, 0xD4);
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 4, 4), (2u << 2) | 1u); // flags: rank 2 (HCG), tier 1
+            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(4 + 12, 4), 0x0001_0123u); // prestige 0x123 (high word ignored)
+
+            Assert.True(dispatcher.Dispatch(new PacketHeader(0x063, (ushort)(p.Length + 4), 1), p));
+
+            Assert.Equal(2, progression.GladiatorRank);
+            Assert.Equal(0x123, progression.Prestige);
+            Assert.False(new S2C_0x063_MiscData(MiscPayload(S2C_0x063_MiscData.TypeMonstrosity1, 8)).IsValid);
+        }
+
         [Fact]
         public void S2C_0x063_Merits_UpdatesProgressionState()
         {

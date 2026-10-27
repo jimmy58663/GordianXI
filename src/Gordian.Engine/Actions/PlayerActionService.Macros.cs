@@ -307,7 +307,9 @@ namespace Gordian.Engine.Actions
             }
             if (word.StartsWith("recast=", StringComparison.Ordinal))
             {
-                return FindRecast(word["recast=".Length..]) is { } recast ? ChatTextTokens.Recast(recast.Left) : null;
+                // Retail writes the name in brackets before the time, as /recast does ("[Provoke] 0:00"; the maintainer's
+                // /echo <recast=Provoke> in the 2026-10-24 test, round 1 image-9).
+                return FindRecast(word["recast=".Length..]) is { } recast ? $"[{recast.Name}] {ChatTextTokens.Recast(recast.Left)}" : null;
             }
             // Target placeholders become the entity's name; the sub-target cursor ones (<st> ...) stay as typed.
             if (SubTargetFilter(word) != null) return null;

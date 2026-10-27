@@ -54,6 +54,16 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void ShorterQuery_StretchesTheAuthoredImagesToItsHeight()
+        {
+            // A guild's rank query with two options (round 1 of #405, image-45): the window is 68 px tall, and its 88 px
+            // background must shrink with it, or the bottom border lands inside the background.
+            var menu = Controller().OpenQuery(new[] { "Which rank of synthesis do you ask about?" }, Options("Never mind.", "Amateur."), 1, _ => { });
+            Assert.Equal(68, menu!.Menu.Frame.Height);
+            Assert.Equal(88, menu.Menu.Frame.ImageHeight);
+        }
+
+        [Fact]
         public void Confirm_AnswersWithTheOptionNumber_CancelWith255()
         {
             var menus = Controller();
@@ -69,6 +79,31 @@ namespace Gordian.Engine.Tests.Ui
             menus.OpenQuery(Array.Empty<string>(), Options("Yes.", "No."), 0, n => answer = n);
             menus.CloseTop();
             Assert.Equal(255, answer);
+        }
+
+        [Fact]
+        public void MaxRows_ShowsMoreRowsAtOnce_AndAGreyedOptionIgnoresConfirm()
+        {
+            // The Mog House exit menu (#354, image-23): four rows under the question, "Change floors." greyed.
+            var menus = Controller();
+            int answer = -1;
+            var options = new[]
+            {
+                new StockUiQueryOption(1, "Stay in your room."), new StockUiQueryOption(2, "Area you entered from."),
+                new StockUiQueryOption(3, "Change floors.", Greyed: true), new StockUiQueryOption(4, "Select an area to exit to."),
+            };
+            var menu = menus.OpenQuery(new[] { "Which area do you want to exit to?" }, options, 2, n => answer = n, maxRows: 4);
+            Assert.Equal(4, menu!.VisibleRows);
+            Assert.False(menu.CanScroll);
+            Assert.Equal(108, menu.Menu.Frame.Height);
+            Assert.Equal(88, menu.Menu.Frame.ImageHeight); // the background stretches from the authored 88 px to the rows shown
+            Assert.True(menu.IsQueryOptionGreyed(3));
+            menus.Activate();
+            Assert.Equal(-1, answer);
+            Assert.True(menus.IsOpen);
+            menus.Move(InputAction.MenuDown);
+            menus.Activate();
+            Assert.Equal(4, answer);
         }
 
         [Fact]

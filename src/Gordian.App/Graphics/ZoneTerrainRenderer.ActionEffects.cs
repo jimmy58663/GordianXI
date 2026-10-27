@@ -271,11 +271,8 @@ namespace Gordian.App.Graphics
                     bool onTarget = ActionEffectPlayer.IsTargetSide(definition);
                     uint carrier = onTarget ? player.TargetId : player.ActorId;
                     Matrix4x4 placement = onTarget ? slot.TargetToWorld : slot.ActorToWorld;
-                    Vector3 joint = definition.AttachType == ParticleAttachType.None || !_entityRenderer!.ActorAnchors.TryGetValue(carrier, out var posed)
-                        ? Vector3.Zero
-                        : Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
-                            ActorEffectInstance.GetJointReference(definition));
-                    frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * placement;
+                    ActorAnchor? anchor = _entityRenderer!.ActorAnchors.TryGetValue(carrier, out var posed) ? posed : null;
+                    frame = DisplayFlip * JointFrame(definition, anchor) * placement;
                     distance = Vector3.Distance(camera.Position, placement.Translation);
                 }
                 foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));

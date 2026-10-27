@@ -984,6 +984,22 @@ namespace Gordian.Core.World
             UnityUpdated?.Invoke();
         }
 
+        /// <summary>The Gladiator rank (0 Gla, 1 CG, 2 HCG) from S2C 0x063 type 0x03; the Status window's Profile shows it.</summary>
+        public int GladiatorRank { get; private set; }
+
+        /// <summary>The Monstrosity prestige from S2C 0x063 type 0x03; the Status window's Profile shows it.</summary>
+        public int Prestige { get; private set; }
+
+        /// <summary>Applies S2C 0x063 type 0x03 (Monstrosity data 1): the Gladiator rank and prestige.</summary>
+        public void UpdateMonstrosity(in S2C_0x063_MiscData misc)
+        {
+            lock (_lock)
+            {
+                GladiatorRank = misc.GladiatorRank;
+                Prestige = misc.Prestige;
+            }
+        }
+
         public void SetMyRoomOperation(MyRoomOperationInfo operation)
         {
             lock (_lock) LastMyRoomOperation = operation;

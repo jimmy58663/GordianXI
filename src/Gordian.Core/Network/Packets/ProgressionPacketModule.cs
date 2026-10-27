@@ -441,7 +441,10 @@ namespace Gordian.Core.Network.Packets
                 case S2C_0x063_MiscData.TypeStatusIcons:
                     _localPlayerState.UpdateStatusIcons(in misc);
                     break;
-                // Monstrosity (0x03, 0x04) is post-MVP; 0x0A is unused by the client.
+                case S2C_0x063_MiscData.TypeMonstrosity1:
+                    _progressionState.UpdateMonstrosity(in misc);
+                    break;
+                // Monstrosity's species, instincts and levels (0x03's rest, 0x04) are post-MVP; 0x0A is unused by the client.
             }
         }
 

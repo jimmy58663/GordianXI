@@ -66,5 +66,17 @@ namespace Gordian.Core.Resources.Models
             if (joint < rotations.Length) offset = Vector3.Transform(offset, rotations[joint]);
             return translations[joint] + offset;
         }
+
+        /// <summary>
+        /// The model-space rotation of the joint skeleton reference <paramref name="referenceIndex"/> hangs on, for a posed
+        /// skeleton: what a generator held in the hand turns with (attach type SourceActorWeapon, as xi-model-viewer
+        /// <c>ui/js/particle/runtime.js</c> reads the grip's position and orientation). Identity when there is no such reference.
+        /// </summary>
+        public static Quaternion ResolveJointReferenceRotation(Skeleton? skeleton, ReadOnlySpan<Quaternion> rotations, int referenceIndex)
+        {
+            if (skeleton == null || referenceIndex < 0 || referenceIndex >= skeleton.References.Count) return Quaternion.Identity;
+            int joint = skeleton.References[referenceIndex].Index;
+            return joint < rotations.Length ? rotations[joint] : Quaternion.Identity;
+        }
     }
 }

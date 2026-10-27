@@ -337,6 +337,8 @@ namespace Gordian.Engine.Sessions
             Locomotion.Events = Events;
             // Event opcodes 0xA6 / 0x75 send the sub-map packets (C2S 0x0EB / 0x0F2) through the zone module.
             Events.Lifecycle = NetworkManager.Parser.LifecycleModule;
+            // Event opcode 0x8C asks guild NPCs for recipes (C2S 0x058) and reads the S2C 0x031 answers (#405).
+            Events.Crafting = NetworkManager.Parser.CraftingModule;
             // System messages (S2C 0x053) and everyone's emotes (S2C 0x05A, ours included): text from the client's own
             // message tables, the emote motion on the caster.
             Messages.Attach(Commands, World, LocalPlayer, Chat, () => CharacterName);
@@ -372,6 +374,12 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.ItemSort = container => InventoryModule.SortContainerAsync(container);
             ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
             ActionService.Menus.CharacterStats = CharacterStats;
+            ActionService.Menus.StatusInfo = StatusInfo;
+            // The Map window (#23): the zone's map, and Wide Scan as /widescan.
+            ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
+            // View House (#23): the Mog Safes, Storage and Mog Locker give up their items only in the Mog House (S2C 0x00A).
+            ActionService.Menus.InMogHouse = () => World.ZoneLoginInfo?.InMogHouse == true;
             Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.
@@ -415,6 +423,14 @@ namespace Gordian.Engine.Sessions
             // The synthesis animation (S2C 0x030) plays on the crafters. The guild shop's purchases and sales print to the log;
             // its lists and the open status print only for /guild while the guild shop window (#330) is not up.
             SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
+            // A chocobo dig (S2C 0x02F) plays the riding routine chor on the rider and the chocobo (#437).
+            Combat.DigReceived += (serverId, targetIndex) =>
+            {
+                if ((World.TryGetByServerId(serverId, out var digger) || World.TryGetByTargetIndex(targetIndex, out digger)) && digger != null)
+                {
+                    Animation.MountTransitions.PlayDig(digger);
+                }
+            };
             Inventory.GuildTransactionReceived += t =>
             {
                 foreach (string line in Ui.GuildShopLog.FormatTransaction(t, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
@@ -428,12 +444,18 @@ namespace Gordian.Engine.Sessions
             {
                 if (status != ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             };
-            // Confirm on the Mog House door asks "Heading outside, kupo?" (No under the cursor) before the exit is sent (#354).
-            ActionService.MogHouseExitRequested += () => ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+            // Confirm on the Mog House door asks "Heading outside, kupo?" before the exit is sent (#354): Yes / No (No under
+            // the cursor), or the city's areas when the server unlocked its exits (S2C 0x00A MyRoomExitBit).
+            ActionService.MogHouseExitRequested += () =>
             {
-                if (answer != true || World.MogHouseRoom == 0) return;
-                _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
-            });
+                var exitBit = (MogHouseExitBit)(World.ZoneLoginInfo?.MyRoomExitBit ?? 0);
+                if (Ui.MogHouseExitMenu.HasMenu(exitBit) && OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.Stay - 1)) return;
+                ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+                {
+                    if (answer != true || World.MogHouseRoom == 0) return;
+                    _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
+                });
+            };
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
@@ -502,7 +524,8 @@ namespace Gordian.Engine.Sessions
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string main = p.MainJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
             string sub = p.SubJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
-            string itemLevel = string.Create(inv, $"ILv {p.ItemLevel}/Su {p.SuperiorLevel}");
+            int? computed = Ui.StockUiStatus.ItemLevel(Inventory, ActionService.Menus.ItemLookup, p.MainJobLevel);
+            string itemLevel = string.Create(inv, $"ILv {(computed is { } level ? level.ToString(inv) : "---")}/Su {p.SuperiorLevel}");
             var bases = new int[7];
             var bonuses = new int[7];
             for (int i = 0; i < 7; i++)
@@ -516,8 +539,72 @@ namespace Gordian.Engine.Sessions
                 bases, bonuses, p.Attack, p.Defense, resistances);
         }
 
+        /// <summary>
+        /// The Status window (#23): the stats side, the level box (main job level, EXP and the EXP to the next level, S2C
+        /// 0x061), the profile (title, nation, race, home point, rank, from 0x061 and the character's appearance), every job's
+        /// level (0x01B) and the skills (0x062). Names come from the client's tables through the menu controller's resolvers.
+        /// </summary>
+        private Ui.StockUiStatusInfo StatusInfo()
+        {
+            var p = LocalPlayer;
+            var menus = ActionService.Menus;
+            int race = World.TryGetByServerId(p.ServerId, out var self) && self != null ? (self.Appearance.FaceModel >> 8) & 0xFF : 0;
+            var skills = p.SkillBase;
+            return new Ui.StockUiStatusInfo(CharacterStats(), p.MainJobLevel, p.ExpNow, p.ExpNext,
+                menus.TitleName?.Invoke(p.TitleId) ?? string.Empty, Ui.StockUiStatus.NationName(p.Nation), Ui.StockUiStatus.RaceName(race),
+                p.HomePointZone != 0 ? menus.ZoneCompactName?.Invoke(p.HomePointZone) ?? string.Empty : string.Empty,
+                p.Rank, p.RankPoints, Ui.StockUiStatus.MasteryRankShown(p.MasteryRank), (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
+                Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.CombatSkills, skills), Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.MagicSkills, skills),
+                Ui.StockUiStatus.CraftLines(skills), (byte)p.SubJob, p.Nation <= 2 ? p.Nation : -1, p.MentorRank,
+                Ui.StockUiStatus.GladiatorRankName(Progression.GladiatorRank), Progression.Prestige);
+        }
+
         private string? ResolveEntityNameByIndex(ushort targetIndex)
             => World.TryGetByTargetIndex(targetIndex, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
+
+        /// <summary>
+        /// Retail's Mog House exit menu with a city exit unlocked (#354, <see cref="Ui.MogHouseExitMenu"/>): Stay closes it,
+        /// "Area you entered from." and "Change floors." send C2S 0x05E <c>zmrq</c>, "Select an area to exit to." opens the
+        /// area list. False when the UI is not loaded.
+        /// </summary>
+        private bool OpenMogHouseExitMenu(MogHouseExitBit exitBit, int cursorIndex)
+        {
+            var menus = ActionService.Menus;
+            var login = World.ZoneLoginInfo;
+            bool canChangeFloors = login != null && MogHouseRooms.CanChangeFloors(login.Value.MyroomSubMapNumber);
+            var options = Ui.MogHouseExitMenu.MainOptions(menus.MenuMessageText, canChangeFloors);
+            return menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursorIndex, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                switch (answer)
+                {
+                    case Ui.MogHouseExitMenu.AreaEnteredFrom:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseExitMode.AreaEnteredFrom);
+                        break;
+                    case Ui.MogHouseExitMenu.ChangeFloors:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseRooms.FloorChangeMode(World.MogHouseRoom));
+                        break;
+                    case Ui.MogHouseExitMenu.SelectArea:
+                        OpenMogHouseAreaList(exitBit);
+                        break;
+                }
+            }, Ui.MogHouseExitMenu.VisibleRows) != null;
+        }
+
+        /// <summary>The exit menu's area list: the chosen area is sent as its exit mode; Cancel goes back to the exit menu.</summary>
+        private void OpenMogHouseAreaList(MogHouseExitBit exitBit)
+        {
+            var menus = ActionService.Menus;
+            bool mogGarden = MogHouseRooms.OffersMogGarden(exitBit, Progression, LocalPlayer.Rank);
+            var options = Ui.MogHouseExitMenu.AreaOptions(exitBit, World.CurrentZoneId, ActionService.ZoneName, mogGarden, out int cursor);
+            int areaCount = MogHouseRooms.ExitAreas(exitBit).Count;
+            menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursor, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                if (Ui.MogHouseExitMenu.AreaModeOf(answer, areaCount) is { } mode) _ = NetworkManager.RequestMogHouseExitAsync(exitBit, mode);
+                else OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.SelectArea - 1);
+            }, Ui.MogHouseExitMenu.VisibleRows);
+        }
 
         public void Disconnect()
         {

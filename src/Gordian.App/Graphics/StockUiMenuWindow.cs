@@ -48,6 +48,10 @@ namespace Gordian.App.Graphics
             // image-2). It stays drawn, under the fill, as in retail.
             renderer.DrawMenu(definition, placement, includeButtons: false,
                 opaqueBody: true, frameImage: menu.FrameImage,
+                // A client-sized frame stretches its images from their authored height to its own: a Status page fitted
+                // to its rows, or an event query with more or fewer rows than the DAT's three, so the background meets
+                // the bottom border (round 2, O7).
+                frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
@@ -161,6 +165,10 @@ namespace Gordian.App.Graphics
             {
                 DrawActionList(renderer, library, font, logFont, menu, placement, firstActionRow, timestamp);
             }
+            else if (font != null && menu.StatusPage != StockUiStatusPage.None)
+            {
+                StockUiStatusWindow.DrawPage(renderer, library, font, logFont, menu, placement);
+            }
             else if (font != null && (menu.IsKeyItemWindow || menu.IsEquipSetWindow))
             {
                 StockUiKeyItemWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
@@ -196,15 +204,26 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind == StockUiListKind.GamepadAssign)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
-                        // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one).
+                        // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
+                        // window's Change Map lists (#23) the same way: the area or zone in white in the log font (upright,
+                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right.
                         UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
-                        renderer.DrawText(font, row.Text, areaX + AssignRowTextInset * s, textY, s, tint);
+                        bool mapRow = menu.ListKind == StockUiListKind.MapAreas;
+                        if (mapRow && i == selectedEntry)
+                            DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
+                                placement.X + (frame.Width - ScrollbarInset) * s, firstRow.Height * s);
+                        if (mapRow && logFont != null)
+                        {
+                            logFont.Draw(renderer, row.Text, areaX + MapRowTextInset * s, ry + (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, White);
+                            tint = null;
+                        }
+                        else renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
                         if (row.Value is { Length: > 0 } value)
                         {
-                            float valueRight = placement.X + (frame.Width - AssignValueRightPad) * s;
+                            float valueRight = placement.X + (frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
                             renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, tint);
                         }
                         continue;
@@ -314,8 +333,11 @@ namespace Gordian.App.Graphics
             for (int i = from; i <= to; i++)
             {
                 float ry = areaY + (i - first) * pitch * s;
+                // A greyed option (the Mog House exit's "Change floors.", image-23 of round 1, 2026-10-24) in the action
+                // lists' lavender grey.
+                bool greyed = i < menu.QueryOptions.Count && menu.QueryOptions[i].Greyed;
                 renderer.DrawText(font, menu.Rows[i].Text, areaX + QueryOptionTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
-                    i == selectedEntry ? SelectedGlyphTint : null);
+                    i == selectedEntry ? SelectedGlyphTint : greyed ? ActionGreyedTint : null);
             }
             renderer.ClearClip();
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
@@ -730,6 +752,34 @@ namespace Gordian.App.Graphics
 
         /// <summary>The gamepad key-assignment list: the function's text from the row's origin, its buttons ending this far from the window's right edge.</summary>
         private const float AssignRowTextInset = 4, AssignValueRightPad = 18;
+
+        /// <summary>The Change Map lists' text 23 px into the row and their "[4]" ending 44 px short of the frame's right edge (round 1 image-6).</summary>
+        private const float MapRowTextInset = 23, MapValueRightPad = 44;
+
+        /// <summary>
+        /// The Change Map lists' selected-row bar, top to bottom: retail round 2 image-25 shows a red bar under the
+        /// selected row from the window's inner edge to the scrollbar, dark at its top and bottom and brightest just
+        /// below its middle (sampled down the bar at x 120, 17 px tall at that capture's scale; colours as drawn).
+        /// </summary>
+        private static readonly (byte R, byte G, byte B)[] MapRowBarShades =
+        [
+            (31, 24, 39), (58, 40, 47), (65, 45, 49), (68, 41, 42), (76, 45, 44), (91, 55, 55), (100, 58, 57), (102, 51, 50),
+            (112, 54, 51), (124, 66, 61), (116, 63, 61), (100, 51, 51), (99, 50, 52), (87, 53, 60), (77, 49, 59), (62, 33, 49),
+        ];
+
+        /// <summary>Draws <see cref="MapRowBarShades"/> as horizontal strips filling the row from <paramref name="left"/> to <paramref name="right"/>.</summary>
+        private static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
+        {
+            float strip = height / MapRowBarShades.Length;
+            for (int k = 0; k < MapRowBarShades.Length; k++)
+            {
+                var (r, g, b) = MapRowBarShades[k];
+                // The solid texel is pale (about 220 per channel, measured from a render), so a half-scale tint of
+                // 128/220 of the colour draws the colour itself.
+                renderer.DrawTextureRect(SliderTexture, 30, 12, 1, 1, left, top + k * strip, right - left, strip + 0.5f,
+                    new UiColor((byte)(r * 37 / 64), (byte)(g * 37 / 64), (byte)(b * 37 / 64), 0x80));
+            }
+        }
 
         /// <summary>The Font Colors list's text inset (its rows start at the frame's edge; retail screenshot, 2026-10-04: about 30 px).</summary>
         private const float FontColorRowTextInset = 30;

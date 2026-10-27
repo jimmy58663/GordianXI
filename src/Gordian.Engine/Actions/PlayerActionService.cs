@@ -402,15 +402,45 @@ namespace Gordian.Engine.Actions
 
         /// <summary>
         /// The server picked the character's target (S2C 0x058: the <c>/assist</c> answer, or a new battle target): the
-        /// cursor moves to it, as XiPackets describes the client's handler. PROVISIONAL: whether retail also locks on is
-        /// not checked (LandSandBoat's comments say "lock on to the new target"); the lock-on state is left as it is. An
-        /// id of 0 (no target) or an entity not in the zone changes nothing.
+        /// cursor moves to it, as XiPackets describes the client's handler. An id of 0 (no target) or an entity not in the
+        /// zone changes nothing.
+        /// An unasked-for 0x058 while the character is in battle (engaged locally, or the server's S2C 0x037 status still
+        /// "engaged" after the old target died) is an auto-target swap (#439, maintainer's retail note in the #433 round 1):
+        /// the engagement follows the new target, a lock-on the old target's death let go comes back on it, and the engaged
+        /// command menu opens on it (moving the cursor closed the old target's menu). Another open menu (the main menu, a
+        /// list) is left alone. The answer to our own <c>/assist</c> only moves the cursor: assisting never changes the
+        /// battle target (LandSandBoat sends 0x058 for it without touching the attack state).
+        /// Round 1 log (2026-10-25): LandSandBoat follows the new target's 0x058 with a second one for target 0 in the same
+        /// datagram (<c>CAttackState::UpdateTarget</c> hands <c>OnChangeTarget</c> the pointer it resolved before the
+        /// auto-target search), and the old target's death update comes first; the 0 is ignored.
         /// </summary>
         private void OnAssistTargetReceived(uint serverId)
         {
+            bool answersAssist = _assistRequestedAt != 0
+                && System.Diagnostics.Stopwatch.GetElapsedTime(_assistRequestedAt) < AssistAnswerWindow;
             if (serverId == 0 || serverId == _localPlayer.ServerId) return;
-            if (_world.TryGetByServerId(serverId, out var entity) && entity != null) SetTarget(entity);
+            if (!_world.TryGetByServerId(serverId, out var entity) || entity == null) return;
+            _assistRequestedAt = 0;
+            SetTarget(entity);
+            var combat = Combat;
+            if (answersAssist || combat == null) return;
+            if (!combat.IsEngaged && _localPlayer.ServerStatus != StatusEngaged) return;
+            if (combat.IsEngaged && combat.TargetServerId == serverId) return; // the engage's own 0x058
+            combat.Engage(serverId, entity.TargetIndex);
+            if (_relockAfterTargetDied != 0 && System.Diagnostics.Stopwatch.GetElapsedTime(_relockAfterTargetDied) < AssistAnswerWindow)
+                SetLockOn(true);
+            _relockAfterTargetDied = 0;
+            if (Menus.OpenMenus.Count == 0) OpenTargetCommandMenu();
         }
+
+        /// <summary>How long after our <c>/assist</c> (or the engaged target's death) a 0x058 counts as its answer (or swap).</summary>
+        private static readonly TimeSpan AssistAnswerWindow = TimeSpan.FromSeconds(5);
+
+        /// <summary>When we last sent <c>/assist</c> (a Stopwatch timestamp), 0 once answered.</summary>
+        private long _assistRequestedAt;
+
+        /// <summary>When the locked-on engaged target died (a Stopwatch timestamp), so an auto-target swap locks on again; 0 for none.</summary>
+        private long _relockAfterTargetDied;
 
         /// <summary>
         /// Engaging locks on when the player enabled <see cref="StockUiSettingKey.AutoLockOnEngage"/> (#137). PROVISIONAL:
@@ -482,6 +512,7 @@ namespace Gordian.Engine.Actions
             var combat = Combat;
             if (combat == null) return;
             uint engagedTarget = combat.TargetServerId;
+            _relockAfterTargetDied = IsLockedOn ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             combat.Disengage();
             if (CurrentTarget != null && (engagedTarget == 0 || CurrentTarget.ServerId == engagedTarget)) ClearTarget();
         }
@@ -946,6 +977,7 @@ namespace Gordian.Engine.Actions
 
             try
             {
+                _assistRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 await _combatModule.RequestAssistAsync(resolvedId, resolvedIdx).ConfigureAwait(false);
                 return PlayerActionResult.Ok($"Assisting {resolvedName}.", ChatCommandResultKind.CombatAssist);
             }
@@ -1089,6 +1121,12 @@ namespace Gordian.Engine.Actions
         /// the game's tables.
         /// </summary>
         public Func<int, string?>? MountName { get; set; }
+
+        /// <summary>
+        /// A zone's name by zone id (the zone name table, ROM/165/84), for the Mog House exit's area list (#354); set by
+        /// the app, null in tests and without the game's tables.
+        /// </summary>
+        public Func<int, string?>? ZoneName { get; set; }
 
         /// <summary>A mount's help line by client mount id (ROM/351/85), for the mount list's help bar; set by the app.</summary>
         public Func<int, string?>? MountHelp { get; set; }
