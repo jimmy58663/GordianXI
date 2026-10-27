@@ -122,6 +122,8 @@ namespace Gordian.Engine.Ui
             : IsCheck ? SelectedCheckItem
             : IsTreasureList ? SelectedTreasureRow?.ItemId ?? 0
             : IsShopList ? SelectedShopRow?.ItemId ?? 0
+            : IsAuctionList ? SelectedAuctionRow?.ItemId ?? 0
+            : AuctionView == StockUiAuctionView.History ? AuctionItem.ItemId
             : (ushort)0;
 
         private ushort _pagesItem;
@@ -396,6 +398,7 @@ namespace Gordian.Engine.Ui
                     StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),
                 StockUiItemListKind.SynthesisHistory => StockUiSynthesis.HistoryRows(HistoryEntries(), ItemLookup),
                 StockUiItemListKind.GuildSell => StockUiGuildShop.InventoryRows(Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>(), OrderedRows(ContainerId.Inventory)),
+                StockUiItemListKind.AuctionSell => AuctionSellRows(),
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
@@ -538,7 +541,9 @@ namespace Gordian.Engine.Ui
             }
             if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
             var top = open[^1];
-            string title = top.IsQuantity ? StockUiItems.TitleQuantity
+            string title = window.ItemListKind == StockUiItemListKind.AuctionSell
+                    ? top.AuctionView == StockUiAuctionView.Price ? StockUiAuction.PriceTitle : StockUiAuction.AuctionTitle
+                : top.IsQuantity ? StockUiItems.TitleQuantity
                 : window.ItemListKind == StockUiItemListKind.RecycleBin ? StockUiItems.TitleRecycleBin
                 // View House: the storage's short name, or "Items" with the cursor on the inventory (round 2, retail).
                 : window.ItemListKind == StockUiItemListKind.Storage ? window.StorageInventorySide ? StockUiItems.TitleItems : StockUiViewHouse.Title(window.StorageContainer)
@@ -573,7 +578,8 @@ namespace Gordian.Engine.Ui
             for (int i = open.Length - 1; i >= 0 && help < 0; i--)
             {
                 var menu = open[i];
-                if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
+                if (menu.AuctionHelpId >= 0) help = menu.AuctionHelpId; // the Auction House's Sell, Price Set and prompts (#90)
+                else if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisMaterials) help = StockUiSynthesis.HelpSelectMaterials;
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
@@ -657,6 +663,9 @@ namespace Gordian.Engine.Ui
                     return;
                 case StockUiItemListKind.Storage:
                     MoveFromStorage(list, row);
+                    return;
+                case StockUiItemListKind.AuctionSell:
+                    PickAuctionSale(list, row);
                     return;
             }
             if (list.IsManualSort)

@@ -353,6 +353,8 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public bool OverlapsAuthored(StockUiOpenMenu other)
         {
+            // An Auction House list under a bid's Yes / No keeps its item info and "Current Gil" drawn (image-27).
+            if (other.AuctionBidConfirm) return false;
             var a = AuthoredBounds;
             var b = other.Menu.Frame;
             return a.X < b.X + b.Width && b.X < a.Right && a.Y < b.Y + b.Height && b.Y < a.Bottom;
@@ -654,6 +656,9 @@ namespace Gordian.Engine.Ui
                     // Cancel on the History list leaves History: its grid goes with it (#330).
                     if (closed.ItemListKind == StockUiItemListKind.SynthesisHistory && _open.Length > 0 && ReferenceEquals(_open[^1], closed.Parent)
                         && closed.Parent is { IsSynthesisHistory: true }) _open = _open[..^1];
+                    // Cancel on a sale's Price Set closes the Price History opened with it (#90).
+                    if (closed.AuctionView == StockUiAuctionView.Price && _open.Length > 0 && ReferenceEquals(_open[^1], closed.Parent)
+                        && closed.Parent is { AuctionForSale: true }) _open = _open[..^1];
                 }
             }
             if (closed == null)
@@ -667,6 +672,7 @@ namespace Gordian.Engine.Ui
             closed.QueryCompleted?.Invoke(255);
             if (IsFontColorEditor(closed)) _fontColorEditing = null;
             if (closed.IsQuantity && closed.Parent is { } list) list.ShowsQuantity = false;
+            if (closed.BlueMagicView == StockUiBlueMagicView.Learned && closed.Parent is { } slots) slots.BlueLearnedOpen = false;
             if (closed.IsShopList) lock (_sync) _confirmPending = null;
             if (closed.IsShopMenu) EndShopSession();
             Changed?.Invoke();
@@ -1175,6 +1181,7 @@ namespace Gordian.Engine.Ui
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
+            if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
@@ -1568,6 +1575,8 @@ namespace Gordian.Engine.Ui
                 top = StatusPageConfirm() ?? Top;
                 button = top?.SelectedButton;
             }
+            // The Auction House windows (#90): the Price Set window has no button to select.
+            if (top != null && (TryActivateAuction(top, button) || TryActivateBlueMagic(top))) return;
             if (top == null || button == null) return;
 
             if (top.IsPrompt)

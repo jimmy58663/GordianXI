@@ -34,6 +34,12 @@ namespace Gordian.App.Graphics
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont? font, StockUiOpenMenu menu, StockUiPlacement placement,
             long timestamp, (float X, float Y) companionShift = default, StockUiLogFont? logFont = null, StockUiScreen? screen = null)
         {
+            if (font != null && menu.AuctionBidConfirm)
+            {
+                // An Auction House list under a bid's Yes / No shows only the item's info and "Current Gil" (image-27).
+                StockUiAuctionWindow.DrawBidConfirm(renderer, library, font, logFont, menu, placement, timestamp);
+                return;
+            }
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;
@@ -118,6 +124,14 @@ namespace Gordian.App.Graphics
             else if (font != null && menu.IsQuantity)
             {
                 DrawQuantity(renderer, library, font, menu, placement);
+            }
+            else if (font != null && menu.AuctionView != StockUiAuctionView.None)
+            {
+                StockUiAuctionWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
+            }
+            else if (font != null && menu.IsBlueMagicWindow)
+            {
+                StockUiBlueMagicWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp);
             }
             else if (font != null && menu.IsTreasureList)
             {
@@ -345,8 +359,8 @@ namespace Gordian.App.Graphics
         /// <summary>An empty list's text ("No mounts available."): log font from (11, 20), lines 20 px apart (image-22, -23).</summary>
         private const float ActionEmptyTextX = 11, ActionEmptyTextY = 20, ActionEmptyPitch = 20, ActionEmptyWidth = 150;
 
-        private static readonly UiColor ActionSelectedTint = new(0x80, 0x41, 0x64, 0x80);
-        private static readonly UiColor ActionGreyedTint = new(0x4F, 0x4F, 0x65, 0x80);
+        internal static readonly UiColor ActionSelectedTint = new(0x80, 0x41, 0x64, 0x80);
+        internal static readonly UiColor ActionGreyedTint = new(0x4F, 0x4F, 0x65, 0x80);
 
         /// <summary>
         /// A spell, job ability, weapon skill, trait or pet command list: one action per row over the twelve invisible row
@@ -463,7 +477,7 @@ namespace Gordian.App.Graphics
         private const float InfoPetX = 6, InfoPetY = 4, InfoPetGaugeDx = 23, InfoPetGaugeDy = 12;
 
         /// <summary>Draws an element-group image scaled so its bounds fill a square of <paramref name="size"/> pixels.</summary>
-        private static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
+        internal static void DrawIcon(StockUiRenderer renderer, UiImage image, float x, float y, float size)
         {
             float left = float.MaxValue, top = float.MaxValue, right = float.MinValue, bottom = float.MinValue;
             foreach (var part in image.Parts)
@@ -484,7 +498,7 @@ namespace Gordian.App.Graphics
         // text insets and how it prints the price).
 
         /// <summary>Half-scale tint of a row that cannot be sold (the item's NoSale flag): a mid grey.</summary>
-        private static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
+        internal static readonly UiColor GreyedTextTint = new(0x48, 0x48, 0x48, 0x80);
 
         /// <summary>
         /// The DAT authors "money", "itemctrl" and "iteminfo" all at (16,240), right under the list, and that is where
@@ -798,7 +812,7 @@ namespace Gordian.App.Graphics
         private const string DefaultCursorGroup = "anc_s";
 
         private static readonly UiColor PointerColor = new(0x80, 0x80, 0x80, 0x80);
-        private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
+        internal static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>
         /// The pointer over a clickable entry (retail hides the system arrow there and draws a grey ring over the

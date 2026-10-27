@@ -67,7 +67,68 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal((byte)AuctionCommand.Bid, p[4]);
             Assert.Equal(5000u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8)));
             Assert.Equal(4096, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(12)));
+            // ItemStacks: 0 is a stack, 1 a single item (XiPackets world/client/0x004E; LandSandBoat buys the stack size on 0).
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(16)));
+        }
+
+        [Fact]
+        public async Task BidAuction_Single_SendsItemStacksOne()
+        {
+            await _inventory.BidAuctionAsync(4096, 300, stack: false, aucWorkIndex: 2);
+
+            byte[] p = SingleSent(0x04E, 60);
+            Assert.Equal(2, p[5]);
             Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(16)));
+        }
+
+        [Fact]
+        public async Task AskAuctionCommit_SendsPriceSlotItemAndStackFlag()
+        {
+            await _inventory.AskAuctionCommitAsync(inventorySlot: 9, itemId: 4096, price: 1200, stack: true);
+
+            byte[] p = SingleSent(0x04E, 60);
+            Assert.Equal((byte)AuctionCommand.AskCommit, p[4]);
+            Assert.Equal(1200u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8)));
+            Assert.Equal(9, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(12)));
+            Assert.Equal(4096, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(14)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(16)));
+            Assert.All(p[20..], b => Assert.Equal(0, b));
+        }
+
+        [Fact]
+        public async Task ListAuctionItem_SendsLotInWithTheSaleSlot()
+        {
+            await _inventory.ListAuctionItemAsync(aucWorkIndex: 3, inventorySlot: 9, price: 1200, stack: false);
+
+            byte[] p = SingleSent(0x04E, 60);
+            Assert.Equal((byte)AuctionCommand.LotIn, p[4]);
+            Assert.Equal(3, p[5]);
+            Assert.Equal(1200u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(8)));
+            Assert.Equal(9, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(12)));
+            Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(p.AsSpan(14)));
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(16)));
+        }
+
+        [Theory]
+        [InlineData(AuctionCommand.WorkCheck, -1)]
+        [InlineData(AuctionCommand.Info, 0)]
+        [InlineData(AuctionCommand.LotCheck, 4)]
+        [InlineData(AuctionCommand.LotCancel, 5)]
+        public async Task AuctionCommandsWithoutParameters_SendOnlyCommandAndWorkIndex(AuctionCommand command, int workIndex)
+        {
+            Task send = command switch
+            {
+                AuctionCommand.WorkCheck => _inventory.OpenAuctionAsync(),
+                AuctionCommand.Info => _inventory.RequestAuctionSalesAsync(),
+                AuctionCommand.LotCheck => _inventory.CheckAuctionSaleAsync((sbyte)workIndex),
+                _ => _inventory.CancelAuctionSaleAsync((sbyte)workIndex),
+            };
+            await send;
+
+            byte[] p = SingleSent(0x04E, 60);
+            Assert.Equal((byte)command, p[4]);
+            Assert.Equal((sbyte)workIndex, (sbyte)p[5]);
+            Assert.All(p[6..], b => Assert.Equal(0, b));
         }
 
         [Fact]

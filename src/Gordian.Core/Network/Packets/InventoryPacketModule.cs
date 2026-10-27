@@ -565,14 +565,57 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// Sends C2S 0x04E command Bid: buys an item from the Auction House at <paramref name="price"/> gil,
-        /// as a single or a full stack. The server answers with S2C 0x04C.
+        /// as a single or a full stack. The server answers with S2C 0x04C. <paramref name="aucWorkIndex"/> is the next free
+        /// sale slot (XiPackets; LandSandBoat takes 0-6 and does not use it).
         /// </summary>
-        public async Task BidAuctionAsync(ushort itemId, uint price, bool stack)
+        public Task BidAuctionAsync(ushort itemId, uint price, bool stack, sbyte aucWorkIndex = 0)
+            => SendAuctionAsync(AuctionCommand.Bid, aucWorkIndex, itemId, price, StacksFlag(stack));
+
+        /// <summary>
+        /// Sends C2S 0x04E WorkCheck (work index -1), what the client sends when the Auction House window opens. LandSandBoat
+        /// answers with a sale-slot reply (command 0x0C) for each item it has listed for the character since the last Sales Status.
+        /// </summary>
+        public Task OpenAuctionAsync() => SendAuctionAsync(AuctionCommand.WorkCheck, -1);
+
+        /// <summary>
+        /// Sends C2S 0x04E Info, what the client sends when the Sales Status window opens. The server answers with an Info reply
+        /// (result 1; 0xF6 "Please try again in a little while." within 5 s of the last one on LandSandBoat), then a sale-slot
+        /// reply for each listing.
+        /// </summary>
+        public Task RequestAuctionSalesAsync() => SendAuctionAsync(AuctionCommand.Info, 0);
+
+        /// <summary>Sends C2S 0x04E LotCheck: asks for the status of sale slot <paramref name="aucWorkIndex"/> (0-6).</summary>
+        public Task CheckAuctionSaleAsync(sbyte aucWorkIndex) => SendAuctionAsync(AuctionCommand.LotCheck, aucWorkIndex);
+
+        /// <summary>Sends C2S 0x04E LotCancel: takes the item in sale slot <paramref name="aucWorkIndex"/> (0-6) off the auction.</summary>
+        public Task CancelAuctionSaleAsync(sbyte aucWorkIndex) => SendAuctionAsync(AuctionCommand.LotCancel, aucWorkIndex);
+
+        /// <summary>
+        /// Sends C2S 0x04E AskCommit: asks the listing fee of selling the item in inventory slot <paramref name="inventorySlot"/>
+        /// at <paramref name="price"/> gil, as a single or its full stack. The server answers with an AskCommit reply carrying
+        /// the fee (result 1), before anything is listed.
+        /// </summary>
+        public Task AskAuctionCommitAsync(byte inventorySlot, ushort itemId, uint price, bool stack)
+            => SendAuctionAsync(AuctionCommand.AskCommit, 0, itemId, price, StacksFlag(stack), inventorySlot);
+
+        /// <summary>
+        /// Sends C2S 0x04E LotIn: lists the item in inventory slot <paramref name="inventorySlot"/> at <paramref name="price"/>
+        /// gil in sale slot <paramref name="aucWorkIndex"/> (the next free one), paying the fee AskCommit quoted. The server
+        /// answers with a LotIn reply (1 placed, else failed) and a sale-slot reply for the new listing.
+        /// </summary>
+        public Task ListAuctionItemAsync(sbyte aucWorkIndex, byte inventorySlot, uint price, bool stack)
+            => SendAuctionAsync(AuctionCommand.LotIn, aucWorkIndex, 0, price, StacksFlag(stack), inventorySlot);
+
+        /// <summary>The <c>ItemStacks</c> value of C2S 0x04E: 0 for a stack, 1 for a single item (XiPackets world/client/0x004E).</summary>
+        public static uint StacksFlag(bool stack) => stack ? 0u : 1u;
+
+        private async Task SendAuctionAsync(AuctionCommand command, sbyte aucWorkIndex, ushort itemId = 0, uint price = 0, uint stacks = 0,
+            ushort itemWorkIndex = 0)
         {
             byte[] buf = ArrayPool<byte>.Shared.Rent(60);
             try
             {
-                int len = InventoryPacketBuilders.BuildAuctionRequest(buf, ++_sequenceNumber, AuctionCommand.Bid, 0, itemId, price, stack ? 1u : 0u);
+                int len = InventoryPacketBuilders.BuildAuctionRequest(buf, ++_sequenceNumber, command, aucWorkIndex, itemId, price, stacks, itemWorkIndex);
                 if (LogOutboundOnRoute) _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x04E, _sequenceNumber, buf.AsSpan(0, len));
                 await _sendChunkCallback(buf.AsMemory(0, len), false).ConfigureAwait(false);
             }

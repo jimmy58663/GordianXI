@@ -489,6 +489,8 @@ namespace Gordian.Engine.Sessions
             };
             AttachKeyItemsAndEquipmentSets();
             AttachSynthesisAndGuildShop();
+            AttachAuctionHouse();
+            AttachBlueMagic();
         }
 
         /// <summary>

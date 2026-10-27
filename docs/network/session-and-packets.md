@@ -135,7 +135,7 @@ Fixed since the audit:
 
 Wrong today (bugs):
 - [#102](https://github.com/jimmy58663/GordianXI/issues/102): C2S corrections. `0x116` block index, `0x01A` ground-target axes, `0x00A` login fields, `0x052` (`RemoveItemFlg`, `Equipment[16]`) and `0x053` (echo flag) are fixed, and `0x11C` and `0x02B` carry comments citing both sources.
-- The Auction House can't sell: `0x04E` AskCommit/LotIn are missing, and `AuctionCommand.Open` isn't a client command. Noted on [#90](https://github.com/jimmy58663/GordianXI/issues/90).
+- ~~The Auction House can't sell~~: AskCommit / LotIn and the other client commands are built and the window sends them; `AuctionCommand.Open` is documented as the server-only MOPEN ([#90](https://github.com/jimmy58663/GordianXI/issues/90)).
 
 Missing packets, grouped by feature:
 - [#103](https://github.com/jimmy58663/GordianXI/issues/103): death flow. Home point, Raise and Tractor menus, and S2C `0x0F9`: implemented, awaiting the in-game test, see [C2S 0x01A action kinds](#c2s-0x01a-action-kinds) and [stock-ui.md](../ui/stock-ui.md#dead-window-103).
@@ -310,7 +310,7 @@ The decoders already registered now read the fields LandSandBoat sends that they
 | S2C 0x056 | quest offer/complete and mission bit tables, TVR | `ProgressionState.IsQuestActive` / `IsQuestComplete` / `IsMissionComplete`, `ExpansionTvr`, `QuestLogComplete` | nothing yet (the quest log window) |
 | S2C 0x052 | mode 0 and 3 events; the cancel event id is compared | `ProgressionState.EventControlReleased` / `EventInputCancelled` | nothing yet |
 | S2C 0x032 / 0x034 | `EventNum2`, `EventPara2` | `CutsceneEventInfo.GetEventFileNumber(zoneSubNo)` | the event DAT loader, once instances matter ([#71](https://github.com/jimmy58663/GordianXI/issues/71)) |
-| S2C 0x04C | `Param` union, parcel category/market/lot/timestamp, all commands and result codes | `AuctionResponse` | the Auction House window ([#90](https://github.com/jimmy58663/GordianXI/issues/90)) |
+| S2C 0x04C | `Param` union, parcel category/market/lot/timestamp, all commands and result codes | `AuctionResponse`, `AuctionHouseState` | the Auction House window ([#90](https://github.com/jimmy58663/GordianXI/issues/90)) |
 | S2C 0x113 / 0x118 | every currency by name | `InventoryState.GetCurrency(Currency1Kind / Currency2Kind)` | nothing yet |
 | S2C 0x0C8 / 0x0DD / 0x0E2 | quartermaster flags, level sync, master level | `PartyMember` | nothing yet |
 

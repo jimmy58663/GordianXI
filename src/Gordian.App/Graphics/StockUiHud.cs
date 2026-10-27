@@ -284,6 +284,8 @@ namespace Gordian.App.Graphics
                 {
                     DrawPartyHelpBar(renderer, library, session, width, height);
                     DrawStatus(renderer, library, session, width, height);
+                    DrawAuctionHelpBar(renderer, library, session, width, height);
+                    DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
             }
@@ -351,6 +353,8 @@ namespace Gordian.App.Graphics
                 return;
             }
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
+            // Set Spells over the Magic list draws its own help bar; only one is ever drawn (round 1, N11, image-19).
+            if (actions.Menus.OpenMenus.Any(m => m.IsBlueMagicWindow)) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
         }
@@ -391,6 +395,29 @@ namespace Gordian.App.Graphics
             var menus = session.ActionService.Menus;
             if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || !menus.IsStatusOpen) return;
             StockUiStatusWindow.DrawPanels(renderer, library, font, _logFont, menus, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The help bar over the Auction House windows (#90; capture Aucion_House.mp4): the window's title ("Auction", "Bid" or the
+        /// category, "Price Set", "Price History") and the selected entry's help line. The Sell list's item list draws its own.
+        /// </summary>
+        private void DrawAuctionHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || !menus.IsAuctionOpen || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (menus.OpenMenus.Any(m => m.ItemListKind == StockUiItemListKind.AuctionSell)) return;
+            var prompt = top.IsPrompt && menus.OpenMenus.Count > 1 ? top : null;
+            if (StockUiAuctionWindow.HelpBar(prompt != null && !prompt.IsAuctionWindow ? menus.OpenMenus[^2] : top, menus.MenuHelpText) is not { } bar) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
+        private void DrawBlueMagicHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (StockUiBlueMagicWindow.HelpBar(top, menus.MenuHelpText) is not { } bar) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -589,7 +616,7 @@ namespace Gordian.App.Graphics
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
                     // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
                         || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
@@ -668,7 +695,7 @@ namespace Gordian.App.Graphics
                     StockUiMacroWindow.DrawOptions(renderer, library, macroOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
                 if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
-                    && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))
+                    && library.TryGetMenu(menus.OptionsMenuFor(menu.ActionCategory), out var options))
                 {
                     var f = options.Frame;
                     renderer.DrawMenu(options, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));

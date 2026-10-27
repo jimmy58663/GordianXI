@@ -703,6 +703,12 @@ namespace Gordian.Engine.Actions
         /// </summary>
         public bool CanTalkToTarget => CurrentTarget is { Type: EntityType.Npc or EntityType.Door };
 
+        /// <summary>
+        /// The server id of the NPC (or door) last talked to: the entity whose window the server opens in reply, e.g. the
+        /// Auction Counter or an auction NPC (Port Jeuno), which the Auction House measures its walk-away distance from.
+        /// </summary>
+        public uint LastTalkedToId { get; private set; }
+
         /// <summary>Raised when Confirm is pressed on the Mog House room's door (<see cref="MogHouseRooms.ExitDoorServerId"/>).</summary>
         public event Action? MogHouseExitRequested;
 
@@ -721,6 +727,7 @@ namespace Gordian.Engine.Actions
                 MogHouseExitRequested?.Invoke();
                 return PlayerActionResult.Ok(MogHouseRooms.ExitQuestion, ChatCommandResultKind.Talk);
             }
+            LastTalkedToId = target.ServerId;
             try
             {
                 await _combatModule.RequestTalkAsync(target.ServerId, target.TargetIndex).ConfigureAwait(false);

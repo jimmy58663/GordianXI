@@ -207,7 +207,7 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The stats side (<c>persona</c>, authored at 16,48 left of the grid), as the retail capture lays it out.</summary>
-        private static void DrawStats(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        internal static void DrawStats(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
         {
             if (!library.TryGetMenu(StockUiItems.StatsMenu, out var persona)) return;
             float s = placement.Scale;

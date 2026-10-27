@@ -156,6 +156,7 @@ namespace Gordian.Core.Network.Packets
     {
         /// <summary>BARE_TRANSFER (XiPackets 0x004C); LandSandBoat never sends it.</summary>
         BareTransfer = 0x01,
+        /// <summary>MOPEN: the server opens the Auction House window (LandSandBoat's <c>sendMenu(AUCTION)</c>); not a client command.</summary>
         Open      = 0x02,
         /// <summary>MCLOSE: the market closed.</summary>
         Close     = 0x03,
@@ -1879,7 +1880,12 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>
         /// C2S 0x04E: Interacts with the Auction House. 60 bytes: command, work index, two result bytes, a 12-byte
-        /// parameter union and the 40-byte parcel the client leaves zeroed.
+        /// parameter union and the 40-byte parcel the client leaves zeroed. The union by command:
+        /// AskCommit (0x04) <c>Commission</c> u32 (the asking price) at +4, <c>ItemWorkIndex</c> u16 (inventory slot) at +8,
+        /// <c>ItemNo</c> u16 at +10, <c>ItemStacks</c> u32 at +12; LotIn (0x0B) <c>LimitPrice</c> u32 at +4,
+        /// <c>ItemWorkIndex</c> u16 at +8, <c>ItemStacks</c> u32 at +12; Bid (0x0E) <c>BidPrice</c> u32 at +4, <c>ItemNo</c>
+        /// u16 at +8, <c>ItemStacks</c> u32 at +12. <c>ItemStacks</c> is 0 for a stack and 1 for a single item; Info, WorkCheck,
+        /// LotCancel and LotCheck carry no parameter. <paramref name="stacks"/> is that raw value.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x04e_auc.h)
         /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x004E), which gives the size as 0x3C.
         /// </summary>
@@ -1890,7 +1896,8 @@ namespace Gordian.Core.Network.Packets
             sbyte aucWorkIndex,
             ushort itemId = 0,
             uint price = 0,
-            uint count = 0)
+            uint stacks = 0,
+            ushort itemWorkIndex = 0)
         {
             PacketHeader.Write(destination, 0x04E, 15, sequenceId);
             var payload = destination.Slice(4, 56);
@@ -1899,11 +1906,24 @@ namespace Gordian.Core.Network.Packets
             payload[0] = (byte)command;
             payload[1] = (byte)aucWorkIndex;
 
-            if (command == AuctionCommand.Bid)
+            switch (command)
             {
-                BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(4, 4), price);
-                BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), itemId);
-                BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(12, 4), count);
+                case AuctionCommand.Bid:
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(4, 4), price);
+                    BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), itemId);
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(12, 4), stacks);
+                    break;
+                case AuctionCommand.AskCommit:
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(4, 4), price);
+                    BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), itemWorkIndex);
+                    BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(10, 2), itemId);
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(12, 4), stacks);
+                    break;
+                case AuctionCommand.LotIn:
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(4, 4), price);
+                    BinaryPrimitives.WriteUInt16LittleEndian(payload.Slice(8, 2), itemWorkIndex);
+                    BinaryPrimitives.WriteUInt32LittleEndian(payload.Slice(12, 4), stacks);
+                    break;
             }
             return 60;
         }
