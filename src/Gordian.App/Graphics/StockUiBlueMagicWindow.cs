@@ -175,7 +175,7 @@ namespace Gordian.App.Graphics
             float width = detail.Frame.Width;
             var lines = DetailLines(spell, t => StockUiTextBoxes.MeasureLine(font, logFont, t), width - DetailIndentX - DetailX * 2);
             float height = Math.Max(detail.Frame.Height, DetailTopY + (lines.Count + 1) * DetailPitch + DetailBottomPad);
-            renderer.DrawMenu(detail, at, includeButtons: false, opaqueBody: true, frameHeight: height, opaqueTop: 0);
+            renderer.DrawMenu(detail, at, includeButtons: false, opaqueBody: true, frameHeight: height);
             float y = at.Y + DetailTopY * s;
             Line(renderer, font, logFont, spell.Name, at.X + DetailX * s, y, s, StockUiMenuWindow.White);
             if (FamilyText(spell.SpellId) is { } family)

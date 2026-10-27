@@ -665,7 +665,7 @@ namespace Gordian.App.Graphics
                 {
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.
                     var f = spoils.Frame;
-                    renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                    renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), opaqueBody: true);
                 }
                 if (menu.ItemListKind == StockUiItemListKind.Storage && i == open.Count - 1 && library.TryGetMenu(StockUiViewHouse.OptionsMenu, out var storageOptions))
                 {
@@ -698,7 +698,7 @@ namespace Gordian.App.Graphics
                     && library.TryGetMenu(menus.OptionsMenuFor(menu.ActionCategory), out var options))
                 {
                     var f = options.Frame;
-                    renderer.DrawMenu(options, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                    renderer.DrawMenu(options, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), opaqueBody: true);
                 }
                 _menuPlacements.Add(new StockUiMenuPlacement(menu, placement.X, placement.Y, placement.Scale));
             }

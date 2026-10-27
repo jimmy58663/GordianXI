@@ -1,5 +1,7 @@
 // tests/Gordian.App.Tests/Graphics/StockUiTextBoxRenderTests.cs
+using System;
 using System.Linq;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.Packets;
@@ -61,6 +63,43 @@ namespace Gordian.App.Tests.Graphics
             {
                 StockUiItemDescription.FontMeasure = previous;
             }
+        }
+
+        /// <summary>
+        /// #464: the item info window of a stack (the Auction House's bid question, image-27: "12" on a Fire crystal) draws the
+        /// count over the icon's bottom right in pale yellow, its ink ending 2 px right of the icon, on the icon's bottom row,
+        /// 9 px tall (GORDIAN_UI_DUMP writes gpu_item_info_stack.png).
+        /// </summary>
+        [Fact]
+        public void ItemInfo_DrawsAStacksCountOverTheIcon()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null || screen.LogFont is not { } logFont) return;
+            Assert.True(screen.Resources.TryGetItem(4096, out var crystal));
+            var page = StockUiItemDescription.Pages(crystal!).First();
+            ItemRecord? Lookup(ushort id) => screen.Resources.TryGetItem(id, out var record) ? record : null;
+            var at = new StockUiPlacement(100, 100, 1, false);
+            byte[] pixels = screen.Render(r => StockUiItemInfoWindow.Draw(r, screen.Library, screen.Font, logFont, Lookup, 4096, page, at, 0, stackCount: 12),
+                "gpu_item_info_stack.png");
+            byte[] plain = screen.Render(r => StockUiItemInfoWindow.Draw(r, screen.Library, screen.Font, logFont, Lookup, 4096, page, at, 0));
+
+            // The count's ink: pixels that differ from the window drawn without it and read pale yellow.
+            int left = int.MaxValue, right = -1, top = int.MaxValue, bottom = -1;
+            for (int y = 100; y < 160; y++)
+            {
+                for (int x = 100; x < 160; x++)
+                {
+                    var c = screen.Pixel(pixels, x, y);
+                    if (c == screen.Pixel(plain, x, y) || c.R < 170 || c.G < 170 || c.B > c.R - 40) continue;
+                    left = Math.Min(left, x); right = Math.Max(right, x); top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+                }
+            }
+            Assert.True(right >= 0, "no count drawn");
+            // The icon spans x 108-139 and y 112-143.
+            Assert.InRange(right, 140, 142);
+            Assert.InRange(bottom, 142, 143);
+            Assert.InRange(bottom - top + 1, 8, 10);
+            Assert.InRange(left, 126, 136);
         }
 
         [Fact]

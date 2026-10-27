@@ -51,10 +51,7 @@ namespace Gordian.App.Graphics
                 // A client-sized frame stretches its images from their authored height to its own: a Status page fitted
                 // to its rows, or an event query with more or fewer rows than the DAT's three, so the background meets
                 // the bottom border (round 2, O7).
-                frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null,
-                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
-                // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
-                opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
+                frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null);
 
             foreach (var button in definition.Buttons)
             {

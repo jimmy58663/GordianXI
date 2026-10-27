@@ -124,29 +124,6 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(5f + camera.EyeOffset.Y, camera.Target.Y, 3);
         }
 
-        [Fact]
-        public void RenderSettings_ClampAndApply()
-        {
-            int rate = ViewportRenderSettings.BackgroundFrameRate;
-            int budget = ViewportRenderSettings.ZoneCacheBudgetMb;
-            bool vsync = ViewportRenderSettings.VsyncEnabled;
-            try
-            {
-                ViewportRenderSettings.Apply(new ViewportSettings { BackgroundFrameRate = 0, ZoneCacheBudgetMb = -5, IsVsyncEnabled = false });
-                Assert.Equal(1, ViewportRenderSettings.BackgroundFrameRate);
-                Assert.Equal(0, ViewportRenderSettings.ZoneCacheBudgetMb);
-                Assert.False(ViewportRenderSettings.VsyncEnabled);
-                Assert.Equal(30, new ViewportSettings().BackgroundFrameRate);
-                Assert.Equal(1536, new ViewportSettings().ZoneCacheBudgetMb);
-            }
-            finally
-            {
-                ViewportRenderSettings.BackgroundFrameRate = rate;
-                ViewportRenderSettings.ZoneCacheBudgetMb = budget;
-                ViewportRenderSettings.VsyncEnabled = vsync;
-            }
-        }
-
         // ---- GPU tests (Windows, Direct3D 11; no game data needed) ----
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -375,6 +352,37 @@ namespace Gordian.App.Tests.Graphics
             {
                 devices.Dispose();
                 DestroyWindow(hwnd);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The process-wide viewport render settings (#301, #322), in the collection that runs alone: applying settings also
+    /// sets the performance overlay mode other tests assert on (#451).
+    /// </summary>
+    [Collection(ViewportRenderSettingsCollection.Name)]
+    public class ViewportRenderSettingsTests
+    {
+        [Fact]
+        public void RenderSettings_ClampAndApply()
+        {
+            int rate = ViewportRenderSettings.BackgroundFrameRate;
+            int budget = ViewportRenderSettings.ZoneCacheBudgetMb;
+            bool vsync = ViewportRenderSettings.VsyncEnabled;
+            try
+            {
+                ViewportRenderSettings.Apply(new ViewportSettings { BackgroundFrameRate = 0, ZoneCacheBudgetMb = -5, IsVsyncEnabled = false });
+                Assert.Equal(1, ViewportRenderSettings.BackgroundFrameRate);
+                Assert.Equal(0, ViewportRenderSettings.ZoneCacheBudgetMb);
+                Assert.False(ViewportRenderSettings.VsyncEnabled);
+                Assert.Equal(30, new ViewportSettings().BackgroundFrameRate);
+                Assert.Equal(1536, new ViewportSettings().ZoneCacheBudgetMb);
+            }
+            finally
+            {
+                ViewportRenderSettings.BackgroundFrameRate = rate;
+                ViewportRenderSettings.ZoneCacheBudgetMb = budget;
+                ViewportRenderSettings.VsyncEnabled = vsync;
             }
         }
     }

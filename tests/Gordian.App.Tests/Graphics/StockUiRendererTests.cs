@@ -1753,6 +1753,83 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// #454: a menu window drawn with an opaque body (Equipment, with a title band) hides the scene from its top edge,
+        /// as a selected log does, while a HUD window (the Solo party window) keeps the DAT's translucent gradient (#442).
+        /// Each is drawn over a black and a white backdrop: an opaque pixel reads the same over both.
+        /// </summary>
+        [Fact]
+        public void MenuWindowsAreOpaqueFromTheirTopEdge_HudWindowsStayTranslucent()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var library = UiResourceLibrary.Load(rm);
+            if (library == null || !library.TryGetMenu("equip", out var equip) || !library.TryGetMenu("ptw0", out var party)) return;
+
+            const uint width = 420, height = 240;
+            IntPtr hwnd = CreateWindowExW(0, "static", "StockUiOpacityTest", unchecked((int)0x80000000), 0, 0, (int)width, (int)height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devices = new VeldridDeviceManager();
+            devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), width, height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devices.Device;
+            if (gd == null) { DestroyWindow(hwnd); return; }
+
+            try
+            {
+                var format = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
+                var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var framebuffer = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(null, color));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                using var renderer = new StockUiRenderer(gd, framebuffer.OutputDescription);
+                var menuAt = new StockUiPlacement(8, 8, 1, false);
+                var hudAt = new StockUiPlacement(240, 8, 1, false);
+
+                byte[] Render(float backdrop)
+                {
+                    cl.Begin();
+                    cl.SetFramebuffer(framebuffer);
+                    cl.ClearColorTarget(0, new NeoVeldrid.RgbaFloat(backdrop, backdrop, backdrop, 1.0f));
+                    cl.End();
+                    gd.SubmitCommands(cl);
+                    renderer.Begin(library);
+                    renderer.DrawMenu(equip, menuAt, includeButtons: false, opaqueBody: true);
+                    renderer.DrawMenu(party, hudAt, includeButtons: false);
+                    renderer.End(framebuffer, width, height);
+                    return ReadBack(gd, color, width, height);
+                }
+
+                var black = Render(0);
+                var white = Render(1);
+                string? dumpDir = Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    Directory.CreateDirectory(dumpDir);
+                    SavePng(Path.Combine(dumpDir, "gpu_window_opacity_white.png"), white, (int)width, (int)height);
+                }
+
+                static int Difference((byte R, byte G, byte B) a, (byte R, byte G, byte B) b) =>
+                    Math.Max(Math.Abs(a.R - b.R), Math.Max(Math.Abs(a.G - b.G), Math.Abs(a.B - b.B)));
+
+                // Down a column clear of the title text and the border lines: the title band (y 2-19) and the body.
+                int menuX = (int)menuAt.X + equip.Frame.Width - 24;
+                for (int y = 2; y < equip.Frame.Height - 4; y += 2)
+                {
+                    int d = Difference(Pixel(black, width, menuX, (int)menuAt.Y + y), Pixel(white, width, menuX, (int)menuAt.Y + y));
+                    Assert.True(d <= 3, $"equip row {y}: {d} apart over black and white");
+                }
+                // The party window lets the backdrop through near its top.
+                int hudX = (int)hudAt.X + party.Frame.Width / 2;
+                Assert.True(Difference(Pixel(black, width, hudX, (int)hudAt.Y + 6), Pixel(white, width, hudX, (int)hudAt.Y + 6)) > 60);
+
+                framebuffer.Dispose(); color.Dispose(); cl.Dispose();
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         internal static byte[] ReadBack(NeoVeldrid.GraphicsDevice gd, NeoVeldrid.Texture source, uint width, uint height)
         {
             var staging = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(width, height, 1, 1, source.Format, NeoVeldrid.TextureUsage.Staging));
