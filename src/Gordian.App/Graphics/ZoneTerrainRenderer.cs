@@ -194,28 +194,6 @@ namespace Gordian.App.Graphics
         private string _effectWeather = "fine";
 
         /// <summary>
-        /// Point-light falloff exponent: a light's contribution is color x power x (1 - distance / range) ^ exponent. The
-        /// client's attenuation is not documented in any available reference; 2 matched Windower captures of Southern
-        /// San d'Oria's wall lamps at night (2026-09-24).
-        /// </summary>
-        public float PointLightFalloffExponent { get; set; } = 2.0f;
-
-        /// <summary>
-        /// Scale from a light's power (theta x theta multiplier) to its intensity; 1 matched the same captures.
-        /// </summary>
-        public float PointLightPowerScale { get; set; } = 1.0f;
-
-        /// <summary>
-        /// Brightness of a saturated point light. Each light's colour is its half-range colour x2 x power (theta x
-        /// theta multiplier), clamped to 1 per channel, times this strength. Calibrated against two Windower captures
-        /// (2026-09-25): Southern San d'Oria's auction-house lamps at 22:03 (gold, power 2 via their clock curve) and
-        /// Bastok Metalworks' always-on interior lights (orange, power 12-40, which saturate to a pale yellow-white);
-        /// the clamp reproduces both zones' colour balance, where scaling by power made Metalworks 6-20x too bright and
-        /// orange. The client's exact light pipeline is not decoded.
-        /// </summary>
-        public float PointLightStrength { get; set; } = 0.75f;
-
-        /// <summary>
         /// Where terrain highlights start to roll off (#7): a lit terrain colour channel (after the modulate-2x) above
         /// this knee is compressed smoothly toward <see cref="TerrainHighlightCeiling"/> (excess e becomes
         /// e / (1 + e / (ceiling - knee))) instead of clipping at white. Retail clips: at noon Valkurm Dunes' sand
@@ -1579,7 +1557,7 @@ namespace Gordian.App.Graphics
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
             if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
-                                      FootEffectCount > 0))
+                                      FootEffectCount > 0 || HasInteriorEffects()))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1612,6 +1590,7 @@ namespace Gordian.App.Graphics
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
                 AddFootEffectDraws(camera);
+                AddInteriorEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
@@ -2463,56 +2442,28 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Fills the frame's point-light table from the running light generators: each slot takes its generator's live
-        /// particle (display-space position, range x range multiplier, and the saturated colour described at
-        /// <see cref="PointLightStrength"/>).
+        /// particle (display-space position, range x range multiplier, colour and power; the rule is at
+        /// <see cref="PointLightTableLayout"/>).
         /// </summary>
         private void UploadPointLights()
         {
             Array.Clear(_lightTable);
-            _lightTable[0] = PointLightFalloffExponent;
-            _lightTable[1] = PointLightPowerScale;
-            const int positionBase = 4;
-            const int colorBase = 4 + PointLightTableLayout.Slots * 4;
             if (EnableZoneEffects)
             {
                 foreach (var (layer, emitter) in _pointLights)
                 {
                     if (layer.WeatherIds.Count > 0 && !layer.WeatherIds.Contains(_effectWeather)) continue;
-                    ZoneParticle? light = null;
-                    foreach (var particle in emitter.Particles)
-                    {
-                        if (!particle.IsExpired) { light = particle; break; }
-                    }
-                    if (light == null) continue;
-
-                    float range = light.LightRange * light.LightRangeMultiplier;
-                    var factor = light.TextureFactor;
-                    float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
-                    if (range <= 0.0f || power <= 0.0f) continue;
-
-                    int slot = layer.PointLightSlot;
-                    var position = ToDisplay(light.WorldPosition);
-                    _lightTable[positionBase + slot * 4] = position.X;
-                    _lightTable[positionBase + slot * 4 + 1] = position.Y;
-                    _lightTable[positionBase + slot * 4 + 2] = position.Z;
-                    _lightTable[positionBase + slot * 4 + 3] = range;
-                    // The client saturates each light's colour x power per channel: a strong light washes out toward
-                    // white instead of scaling its hue, so power sets how pale a light is, not how bright.
-                    var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One)
-                                     * PointLightStrength;
-                    _lightTable[colorBase + slot * 4] = lightColor.X;
-                    _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
-                    _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
-                    _lightTable[colorBase + slot * 4 + 3] = 1.0f;
+                    WriteLight(emitter, layer.PointLightSlot, Matrix4x4.Identity);
                 }
+                WriteInteriorLights();
             }
-            if (EnableZoneEffects) WriteInteriorLights(positionBase, colorBase);
             _commandList.UpdateBuffer(_lightTableBuffer, 0, _lightTable);
         }
 
         /// <summary>Writes one light generator's live particle into its slot of the light table (see <see cref="UploadPointLights"/>).</summary>
-        private void WriteLight(ZoneParticleEmitter emitter, int slot, int positionBase, int colorBase)
+        private void WriteLight(ZoneParticleEmitter emitter, int slot, Matrix4x4 transform)
         {
+            const int colorBase = PointLightTableLayout.Slots * 4;
             if ((uint)slot >= PointLightTableLayout.Slots) return;
             ZoneParticle? light = null;
             foreach (var particle in emitter.Particles)
@@ -2523,16 +2474,16 @@ namespace Gordian.App.Graphics
             float range = light.LightRange * light.LightRangeMultiplier;
             float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
             if (range <= 0.0f || power <= 0.0f) return;
-            var position = Vector3.Transform(ToDisplay(light.WorldPosition), _sceneryTransform);
-            _lightTable[positionBase + slot * 4] = position.X;
-            _lightTable[positionBase + slot * 4 + 1] = position.Y;
-            _lightTable[positionBase + slot * 4 + 2] = position.Z;
-            _lightTable[positionBase + slot * 4 + 3] = range;
-            var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One) * PointLightStrength;
-            _lightTable[colorBase + slot * 4] = lightColor.X;
-            _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
-            _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
-            _lightTable[colorBase + slot * 4 + 3] = 1.0f;
+            var position = Vector3.Transform(ToDisplay(light.WorldPosition), transform);
+            _lightTable[slot * 4] = position.X;
+            _lightTable[slot * 4 + 1] = position.Y;
+            _lightTable[slot * 4 + 2] = position.Z;
+            _lightTable[slot * 4 + 3] = range;
+            // Colour bytes are 0x80-neutral, like the vertex colours they multiply.
+            _lightTable[colorBase + slot * 4] = 2f * light.Color.X;
+            _lightTable[colorBase + slot * 4 + 1] = 2f * light.Color.Y;
+            _lightTable[colorBase + slot * 4 + 2] = 2f * light.Color.Z;
+            _lightTable[colorBase + slot * 4 + 3] = power;
         }
 
         /// <summary>

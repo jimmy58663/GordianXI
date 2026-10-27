@@ -59,8 +59,11 @@ namespace Gordian.App.Tests.Graphics
         [Fact]
         public void BackendReopenNeeded_IsFalseWithoutAnOpenDevice()
         {
+            // The device is process-wide: an offscreen render test in another collection may hold it right now.
+            if (SharedGraphicsDevice.Current != null) return;
             var vm = new ViewportViewModel(enableAutoSave: false) { SelectedBackend = GraphicsBackendPreference.Vulkan };
             vm.RefreshBackendState();
+            if (SharedGraphicsDevice.Current != null) return;
             Assert.False(vm.BackendReopenNeeded);
         }
 

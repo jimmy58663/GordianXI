@@ -31,20 +31,74 @@ namespace Gordian.App.Graphics
     }
 
     /// <summary>
+    /// The per-frame zone point-light table (set 2, binding 0): 256 ZoneDef light slots, each a display-space position and
+    /// range, then each slot's colour and power.
+    /// <para>
+    /// The retail rule (#428): a point light adds <c>vertex colour x max(N.L, 0) x colour x power / d^2</c> to the vertex's
+    /// ambient + sun + moon sum before the clamp, and nothing at or past its range. Colour is the generator's colour bytes
+    /// over 128 (0x80-neutral, like the vertex colours); power is the 0x58 theta x theta multiplier (and the particle's
+    /// alpha multiplier, which the clock curves drive); range is the 0x58 range x range multiplier. It is D3D's fixed-function
+    /// point light with quadratic attenuation 1 / theta, which is why the data has no other falloff field: the ZoneDef light
+    /// table holds only the generator FourCC, and the generator's colour (0x16) and 0x58 parameters are the whole light.
+    /// Fitted to the maintainer's retail captures of Lower Jeuno's Merry Minstrel's Meadhouse (<c>image-3.png</c> /
+    /// <c>image-5.png</c>, 2026-10-22, 06:41): offscreen at the same view the far-left wall measures (96, 59, 35) against
+    /// retail's (96, 60, 35) and the pillar by the lamp (122, 90, 59) against (120, 78, 50); linear 1 / d and
+    /// (1 - d / range)^p falloffs missed one spot or the other by 1.5-3x. See <c>docs/rendering/lighting.md</c>.
+    /// </para>
+    /// Light-generator opcodes referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+    /// <c>PointLightParamsInitializer</c>); the table binding from xi-tools (https://github.com/vekien/xi-tools,
+    /// docs/zone/format.md "Light table").
+    /// </summary>
+    public static class PointLightTableLayout
+    {
+        public const int Slots = 256;
+        public const uint SizeInBytes = Slots * 16 * 2;
+
+        /// <summary>
+        /// The light table, a placement's light references and <c>PointLighting</c>, shared by every shader that lights
+        /// zone geometry or actors with the zone's point lights.
+        /// </summary>
+        public const string Glsl = @"
+// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
+layout(set = 2, binding = 0) uniform PointLightTable
+{
+    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
+    vec4 LightColorPower[256];       // colour (bytes / 128), power (theta x theta multiplier)
+};
+
+layout(set = 2, binding = 1) uniform PointLightRefs
+{
+    ivec4 LightSlots;                // -1 = none
+};
+
+// Fixed-function point lights: colour x power / d^2 inside the range, nothing past it (PointLightTableLayout).
+vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
+{
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 4; i++)
+    {
+        int slot = LightSlots[i];
+        if (slot < 0) continue;
+        vec4 positionRange = LightPositionRange[slot];
+        if (positionRange.w <= 0.0) continue;
+        vec3 toLight = positionRange.xyz - worldPos;
+        float dist = length(toLight);
+        if (dist >= positionRange.w) continue;
+        vec4 colorPower = LightColorPower[slot];
+        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
+        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w / max(dist * dist, 0.01));
+    }
+    return sum;
+}
+";
+    }
+
+    /// <summary>
     /// SPIR-V cross-compilable GLSL shaders for FFXI 3D zone terrain rendering.
     /// Supports texture sampling, PS2 modulate2x color math, directional sun/moon lighting,
     /// and distance fog blending.
     /// Derived from community research in xi-model-viewer (https://github.com/vekien/xi-model-viewer).
     /// </summary>
-    /// <summary>
-    /// The per-frame zone point-light table (set 2, binding 0): a falloff header, then 256 ZoneDef light slots.
-    /// </summary>
-    public static class PointLightTableLayout
-    {
-        public const int Slots = 256;
-        public const uint SizeInBytes = 16 + Slots * 16 * 2;
-    }
-
     public static class ZoneShaders
     {
         public const string VertexShaderGlsl = @"#version 450
@@ -439,38 +493,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
-// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
-layout(set = 2, binding = 0) uniform PointLightTable
-{
-    vec4 LightFalloff;               // x = falloff exponent, y = power scale
-    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
-    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
-};
-
-layout(set = 2, binding = 1) uniform PointLightRefs
-{
-    ivec4 LightSlots;                // -1 = none
-};
-
-vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
-{
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < 4; i++)
-    {
-        int slot = LightSlots[i];
-        if (slot < 0) continue;
-        vec4 positionRange = LightPositionRange[slot];
-        if (positionRange.w <= 0.0) continue;
-        vec3 toLight = positionRange.xyz - worldPos;
-        float dist = length(toLight);
-        if (dist >= positionRange.w) continue;
-        vec4 colorPower = LightColorPower[slot];
-        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
-        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
-        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
-    }
-    return sum;
-}
+" + PointLightTableLayout.Glsl + @"
 
 // TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
 // Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
@@ -545,38 +568,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
-// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
-layout(set = 2, binding = 0) uniform PointLightTable
-{
-    vec4 LightFalloff;               // x = falloff exponent, y = power scale
-    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
-    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
-};
-
-layout(set = 2, binding = 1) uniform PointLightRefs
-{
-    ivec4 LightSlots;                // -1 = none
-};
-
-vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
-{
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < 4; i++)
-    {
-        int slot = LightSlots[i];
-        if (slot < 0) continue;
-        vec4 positionRange = LightPositionRange[slot];
-        if (positionRange.w <= 0.0) continue;
-        vec3 toLight = positionRange.xyz - worldPos;
-        float dist = length(toLight);
-        if (dist >= positionRange.w) continue;
-        vec4 colorPower = LightColorPower[slot];
-        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
-        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
-        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
-    }
-    return sum;
-}
+" + PointLightTableLayout.Glsl + @"
 
 // TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
 // Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
@@ -663,38 +655,7 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
-// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
-layout(set = 2, binding = 0) uniform PointLightTable
-{
-    vec4 LightFalloff;               // x = falloff exponent, y = power scale
-    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
-    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
-};
-
-layout(set = 2, binding = 1) uniform PointLightRefs
-{
-    ivec4 LightSlots;                // -1 = none
-};
-
-vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
-{
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < 4; i++)
-    {
-        int slot = LightSlots[i];
-        if (slot < 0) continue;
-        vec4 positionRange = LightPositionRange[slot];
-        if (positionRange.w <= 0.0) continue;
-        vec3 toLight = positionRange.xyz - worldPos;
-        float dist = length(toLight);
-        if (dist >= positionRange.w) continue;
-        vec4 colorPower = LightColorPower[slot];
-        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
-        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
-        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
-    }
-    return sum;
-}
+" + PointLightTableLayout.Glsl + @"
 
 // TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
 // Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of

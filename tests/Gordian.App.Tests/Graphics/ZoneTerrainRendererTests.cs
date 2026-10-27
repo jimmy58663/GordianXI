@@ -727,6 +727,20 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void PointLights_FallOffAsPowerOverDistanceSquared_InEveryShader()
+        {
+            // #428: D3D fixed-function point lights, colour x power / d^2 inside the range (Meadhouse captures). No saturation
+            // to white or (1 - d / range) falloff any more, and one copy of the code for terrain, effects and actors.
+            Assert.Contains("colorPower.rgb * (colorPower.w / max(dist * dist, 0.01))", PointLightTableLayout.Glsl);
+            Assert.Contains("if (dist >= positionRange.w) continue;", PointLightTableLayout.Glsl);
+            Assert.Equal(PointLightTableLayout.Slots * 32u, PointLightTableLayout.SizeInBytes);
+            foreach (var shader in new[] { TerrainShaders.VertexShaderGlsl, ZoneShaders.FragmentShaderOpaqueGlsl, ZoneShaders.FragmentShaderCutoutGlsl, ZoneShaders.FragmentShaderBlendGlsl })
+            {
+                Assert.Contains(PointLightTableLayout.Glsl, shader);
+            }
+        }
+
+        [Fact]
         public void TerrainShaders_LightPerVertex_AndToneAfterTheModulate2x()
         {
             // Fixed-function parity (#7 round 2): ambient + sun + moon + point lights clamped at the vertex, interpolated.
