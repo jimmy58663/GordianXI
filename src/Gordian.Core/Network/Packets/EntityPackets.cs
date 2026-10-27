@@ -927,6 +927,14 @@ namespace Gordian.Core.Network.Packets
         public bool IsEquippedLook => LookSize == 1 || LookSize == 7;
 
         /// <summary>
+        /// The race a gear look (look size 1) with race byte 0 is drawn as: the Hume male. Lower Jeuno's Yatniel arrives with
+        /// race 0 and face 15 (LandSandBoat's <c>npc_list</c> look <c>0x01000F00...</c>), and the retail client on the same
+        /// server draws a Hume male with face 8B (round ears, the blond topknot; the maintainer's image-44.png, 2026-10-24).
+        /// **Beyond XiPackets:** it names race 0 only as the value the fixed-model and door handlers set.
+        /// </summary>
+        public const byte GearLookDefaultRace = 1;
+
+        /// <summary>
         /// Reads standard monster or NPC model ID (uint16 at payload offset 0x2E, when LookSize is a simple model type).
         /// Only valid for MODEL_STANDARD (0), MODEL_UNK_5 (5), and MODEL_AUTOMATON (6).
         /// Transport entities (MODEL_DOOR=2, MODEL_ELEVATOR=3, MODEL_SHIP=4) and equipped models
@@ -953,6 +961,7 @@ namespace Gordian.Core.Network.Packets
         /// Extracts face (0x2E), race (0x2F), and 8 visual equipment slots (0x30..0x3F).
         /// Returns a 9-element GrapIdTable matching GordianXI convention:
         /// Index 0: FaceModel ((race &lt;&lt; 8) | face), Indices 1..8: Head, Body, Hands, Legs, Feet, Main, Sub, Ranged.
+        /// A gear look with race 0 is read as race 1, the Hume male (<see cref="GearLookDefaultRace"/>, #426).
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp
         /// </summary>
         public bool TryGetEquippedLook(out byte race, out byte face, out ushort[] grapIdTable)
@@ -961,6 +970,7 @@ namespace Gordian.Core.Network.Packets
             {
                 face = _payload[0x2E];
                 race = _payload[0x2F];
+                if (race == 0 && LookSize == 1) race = GearLookDefaultRace;
                 grapIdTable = new ushort[9];
                 grapIdTable[0] = (ushort)((race << 8) | face);
                 for (int i = 0; i < 8; i++)

@@ -91,17 +91,17 @@ namespace Gordian.Core.Network.LandSandBoat
         public event EventHandler<string>? StatusChanged;
 
         /// <summary>
-        /// Remote server certificate validation callback that accepts self-signed LandSandBoat certificates.
+        /// The auth server certificates the user approved (trust on first use, #445). Defaults to the shared store in
+        /// the user's settings folder.
         /// </summary>
-        private static bool ValidateRemoteCertificate(
-            object sender,
-            System.Security.Cryptography.X509Certificates.X509Certificate? certificate,
-            System.Security.Cryptography.X509Certificates.X509Chain? chain,
-            SslPolicyErrors sslPolicyErrors)
-        {
-            // Accept self-signed / local LandSandBoat certificates
-            return true;
-        }
+        public KnownServerCertificateStore CertificateStore { get; init; } = KnownServerCertificateStore.Default;
+
+        /// <summary>
+        /// Asked when an auth server's certificate does not verify and is not the one pinned for that server: return
+        /// <see langword="true"/> to trust and pin it. Without a handler such a server is refused
+        /// (<see cref="UntrustedServerCertificateException"/>). Credentials are only sent once the server is trusted.
+        /// </summary>
+        public Func<ServerCertificateInfo, CancellationToken, Task<bool>>? ConfirmServerCertificate { get; set; }
 
         /// <summary>
         /// The xiloader version GordianXI reports first: what current LandSandBoat requires (2.2 since 08ae16d27d, the
@@ -161,7 +161,7 @@ namespace Gordian.Core.Network.LandSandBoat
             ArgumentNullException.ThrowIfNull(host);
 
             var version = XiloaderVersionFor(host, port);
-            var (result, error) = await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+            var (result, error) = await AuthenticateTrustedAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
             if (error != null
                 && TryParseRequiredXiloaderVersion(error, out var required)
                 && (required.Major, required.Minor) != (version.Major, version.Minor))
@@ -169,7 +169,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 var retryVersion = (required.Major, required.Minor, (byte)0);
                 GordianLog.Info("LSB_LOGIN", $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; logging in again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
                 version = retryVersion;
-                (result, error) = await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+                (result, error) = await AuthenticateTrustedAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
             }
             if (error != null)
             {
@@ -181,7 +181,34 @@ namespace Gordian.Core.Network.LandSandBoat
             return result;
         }
 
-        /// <summary>One login attempt: the result, or the server's <c>error_message</c>.</summary>
+        /// <summary>
+        /// One login attempt as <see cref="AuthenticateOnceAsync"/>; when the server's certificate is not trusted, asks
+        /// <see cref="ConfirmServerCertificate"/> and, if the user trusts it, pins it and connects again.
+        /// </summary>
+        private async Task<((uint AccountId, byte[] SessionHash) Result, string? Error)> AuthenticateTrustedAsync(
+            string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+            }
+            catch (UntrustedServerCertificateException ex) when (ConfirmServerCertificate != null)
+            {
+                var info = ex.Certificate;
+                GordianLog.Warning("LSB_LOGIN", ex.Message);
+                if (!await ConfirmServerCertificate(info, ct).ConfigureAwait(false)) throw;
+                CertificateStore.Set(host, port, info.Sha256Fingerprint);
+                GordianLog.Info("LSB_LOGIN", $"Trusted the TLS certificate of {host}:{port} (SHA-256 {info.Sha256Fingerprint}).");
+            }
+            return await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// One login attempt: the result, or the server's <c>error_message</c>. The TLS handshake fails with
+        /// <see cref="UntrustedServerCertificateException"/>, before anything is sent, unless the server's certificate is
+        /// trusted (<see cref="ServerCertificateTrust.Evaluate"/> against <see cref="CertificateStore"/>).
+        /// </summary>
         private async Task<((uint AccountId, byte[] SessionHash) Result, string? Error)> AuthenticateOnceAsync(
             string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
             CancellationToken ct)
@@ -194,12 +221,32 @@ namespace Gordian.Core.Network.LandSandBoat
             using var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync(host, port, authCt).ConfigureAwait(false);
 
-            using var sslStream = new SslStream(tcpClient.GetStream(), false, ValidateRemoteCertificate);
-            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            string? pinned = CertificateStore.Get(host, port);
+            ServerCertificateInfo? refused = null;
+            bool ValidateRemoteCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate? certificate,
+                System.Security.Cryptography.X509Certificates.X509Chain? chain, SslPolicyErrors sslPolicyErrors)
             {
-                TargetHost = host,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            }, authCt).ConfigureAwait(false);
+                if (certificate == null) return false;
+                var decision = ServerCertificateTrust.Evaluate(sslPolicyErrors, ServerCertificateTrust.Fingerprint(certificate), pinned);
+                if (decision == CertificateTrustDecision.Trusted) return true;
+                refused = ServerCertificateInfo.From(host, port, certificate, sslPolicyErrors,
+                    decision == CertificateTrustDecision.Changed ? pinned : null);
+                return false;
+            }
+
+            using var sslStream = new SslStream(tcpClient.GetStream(), false, ValidateRemoteCertificate);
+            try
+            {
+                await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = host,
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+                }, authCt).ConfigureAwait(false);
+            }
+            catch (AuthenticationException) when (refused != null)
+            {
+                throw new UntrustedServerCertificateException(refused);
+            }
 
             // Command 0x10 = LOGIN_ATTEMPT
             var authPayload = new Dictionary<string, object>

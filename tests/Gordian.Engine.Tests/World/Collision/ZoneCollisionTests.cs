@@ -220,6 +220,38 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         [Fact]
+        public void ZoneInSettle_UnderTheFloor_RisesOntoIt()
+        {
+            // Western Adoulin's Mog House exit (#427): LandSandBoat puts the player at height +0.75, under the floors at
+            // -0.15 and -0.75 of the retail collision there; the player stands on the top one.
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(0.0f, 0.75f, -142.0f), IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            var controller = new PlayerLocomotionController(new InputState(), InputProfile.CreateCompact(), world, player);
+            world.Collision = new ZoneCollisionMesh(Floor(-10, -150, 10, -130, -0.15f).Concat(Floor(-10, -150, 10, -130, -0.75f)).ToList());
+            player.RequestGroundSettle();
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(-0.75f, localEnt.Position.Y, 3);
+            Assert.False(controller.IsFalling);
+        }
+
+        [Fact]
+        public void ZoneInSettle_DoesNotRiseBeyondTheLimit()
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = new Vector3(0.0f, 0.0f, 0.0f), IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            var controller = new PlayerLocomotionController(new InputState(), InputProfile.CreateCompact(), world, player);
+            float overhead = -(PlayerLocomotionController.ArrivalRiseLimit + 1.0f);
+            world.Collision = new ZoneCollisionMesh(Floor(-10, -10, 10, 10, overhead).ToList());
+            player.RequestGroundSettle();
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.Equal(0.0f, localEnt.Position.Y, 3);
+        }
+
+        [Fact]
         public void ArrivalReady_WaitsForTheSettleAndOneTick()
         {
             var world = new WorldState();

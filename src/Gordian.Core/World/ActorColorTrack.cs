@@ -59,9 +59,13 @@ namespace Gordian.Core.World
 
         /// <summary>
         /// Schedules a routine's colour commands from <paramref name="startSeconds"/>: each 0x29 a fade, each 0x2E a hold
-        /// to its end. Returns whether the routine had any.
+        /// to its end, and, with <paramref name="resolve"/>, those of the routines it starts with 0x03 at their start (Upper
+        /// Jeuno 10221's <c>kie0</c> starts <c>eff0</c>, whose 0x29 dims Iroha, #237). Returns whether there were any.
         /// </summary>
-        public bool Schedule(Resources.Events.SceneRoutine routine, double startSeconds)
+        public bool Schedule(Resources.Events.SceneRoutine routine, double startSeconds, Func<string, Resources.Events.SceneRoutine?>? resolve = null) =>
+            Schedule(routine, startSeconds, resolve, 0);
+
+        private bool Schedule(Resources.Events.SceneRoutine routine, double startSeconds, Func<string, Resources.Events.SceneRoutine?>? resolve, int depth)
         {
             ArgumentNullException.ThrowIfNull(routine);
             bool any = false;
@@ -78,10 +82,16 @@ namespace Gordian.Core.World
                         HoldUntil(start + command.Duration / FramesPerSecond);
                         any = true;
                         break;
+                    case Resources.Events.SceneCommandKind.StartRoutine when resolve != null && depth < MaxNesting && command.Reference != routine.Name:
+                        if (resolve(command.Reference) is { } started) any |= Schedule(started, start, resolve, depth + 1);
+                        break;
                 }
             }
             return any;
         }
+
+        /// <summary>How deep <see cref="Schedule(Resources.Events.SceneRoutine, double, Func{string, Resources.Events.SceneRoutine?})"/> follows routines that start routines.</summary>
+        private const int MaxNesting = 4;
 
         /// <summary>Routine frames per second.</summary>
         public const double FramesPerSecond = 60.0;

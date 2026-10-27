@@ -135,7 +135,7 @@ namespace Gordian.Core.Resources.Events
     /// <summary>What a scene routine command does, as far as the event presentation plays it.</summary>
     public enum SceneCommandKind : byte
     {
-        /// <summary>Anything not played (markers, motion clips 0x05, scene colour 0x46, the unknown ops of #206).</summary>
+        /// <summary>Anything not played here (markers, motion clips 0x05: the event dialog plays those as gestures, #238; scene colour 0x46, the unknown ops of #206).</summary>
         Other,
 
         /// <summary>Op 0x04: plays the camera route <see cref="SceneCommand.Reference"/> over the command's duration.</summary>

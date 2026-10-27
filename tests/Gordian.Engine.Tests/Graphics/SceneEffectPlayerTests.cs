@@ -167,5 +167,39 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.NotEmpty(glow.Particles);
             Assert.False(SceneEffectPlayer.IsCameraSpace(glow.Template));
         }
+
+        /// <summary>
+        /// Upper Jeuno 10221 (#237): Tenzen's sword glow is <c>p1on</c> of file 70831 (<c>gwep</c> and three sparks emitting
+        /// for good), and <c>p1of</c>, started 61 frames later as its own task, stops them with op 0x2D, so the glow is
+        /// gone once the last particles have lived out their lives.
+        /// </summary>
+        [Fact]
+        public void TenzenSwordGlow_EndsWhenP1ofStopsItsGenerators()
+        {
+            if (Open(70831) is not var (player, _)) return;
+            player.Start(1, "p1on");
+            for (int i = 0; i < 61; i++) player.Update(1, ActorFrame, CameraFrame);
+            Assert.Contains("gwep", Live(player));
+            player.Start(2, "p1of");
+            Run(player, 300);
+            Assert.Empty(Live(player));
+        }
+
+        /// <summary>
+        /// Northern San d'Oria 898 (#238): the player's summoning glow is <c>star</c> of file 70609 (generators emitting for
+        /// good) and <c>stop</c>, its own task 177 frames later, stops them with op 0x2D, so nothing is left once the
+        /// last particles have lived out their lives (the in-game test of 2026-10-03 predates op 0x2D, #132).
+        /// </summary>
+        [Fact]
+        public void SummonGlow_EndsWhenStopStopsItsGenerators()
+        {
+            if (Open(70609) is not var (player, _)) return;
+            player.Start(1, "star");
+            for (int i = 0; i < 177; i++) player.Update(1, ActorFrame, CameraFrame);
+            Assert.Contains("lgl1", Live(player));
+            player.Start(2, "stop");
+            Run(player, 600);
+            Assert.Empty(Live(player));
+        }
     }
 }

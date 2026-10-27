@@ -186,6 +186,11 @@ namespace Gordian.App.Graphics
                 session.ActionService.MountName = i => mountStrings.TryGetString(DMsgCategory.MountNames, i, out var name) ? name : null;
                 session.ActionService.MountHelp = i => mountStrings.TryGetString(DMsgCategory.MountHelp, i, out var help) ? help : null;
             }
+            if (session.ActionService.ZoneName == null && _resources is { } zoneStrings)
+            {
+                // The Mog House exit's area list (#354): zone names by zone id (ROM/165/84).
+                session.ActionService.ZoneName = i => zoneStrings.TryGetString(DMsgCategory.ZoneNames, i, out var name) ? name : null;
+            }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
                 // /importretail reads the install's USER folder (read-only).

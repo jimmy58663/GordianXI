@@ -33,6 +33,18 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void ExitAreas_FollowLandSandBoatsOptionOrder()
+        {
+            Assert.Empty(MogHouseRooms.ExitAreas(MogHouseExitBit.Default));
+            Assert.Empty(MogHouseRooms.ExitAreas(MogHouseExitBit.RonfaureFront));
+            Assert.Equal(new ushort[] { 230, 231, 232 }, MogHouseRooms.ExitAreas(MogHouseExitBit.SandOria));
+            Assert.Equal(new ushort[] { 238, 239, 240, 241 }, MogHouseRooms.ExitAreas(MogHouseExitBit.Windurst));
+            Assert.Equal(new ushort[] { 243, 244, 245, 246 }, MogHouseRooms.ExitAreas(MogHouseExitBit.Jeuno));
+            Assert.Equal(new ushort[] { 48, 50 }, MogHouseRooms.ExitAreas(MogHouseExitBit.Whitegate));
+            Assert.Equal(new ushort[] { 256, 257 }, MogHouseRooms.ExitAreas(MogHouseExitBit.Adoulin));
+        }
+
+        [Fact]
         public void MapZone_FollowsTheMogHouse_WithinOneCity()
         {
             var world = new WorldState();

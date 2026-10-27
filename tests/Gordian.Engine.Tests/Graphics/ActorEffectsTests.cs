@@ -174,6 +174,44 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.All(instance.Emitters, e => Assert.Empty(e.Emitter.Particles));
         }
 
+        /// <summary>
+        /// The Yahse Hunting Grounds campfire (model 2411, #425) burns at rest: its idle state routine ids0 links s000 / s001,
+        /// which start the flames. Before, its state-driven generators waited for a routine nothing played, and the campfire
+        /// was not drawn at all (its skin mesh is a placeholder).
+        /// </summary>
+        [Fact]
+        public void Campfire_BurnsAtRest()
+        {
+            if (!System.IO.Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            // As the game loads it: the flames hon0 sample the shared fire sprite hi12.
+            var effects = rm.GetActorEffects(2411)!;
+            Assert.Equal(new[] { "s000", "s001" }, effects.IdleStateLinks);
+            var instance = new ActorEffectInstance(effects);
+            for (int i = 0; i < 60; i++) instance.Update(1f, RetailFrame);
+            Assert.Contains(instance.Emitters, e => e.Layer.Name == "hon0" && e.Emitter.Particles.Count > 0);
+            Assert.Contains(instance.Emitters, e => e.Layer.Name == "kag0" && e.Emitter.Particles.Count > 0); // the log pile
+        }
+
+        [Fact]
+        public void ReadRoutineLinks_ListsSameDatLinksInOrder()
+        {
+            byte[] payload = new byte[0x20 + 0x10 + 0x10 + 8];
+            BitConverter.GetBytes(0x20 + 16).CopyTo(payload, 0x14);
+            void Link(int at, string id)
+            {
+                payload[at] = 0x03;
+                payload[at + 1] = 4;
+                System.Text.Encoding.ASCII.GetBytes(id).CopyTo(payload, at + 8);
+            }
+            Link(0x20, "s000");
+            Link(0x30, "s1");
+            var links = new System.Collections.Generic.List<string>();
+            ActorEffectLoader.ReadRoutineLinks(payload, links);
+            Assert.Equal(new[] { "s000", "s1" }, links);
+        }
+
         /// <summary>The Home Point crystal (model 51) has no state routines: its idle layers still emit from spawn.</summary>
         [Fact]
         public void HomePoint_KeepsItsIdleLayers()

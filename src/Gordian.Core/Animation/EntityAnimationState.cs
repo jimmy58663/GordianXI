@@ -221,6 +221,9 @@ namespace Gordian.Core.Animation
             _incomingActions.Enqueue(request);
         }
 
+        /// <summary>Whether an action is queued and not yet taken by <c>Advance</c>.</summary>
+        internal bool HasQueuedActions => !_incomingActions.IsEmpty;
+
         /// <summary>
         /// Loads an event motion bank onto the entity (opcode 0x5B; thread-safe): its routines play for event gestures
         /// before the model's own. Loading the same bank again changes nothing.
@@ -924,7 +927,19 @@ namespace Gordian.Core.Animation
             var banks = _eventBanks;
             for (int i = banks.Length - 1; i >= 0; i--)
             {
-                if (banks[i].Routines.TryGetValue(name, out var routine))
+                bool found = banks[i].Routines.TryGetValue(name, out var routine);
+                if (found && routine!.Segments.Count > 0)
+                {
+                    bank = banks[i];
+                    return routine;
+                }
+                // A scene file's routine plays the actor's own clips (op 0x05 ri0?, #238): built on the model instead.
+                if (banks[i].PlaysClip(name))
+                {
+                    bank = banks[i];
+                    return bank.BuildClipsOnModel(model, name);
+                }
+                if (found)
                 {
                     bank = banks[i];
                     return routine;

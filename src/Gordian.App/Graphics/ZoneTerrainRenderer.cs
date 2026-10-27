@@ -2362,16 +2362,27 @@ namespace Gordian.App.Graphics
                     }
                     else
                     {
-                        var definition = emitter.Template.Definition;
-                        Vector3 joint = definition.AttachType == ParticleAttachType.None || anchor is not { } posed
-                            ? Vector3.Zero
-                            : Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales,
-                                ActorEffectInstance.GetJointReference(definition));
-                        frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * slot.ModelToWorld;
+                        frame = DisplayFlip * JointFrame(emitter.Template.Definition, anchor) * slot.ModelToWorld;
                     }
                     foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, sortDistance, emitter, frame));
                 }
             }
+        }
+
+        /// <summary>
+        /// Where an actor's generator sits in its model space: the joint reference it attaches to (the model origin for an
+        /// unattached one or an actor not drawn). A generator held in the hand (SourceActorWeapon) also turns with the grip:
+        /// Upper Jeuno 10221's sword glow (70831 <c>gwep</c>, its sparks authored half a yalm along the blade from reference 46)
+        /// lay off Tenzen's blade while only the grip's position was taken (#237 round 1).
+        /// </summary>
+        private static Matrix4x4 JointFrame(ParticleGeneratorDefinition definition, ActorAnchor? anchor)
+        {
+            if (definition.AttachType == ParticleAttachType.None || anchor is not { } posed) return Matrix4x4.Identity;
+            int reference = ActorEffectInstance.GetJointReference(definition);
+            Vector3 joint = Skeleton.ResolveJointReference(posed.Skeleton, posed.Pose.Translations, posed.Pose.Rotations, posed.Pose.Scales, reference);
+            if (definition.AttachType != ParticleAttachType.SourceActorWeapon) return Matrix4x4.CreateTranslation(joint);
+            var rotation = Skeleton.ResolveJointReferenceRotation(posed.Skeleton, posed.Pose.Rotations, reference);
+            return Matrix4x4.CreateFromQuaternion(rotation) * Matrix4x4.CreateTranslation(joint);
         }
 
         /// <summary>
