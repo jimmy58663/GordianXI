@@ -51,7 +51,10 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(StockUiMap.AreaListMenu, areas.Name);
             Assert.Equal("San d'Oria", areas.Rows[1].Text);
             menus.MoveMapView(0, 0, 0, 3);
-            screen.Render(r =>
+            var areaFrame = areas.Menu.Frame;
+            var areaAt = StockUiLayout.Place(areaFrame.Anchor, areaFrame.X, areaFrame.Y, areaFrame.Width, areaFrame.Height, 1, screen.Width, screen.Height);
+            var areaRow = areas.Menu.FindButton(1)!;
+            var listShot = screen.Render(r =>
             {
                 StockUiMapWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, map, texture, "Northern San d'Oria", 1, screen.Width, screen.Height);
                 foreach (var open in new[] { map, areas })
@@ -61,6 +64,11 @@ namespace Gordian.App.Tests.Graphics
                     StockUiMenuWindow.Draw(r, screen.Library, screen.Font, open, at, Stopwatch.GetTimestamp(), logFont: screen.LogFont);
                 }
             }, "gpu_map_arealist.png");
+            // The selected row's red bar (retail round 3 gap, image-25): about (112, 54, 51) just below the row's middle.
+            var bar = screen.Pixel(listShot, (int)(areaAt.X + 200), (int)(areaAt.Y + areaRow.Y + areaRow.Height * 0.55f));
+            Assert.True(bar.R > 80 && bar.R > bar.G + 30 && bar.R > bar.B + 30, $"selected row bar pixel {bar}");
+            var unselected = screen.Pixel(listShot, (int)(areaAt.X + 200), (int)(areaAt.Y + areaRow.Y + areaRow.Height * 1.55f));
+            Assert.True(unselected.R - unselected.G < 25, $"unselected row pixel {unselected}");
 
             // Beyond retail (round 2): zoomed out and panned to the top, the map stops a margin under the help bar, black above.
             menus.CloseTop();
