@@ -160,7 +160,7 @@ namespace Gordian.Core.Network.Packets
                             AddMotionSample(player, newPos, isMoving: true, movTime, pc.Direction);
 
                             string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
-                            GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, speed={player.Speed}, packetDelta={dtMs:F0}ms, sampleAge={player.LastSampleAgeSeconds:F2}s, delay={player.PlaybackDelaySeconds:F2}s, behind={Vector3.Distance(newPos, player.Position):F2}");
+                            GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, speed={player.Speed}, packetDelta={dtMs:F0}ms, sampleAge={player.LastSampleAgeSeconds:F2}s, delay={player.PlaybackDelaySeconds:F2}s, interval={player.UpdateIntervalSeconds:F2}s, ground={player.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, player.Position):F2}");
                         }
                         else if (S2C_0x00D_CharPc.IsMovingMovTime(movTime))
                         {
@@ -397,7 +397,7 @@ namespace Gordian.Core.Network.Packets
                         AddMotionSample(entity, newPos, isMoving: true, movTime: 0, npcPacket.Direction);
 
                         string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
-                        GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, speed={entity.Speed}, packetDelta={dtMs:F0}ms, delay={entity.PlaybackDelaySeconds:F2}s, behind={Vector3.Distance(newPos, entity.Position):F2}");
+                        GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, speed={entity.Speed}, packetDelta={dtMs:F0}ms, delay={entity.PlaybackDelaySeconds:F2}s, interval={entity.UpdateIntervalSeconds:F2}s, ground={entity.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, entity.Position):F2}");
                     }
                     else
                     {

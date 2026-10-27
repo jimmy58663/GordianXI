@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Threading;
 using Gordian.Core.Animation;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -124,10 +125,44 @@ namespace Gordian.Core.World
         public const float MaxTrailSeconds = 1.5f;
 
         /// <summary>
-        /// Playback delay (seconds behind real time) a remote entity starts with before its update cadence is learned.
-        /// Captured traffic needs ~1.4-2.0s: a ~1.4s server broadcast interval plus up to ~0.6s of sample staleness.
+        /// Seconds between position updates of a moving entity, assumed until its own cadence is learned
+        /// (<see cref="UpdateIntervalSeconds"/>). LandSandBoat moves entities on its 400 ms logic tick
+        /// (<c>kLogicUpdateInterval</c>, map_constants.h) and a Release build sends 0x00D / 0x00E for a moving entity on
+        /// every tick: median 0.40 s (10th-90th percentile 0.31-0.49 s) over 57,000 mob and 1,600 player updates in the
+        /// maintainer's session logs of 2026-10-23 to 2026-10-26 (#359). A Debug build batched them about 1.4 s apart.
         /// </summary>
-        public const float DefaultPlaybackDelaySeconds = 1.8f;
+        public const float DefaultUpdateIntervalSeconds = 0.4f;
+
+        /// <summary>
+        /// Playback delay (seconds behind real time) a remote entity starts with before its update cadence is learned: one
+        /// update interval plus the arrival jitter (90th percentile 0.49 s against the 0.40 s median, #359) and
+        /// <see cref="DelayMarginSeconds"/>.
+        /// </summary>
+        public const float DefaultPlaybackDelaySeconds = 0.6f;
+
+        /// <summary>
+        /// Shortest playback delay: the timeline never plays closer to real time than this.
+        /// </summary>
+        public const float MinPlaybackDelaySeconds = 0.3f;
+
+        /// <summary>
+        /// Longest playback delay: covers a Debug server's 1.4 s batches plus their staleness.
+        /// </summary>
+        public const float MaxPlaybackDelaySeconds = 3.0f;
+
+        /// <summary>
+        /// Update intervals of silence after which a moving entity counts as stopped (plus <see cref="DelayMarginSeconds"/>).
+        /// LandSandBoat sends no update when a monster or NPC stops, it just stops sending: 99.9% of the gaps between a moving
+        /// mob's updates are under 0.6 s and almost none fall between 0.6 and 1.2 s, while a pause lasts seconds (#359).
+        /// Without this, playback took the silence for a late update and grew its delay to the 3 s cap, so the mob's next
+        /// move started 3 s late (every one of about 1,900 moves after a pause in the 2026-10-23/25/26 logs).
+        /// </summary>
+        public const float StopTimeoutIntervals = 2.0f;
+
+        /// <summary>
+        /// Gaps longer than this between two moving updates are pauses, not the update cadence, and are not learned.
+        /// </summary>
+        public const float MaxLearnedIntervalSeconds = 3.0f;
 
         /// <summary>
         /// Rate of the 0x00D movement counter (<see cref="LastMovTime"/>): ticks per second of continuous movement.
@@ -136,21 +171,32 @@ namespace Gordian.Core.World
         public const double MovTimeTicksPerSecond = 60.0;
 
         /// <summary>
-        /// Seconds of not-yet-played samples below which playback slows down while an entity is moving, rather than freezing.
-        /// </summary>
-        public const float StarvationBufferSeconds = 0.25f;
-
-        /// <summary>
         /// Safety margin added to the worst observed sample staleness when choosing the playback delay. Small, because
         /// running short degrades to a brief slowdown rather than a stop.
         /// </summary>
         public const float DelayMarginSeconds = 0.1f;
 
         /// <summary>
-        /// How much sooner than the steady-state delay a move from rest starts playing. The first stretch of a move does not
-        /// need the full buffer; playback rebuilds it by running <see cref="DelayRecoveryRate"/> slower than real time.
+        /// Seconds of not-yet-played samples below which playback slows down while an entity is moving, rather than freezing.
+        /// No more than <see cref="DelayMarginSeconds"/>: the delay leaves that much in hand when the update arrives as late as
+        /// the worst recent one, so a normal update never triggers the slowdown. At 0.25 s (tuned for 1.4 s batches) every
+        /// 400 ms update cycle dipped below it and the entity sped up and slowed down on each one.
         /// </summary>
-        public const float StartLeadSeconds = 0.5f;
+        public const float StarvationBufferSeconds = DelayMarginSeconds;
+
+        /// <summary>
+        /// How much sooner than the steady-state delay a move from rest starts playing, in update intervals. The first
+        /// stretch of a move does not need the full buffer; playback rebuilds it by running <see cref="DelayRecoveryRate"/>
+        /// slower than real time. 0.35 intervals is the 0.5 s tuned against the Debug server's 1.4 s batches; at the Release
+        /// server's 0.4 s it is 0.14 s.
+        /// </summary>
+        public const float StartLeadIntervals = 0.35f;
+
+        /// <summary>
+        /// Number of recent delay requirements (gaps between updates) whose worst sets the playback delay: about 5 s of
+        /// movement at 400 ms, so the occasional 0.5-0.6 s gap (2-10% of them, #359) is in the window.
+        /// </summary>
+        public const int DelayRequirementWindow = 12;
 
         /// <summary>
         /// Fraction of real time by which playback may run slow (to rebuild the delay) or fast (to shrink it).
@@ -181,9 +227,16 @@ namespace Gordian.Core.World
 
         private readonly object _motionLock = new();
         private readonly List<MotionSample> _samples = new(16);
-        private readonly float[] _delayRequirements = new float[6];
+        private readonly float[] _delayRequirements = new float[DelayRequirementWindow];
         private int _delayRequirementCount;
         private int _delayRequirementNext;
+        private readonly float[] _intervals = new float[8];
+        private int _intervalCount;
+        private int _intervalNext;
+        private float _updateInterval = DefaultUpdateIntervalSeconds;
+        private float _groundSpeed;
+        private double _lastArrival = double.NegativeInfinity;
+        private bool _lastSampleMoving;
         private bool _moveSessionActive;
         private double _moveSessionOrigin;
         private ushort _moveSessionLastMovTime;
@@ -197,6 +250,32 @@ namespace Gordian.Core.World
         /// Current seconds this entity is displayed behind real time.
         /// </summary>
         public float PlaybackDelaySeconds { get { lock (_motionLock) return _playbackDelay; } }
+
+        /// <summary>
+        /// Seconds between this entity's position updates while it moves: the median of its recent gaps, or
+        /// <see cref="DefaultUpdateIntervalSeconds"/> until one is seen. The other playback timings scale with it, so a
+        /// server with a different cadence (a Debug LandSandBoat build batches about 1.4 s apart) is followed after one gap.
+        /// </summary>
+        public float UpdateIntervalSeconds { get { lock (_motionLock) return _updateInterval; } }
+
+        /// <summary>
+        /// Silence after which a moving entity counts as stopped: <see cref="StopTimeoutIntervals"/> update intervals plus
+        /// <see cref="DelayMarginSeconds"/> (0.9 s at 400 ms updates).
+        /// </summary>
+        public float StopTimeoutSeconds { get { lock (_motionLock) return StopTimeoutFor(_updateInterval); } }
+
+        /// <summary>
+        /// Ground speed (yalms per second) seen between this entity's recent moving samples, falling back to
+        /// <see cref="MovementSpeedYalms"/> until one is seen. It is not always the speed field / 10: LandSandBoat moves
+        /// monsters and NPCs at speed / 17 yalms per second (<c>kYalmsPerSecondPerSpeed</c>, pathfind.cpp; the logs agree:
+        /// 0.94 yalm per 400 ms at speed 40, 0.49 at speed 21), and a mounted player covers twice its speed field (#359).
+        /// Used to time a step the server gave no time for: a stop's final step, and a sample that arrived too late.
+        /// </summary>
+        public float GroundSpeedYalms { get { lock (_motionLock) return GroundSpeedLocked; } }
+
+        private float GroundSpeedLocked => _groundSpeed > 0f ? _groundSpeed : MovementSpeedYalms;
+
+        private static float StopTimeoutFor(float interval) => (StopTimeoutIntervals * interval) + DelayMarginSeconds;
 
         /// <summary>
         /// Whether server position samples drive this entity's render position (remote entities once they first move).
@@ -223,8 +302,9 @@ namespace Gordian.Core.World
         /// <para>
         /// For players, <paramref name="movTime"/> (the 0x00D movement counter, 60 ticks/sec since the move began) places each
         /// sample at the moment it was actually taken, rather than when the packet happened to arrive; the start of a move is
-        /// anchored at the last rest position. A stop is timed from the distance of its final step at the entity's speed.
-        /// NPCs carry no counter and are timestamped on arrival.
+        /// anchored at the last rest position. A stop is timed from the distance of its final step at the entity's ground speed.
+        /// NPCs carry no counter and are timestamped on arrival; a move from rest is anchored one update interval earlier,
+        /// since the server moved them for a tick before reporting it.
         /// </para>
         /// The render thread plays the timeline back <see cref="PlaybackDelaySeconds"/> behind real time, which adapts to how
         /// stale the newest sample can get before the next one arrives.
@@ -248,7 +328,19 @@ namespace Gordian.Core.World
                 double lastTime = hadSamples ? _samples[^1].Time : double.NegativeInfinity;
                 float nominal = MovementSpeedYalms;
 
-                float snapDistance = Math.Max(15.0f, nominal * MaxTrailSeconds * 2.0f);
+                // The gap since the previous update of a move is the server's cadence; a gap past the stop timeout means the
+                // entity stopped in between (the render thread may not have noticed: a session not on screen is not played).
+                double sinceLast = now - _lastArrival;
+                if (_lastSampleMoving && isMoving && sinceLast <= MaxLearnedIntervalSeconds)
+                {
+                    LearnInterval((float)sinceLast);
+                }
+                bool withinMove = sinceLast <= StopTimeoutFor(_updateInterval);
+                bool continuingMove = _expectMoreSamples && withinMove;
+                _lastArrival = now;
+                _lastSampleMoving = isMoving;
+
+                float snapDistance = Math.Max(15.0f, Math.Max(nominal, GroundSpeedLocked) * MaxTrailSeconds * 2.0f);
                 if (Vector3.Distance(newPos, lastPos) > snapDistance)
                 {
                     // Warp / zone-line hop: restart the timeline at the new position.
@@ -258,6 +350,7 @@ namespace Gordian.Core.World
                     _moveSessionOrigin = now - (movTime / MovTimeTicksPerSecond);
                     _moveSessionLastMovTime = movTime;
                     _moveSessionLastArrival = now;
+                    _expectMoreSamples = isMoving;
                     _hasMotionTimeline = true;
                     SnapToTargetPending = true;
                     TargetPosition = newPos;
@@ -282,25 +375,18 @@ namespace Gordian.Core.World
                         double allowance = MoveClockDriftAllowance * Math.Max(0.0, now - _moveSessionLastArrival);
                         double target = Math.Min(bound, _moveSessionOrigin + allowance);
                         _moveSessionOrigin = Math.Max(target, _moveSessionOrigin - allowance);
-                        measureDelay = true;
+                        measureDelay = withinMove;
+                        renderTime = ResumeFromHold(now, lastTime, renderTime);
                     }
                     else
                     {
                         _moveSessionOrigin = now - sinceMoveStart;
                         if (!_moveSessionActive)
                         {
-                            if (renderTime >= lastTime)
-                            {
-                                // Starting from rest (playback is idle): begin sooner than the steady-state delay. Re-seating
-                                // the playback clock while it holds at the rest position is invisible, as long as it stays at or
-                                // after the rest sample.
-                                float startDelay = Math.Max(0.3f, _targetPlaybackDelay - StartLeadSeconds);
-                                _playbackDelay = (float)Math.Min(startDelay, now - lastTime);
-                                renderTime = now - _playbackDelay;
-                            }
+                            renderTime = SeatMoveStart(now, lastTime, renderTime);
 
                             // Anchor the start of the move at the rest position so playback departs when the player did.
-                            AppendSample(Math.Max(_moveSessionOrigin, lastTime), lastPos, lastDirection, renderTime, nominal);
+                            AppendSample(Math.Max(_moveSessionOrigin, lastTime), lastPos, lastDirection, renderTime);
                         }
                         _moveSessionActive = true;
                     }
@@ -310,17 +396,30 @@ namespace Gordian.Core.World
                 }
                 else if (isMoving)
                 {
-                    measureDelay = hadSamples && Vector3.DistanceSquared(newPos, lastPos) > 0.0025f;
+                    if (!continuingMove)
+                    {
+                        // From rest. Monsters and NPCs carry no move counter, but the server moved them for one update
+                        // interval before sending this, so the move began about that long ago: anchor the rest position
+                        // there. Without the anchor the first step either snapped (no earlier sample) or was stretched over
+                        // the whole playback delay (3 s after a pause, #359).
+                        renderTime = SeatMoveStart(now, lastTime, renderTime);
+                        AppendSample(Math.Max(now - _updateInterval, lastTime), lastPos, lastDirection, renderTime);
+                    }
+                    else
+                    {
+                        renderTime = ResumeFromHold(now, lastTime, renderTime);
+                    }
+                    measureDelay = continuingMove && hadSamples && Vector3.DistanceSquared(newPos, lastPos) > 0.0025f;
                     sampleTime = now;
                 }
                 else
                 {
-                    // Stopped: the final step ended roughly its length (at movement speed) after the previous sample. An update
+                    // Stopped: the final step ended roughly its length (at ground speed) after the previous sample. An update
                     // while already at rest (a turn in place, a small correction) plays as soon as playback is idle.
                     sampleTime = _moveSessionActive && hadSamples
-                        ? Math.Min(now, lastTime + (Vector3.Distance(newPos, lastPos) / nominal))
+                        ? Math.Min(now, lastTime + (Vector3.Distance(newPos, lastPos) / GroundSpeedLocked))
                         : (renderTime >= lastTime ? renderTime : now);
-                    measureDelay = _moveSessionActive && hadSamples;
+                    measureDelay = _moveSessionActive && hadSamples && withinMove;
                     _moveSessionActive = false;
                     _moveSessionLastMovTime = 0;
                 }
@@ -331,20 +430,53 @@ namespace Gordian.Core.World
                     RecordDelayRequirement((float)(now - lastTime));
                 }
 
+                if (isMoving && continuingMove && hadSamples)
+                {
+                    LearnGroundSpeed(Vector3.Distance(newPos, lastPos), sampleTime - lastTime);
+                }
+
                 LastSampleAgeSeconds = (float)(now - sampleTime);
                 _expectMoreSamples = isMoving;
-                AppendSample(sampleTime, newPos, direction, renderTime, nominal);
+                AppendSample(sampleTime, newPos, direction, renderTime);
                 _hasMotionTimeline = true;
                 TargetPosition = newPos;
             }
         }
 
-        private void AppendSample(double time, Vector3 pos, byte direction, double renderTime, float nominalSpeed)
+        /// <summary>
+        /// A move from rest while playback is idle at the rest position begins sooner than the steady-state delay (by
+        /// <see cref="StartLeadIntervals"/> update intervals). Re-seating the playback clock while it holds there is invisible,
+        /// as long as it stays at or after the rest sample. Returns the new render time.
+        /// </summary>
+        private double SeatMoveStart(double now, double lastTime, double renderTime)
+        {
+            if (renderTime < lastTime) return renderTime;
+
+            float startDelay = Math.Max(MinPlaybackDelaySeconds, _targetPlaybackDelay - (StartLeadIntervals * _updateInterval));
+            _playbackDelay = (float)Math.Min(startDelay, now - lastTime);
+            return now - _playbackDelay;
+        }
+
+        /// <summary>
+        /// The next sample of a move arrived after playback ran out and stopped at the newest one: the playback clock is set
+        /// back to that sample, which is invisible while it holds there, so the new segment plays at its true pace instead of
+        /// being squeezed into what is left of the delay (a sprint). The delay grows to what this update needed; it eases back
+        /// toward the target at <see cref="DelayRecoveryRate"/>. Returns the new render time.
+        /// </summary>
+        private double ResumeFromHold(double now, double lastTime, double renderTime)
+        {
+            if (renderTime < lastTime || now - lastTime > MaxPlaybackDelaySeconds) return renderTime;
+
+            _playbackDelay = (float)(now - lastTime);
+            return lastTime;
+        }
+
+        private void AppendSample(double time, Vector3 pos, byte direction, double renderTime)
         {
             if (_samples.Count > 0)
             {
                 MotionSample last = _samples[^1];
-                float stepSeconds = Math.Max(0.001f, Vector3.Distance(pos, last.Position) / nominalSpeed);
+                float stepSeconds = Math.Max(0.001f, Vector3.Distance(pos, last.Position) / GroundSpeedLocked);
                 if (last.Time < renderTime)
                 {
                     // Playback is holding at the last sample: continue from there rather than interpolating from where
@@ -353,7 +485,7 @@ namespace Gordian.Core.World
                 }
                 if (time <= renderTime)
                 {
-                    // Arrived too late to play at its true time: play it from the held position at movement speed.
+                    // Arrived too late to play at its true time: play it from the held position at ground speed.
                     time = renderTime + stepSeconds;
                 }
                 if (time <= _samples[^1].Time)
@@ -366,7 +498,7 @@ namespace Gordian.Core.World
 
         private void RecordDelayRequirement(float requiredSeconds)
         {
-            if (requiredSeconds <= 0f || requiredSeconds > 3.0f) return;
+            if (requiredSeconds <= 0f || requiredSeconds > MaxPlaybackDelaySeconds) return;
 
             _delayRequirements[_delayRequirementNext] = requiredSeconds;
             _delayRequirementNext = (_delayRequirementNext + 1) % _delayRequirements.Length;
@@ -377,7 +509,34 @@ namespace Gordian.Core.World
             {
                 worst = Math.Max(worst, _delayRequirements[i]);
             }
-            _targetPlaybackDelay = Math.Clamp(worst + DelayMarginSeconds, 0.3f, 3.0f);
+            _targetPlaybackDelay = Math.Clamp(Math.Max(worst, _updateInterval) + DelayMarginSeconds, MinPlaybackDelaySeconds, MaxPlaybackDelaySeconds);
+        }
+
+        private void LearnInterval(float seconds)
+        {
+            _intervals[_intervalNext] = seconds;
+            _intervalNext = (_intervalNext + 1) % _intervals.Length;
+            _intervalCount = Math.Min(_intervalCount + 1, _intervals.Length);
+
+            // The median: a clumped pair of updates or a short pause does not move it.
+            Span<float> sorted = stackalloc float[_intervals.Length];
+            _intervals.AsSpan(0, _intervalCount).CopyTo(sorted);
+            sorted = sorted[.._intervalCount];
+            sorted.Sort();
+            _updateInterval = sorted[_intervalCount / 2];
+
+            // The next update is due an interval after the newest one, so playback needs at least that much in hand: a
+            // slower server is followed from its first gap, without waiting for late updates to grow the delay.
+            _targetPlaybackDelay = Math.Clamp(Math.Max(_targetPlaybackDelay, _updateInterval + DelayMarginSeconds), MinPlaybackDelaySeconds, MaxPlaybackDelaySeconds);
+        }
+
+        private void LearnGroundSpeed(float distance, double seconds)
+        {
+            // Too short a gap (two updates clumped together) says little about speed.
+            if (seconds < 0.15 || distance < 0.05f) return;
+
+            float observed = Math.Clamp((float)(distance / seconds), 0.2f, 40.0f);
+            _groundSpeed = _groundSpeed > 0f ? _groundSpeed + (0.3f * (observed - _groundSpeed)) : observed;
         }
 
         /// <summary>
@@ -421,11 +580,23 @@ namespace Gordian.Core.World
 
             Vector3 travel;
             bool translating;
+            float silentFor = 0f;
             if (_hasMotionTimeline)
             {
                 lock (_motionLock)
                 {
                     SnapToTargetPending = false;
+
+                    if (_expectMoreSamples && now - _lastArrival > StopTimeoutFor(_updateInterval))
+                    {
+                        // No update for longer than a moving entity ever goes without one: it stopped. LandSandBoat sends no
+                        // stop for monsters and NPCs, it just stops sending (#359). Finish the move and idle once there,
+                        // instead of growing the delay as if the next update were only late.
+                        // A player's move session is kept: if its counter carries on, the move never stopped.
+                        _expectMoreSamples = false;
+                        StopOnArrival = true;
+                        silentFor = (float)(now - _lastArrival);
+                    }
 
                     float dt = Math.Max(0f, deltaSeconds);
                     double buffered = _samples[^1].Time - (now - _playbackDelay);
@@ -444,13 +615,13 @@ namespace Gordian.Core.World
                         if (buffered < StarvationBufferSeconds)
                         {
                             float rate = Math.Clamp((float)(buffered / StarvationBufferSeconds), 0.25f, 1.0f);
-                            _playbackDelay = Math.Min(3.0f, _playbackDelay + (dt * (1.0f - rate)));
+                            _playbackDelay = Math.Min(MaxPlaybackDelaySeconds, _playbackDelay + (dt * (1.0f - rate)));
                         }
                     }
                     else if (buffered > 0)
                     {
                         // Final stretch of a move whose stop has arrived: nothing left to wait for, so play it a little fast.
-                        _playbackDelay = Math.Max(0.3f, _playbackDelay - (StopCatchUpRate * dt));
+                        _playbackDelay = Math.Max(MinPlaybackDelaySeconds, _playbackDelay - (StopCatchUpRate * dt));
                     }
                     double renderTime = now - _playbackDelay;
 
@@ -517,6 +688,12 @@ namespace Gordian.Core.World
                     Speed = 0;
                     LocomotionDirection = LocomotionDirection.Forward;
                 }
+            }
+
+            if (silentFor > 0f)
+            {
+                GordianLog.Info("Locomotion", $"[Entity 0x{ServerId:X8}:{Name}] MOVE STOP (silence): no update for {silentFor:F2}s, " +
+                    $"interval={UpdateIntervalSeconds:F2}s, ground={GroundSpeedYalms:F2}, delay={PlaybackDelaySeconds:F2}s");
             }
 
             if (IsTranslating && !translating)
