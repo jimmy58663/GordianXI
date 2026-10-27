@@ -107,7 +107,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Titles | `ROM/180/78` | 55704 |
 | Jobs | `ROM/165/86` | 55467 |
 | Key items | `ROM/175/35` | 55714 |
-| Zone names / short zone names | `ROM/165/84` / `ROM/165/83` | 55465 / 55661 |
+| Zone names / short zone names (also the Mog House exit's area list, #354) | `ROM/165/84` / `ROM/165/83` | 55465 / 55661 |
 | Compact zone names (`DMsgCategory.ZoneNamesCompact`) | `ROM/165/85` | 55466 |
 | Weather names by weather id (`DMsgCategory.WeatherNames`, 20 rows of noun and adjective: 0 "fine patches" / "fine", 1 "sunshine" / "sunny" ... 19 "darkness" / "dark"; the dialog's 0x01 kind `18` names the noun, `17` the adjective) | `ROM/165/79` | 55657 |
 | Quests San d'Oria, Bastok, Windurst, Jeuno | `ROM/176/60`-`63` | 55706-55709 |
@@ -116,7 +116,7 @@ All loaded by path (`ResourceManager.GetDMsgRelativePath`) and decoded by `DMsgS
 | Missions WotG / Adoulin / RoV | `ROM/196/7` / `ROM/293/69` / `ROM/333/4` | 55723 / 55738 / 56281 |
 | Menu config rows / help / window titles (EN; JP is 120 ids lower) | `ROM/165/74` / `75` / `76` | 55650 / 55651 / 55652 |
 | Mount names / mount help by client mount id (`DMsgCategory.MountNames` / `MountHelp`, 39 rows: 0 "Chocobo" / "Calls forth your personal chocobo." ... 38 "Bubble Crab"), the mount list and its help bar (#87) | `ROM/351/84` / `ROM/351/85` | 55681 / 55682 |
-| Menu messages (`DMsgCategory.MenuMessages`): "Examine %s?" (95), "You do not possess any key items." (96), "Remove piece." / "Keep same piece." (275 / 276), the equipment set prompts (277-279), alter ego and chat-filter notices (#91, #92) | `ROM/165/72` | 55648 (PROVISIONAL: by the neighbours' numbering) |
+| Menu messages (`DMsgCategory.MenuMessages`): "Examine %s?" (95), "You do not possess any key items." (96), "Remove piece." / "Keep same piece." (275 / 276), the equipment set prompts (277-279), alter ego and chat-filter notices (#91, #92), the Mog House exit menu (69 "Which area do you want to exit to?", 70, 184, 185, 293; #354) | `ROM/165/72` | 55648 (PROVISIONAL: by the neighbours' numbering) |
 
 The help table (`ROM/165/75`, `DMsgCategory.MenuHelp`) feeds the Items and Equipment windows' help bar ([stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352), #351) and the config rows table the list pages' rows (`DMsgCategory.MenuConfigRows`); the titles table is not read yet ([stock-ui.md](../ui/stock-ui.md#menu-string-tables-19)); the Font Colors rows (config rows 63-88, 197, 204-205; `StockUiFontColors`), the Log page rows (36-62, 196) the Effects rows (153-170; both `StockUiConfigPages`) and the gamepad key-assignment functions (rows 99-100, 108, 134-140; `GamepadAssignments`, #21) are typed in code word for word from ROM/165/74, rows 89-142 being retail's key and gamepad assignment names. Help 1092 (ROM/165/75) is the config list's Gamepad entry: "Boots up the FINAL FANTASY XI GAMEPAD Config program." **Beyond xi-tools:** xi-tools points at the `XISTRING` tables in `ROM/97` (help `ROM/97/42` = id 54, titles `ROM/97/41` = id 53). Those are an older snapshot that lacks the ids current menus use; the current tables are in `ROM/165`.
 
