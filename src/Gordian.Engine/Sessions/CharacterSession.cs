@@ -417,6 +417,14 @@ namespace Gordian.Engine.Sessions
             // The synthesis animation (S2C 0x030) plays on the crafters. The guild shop's purchases and sales print to the log;
             // its lists and the open status print only for /guild while the guild shop window (#330) is not up.
             SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
+            // A chocobo dig (S2C 0x02F) plays the riding routine chor on the rider and the chocobo (#437).
+            Combat.DigReceived += (serverId, targetIndex) =>
+            {
+                if ((World.TryGetByServerId(serverId, out var digger) || World.TryGetByTargetIndex(targetIndex, out digger)) && digger != null)
+                {
+                    Animation.MountTransitions.PlayDig(digger);
+                }
+            };
             Inventory.GuildTransactionReceived += t =>
             {
                 foreach (string line in Ui.GuildShopLog.FormatTransaction(t, id => ActionService.Menus.ItemLookup?.Invoke(id), Messages)) Chat.Log.Add(Ui.ChatLogChannel.System, line);
@@ -430,12 +438,18 @@ namespace Gordian.Engine.Sessions
             {
                 if (status != ShopOpenStatus.Open) Chat.Log.Add(Ui.ChatLogChannel.System, Ui.GuildShopLog.FormatStatus(status, hours));
             };
-            // Confirm on the Mog House door asks "Heading outside, kupo?" (No under the cursor) before the exit is sent (#354).
-            ActionService.MogHouseExitRequested += () => ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+            // Confirm on the Mog House door asks "Heading outside, kupo?" before the exit is sent (#354): Yes / No (No under
+            // the cursor), or the city's areas when the server unlocked its exits (S2C 0x00A MyRoomExitBit).
+            ActionService.MogHouseExitRequested += () =>
             {
-                if (answer != true || World.MogHouseRoom == 0) return;
-                _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
-            });
+                var exitBit = (MogHouseExitBit)(World.ZoneLoginInfo?.MyRoomExitBit ?? 0);
+                if (Ui.MogHouseExitMenu.HasMenu(exitBit) && OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.Stay - 1)) return;
+                ActionService.Menus.OpenYesNo(MogHouseRooms.ExitQuestion, defaultYes: false, answer =>
+                {
+                    if (answer != true || World.MogHouseRoom == 0) return;
+                    _ = NetworkManager.RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom);
+                });
+            };
             World.ZoneChanged += _ =>
             {
                 if (Inventory.IsShopOpen) Inventory.CloseShop();
@@ -518,6 +532,50 @@ namespace Gordian.Engine.Sessions
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)
             => World.TryGetByTargetIndex(targetIndex, out var entity) && !string.IsNullOrEmpty(entity?.Name) ? entity.Name : null;
+
+        /// <summary>
+        /// Retail's Mog House exit menu with a city exit unlocked (#354, <see cref="Ui.MogHouseExitMenu"/>): Stay closes it,
+        /// "Area you entered from." and "Change floors." send C2S 0x05E <c>zmrq</c>, "Select an area to exit to." opens the
+        /// area list. False when the UI is not loaded.
+        /// </summary>
+        private bool OpenMogHouseExitMenu(MogHouseExitBit exitBit, int cursorIndex)
+        {
+            var menus = ActionService.Menus;
+            var login = World.ZoneLoginInfo;
+            bool canChangeFloors = login != null && MogHouseRooms.CanChangeFloors(login.Value.MyroomSubMapNumber);
+            var options = Ui.MogHouseExitMenu.MainOptions(menus.MenuMessageText, canChangeFloors);
+            return menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursorIndex, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                switch (answer)
+                {
+                    case Ui.MogHouseExitMenu.AreaEnteredFrom:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseExitMode.AreaEnteredFrom);
+                        break;
+                    case Ui.MogHouseExitMenu.ChangeFloors:
+                        _ = NetworkManager.RequestMogHouseExitAsync(exitBit, MogHouseRooms.FloorChangeMode(World.MogHouseRoom));
+                        break;
+                    case Ui.MogHouseExitMenu.SelectArea:
+                        OpenMogHouseAreaList(exitBit);
+                        break;
+                }
+            }, Ui.MogHouseExitMenu.VisibleRows) != null;
+        }
+
+        /// <summary>The exit menu's area list: the chosen area is sent as its exit mode; Cancel goes back to the exit menu.</summary>
+        private void OpenMogHouseAreaList(MogHouseExitBit exitBit)
+        {
+            var menus = ActionService.Menus;
+            bool mogGarden = MogHouseRooms.OffersMogGarden(exitBit, Progression, LocalPlayer.Rank);
+            var options = Ui.MogHouseExitMenu.AreaOptions(exitBit, World.CurrentZoneId, ActionService.ZoneName, mogGarden, out int cursor);
+            int areaCount = MogHouseRooms.ExitAreas(exitBit).Count;
+            menus.OpenQuery(new[] { Ui.MogHouseExitMenu.Question(menus.MenuMessageText) }, options, cursor, answer =>
+            {
+                if (World.MogHouseRoom == 0) return;
+                if (Ui.MogHouseExitMenu.AreaModeOf(answer, areaCount) is { } mode) _ = NetworkManager.RequestMogHouseExitAsync(exitBit, mode);
+                else OpenMogHouseExitMenu(exitBit, Ui.MogHouseExitMenu.SelectArea - 1);
+            }, Ui.MogHouseExitMenu.VisibleRows);
+        }
 
         public void Disconnect()
         {

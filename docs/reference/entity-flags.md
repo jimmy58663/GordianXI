@@ -49,7 +49,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 16 | PlayOnelineFlag | 0x00D: PlayOnline icon. 0x00E: the HP bar is hidden when targeted | 0x00D `NamePlateFlags.PlayOnline`; 0x00E `NamePlateFlags.HealthBarHidden` → `NamePlateStyle.ShowsTargetHealthBar` (no HP gauge in the target window, #259) |
 | 17 | LinkShellFlag | 0x00D: wears a linkshell (pearl icon) | 0x00D `NamePlateFlags.Linkshell` |
 | 18 | LinkDeadFlag | 0x00D: disconnecting | 0x00D `NamePlateFlags.LinkDead` |
-| 19 | TargetOffFlag | cannot be targeted by normal means | `IsTargetOff` (both packets, General updates): still drawn with its name, skipped by targeting (`IsServerTargetable`), and a selected target that turns it on is dropped (`PlayerActionService.OnEntityUpdated`, #334). LandSandBoat's `entity_flags.untargetable` (mob `SetUntargetable`) lands here |
+| 19 | TargetOffFlag | cannot be targeted by normal means | `IsTargetOff` (both packets, General updates): still drawn with its name, skipped by targeting (`IsServerTargetable`), and a selected target that turns it on is dropped (`PlayerActionService.OnEntityUpdated`, #334); never bumps the player (`EntityBumpCollision`, #425). LandSandBoat's `entity_flags.untargetable` (mob `SetUntargetable`) lands here |
 | 20 | TalkUcoffFlag | used by events | not decoded |
 | 21-23 | (PS2 party leader, alliance leader, debug client) | unused | |
 | 24-26 | GmLevel | 1-2 trial arrow, 3 PlayOnline icon, 4-7 GM icons | 0x00D `GmLevel` → `NamePlateStyle.Icon` |

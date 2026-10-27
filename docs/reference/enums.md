@@ -259,6 +259,23 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 
 `LogoutState`, from LandSandBoat `GP_GAME_LOGOUT_STATE`: 0 None, 1 Logout, 2 ZoneChange, 3 MyRoom, 4 Cancel, 5 PolExit, 6 JobExit, 7 PolExitMyRoom, 8 Timeout, 9 GmLogout, 10 End. The zone transition states 1-3 are the ones described in [network/session-and-packets.md](../network/session-and-packets.md#packet-engine-phase-3); LandSandBoat sends state 1 for both Log Out and Shut Down (`charutils::SendDisconnect`), so the client tells them apart by its own C2S 0x0E7 kind (1 logout, 3 shutdown). Every state but 0 and 4 suspends C2S 0x015; 1, 5 and 10 end the session. The client raises 8 Timeout itself (`SessionLogout`) when the map server has not answered for 60 s, and returns to the character select screen as for a Log Out ([session-and-packets.md](../network/session-and-packets.md#packet-engine-phase-3), #235). How retail handles the rest is not checked (XiPackets: the client checks only 1, 4 and 8).
 
+## Mog House exit (C2S 0x05E `MyRoomExitBit` / `MyRoomExitMode`, S2C 0x00A `MyRoomExitBit`)
+
+GordianXI types: `MogHouseExitBit`, `MogHouseExitMode` (`Network/Packets/LifecyclePackets.cs`), sent with `zmrq` by `RequestMogHouseExitAsync`. Values from LandSandBoat `packets/c2s/0x05e_maprect.h` / `.cpp` and `s2c/0x00a_login.cpp` ([#354](https://github.com/jimmy58663/GordianXI/issues/354)).
+
+| Exit bit | City | Areas for modes 1-4 (`MogHouseRooms.ExitAreas`) |
+|---|---|---|
+| 0 | none (the area entered from) | - |
+| 1 | San d'Oria | 230, 231, 232 |
+| 2 | Bastok | 234, 235, 236 |
+| 3 | Windurst | 238, 239, 240, 241 |
+| 4 | Jeuno | 243, 244, 245, 246 |
+| 5 | Whitegate | 48, 50 |
+| 6-8 | Ronfaure / Gustaberg / Sarutabaruta fronts | none |
+| 9 | Adoulin | 256, 257 |
+
+Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExitMenu` when S2C 0x00A sends the bit), 125 to the second floor, 126 to the first ("Change floors.", `MogHouseRooms.FloorChangeMode`; offered when `(MyroomSubMapNumber >> 1) & 3` is set), 127 the Mog Garden (the area list's last row). LandSandBoat toggles the floor on either 125 or 126.
+
 ## Races, look slots and jobs
 
 `CharacterRace` (the look's race byte; `Resources/Tables/CharacterEquipmentResolver.cs`): 1 Hume male, 2 Hume female, 3 Elvaan male, 4 Elvaan female, 5 Tarutaru male, 6 Tarutaru female, 7 Mithra, 8 Galka; NPC-only children 29 Mithra kitten, 30 girl, 31 boy. Female races (2, 4, 6, 7) choose the `[his/her]` words of event text.
