@@ -59,12 +59,17 @@ namespace Gordian.Core.Tests.World
                 zone.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
             }
 
-            // South -> North leaves 1472 s into the day and lands at 2306 s (LandSandBoat barge_south_north).
+            // South -> North leaves 1472 s into the day and lands at 2306 s (LandSandBoat barge_south_north); the scenery
+            // runs RouteLeadSeconds ahead of that.
             double day = 3456 * 1000.0;
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1472 + 417, out var mid));
+            double lead = VoyageSchedule.RouteLeadSeconds;
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1472 + 417 - lead, out var mid));
             Assert.Equal("c002", mid.Route.Name);
             Assert.Equal(0.5f, mid.Progress, 3);
             Assert.False(mid.Reversed);
+            // Retail at 10:51 (image-14) was 16.5 % along it.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 10.85 * 144, out var shot));
+            Assert.InRange(shot.Progress, 0.145f, 0.185f);
 
             // The Emfea leg runs c001 forwards (it passes under the broken rope bridge), both Newtpool legs c000 backwards.
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 400, out var emfea));
@@ -73,9 +78,11 @@ namespace Gordian.Core.Tests.World
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 800, out var south));
             Assert.Equal("c000", south.Route.Name);
             Assert.True(south.Reversed);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 22 * 144, out var night));
+            // Retail at 21:58 (image-24) was in the Newtpool, 60-66 % along the night leg.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + (21 + 58 / 60.0) * 144, out var night));
             Assert.Equal("c000", night.Route.Name);
             Assert.True(night.Reversed);
+            Assert.InRange(night.Progress, 0.6f, 0.67f);
 
             // Between legs the vessel waits at the end of the leg that landed last (North -> Central lands at 2774 s).
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 2800, out var docked));
@@ -95,60 +102,14 @@ namespace Gordian.Core.Tests.World
             // Its morning tour (Dhalmel Rock) and afternoon tour (Maliyakaleya Reef) take different loops (round 3).
             Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 400, out var morning));
             Assert.Equal("c001", morning.Route.Name);
+            // Vana'diel 14:19 and 15:08 (Maliyakaleya Reef shots image-19 and image-21) are 2061.6 s and 2179.2 s into the
+            // day; retail showed 47 % and 62-65 % of c000.
             Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2061.6, out var afternoon));
             Assert.Equal("c000", afternoon.Route.Name);
             Assert.False(afternoon.Reversed);
-        }
-
-        [Fact]
-        public void Voyage_StartsItsRouteAtTheZoneIn()
-        {
-            var zone = new ZoneGeometry { ZoneId = 1, Vessel = new ZoneVessel() };
-            foreach (string name in new[] { "c000", "c001", "c002", "c003" })
-            {
-                zone.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
-            }
-            double day = 3456 * 1000.0;
-            static double At(int hour, int minute) => (hour * 60 + minute) * 2.4;
-
-            // Boarded at South Landing: the departure cutscene ends and the passengers enter the channel at 10:45. The barge is
-            // at the start of c002 then and plays it over the leg's 834 s.
-            double entered = day + At(10, 45);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, entered, out var start, entered));
-            Assert.Equal("c002", start.Route.Name);
-            Assert.Equal(0f, start.Progress);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, entered + 417, out var half, entered));
-            Assert.Equal(0.5f, half.Progress, 3);
-            // It is still under way at 16:00 when the passengers are put ashore, and holds at the landing after its length.
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + At(16, 0), out var landing, entered));
-            Assert.Equal("c002", landing.Route.Name);
-            Assert.InRange(landing.Progress, 0.9f, 0.99f);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, entered + 2000, out var held, entered));
-            Assert.Equal(1f, held.Progress);
-
-            // The Newtpool leg (day): in at 5:38, still short of South Landing at 8:53 (round 2 image-31).
-            entered = day + At(5, 38);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + At(8, 53), out var newtpool, entered));
-            Assert.Equal("c000", newtpool.Route.Name);
-            Assert.True(newtpool.Reversed);
-            Assert.InRange(newtpool.Progress, 0.8f, 0.95f);
-
-            // Entered between legs (a GM warp): the next leg to leave, from its start.
-            entered = day + At(9, 30);
-            Assert.True(VoyageSchedule.TryGetPosition(zone, entered + 10, out var warped, entered));
-            Assert.Equal("c002", warped.Route.Name);
-            Assert.InRange(warped.Progress, 0f, 0.02f);
-
-            // The Manaclipper's evening return runs past midnight.
-            var clipper = new ZoneGeometry { ZoneId = 3, Vessel = new ZoneVessel() };
-            foreach (string name in new[] { "c000", "c001", "c002", "c003" })
-            {
-                clipper.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
-            }
-            entered = 3456 * 7.0 + 10;
-            Assert.True(VoyageSchedule.TryGetPosition(clipper, entered, out var late, entered));
-            Assert.Equal("c003", late.Route.Name);
-            Assert.Equal(0f, late.Progress);
+            Assert.InRange(afternoon.Progress, 0.44f, 0.5f);
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2179.2, out var arch));
+            Assert.InRange(arch.Progress, 0.61f, 0.67f);
         }
 
         [Fact]

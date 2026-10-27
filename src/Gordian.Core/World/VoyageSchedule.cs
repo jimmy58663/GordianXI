@@ -49,18 +49,13 @@ namespace Gordian.Core.World
     /// tour 0 and the afternoon tour 8.
     /// </para>
     /// <para>
-    /// When (round 2 of 2026-10-24): the vessel starts its Route when the passengers enter the zone and plays the Route's key
-    /// times linearly over the leg's length, so it reaches the far end about as long after the zone-in as the departure cutscene
-    /// lasted, which is after the passengers have been put ashore. A retail client on LandSandBoat gets no ship clock from
-    /// S2C 0x00A, and its scenery follows the zone-in, not the Vana'diel clock: the round 4 shot at 11:22 (South -> North,
-    /// <c>image-15</c>, a character that came in by GM warp) shows the pool and landing that the round 2 trip, boarded at South
-    /// Landing, reaches only at 12:36 (<c>image-36</c>); the Newtpool trip is still short of South Landing at 8:53, two minutes
-    /// before the passengers disembark (<c>image-31</c>); and the Maliyakaleya tour shows the arch ahead at 14:25 and the cliffs
-    /// beyond it at 14:43 (round 2 video), about 30 % and 36 % along. The four South -> North shots of one session (round 4,
-    /// 16.5 %, 28.5 %, 56.5 %, 67 % at 10:51, 11:22, 13:02, 13:45) lie on one line within 2 % that runs the Route in 836 s
-    /// against the leg's 834 s. The earlier model (the Route over the timetable, 52 s early) was fitted to shots taken after a
-    /// GM warp, and put the vessel at the far landing for 20 Vana'diel minutes or more before the passengers left.
-    /// Without a zone-in time the vessel follows the timetable. Zones without a timetable hold the vessel halfway along their
+    /// When: the vessel plays the Route's key times linearly over the leg's length, but <see cref="RouteLeadSeconds"/>
+    /// earlier than the leg in LandSandBoat's timetable, so it reaches the far end that long before the passengers
+    /// disembark. Fitted to eight retail shots with their clocks (Phanauet South -> North <c>image-14</c>-<c>18</c>: 16.5 %,
+    /// 28.5 %, 56.5 %, 67 % at 10:51, 11:22, 13:02, 13:45; the Maliyakaleya tour <c>image-19</c>-<c>21</c>: 47 %, 53 %,
+    /// 62-65 % at 14:19, 14:40, 15:08; the Newtpool night shot): each leads the timetable by 36-73 s, 52 s on average, and
+    /// every shot then lands within 4 % of where retail showed it. Playing the Route at constant speed instead
+    /// fits the barge's day leg but misses the tour by 8-11 %. Zones without a timetable hold the vessel halfway along their
     /// first Route.
     /// </para>
     /// </summary>
@@ -73,6 +68,13 @@ namespace Gordian.Core.World
         /// and its bow wave (<c>awa2</c>) at +26; the Manaclipper's <c>yke1</c> at +26 (round 3: a -Z bow was tried and dropped).
         /// </summary>
         public static readonly Vector3 VesselForward = Vector3.UnitZ;
+
+        /// <summary>
+        /// How many Earth seconds the scenery runs ahead of LandSandBoat's timetable: each leg plays its Route over
+        /// [depart - lead, arrive - lead] (fitted to retail captures, see the class notes). Known wrong on normally boarded
+        /// trips, where retail's vessels are well behind ours; accepted for now, see #457.
+        /// </summary>
+        public const double RouteLeadSeconds = 52;
 
         private readonly record struct Timetable(double CycleSeconds, VoyageLeg[] Legs);
 
@@ -105,13 +107,10 @@ namespace Gordian.Core.World
         public static IReadOnlyList<VoyageLeg> LegsOf(int zoneId) => Timetables.TryGetValue(zoneId, out var table) ? table.Legs : Array.Empty<VoyageLeg>();
 
         /// <summary>
-        /// Where the vessel is at <paramref name="earthSecondsSinceEpoch"/> (the session's server clock). With
-        /// <paramref name="zoneEnteredSeconds"/> (when the passengers entered the zone, same clock) the vessel plays the leg that
-        /// was running then, or the next one to leave, from the start of its Route at the zone-in, and stays at the end once the
-        /// leg's length has passed (see the class notes). Without it the vessel follows the timetable: inside a leg, its progress;
-        /// between legs, the end of the leg that arrived last. False when the zone is not a voyage zone.
+        /// Where the vessel is at <paramref name="earthSecondsSinceEpoch"/> (the session's server clock): inside a leg, its
+        /// progress; between legs, the end of the leg that arrived last. False when the zone is not a voyage zone.
         /// </summary>
-        public static bool TryGetPosition(ZoneGeometry zone, double earthSecondsSinceEpoch, out VoyagePosition position, double? zoneEnteredSeconds = null)
+        public static bool TryGetPosition(ZoneGeometry zone, double earthSecondsSinceEpoch, out VoyagePosition position)
         {
             position = default;
             var routes = zone.Vessel?.Routes;
@@ -123,52 +122,18 @@ namespace Gordian.Core.World
                 return true;
             }
 
-            VoyageLeg? chosen;
-            float progress;
-            if (zoneEnteredSeconds is double entered)
-            {
-                chosen = LegAtZoneIn(table, entered);
-                double length = chosen.Value.ArriveSeconds - chosen.Value.DepartSeconds;
-                progress = (float)Math.Clamp((earthSecondsSinceEpoch - entered) / length, 0, 1);
-            }
-            else if (!TryGetTimetablePosition(table, earthSecondsSinceEpoch, out chosen, out progress))
-            {
-                return false;
-            }
-            var route = FindRoute(routes, chosen!.Value.RouteName) ?? routes[0];
-            position = new VoyagePosition(route, progress, chosen.Value.Reversed);
-            return true;
-        }
-
-        /// <summary>The leg running at <paramref name="entered"/>, or the next one to leave after it.</summary>
-        private static VoyageLeg LegAtZoneIn(Timetable table, double entered)
-        {
-            double t = CycleTime(table, entered);
-            VoyageLeg next = table.Legs[0];
-            double nextWait = double.MaxValue;
+            double t = earthSecondsSinceEpoch % table.CycleSeconds;
+            if (t < 0) t += table.CycleSeconds;
+            VoyageLeg? current = null, lastArrived = null;
+            double lastArrivedAgo = double.MaxValue;
+            float progress = 1f;
             foreach (var leg in table.Legs)
             {
                 // A leg may run past the end of the cycle (the Manaclipper's last one).
-                if ((t >= leg.DepartSeconds && t < leg.ArriveSeconds) || t + table.CycleSeconds < leg.ArriveSeconds) return leg;
-                double wait = leg.DepartSeconds - t;
-                if (wait < 0) wait += table.CycleSeconds;
-                if (wait < nextWait) { nextWait = wait; next = leg; }
-            }
-            return next;
-        }
-
-        private static bool TryGetTimetablePosition(Timetable table, double earthSecondsSinceEpoch, out VoyageLeg? chosen, out float progress)
-        {
-            double t = CycleTime(table, earthSecondsSinceEpoch);
-            VoyageLeg? current = null, lastArrived = null;
-            double lastArrivedAgo = double.MaxValue;
-            progress = 1f;
-            foreach (var leg in table.Legs)
-            {
                 for (int wrap = 0; wrap < 2; wrap++)
                 {
                     double shift = wrap == 0 ? 0 : -table.CycleSeconds;
-                    double depart = leg.DepartSeconds + shift, arrive = leg.ArriveSeconds + shift;
+                    double depart = leg.DepartSeconds - RouteLeadSeconds + shift, arrive = leg.ArriveSeconds - RouteLeadSeconds + shift;
                     if (t >= depart && t < arrive)
                     {
                         current = leg;
@@ -179,24 +144,20 @@ namespace Gordian.Core.World
                     if (ago < lastArrivedAgo) { lastArrivedAgo = ago; lastArrived = leg; }
                 }
             }
-            chosen = current ?? lastArrived;
-            if (current == null) progress = 1f;
-            return chosen != null;
-        }
-
-        private static double CycleTime(Timetable table, double earthSeconds)
-        {
-            double t = earthSeconds % table.CycleSeconds;
-            return t < 0 ? t + table.CycleSeconds : t;
+            var chosen = current ?? lastArrived;
+            if (chosen == null) return false;
+            var route = FindRoute(routes, chosen.Value.RouteName) ?? routes[0];
+            position = new VoyagePosition(route, current != null ? progress : 1f, chosen.Value.Reversed);
+            return true;
         }
 
         /// <summary>
         /// The display-space transform that moves the scenery so the vessel (at the origin, bow along <see cref="VesselForward"/>)
         /// sits at its place on the Route; identity for a zone that is not a voyage zone.
         /// </summary>
-        public static Matrix4x4 GetSceneryTransform(ZoneGeometry? zone, double earthSecondsSinceEpoch, double? zoneEnteredSeconds = null)
+        public static Matrix4x4 GetSceneryTransform(ZoneGeometry? zone, double earthSecondsSinceEpoch)
         {
-            if (zone == null || !TryGetPosition(zone, earthSecondsSinceEpoch, out var position, zoneEnteredSeconds)) return Matrix4x4.Identity;
+            if (zone == null || !TryGetPosition(zone, earthSecondsSinceEpoch, out var position)) return Matrix4x4.Identity;
             return SceneryTransform(position);
         }
 

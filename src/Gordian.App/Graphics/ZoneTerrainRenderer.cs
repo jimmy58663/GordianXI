@@ -1279,8 +1279,7 @@ namespace Gordian.App.Graphics
                                 vesselZone.Routes.Find(r => r.Name == pinned.Route) is { } pinnedRoute
                 ? VoyageSchedule.SceneryTransform(new VoyagePosition(pinnedRoute, pinned.Progress, pinned.Reversed))
                 : LoadedZone?.Vessel is { IsVoyage: true }
-                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow),
-                    VoyageClockOverride == null && World?.ZoneEnteredUtc is { } entered ? World.Clock.GetEarthSecondsSinceEpoch(entered) : null)
+                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
