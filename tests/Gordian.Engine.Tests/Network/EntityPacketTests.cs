@@ -505,6 +505,10 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(1000, state.MaxHp);
             Assert.Equal(600, state.MaxMp);
             Assert.Equal(65, state.BaseStats[0]);
+            // Every job's level is kept for the Status window's Job Levels (#23); jobs at 0 stay 0.
+            Assert.Equal(75, state.JobLevels[(int)JobId.RedMage]);
+            Assert.Equal(37, state.JobLevels[(int)JobId.BlackMage]);
+            Assert.Equal(0, state.JobLevels[(int)JobId.Warrior]);
         }
 
         [Fact]
@@ -777,6 +781,26 @@ namespace Gordian.Engine.Tests.Network
             {
                 Assert.Equal(expectedSlots[i], grapTable[i + 1]);
             }
+        }
+
+        /// <summary>
+        /// Yatniel (#426): LandSandBoat's look <c>0x01000F0000101120113011401150006000700000</c> has race 0; the retail client
+        /// draws a Hume male, so the gear look is read as race 1.
+        /// </summary>
+        [Fact]
+        public void S2C_0x00E_CharNpc_GearLookWithRaceZero_IsAHumeMale()
+        {
+            byte[] payload = new byte[0x44];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x010F5042);
+            payload[6] = (byte)EntityUpdateFlags.Position;
+            Convert.FromHexString("01000F0000101120113011401150006000700000").CopyTo(payload.AsSpan(0x2C));
+
+            var npc = new S2C_0x00E_CharNpc(payload);
+            Assert.True(npc.TryGetEquippedLook(out byte race, out byte face, out ushort[] grapTable));
+            Assert.Equal(S2C_0x00E_CharNpc.GearLookDefaultRace, race);
+            Assert.Equal(15, face);
+            Assert.Equal((1 << 8) | 15, grapTable[0]);
+            Assert.Equal(0x2011, grapTable[2]);
         }
 
         [Fact]

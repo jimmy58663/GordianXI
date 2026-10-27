@@ -110,6 +110,9 @@ namespace Gordian.Engine.Tests.Ui
             EquipGrid(),
             QuantityFrame(),
             List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 2),
+            List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 12),
+            List(StockUiViewHouse.MenuName, 384, 48, UiAnchor.TopRight, 15),
+            List(StockUiViewHouse.OptionsMenu, 384, 48, UiAnchor.TopRight, 3),
         });
 
         private sealed class Harness
@@ -824,6 +827,93 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(244, grid.ItemHelpBar!.Value.HelpTextId); // "Head (Helms, hats, etc.)"
             h.Menus.Activate();
             Assert.True(h.Menus.Top!.IsItemList);
+        }
+
+        /// <summary>
+        /// View House (#23): the storage list greys storages the server has not given; a Wardrobe's item moves to the inventory
+        /// (C2S 0x029 to the first free slot) and the inventory's equipment to the Wardrobe, its other items greyed; the Mog
+        /// Safe shows alone and can only be viewed outside the Mog House; a stack asks how many first (round 2).
+        /// </summary>
+        [Fact]
+        public void ViewHouse_ListsStorages_MovesFromTheWardrobe_ViewsTheMogSafe()
+        {
+            var h = new Harness();
+            h.Inventory.SetContainerSizes(ContainerId.MogSafe, 50, 50);
+            h.Inventory.SetItem(ContainerId.MogSafe, 3, Chestnut, 7, ItemLockFlag.Normal);
+            bool inMogHouse = false;
+            h.Menus.InMogHouse = () => inMogHouse;
+            Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenuPage2));
+            h.Menus.Top!.SelectedButtonId = 4; // View House
+            h.Menus.Activate();
+            var storages = h.Menus.Top!;
+            Assert.Equal(StockUiViewHouse.MenuName, storages.Name);
+            Assert.False(storages.IsGreyed(1));  // Mog Safe
+            Assert.False(storages.IsGreyed(7));  // Mog Wardrobe
+            Assert.True(storages.IsGreyed(4));   // Mog Satchel: no size from the server
+
+            storages.SelectedButtonId = 7;
+            h.Menus.Activate();
+            var wardrobe = h.Menus.Top!;
+            Assert.Equal(StockUiItemListKind.Storage, wardrobe.ItemListKind);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.ItemContainer);
+            Assert.Equal("Bronze Sword", Assert.Single(wardrobe.ItemRows).Name);
+            Assert.Equal(new StockUiItemHelpBar("M.Ward.", 1, 80, StockUiViewHouse.HelpMoveToInventory), wardrobe.ItemHelpBar);
+            h.Menus.Activate();
+            Assert.Equal((1u, ContainerId.Wardrobe, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot), Assert.Single(h.Moves));
+
+            // Right: the cursor on the inventory beside it (round 1 image-7), the help bar "Items" with the inventory's count
+            // (round 2, retail); what is not equipment is greyed, and Confirm stores equipment in the wardrobe.
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.True(wardrobe.StorageInventorySide);
+            Assert.Equal(ContainerId.Inventory, wardrobe.ItemContainer);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.StorageContainer);
+            Assert.Equal("Bronze Sword", Assert.Single(wardrobe.CompanionRows).Name);
+            var (used, total) = StockUiItems.Fill(h.Inventory, ContainerId.Inventory);
+            Assert.Equal(new StockUiItemHelpBar(StockUiItems.TitleItems, used, total, StockUiViewHouse.HelpMoveTo(ContainerId.Wardrobe)), wardrobe.ItemHelpBar);
+            Assert.True(wardrobe.ItemRows.Single(r => r.ItemId == Chestnut).Greyed);
+            Assert.False(wardrobe.ItemRows.Single(r => r.ItemId == BronzeCap).Greyed);
+            int moves = h.Moves.Count;
+            h.SelectItem(wardrobe, Chestnut);
+            h.Menus.Activate();
+            Assert.Equal(moves, h.Moves.Count);
+            Assert.Contains("cannot be stored in your Mog Wardrobe", h.Notices[^1]);
+            h.SelectItem(wardrobe, BronzeCap);
+            var stored = wardrobe.SelectedItemRow!.Value;
+            h.Menus.Activate();
+            Assert.Equal((1u, ContainerId.Inventory, stored.Slot, ContainerId.Wardrobe, StockUiItems.AnyFreeSlot), h.Moves[^1]);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.False(wardrobe.StorageInventorySide);
+            Assert.Equal(ContainerId.Wardrobe, wardrobe.ItemContainer);
+
+            // + / Y: the storage's options (Auto, Manual, Switch; image-8); Switch goes back to the View House list.
+            Assert.True(h.Menus.ToggleItemOptions());
+            Assert.Equal(StockUiViewHouse.OptionsMenu, h.Menus.Top!.Name);
+            h.Menus.Top!.SelectedButtonId = StockUiViewHouse.SwitchButton;
+            h.Menus.Activate();
+            Assert.Same(storages, h.Menus.Top);
+            h.Moves.Clear();
+            h.Moves.Add((1u, ContainerId.Wardrobe, (byte)1, ContainerId.Inventory, StockUiItems.AnyFreeSlot));
+
+            storages.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var safe = h.Menus.Top!;
+            Assert.Equal(ContainerId.MogSafe, safe.ItemContainer);
+            Assert.Null(safe.StoragePartner); // view only here: its own list alone (round 2)
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.False(safe.StorageInventorySide);
+            h.Menus.Activate();
+            Assert.Single(h.Moves);
+            Assert.Contains("Mog House", h.Notices[^1]);
+            inMogHouse = true;
+            // A stack of 7: the quantity prompt first, then 0x029 for the count chosen.
+            h.Menus.Activate();
+            var quantity = h.Menus.Top!;
+            Assert.True(quantity.IsQuantity);
+            Assert.Single(h.Moves);
+            quantity.Quantity = 5;
+            h.Menus.Activate();
+            Assert.Equal((5u, ContainerId.MogSafe, (byte)3, ContainerId.Inventory, StockUiItems.AnyFreeSlot), h.Moves[1]);
+            Assert.Same(safe, h.Menus.Top);
         }
     }
 }

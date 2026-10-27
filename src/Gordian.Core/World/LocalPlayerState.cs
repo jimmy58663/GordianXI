@@ -130,6 +130,15 @@ namespace Gordian.Core.World
         public short Defense { get; private set; }
         // 0:Fire, 1:Ice, 2:Wind, 3:Earth, 4:Thunder, 5:Water, 6:Light, 7:Dark
         public short[] ElementalResistances { get; } = new short[8];
+
+        /// <summary>Every job's level by job id (1 Warrior ... 22 Rune Fencer; index 0 unused), from S2C 0x01B; the Status window's Job Levels page reads it.</summary>
+        public byte[] JobLevels { get; } = new byte[24];
+
+        /// <summary>The mastery rank shown with the mentor flag (S2C 0x01B <c>mastery_rank</c>); the Status window's Profile shows it.</summary>
+        public byte MasteryRank { get; private set; }
+
+        /// <summary>The mentor flag (S2C 0x01B <c>mentor_rank</c>: 0 none, 1 bronze, 2 silver, 3 gold); the Status window's Profile shows it.</summary>
+        public byte MentorRank { get; private set; }
         #endregion
 
         #region Skills & Recasts
@@ -459,6 +468,13 @@ namespace Gordian.Core.World
                 if (jobInfo.MpMax > 0)
                 {
                     MaxMp = jobInfo.MpMax;
+                }
+                MasteryRank = jobInfo.MasteryRank;
+                MentorRank = jobInfo.MentorRank;
+                for (int job = 1; job < JobLevels.Length; job++)
+                {
+                    byte level = jobInfo.GetJobLevel((JobId)job);
+                    if (level > 0) JobLevels[job] = level;
                 }
                 for (int i = 0; i < 7; i++)
                 {

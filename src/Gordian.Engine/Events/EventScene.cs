@@ -91,6 +91,38 @@ namespace Gordian.Engine.Events
         /// <summary>The player confirmed the open message: the event goes on at its next tick.</summary>
         public void Confirm() => _messageOpenSeconds = 0;
 
+        /// <summary>
+        /// Whether Cancel on an open message may cut the event short (#413): retail's <c>CliEventCancelFlag</c>, which
+        /// opcode 0x2E sets and 0x42 clears (XiEvents OpCodes/0x002E, 0x0042). On at the event's start: 16,097 retail
+        /// events with messages never touch it (plain NPC talk), and 8,510 clear it before their first message (the
+        /// cutscenes on the player's block). *Inferred from the corpus; the start value is not in XiEvents.*
+        /// </summary>
+        public bool MessageCancelAllowed { get; internal set; } = true;
+
+        /// <summary>
+        /// Whether the player cancelled the open message (retail's <c>CliEventMessOpenFlag</c> 2): the next 0x23 ends the
+        /// event as cancelled, as a cancelled query does (XiEvents OpCodes/0x0023). Cleared when a message opens.
+        /// </summary>
+        public bool IsMessageCancelled { get; private set; }
+
+        /// <summary>
+        /// The player pressed Cancel on the open message: when the event allows it (<see cref="MessageCancelAllowed"/>)
+        /// and is not a cutscene holding the camera (<see cref="IsCameraHeld"/>), the message closes and the event ends at
+        /// its 0x23; otherwise nothing happens. True when the cancel was taken.
+        /// </summary>
+        /// <remarks>
+        /// The camera rule is the maintainer's (round 1 of #413: Cancel on every event that is not a cutscene). It only adds
+        /// to 0x42: of the retail events that take the camera before their first message, all but 11 clear the flag first
+        /// (corpus scan 2026-10-25; Upper Jeuno 244 event 10038 and Port Jeuno 246 event 428 are two that do not).
+        /// </remarks>
+        public bool CancelMessage()
+        {
+            if (!IsWaitingForConfirm || !MessageCancelAllowed || IsCameraHeld) return false;
+            _messageOpenSeconds = 0;
+            IsMessageCancelled = true;
+            return true;
+        }
+
         /// <summary>Runs one frame: each entity's most urgent request, in start order, until the event ends.</summary>
         public void Tick(TimeSpan elapsed)
         {
@@ -246,6 +278,10 @@ namespace Gordian.Engine.Events
 
         internal void Add(EventVm vm) => _actors.Add(vm);
 
-        internal void OpenMessage(double seconds) => _messageOpenSeconds = Math.Max(0, seconds);
+        internal void OpenMessage(double seconds)
+        {
+            _messageOpenSeconds = Math.Max(0, seconds);
+            IsMessageCancelled = false;
+        }
     }
 }

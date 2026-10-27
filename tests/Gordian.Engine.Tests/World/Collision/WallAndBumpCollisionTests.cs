@@ -194,7 +194,7 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         [Fact]
-        public void Bump_IgnoresOverlappedHiddenNonBlockingAndOtherFloors()
+        public void Bump_IgnoresOverlappedHiddenNonBlockingUntargetableAndOtherFloors()
         {
             var (world, self) = Crowd(new Vector3(0.3f, 0, 0));
             Assert.True(new EntityBumpCollision().TryMove(world, self, Vector3.Zero, new Vector3(0.1f, 0, 0), 0.016f));
@@ -204,6 +204,7 @@ namespace Gordian.Engine.Tests.World.Collision
                 e => e.IsHidden = true,
                 e => e.IsInvisible = true,
                 e => e.IsNonBlocking = true,
+                e => e.IsTargetOff = true, // scenery props such as zone 260's campfires and fences (#425)
                 e => e.Position = new Vector3(1, -5, 0),
             };
             foreach (var mark in marks)

@@ -83,7 +83,17 @@ namespace Gordian.App.Graphics
                 var at = StockUiWindowPlacement.Beside(placement, frame, StockUiItems.RecycleInventoryX, frame.Y);
                 DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
             }
+            else if (menu.ItemListKind == StockUiItemListKind.Storage && menu.StoragePartner != null && library.TryGetMenu(StockUiItems.ListMenu, out var other))
+            {
+                // View House (#23, image-7): the storage at the left, the inventory at the right; the list with the cursor is
+                // drawn on its own side (the HUD moved it right for the inventory), the other one beside it.
+                float shift = (StockUiViewHouse.InventoryX - frame.X) * s;
+                var at = placement with { X = menu.StorageInventorySide ? placement.X - shift : placement.X + shift };
+                DrawCompanion(renderer, library, font, menu, other, at, menu.CompanionRows);
+            }
 
+            // The help bar and the description keep to the storage's place while the inventory beside it has the cursor (#23).
+            if (menu.StorageInventorySide) placement = placement with { X = placement.X - (StockUiViewHouse.InventoryX - frame.X) * s };
             if (menu.ItemHelpBar is { } bar) DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
             if (menu.ItemListKind == StockUiItemListKind.Equipment) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp,
                 menu.EquipSetNumber > 0 ? EquipSetDescriptionX : StockUiItems.EquipDescriptionX, placement.Y + (DescriptionTop - frame.Y) * s);
@@ -197,17 +207,28 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The stats side (<c>persona</c>, authored at 16,48 left of the grid), as the retail capture lays it out.</summary>
-        private static void DrawStats(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        internal static void DrawStats(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
         {
             if (!library.TryGetMenu(StockUiItems.StatsMenu, out var persona)) return;
             float s = placement.Scale;
             var frame = menu.Menu.Frame;
             var at = StockUiWindowPlacement.Beside(placement, frame, persona.Frame);
-            renderer.DrawMenu(persona, at, includeButtons: false, opaqueBody: true);
-            if (menu.CharacterStats?.Invoke() is not { } stats) return;
+            DrawStatsSide(renderer, font, persona, at, menu.CharacterStats?.Invoke());
+        }
+
+        /// <summary>
+        /// A stats side (<c>windowps</c> #8: the Equipment window's <c>persona</c> and the Status window's <c>statuswi</c>) at
+        /// <paramref name="at"/>, with <paramref name="stats"/> laid out in it.
+        /// </summary>
+        internal static void DrawStatsSide(StockUiRenderer renderer, UiFont font, UiMenuDefinition panel, StockUiPlacement at, StockUiCharacterStats? stats)
+        {
+            float s = at.Scale;
+            renderer.DrawMenu(panel, at, includeButtons: false, opaqueBody: true);
+            if (stats == null) return;
             float ts = s * StockUiPartyWindow.TextScale;
-            void Left(int line, string text, UiColor? tint = null) =>
-                renderer.DrawText(font, text, at.X + StatsTextX * s, at.Y + TopLinesY[line] * s, ts, tint);
+            // A long main job ("Lv99 Puppetmaster") is squeezed into the panel, as retail does (Status capture 0:08).
+            void Left(int line, string text, UiColor? tint = null) => StockUiTextBoxes.DrawFitted(renderer, font, text, at.X + StatsTextX * s,
+                at.Y + TopLinesY[line] * s, ts, (panel.Frame.Width - StatsTextX - 2) * s, font.LineHeight * ts, tint);
             void Right(float right, float y, string text, UiColor? tint = null) =>
                 renderer.DrawText(font, text, at.X + right * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, tint);
             Left(0, stats.Name);

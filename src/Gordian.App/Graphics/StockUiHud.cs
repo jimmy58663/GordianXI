@@ -173,12 +173,23 @@ namespace Gordian.App.Graphics
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
+                // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
+                menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
+                menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
+                // The Map window's Change Map lists (#23): zone names (ROM/165/84) and region names (ROM/165/78).
+                menus.ZoneName = i => strings.TryGetString(DMsgCategory.ZoneNames, i, out var zone) ? zone : null;
+                menus.RegionName = i => strings.TryGetString(DMsgCategory.RegionNames, i, out var region) ? region : null;
             }
             if (session.ActionService.MountName == null && _resources is { } mountStrings)
             {
                 // The mount list and /mount (#87): names and help lines by mount id (ROM/351/84, 85).
                 session.ActionService.MountName = i => mountStrings.TryGetString(DMsgCategory.MountNames, i, out var name) ? name : null;
                 session.ActionService.MountHelp = i => mountStrings.TryGetString(DMsgCategory.MountHelp, i, out var help) ? help : null;
+            }
+            if (session.ActionService.ZoneName == null && _resources is { } zoneStrings)
+            {
+                // The Mog House exit's area list (#354): zone names by zone id (ROM/165/84).
+                session.ActionService.ZoneName = i => zoneStrings.TryGetString(DMsgCategory.ZoneNames, i, out var name) ? name : null;
             }
             if (_resources is { } game && session.Chat.GameDirectory() == null)
             {
@@ -244,6 +255,8 @@ namespace Gordian.App.Graphics
                 }
                 StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetCursorTint);
             }
+            // The Map window's map goes under the party, log and target windows (retail round 1 image-4: the chat over the map).
+            if (!zoning && !cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
             if (zoning)
             {
                 // Nothing but the black and the loading sprite below.
@@ -270,6 +283,9 @@ namespace Gordian.App.Graphics
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0)
                 {
                     DrawPartyHelpBar(renderer, library, session, width, height);
+                    DrawStatus(renderer, library, session, width, height);
+                    DrawAuctionHelpBar(renderer, library, session, width, height);
+                    DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
             }
@@ -337,6 +353,8 @@ namespace Gordian.App.Graphics
                 return;
             }
             if (actions.Menus.Suspended || actions.Menus.OpenMenus.LastOrDefault(m => m.IsActionList) is not { } list) return;
+            // Set Spells over the Magic list draws its own help bar; only one is ever drawn (round 1, N11, image-19).
+            if (actions.Menus.OpenMenus.Any(m => m.IsBlueMagicWindow)) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
         }
@@ -352,6 +370,54 @@ namespace Gordian.App.Graphics
             if (StockUiParty.TitleOf(top.Name) is not { } title) return;
             string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
+
+        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Graphics.DecodedTexture?> _zoneMaps = new();
+
+        /// <summary>The Map window's zone map and help bar under the open <c>map0</c> list (#23); maps decode once and stay cached.</summary>
+        private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || menus.MapWindow is not { } map) return;
+            var key = (map.MapZone, map.MapNumber);
+            if (!_zoneMaps.TryGetValue(key, out var texture))
+            {
+                texture = _resources != null ? Gordian.Core.Resources.Tables.ZoneMapFiles.Load(_resources, map.MapZone, map.MapNumber) : null;
+                _zoneMaps[key] = texture;
+            }
+            string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
+            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, texture, zoneName, Layout.Scale, width, height);
+        }
+
+        /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>
+        private void DrawStatus(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || !menus.IsStatusOpen) return;
+            StockUiStatusWindow.DrawPanels(renderer, library, font, _logFont, menus, Layout.Scale, width, height);
+        }
+
+        /// <summary>
+        /// The help bar over the Auction House windows (#90; capture Aucion_House.mp4): the window's title ("Auction", "Bid" or the
+        /// category, "Price Set", "Price History") and the selected entry's help line. The Sell list's item list draws its own.
+        /// </summary>
+        private void DrawAuctionHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || !menus.IsAuctionOpen || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (menus.OpenMenus.Any(m => m.ItemListKind == StockUiItemListKind.AuctionSell)) return;
+            var prompt = top.IsPrompt && menus.OpenMenus.Count > 1 ? top : null;
+            if (StockUiAuctionWindow.HelpBar(prompt != null && !prompt.IsAuctionWindow ? menus.OpenMenus[^2] : top, menus.MenuHelpText) is not { } bar) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
+        private void DrawBlueMagicHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            if (StockUiBlueMagicWindow.HelpBar(top, menus.MenuHelpText) is not { } bar) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -534,6 +600,8 @@ namespace Gordian.App.Graphics
                 for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].OverlapsAuthored(menu);
                 // A main-menu spell list puts its Options window where the Magic categories were (retail image-16).
                 for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].ShowsActionOptions && menu.Name.Equals(StockUiActionMenu.MagicCategoryMenu, StringComparison.OrdinalIgnoreCase);
+                // A View House storage puts its Options window where the storage list was (#23, round 1 image-8).
+                for (int j = i + 1; j < open.Count && !covered; j++) covered = open[j].ItemListKind == StockUiItemListKind.Storage && menu.Name.Equals(StockUiViewHouse.MenuName, StringComparison.OrdinalIgnoreCase);
                 if (covered) continue;
 
                 StockUiPlacement placement;
@@ -548,7 +616,7 @@ namespace Gordian.App.Graphics
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
                     // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow
+                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
                         || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
@@ -578,8 +646,19 @@ namespace Gordian.App.Graphics
                         x = authored.X;
                         y = Math.Clamp(listTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
-                    placement = new StockUiPlacement(x, y, root.Scale, false);
+                    float scale = root.Scale;
+                    if (menu.ListKind == StockUiListKind.MapAreas && _window1Top is { } chatTop && _window1Left.Scale > 0)
+                    {
+                        // The Change Map lists sit on the chat log at its left edge and scale, moving with it (#23, round 2;
+                        // retail round 1 image-6).
+                        scale = _window1Left.Scale;
+                        x = Math.Clamp(_window1Left.X, 0, Math.Max(0, width - frame.Width * scale));
+                        y = Math.Clamp(chatTop - frame.Height * scale, 0, Math.Max(0, height - frame.Height * scale));
+                    }
+                    placement = new StockUiPlacement(x, y, scale, false);
                 }
+                // A View House list with the cursor on the inventory draws at the inventory's place, the storage beside it (#23).
+                if (menu.StorageInventorySide) placement = placement with { X = placement.X + (StockUiViewHouse.InventoryX - menu.Menu.Frame.X) * placement.Scale };
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
                     screen: new StockUiScreen(width, height, _window1Top));
                 if (menu.IsTreasureList && !open.Any(m => m.IsTreasureDone) && library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var spoils))
@@ -587,6 +666,12 @@ namespace Gordian.App.Graphics
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.
                     var f = spoils.Frame;
                     renderer.DrawMenu(spoils, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
+                }
+                if (menu.ItemListKind == StockUiItemListKind.Storage && i == open.Count - 1 && library.TryGetMenu(StockUiViewHouse.OptionsMenu, out var storageOptions))
+                {
+                    // A storage's options ("+ : Sort": Auto, Manual, Switch) stand at the top right while its list takes input (image-8).
+                    var f = storageOptions.Frame;
+                    renderer.DrawMenu(storageOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height), includeButtons: true, opaqueBody: true);
                 }
                 if (menu.ItemListKind == StockUiItemListKind.Items && i == open.Count - 1 && library.TryGetMenu(StockUiItems.OptionsMenu, out var itemOptions))
                 {
@@ -610,7 +695,7 @@ namespace Gordian.App.Graphics
                     StockUiMacroWindow.DrawOptions(renderer, library, macroOptions, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
                 }
                 if (menu.ShowsActionOptions && !open.Any(m => m.IsActionOptions)
-                    && library.TryGetMenu(menu.ActionCategory == StockUiActionMenu.BlueMagicKind ? StockUiActionMenu.BlueOptionsMenu : StockUiActionMenu.OptionsMenu, out var options))
+                    && library.TryGetMenu(menus.OptionsMenuFor(menu.ActionCategory), out var options))
                 {
                     var f = options.Frame;
                     renderer.DrawMenu(options, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, placement.Scale, width, height));
@@ -633,6 +718,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>Window 1's top edge (screen px) as drawn this frame, null while the log is hidden: the command menu sits on it.</summary>
         private float? _window1Top;
+
+        /// <summary>Window 1's left edge (screen px) and scale as drawn this frame: the Map window's Change Map lists sit on the log.</summary>
+        private (float X, float Scale) _window1Left;
 
         /// <summary>
         /// Over a clickable menu entry the system cursor is hidden and the hover pointer (arrow and ring) is drawn here,
@@ -807,6 +895,7 @@ namespace Gordian.App.Graphics
                     Settings.GetValue(StockUiSettingKey.LogTimestamp), Settings);
                 if (pageRows > 0) chat.FullLogPageLines = pageRows;
                 _window1Top = StockUiChatWindow.FullLogTop * s;
+                _window1Left = (placement.X, s);
                 return;
             }
 
@@ -817,6 +906,7 @@ namespace Gordian.App.Graphics
             float rise1 = (fullHeight1 - height1) / StockUiChatWindow.RowPitch;
             var window1 = new StockUiPlacement(placement.X, logBottom - height1 * s, s, false);
             _window1Top = window1.Y;
+            _window1Left = (placement.X, s);
             bool hasInline = library.TryGetMenu("inline", out var inline);
             bool inputOpen = input.IsOpen && hasInline;
 

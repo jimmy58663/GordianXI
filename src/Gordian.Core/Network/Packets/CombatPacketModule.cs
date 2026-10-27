@@ -175,8 +175,9 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// S2C 0x02F: an entity digs with its chocobo. For the local player the client answers with C2S 0x063 once
-        /// the dig animation is over; the animation is not played yet, so the answer goes straight away.
+        /// S2C 0x02F: an entity digs with its chocobo. <see cref="CombatState.DigReceived"/> plays the dig (the engine's
+        /// <c>MountTransitions.PlayDig</c>). For the local player the client answers with C2S 0x063 once the dig animation is
+        /// over; LandSandBoat ignores the answer, so it goes straight away.
         /// </summary>
         private void HandleDig(PacketHeader header, ReadOnlySpan<byte> payload)
         {
@@ -184,6 +185,7 @@ namespace Gordian.Core.Network.Packets
             if (!dig.IsValid) return;
 
             GordianLog.Debug("COMBAT", $"Dig 0x02F: Target={dig.TargetId:X8}, Index={dig.TargetIndex}, Flags=0x{dig.Flags:X2}");
+            _combatState.RecordDig(dig.TargetId, dig.TargetIndex);
             if (_localPlayerState.ServerId == 0 || dig.TargetId != _localPlayerState.ServerId) return;
 
             uint playerId = dig.TargetId;

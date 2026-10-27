@@ -23,6 +23,24 @@ namespace Gordian.Engine.Ui
         /// <summary>Posts the Vana'diel and Earth time.</summary>
         CurrentTime,
 
+        /// <summary>A Status list entry: opens its page (the Argument is a <see cref="StockUiStatusPage"/>).</summary>
+        StatusPage,
+
+        /// <summary>Main menu Map: opens the Map window on the zone's map (<see cref="StockUiMap"/>).</summary>
+        Map,
+
+        /// <summary>The Map window's Wide Scan.</summary>
+        MapWideScan,
+
+        /// <summary>The Map window's Change Map: the zone's next map.</summary>
+        MapChange,
+
+        /// <summary>Main menu View House: the storage list (<see cref="StockUiViewHouse"/>).</summary>
+        ViewHouse,
+
+        /// <summary>A View House storage: opens its item list (the Argument is a <c>ContainerId</c>).</summary>
+        ViewStorage,
+
         /// <summary>One choice of a config page's option row (<see cref="StockUiConfigPages"/>): confirm selects it.</summary>
         ConfigOption,
 
@@ -205,7 +223,7 @@ namespace Gordian.Engine.Ui
         private static readonly Dictionary<(string Menu, int Button), StockUiMenuEntry> Entries = new(new MenuKeyComparer())
         {
             // Commands, page 1 (buttons in their authored top-to-bottom order).
-            [(MainMenu, 1)] = new("Status", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 1)] = new("Status", Opens: StockUiStatus.CommandMenu),
             [(MainMenu, 2)] = new("Equipment", Command: StockUiMenuCommand.Equipment),
             [(MainMenu, 3)] = new("Magic", Opens: StockUiActionMenu.MagicCategoryMenu),
             [(MainMenu, 4)] = new("Items", Command: StockUiMenuCommand.Items),
@@ -216,13 +234,13 @@ namespace Gordian.Engine.Ui
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 11)] = new("Region Info", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.Map),
 
             // Commands, page 2.
             [(MainMenuPage2, 1)] = new("Missions", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 2)] = new("Quests", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.KeyItems),
-            [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.ViewHouse),
             [(MainMenuPage2, 5)] = new("Bazaar", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 6)] = new("Macros", Opens: StockUiEquipSets.MacroMenu),
             [(MainMenuPage2, 7)] = new("Config", Opens: ConfigMenu),
@@ -233,6 +251,43 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
+            // View House (#23): mogcont's storages.
+            [(StockUiViewHouse.MenuName, 1)] = new("Mog Safe", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSafe),
+            [(StockUiViewHouse.MenuName, 8)] = new("Mog Safe 2", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSafe2),
+            [(StockUiViewHouse.MenuName, 2)] = new("Storage", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Storage),
+            [(StockUiViewHouse.MenuName, 3)] = new("Mog Locker", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogLocker),
+            [(StockUiViewHouse.MenuName, 4)] = new("Mog Satchel", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSatchel),
+            [(StockUiViewHouse.MenuName, 5)] = new("Mog Sack", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogSack),
+            [(StockUiViewHouse.MenuName, 6)] = new("Mog Case", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.MogCase),
+            [(StockUiViewHouse.MenuName, 7)] = new("Mog Wardrobe", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe),
+            [(StockUiViewHouse.MenuName, 9)] = new("Mog Wardrobe 2", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe2),
+            [(StockUiViewHouse.MenuName, 10)] = new("Mog Wardrobe 3", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe3),
+            [(StockUiViewHouse.MenuName, 11)] = new("Mog Wardrobe 4", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe4),
+            [(StockUiViewHouse.MenuName, 12)] = new("Mog Wardrobe 5", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe5),
+            [(StockUiViewHouse.MenuName, 13)] = new("Mog Wardrobe 6", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe6),
+            [(StockUiViewHouse.MenuName, 14)] = new("Mog Wardrobe 7", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe7),
+            [(StockUiViewHouse.MenuName, 15)] = new("Mog Wardrobe 8", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe8),
+
+            // Map (#23).
+            [(StockUiMap.MenuName, StockUiMap.MarkersButton)] = new("Markers", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiMap.MenuName, StockUiMap.WideScanButton)] = new("Wide Scan", Command: StockUiMenuCommand.MapWideScan),
+            [(StockUiMap.MenuName, StockUiMap.ChangeMapButton)] = new("Change Map", Command: StockUiMenuCommand.MapChange),
+
+            // Status (#23): statcom2's entries in their top-to-bottom order.
+            [(StockUiStatus.CommandMenu, StockUiStatus.ProfileButton)] = new("Profile", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Profile),
+            [(StockUiStatus.CommandMenu, StockUiStatus.JobLevelsButton)] = new("Job Levels", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobLevels),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MasterLevelsButton)] = new("Master Levels", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CombatSkillsButton)] = new("Combat Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CombatSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MagicSkillsButton)] = new("Magic Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.MagicSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CraftSkillsButton)] = new("Craft Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CraftSkills),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CurrenciesButton)] = new("Currencies", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.Currencies2Button)] = new("Currencies 2", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.UnityButton)] = new("Unity", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.PlayTimeButton)] = new("Play Time", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MeritPointsButton)] = new("Merit Points", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.NotAvailable),
+
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),
 

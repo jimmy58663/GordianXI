@@ -199,6 +199,9 @@ namespace Gordian.Engine.Events
         /// </summary>
         private readonly List<WorldEntity> _banked = new();
 
+        /// <summary>Scene routines' motions waiting for their first clip's tick (<see cref="PlaySceneMotion"/>; game tick thread only).</summary>
+        private readonly List<(double Seconds, WorldEntity Entity, string Routine)> _sceneMotions = new();
+
         /// <summary>Entities whose colour a scene routine changed (0x29 / 0x2E, #206): drawn as is again when the event ends.</summary>
         private readonly List<WorldEntity> _colored = new();
 
@@ -349,6 +352,7 @@ namespace Gordian.Engine.Events
             }
             if (numbers != null) _zone.SetParameters(numbers);
             if (strings != null && _info != null) _info = _info with { StringParams = strings };
+            ApplyPendingRecipe();
         }
 
         /// <summary>Advances the running event; starts a queued one.</summary>
@@ -412,21 +416,37 @@ namespace Gordian.Engine.Events
             SortArrivals(scene);
             bool wasWaiting = scene.IsWaitingForConfirm;
             if (!scene.IsFinished) scene.Tick(elapsed);
+            StartDueSceneMotions(elapsed.TotalSeconds);
             if (wasWaiting && !scene.IsWaitingForConfirm) StopTalker();
             if (scene.IsFinished) FinishEvent(scene);
             else if (wasWaiting != scene.IsWaitingForConfirm) Changed?.Invoke();
         }
 
         /// <summary>
-        /// Reads the dialog's input: Confirm (or Cancel) dismisses a waiting line. Returns true while an event runs
-        /// and no menu is open, so the action keys stay with the dialog.
+        /// Reads the dialog's input: Confirm dismisses a waiting line; Cancel cuts the event short where the event allows
+        /// it (<see cref="CancelLine"/>). Returns true while an event runs and no menu is open, so the action keys stay with
+        /// the dialog.
         /// </summary>
         public bool ProcessInput(InputState input)
         {
             var scene = _scene;
             if (scene == null) return false;
-            if (input.WasActionTriggered(InputAction.Confirm) || input.WasActionTriggered(InputAction.Cancel)) Confirm();
+            if (input.WasActionTriggered(InputAction.Confirm)) Confirm();
+            else if (input.WasActionTriggered(InputAction.Cancel)) CancelLine();
             return true;
+        }
+
+        /// <summary>
+        /// Cancel on the line the running event waits on (#413): where the event allows it (opcode 0x2E / 0x42,
+        /// <see cref="EventScene.MessageCancelAllowed"/>) the line closes and the event ends as cancelled at its next 0x23;
+        /// otherwise (cutscenes clear it) nothing happens.
+        /// </summary>
+        public void CancelLine()
+        {
+            var scene = _scene;
+            if (scene == null || !scene.CancelMessage()) return;
+            GordianLog.Info("EVENT", "The player cancelled the event's message.");
+            Changed?.Invoke();
         }
 
         /// <summary>Dismisses the line the running event waits on (Confirm or Cancel on it).</summary>
@@ -507,6 +527,7 @@ namespace Gordian.Engine.Events
             foreach (var v in scene.Actors) blocks.Add(v.CarriesEvent ? $"0x{v.EntityServerId:X8}" : $"0x{v.EntityServerId:X8} (catch-all)");
             GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} on {scene.Actors.Count} entities: {string.Join(", ", blocks)}.");
             _receivePending = false;
+            _recipePending = false;
             _scene = scene;
             MarkParticipants(scene);
             ApplyCutsceneFlags(scene, (CutsceneFlags)info.Mode);
@@ -608,6 +629,7 @@ namespace Gordian.Engine.Events
                 });
             }
             _banked.Clear();
+            _sceneMotions.Clear();
             foreach (var entity in _colored) entity.ActorColor.Reset();
             _colored.Clear();
             var world = _world;
@@ -851,6 +873,7 @@ namespace Gordian.Engine.Events
             {
                 entity.IsEventHidden = true;
                 _staged.Add(entity.ServerId);
+                GordianLog.Debug("EVENT", $"Event actor 0x{entity.ServerId:X8} ({entity.Name}) is hidden by the server: hidden until the event shows it.");
             }
         }
 
@@ -1249,6 +1272,103 @@ namespace Gordian.Engine.Events
 
         int IEventVmHost.SubMapNumber => _world?.SubMap.SubMapNumber ?? 0;
 
+        /// <summary>
+        /// The zone module that sends C2S 0x058 for event opcode 0x8C (#405); null in tests, where the opcode goes on
+        /// without waiting. Setting it listens for the S2C 0x031 answers on its <see cref="CraftingPacketModule.State"/>.
+        /// </summary>
+        public CraftingPacketModule? Crafting
+        {
+            get => _crafting;
+            set
+            {
+                if (_crafting != null)
+                {
+                    _crafting.State.RecipeReceived -= OnRecipeReceived;
+                    _crafting.State.RecipeListReceived -= OnRecipeListReceived;
+                }
+                _crafting = value;
+                if (value != null)
+                {
+                    value.State.RecipeReceived += OnRecipeReceived;
+                    value.State.RecipeListReceived += OnRecipeListReceived;
+                }
+            }
+        }
+
+        private CraftingPacketModule? _crafting;
+
+        /// <summary>
+        /// How long opcode 0x8C sub 1 waits for S2C 0x031 before going on with an empty answer. Retail waits for ever;
+        /// a server that refuses the request (LandSandBoat drops skill 0, the Fishermen's Guild's) would hold the event
+        /// and the player for good.
+        /// </summary>
+        internal static readonly TimeSpan RecipeAnswerTimeout = TimeSpan.FromSeconds(5);
+
+        private volatile bool _recipePending;
+        private ushort _recipeMode;
+        private long _recipeRequestedAt;
+        private object? _recipeAnswer;
+
+        private void OnRecipeReceived(RecipeDetail recipe)
+        {
+            lock (_sync) _recipeAnswer = recipe;
+        }
+
+        private void OnRecipeListReceived(RecipeListPage page)
+        {
+            lock (_sync) _recipeAnswer = page;
+        }
+
+        /// <summary>
+        /// Writes the S2C 0x031 answer into the work zone where the guild scripts read it, as retail's <c>RecvRecipe</c>
+        /// does, and ends opcode 0x8C sub 1's wait. Runs on the event thread before the scene ticks.
+        /// </summary>
+        private void ApplyPendingRecipe()
+        {
+            object? answer;
+            lock (_sync)
+            {
+                answer = _recipeAnswer;
+                _recipeAnswer = null;
+            }
+            if (answer == null && _recipePending
+                && System.Diagnostics.Stopwatch.GetElapsedTime(_recipeRequestedAt) > RecipeAnswerTimeout)
+            {
+                GordianLog.Warning("EVENT", $"No recipe answer (S2C 0x031) to the mode {_recipeMode} request; the event goes on with none.");
+                answer = _recipeMode == (ushort)RecipeRequestMode.RecipeList ? new RecipeListPage([], 0) : (object)new RecipeDetail(RecipeKind.Detail2, 0, [], 0, 0, [], []);
+            }
+            switch (answer)
+            {
+                case RecipeDetail recipe:
+                    _zone.ApplyRecipe(recipe.ProductItem, recipe.SubCraftSkills, recipe.CrystalItem, recipe.KeyItem, recipe.IngredientItems, recipe.IngredientCounts);
+                    _recipePending = false;
+                    break;
+                case RecipeListPage page:
+                    _zone.ApplyRecipeList(page.ItemIds, page.NextPageItem);
+                    _recipePending = false;
+                    break;
+            }
+        }
+
+        bool IEventVmHost.SendRecipeRequest(ushort mode, ushort skill, ushort level, ushort param0, ushort param1, ushort param2, ushort param3, ushort param4)
+        {
+            var crafting = _crafting;
+            if (crafting == null) return true; // nothing to wait for
+            lock (_sync) _recipeAnswer = null;
+            // Mode 5 (a Campaign Ops list completed) does not wait for an answer (XiEvents OpCodes/0x008C).
+            if (mode != (ushort)RecipeRequestMode.CampaignComplete)
+            {
+                _recipeMode = mode;
+                _recipeRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _recipePending = true;
+            }
+            GordianLog.Info("EVENT", $"Event recipe request: mode {mode}, skill {skill}, level {level}, params {param0}/{param1}/{param2}/{param3}/{param4}.");
+            _ = crafting.RequestRecipeAsync(skill, level, (RecipeRequestMode)mode, param0, param1, param2, param3, param4);
+            return true;
+        }
+
+        bool IEventVmHost.RecipePending => _recipePending;
+
         byte[]? IEventVmHost.LoadDat(int fileId)
         {
             try
@@ -1416,6 +1536,7 @@ namespace Gordian.Engine.Events
             }
             entity.IsEventHidden = hidden;
             _staged.Add(serverId);
+            GordianLog.Debug("EVENT", $"Event {(hidden ? "hides" : "shows")} 0x{serverId:X8} ({entity.Name}).");
         }
 
         /// <summary>
@@ -1468,12 +1589,79 @@ namespace Gordian.Engine.Events
             else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
             if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
             Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
-            // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206).
-            if (_world != null && _world.TryGetByServerId(casterServerId, out var colored) && colored.ActorColor.Schedule(scene, ActorColorTrack.Now))
+            PlaySceneMotion(fileId, routine, casterServerId);
+            // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206),
+            // with those of the routines it starts (Iroha's kie0 / eff0, #237).
+            SceneRoutine? Resolve(string name) => resource.TryGetRoutine(name, out var started) ? started : null;
+            if (_world != null && _world.TryGetByServerId(casterServerId, out var colored) && HasActorColor(scene, Resolve, 0))
             {
+                // Retail's 0x6C (CodeTRANSPAR) and a routine's 0x29 write the same actor colour alpha (#238): Northern San
+                // d'Oria 898 makes the Trust Mumor invisible with 0x6C and brings her in only with 70612's main. The routine
+                // takes the alpha over from where 0x6C left it. *Inferred from that scene.*
+                double now = ActorColorTrack.Now;
+                if (colored.EventAlpha < WorldEntity.OpaqueEventAlpha)
+                {
+                    colored.ActorColor.FadeTo(now, 0, ActorColorTrack.AsDrawn with { W = Math.Max(0, colored.EventAlpha) / (float)WorldEntity.OpaqueEventAlpha });
+                    colored.EventAlpha = WorldEntity.OpaqueEventAlpha;
+                }
+                colored.ActorColor.Schedule(scene, now, Resolve);
                 if (!_colored.Contains(colored)) _colored.Add(colored);
             }
             return scene.TotalFrames;
+        }
+
+        /// <summary>
+        /// Plays the motion clips of a scene task's routine on its actor (op 0x05, in the routine or one it starts with 0x03):
+        /// the scene file is loaded onto the actor as an event motion bank and the routine plays as an event gesture, its
+        /// clips (<c>ri0?</c>) resolved on the actor's model. Northern San d'Oria 898's <c>star</c> kneels the player into the
+        /// crafting pose (<c>mot0</c>, <c>ri0?</c> held) and <c>stop</c> stands them up at tick 271 (<c>mot1</c>, <c>rx2?</c>) (#238,
+        /// round 1: the player did not kneel). Clip reference and fields per xi-tools docs/anim/schedule.md (op 0x05).
+        /// </summary>
+        private void PlaySceneMotion(int fileId, string routine, uint casterServerId)
+        {
+            if (_world == null || !_world.TryGetByServerId(casterServerId, out var entity)) return;
+            if (LoadMotionBank(fileId) is not { } bank) return;
+            int first = bank.FirstClipTick(routine);
+            if (first < 0) return;
+            entity.Animation.AddEventMotionBank(bank);
+            if (!_banked.Contains(entity)) _banked.Add(entity);
+            _sceneMotions.Add((first / 60.0, entity, routine));
+            GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId} plays its motion on {casterServerId:X8} at tick {first}.");
+        }
+
+        /// <summary>Starts the scene routines' motions whose first clip is due (the gesture's clips start at its tick 0).</summary>
+        private void StartDueSceneMotions(double elapsedSeconds)
+        {
+            for (int i = 0; i < _sceneMotions.Count; i++)
+            {
+                var (seconds, entity, routine) = _sceneMotions[i];
+                seconds -= elapsedSeconds;
+                if (seconds > 0)
+                {
+                    _sceneMotions[i] = (seconds, entity, routine);
+                    continue;
+                }
+                _sceneMotions.RemoveAt(i--);
+                entity.Animation.EnqueueAction(new ActionRequest
+                {
+                    ActorId = entity.ServerId,
+                    Motion = ActionMotion.EventMotion,
+                    Routine = routine,
+                    ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+                });
+            }
+        }
+
+        /// <summary>Whether a routine, or one it starts (0x03), fades or holds its actor's colour (0x29 / 0x2E).</summary>
+        private static bool HasActorColor(SceneRoutine routine, Func<string, SceneRoutine?> resolve, int depth)
+        {
+            foreach (var command in routine.Commands)
+            {
+                if (command.Kind is SceneCommandKind.ActorColor or SceneCommandKind.ActorHold) return true;
+                if (command.Kind == SceneCommandKind.StartRoutine && depth < 4 && command.Reference != routine.Name
+                    && resolve(command.Reference) is { } started && HasActorColor(started, resolve, depth + 1)) return true;
+            }
+            return false;
         }
 
         void IEventVmHost.StopSceneTask(int taskId) => Presentation.Stop(taskId);

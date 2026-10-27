@@ -24,10 +24,11 @@ namespace Gordian.App.Graphics
 
         /// <summary>The help bar at its authored places on a screen <paramref name="width"/> x <paramref name="height"/> px.</summary>
         public static void DrawOnScreen(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            string title, string? text, float scale, uint width, uint height, int? numerator = null, int? denominator = null)
+            string? title, string? text, float scale, uint width, uint height, int? numerator = null, int? denominator = null)
         {
             StockUiPlacement? titleAt = null, helpAt = null;
-            if (library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
+            // No title (the Status window, whose stats side stands where the title box would): the help line alone.
+            if (title != null && library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
             {
                 var f = titleWindow.Frame;
                 titleAt = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
@@ -56,9 +57,9 @@ namespace Gordian.App.Graphics
         }
 
         private static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            string title, string? text, StockUiPlacement? titleAt, StockUiPlacement? helpAt, float? screenWidth, int? numerator, int? denominator)
+            string? title, string? text, StockUiPlacement? titleAt, StockUiPlacement? helpAt, float? screenWidth, int? numerator, int? denominator)
         {
-            if (titleAt is { } t && library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
+            if (titleAt is { } t && title != null && library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
             {
                 float s = t.Scale;
                 renderer.DrawMenu(titleWindow, t, includeButtons: false, opaqueBody: true);

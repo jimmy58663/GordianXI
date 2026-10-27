@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Graphics;
 
 namespace Gordian.Core.World
@@ -88,6 +89,66 @@ namespace Gordian.Core.World
                 IsSpawned = true,
             };
         }
+
+        /// <summary>
+        /// The city areas the Mog House exit can lead to when the city's exit is unlocked, in exit-mode order: the area at
+        /// index i is <see cref="MogHouseExitMode"/> Option(i + 1) of C2S 0x05E <c>zmrq</c> with the given exit bit. The
+        /// server says which city's exits the character has with S2C 0x00A <c>MyRoomExitBit</c> (+170; 0 when none, so
+        /// the exit returns to the area entered from). Areas and their order referenced from LandSandBoat
+        /// (https://github.com/LandSandBoat/server, packets/c2s/0x05e_maprect.cpp moghouseCityExit, and
+        /// s2c/0x00a_login.cpp GetMogHouseLeavingFlag: San d'Oria, Bastok, Windurst and Jeuno need the city's Mog House
+        /// exit quest, Whitegate its own, Adoulin is always open). The fronts (bits 6-8) have no areas there. Empty for
+        /// <see cref="MogHouseExitBit.Default"/> or a bit with no areas.
+        /// </summary>
+        public static IReadOnlyList<ushort> ExitAreas(MogHouseExitBit exitBit) => exitBit switch
+        {
+            MogHouseExitBit.SandOria => new ushort[] { 230, 231, 232 },     // Southern, Northern, Port San d'Oria
+            MogHouseExitBit.Bastok => new ushort[] { 234, 235, 236 },       // Bastok Mines, Bastok Markets, Port Bastok
+            MogHouseExitBit.Windurst => new ushort[] { 238, 239, 240, 241 }, // Windurst Waters, Walls, Port Windurst, Woods
+            MogHouseExitBit.Jeuno => new ushort[] { 243, 244, 245, 246 },   // Ru'Lude Gardens, Upper, Lower, Port Jeuno
+            MogHouseExitBit.Whitegate => new ushort[] { 48, 50 },           // Al Zahbi, Aht Urhgan Whitegate
+            MogHouseExitBit.Adoulin => new ushort[] { 256, 257 },           // Western, Eastern Adoulin
+            _ => Array.Empty<ushort>(),
+        };
+
+        /// <summary>
+        /// The Mog Garden's zone id. The exit menu's area list ends with it (exit mode <see cref="MogHouseExitMode.MogGarden"/>,
+        /// 127) when <see cref="OffersMogGarden"/>: LandSandBoat lets that mode leave any Mog House
+        /// (packets/c2s/0x05e_maprect.cpp, unless the server turns the Mog Garden off, when it leaves to the area entered
+        /// from), and the maintainer's round 1 note (2026-10-24) lists it under Adoulin's "Select an area to exit to.".
+        /// </summary>
+        public const ushort MogGardenZone = 280;
+
+        /// <summary>The Pioneer's Badge key item (2157, LandSandBoat scripts/enum/key_item), given by Seekers of Adoulin mission 1-5, Pioneer Registration.</summary>
+        public const ushort PioneersBadgeKeyItem = 2157;
+
+        /// <summary>The nation rank that opens the Mog Garden without the Pioneer's Badge (BG wiki, Mog Garden: "Rank 3 in any nation").</summary>
+        public const int MogGardenNationRank = 3;
+
+        /// <summary>
+        /// Whether the exit menu's area list offers the Mog Garden: once the garden is open to the character (the Pioneer's
+        /// Badge, or <see cref="MogGardenNationRank"/> in a nation; BG wiki, Mog Garden). BG wiki has the exit menu reach it
+        /// only when the exit quest of the city being left is complete, which is when the server sends that city's exit bit
+        /// and the area list exists at all (Adoulin's exit is always open).
+        /// </summary>
+        public static bool OffersMogGarden(MogHouseExitBit exitBit, ProgressionState progression, int nationRank) =>
+            ExitAreas(exitBit).Count > 0 && (progression.HasKeyItem(PioneersBadgeKeyItem) || nationRank >= MogGardenNationRank);
+
+        /// <summary>
+        /// Whether the exit menu offers "Change floors.": the client keeps <c>(MyroomSubMapNumber &gt;&gt; 1) &amp; 3</c> of
+        /// S2C 0x00A and picks the exit menu by it (XiPackets world/server/0x000A). LandSandBoat sends 2 on the second floor
+        /// ("ensure full exit menu appears") and 0 elsewhere, so on the first floor the row stays greyed as in retail's
+        /// image-23 (round 1, 2026-10-24); what retail sends on a first floor with the second floor unlocked is not known.
+        /// </summary>
+        public static bool CanChangeFloors(byte myroomSubMapNumber) => ((myroomSubMapNumber >> 1) & 3) != 0;
+
+        /// <summary>
+        /// The exit mode that changes floors: <see cref="MogHouseExitMode.Mog1F"/> (126) from a second-floor room (0x267-0x26A,
+        /// XiPackets world/server/0x000A), else <see cref="MogHouseExitMode.Mog2F"/> (125). LandSandBoat toggles the floor
+        /// on either mode (packets/c2s/0x05e_maprect.cpp).
+        /// </summary>
+        public static MogHouseExitMode FloorChangeMode(int myroomMapNumber) =>
+            myroomMapNumber is >= 0x267 and <= 0x26A ? MogHouseExitMode.Mog1F : MogHouseExitMode.Mog2F;
 
         /// <summary>The room number of a map zone key; false for a real zone id.</summary>
         public static bool TryGetRoomOfKey(int zoneKey, out int myroomMapNumber)

@@ -71,6 +71,18 @@ namespace Gordian.Engine.Input
         /// </summary>
         public bool SuppressGamepadActions { get; set; }
 
+        /// <summary>
+        /// True while the Map window is open (#23): the movement and camera actions and both sticks read as idle to the
+        /// character and the camera (<see cref="IsActionHeld"/>, <see cref="CurrentGamepad"/>), and the map pans and zooms
+        /// with them instead (<see cref="IsActionHeldRaw"/>, <see cref="RawGamepad"/>), as retail's map does (round 1 of
+        /// the 2026-10-24 test). Set by the locomotion controller each tick.
+        /// </summary>
+        public bool MovementCaptured { get; set; }
+
+        /// <summary>The actions <see cref="MovementCaptured"/> takes: moving, turning, strafing and the camera's pitch, yaw and zoom.</summary>
+        private static bool IsCapturedAction(InputAction action) =>
+            action is >= InputAction.MoveForward and <= InputAction.StrafeRight or >= InputAction.CameraPitchUp and <= InputAction.CameraZoomOut;
+
         private GamepadButton _padIgnored;
 
         /// <summary>
@@ -84,6 +96,21 @@ namespace Gordian.Engine.Input
         }
 
         public GamepadState CurrentGamepad
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    if (!MovementCaptured) return _gamepadState;
+                    var pad = _gamepadState;
+                    return new GamepadState(pad.IsConnected, pad.Buttons, System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero,
+                        pad.LeftTrigger, pad.RightTrigger, pad.PacketNumber, pad.DeviceName);
+                }
+            }
+        }
+
+        /// <summary>The gamepad as read, sticks included, whatever <see cref="MovementCaptured"/> says.</summary>
+        public GamepadState RawGamepad
         {
             get { lock (_lock) return _gamepadState; }
         }
@@ -451,6 +478,12 @@ namespace Gordian.Engine.Input
         #region Action Queries
 
         public bool IsActionHeld(InputAction action)
+        {
+            lock (_lock) return (!MovementCaptured || !IsCapturedAction(action)) && _heldActions.Contains(action);
+        }
+
+        /// <summary>Whether the action is held, whatever <see cref="MovementCaptured"/> says.</summary>
+        public bool IsActionHeldRaw(InputAction action)
         {
             lock (_lock) return _heldActions.Contains(action);
         }

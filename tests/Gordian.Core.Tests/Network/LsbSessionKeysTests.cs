@@ -414,7 +414,7 @@ namespace Gordian.Core.Tests.Network
         /// A loopback xi_connect stand-in that requires xiloader 2.1.x and answers others with LandSandBoat's
         /// "Unsupported xiloader version" error (auth_session.cpp). Records the versions it was sent.
         /// </summary>
-        private sealed class FakeAuthServer : IDisposable
+        internal sealed class FakeAuthServer : IDisposable
         {
             private readonly System.Net.Sockets.TcpListener _listener = new(System.Net.IPAddress.Loopback, 0);
             private readonly System.Security.Cryptography.X509Certificates.X509Certificate2 _certificate;
@@ -434,28 +434,45 @@ namespace Gordian.Core.Tests.Network
 
             public int Port => ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
 
+            /// <summary>The self-signed certificate it presents, new for each server.</summary>
+            public System.Security.Cryptography.X509Certificates.X509Certificate2 Certificate => _certificate;
+
             private async Task ServeAsync()
             {
-                try
+                while (!_cts.IsCancellationRequested)
                 {
-                    while (!_cts.IsCancellationRequested)
+                    try
                     {
                         using var client = await _listener.AcceptTcpClientAsync(_cts.Token);
-                        using var ssl = new System.Net.Security.SslStream(client.GetStream());
-                        await ssl.AuthenticateAsServerAsync(_certificate);
-                        var buffer = new byte[4096];
-                        int n = await ssl.ReadAsync(buffer, _cts.Token);
-                        using var request = System.Text.Json.JsonDocument.Parse(buffer.AsMemory(0, n));
-                        var v = request.RootElement.GetProperty("version").EnumerateArray().Select(e => e.GetInt32()).ToArray();
-                        Versions.Enqueue($"{v[0]}.{v[1]}.{v[2]}");
-                        string reply = v[0] == 2 && v[1] == 1
-                            ? "{\"result\":1,\"account_id\":7,\"session_hash\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}"
-                            : System.Text.Json.JsonSerializer.Serialize(new { error_message = $"Unsupported xiloader version {v[0]}.{v[1]}.{v[2]}.\nThis server requires version 2.1.x." });
-                        await ssl.WriteAsync(Encoding.UTF8.GetBytes(reply), _cts.Token);
-                        await ssl.FlushAsync(_cts.Token);
+                        await AnswerAsync(client);
+                    }
+                    catch (Exception) when (!_cts.IsCancellationRequested)
+                    {
+                        // The client refused the certificate (with TLS 1.3 that can surface on the first read); it may
+                        // connect again once the user trusts it.
+                    }
+                    catch (Exception)
+                    {
+                        return;
                     }
                 }
-                catch (Exception) { }
+            }
+
+            private async Task AnswerAsync(System.Net.Sockets.TcpClient client)
+            {
+                using var ssl = new System.Net.Security.SslStream(client.GetStream());
+                await ssl.AuthenticateAsServerAsync(_certificate);
+                var buffer = new byte[4096];
+                int n = await ssl.ReadAsync(buffer, _cts.Token);
+                if (n <= 0) return;
+                using var request = System.Text.Json.JsonDocument.Parse(buffer.AsMemory(0, n));
+                var v = request.RootElement.GetProperty("version").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+                Versions.Enqueue($"{v[0]}.{v[1]}.{v[2]}");
+                string reply = v[0] == 2 && v[1] == 1
+                    ? "{\"result\":1,\"account_id\":7,\"session_hash\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}"
+                    : System.Text.Json.JsonSerializer.Serialize(new { error_message = $"Unsupported xiloader version {v[0]}.{v[1]}.{v[2]}.\nThis server requires version 2.1.x." });
+                await ssl.WriteAsync(Encoding.UTF8.GetBytes(reply), _cts.Token);
+                await ssl.FlushAsync(_cts.Token);
             }
 
             public void Dispose()
@@ -470,7 +487,12 @@ namespace Gordian.Core.Tests.Network
         public async Task VersionFallback_RetriesWithTheRequiredVersionAndRemembersIt()
         {
             using var server = new FakeAuthServer();
-            var client = new LsbLoginClient();
+            // The stand-in is self-signed: the user trusts it on first use (#445).
+            var client = new LsbLoginClient
+            {
+                CertificateStore = ServerCertificateTrustTests.ScratchStore(),
+                ConfirmServerCertificate = (_, _) => Task.FromResult(true),
+            };
             var (account, hash) = await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken);
             Assert.Equal(7u, account);
             Assert.Equal(Hash, hash);

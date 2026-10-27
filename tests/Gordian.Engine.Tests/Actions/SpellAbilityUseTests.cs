@@ -83,6 +83,14 @@ namespace Gordian.Engine.Tests.Actions
             _localPlayer.UpdateFromCommandData(new S2C_0x0AC_CommandData(data));
         }
 
+        /// <summary>#387: <c>&lt;recast=Provoke&gt;</c> writes the name in brackets and the time, "[Provoke] 0:00", as retail's /echo does (round 1 image-9).</summary>
+        [Fact]
+        public void RecastPlaceholder_WritesTheNameInBracketsAndTheTime()
+        {
+            Assert.Equal("[Provoke] 0:00", _service.ExpandChatTokens("<recast=Provoke>"));
+            Assert.Equal("<recast=Nothing>", _service.ExpandChatTokens("<recast=Nothing>"));
+        }
+
         [Fact]
         public async Task Trust_ByQuotedNameOnMe_CastsOnYourself()
         {

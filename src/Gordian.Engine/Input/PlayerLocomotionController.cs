@@ -118,6 +118,15 @@ namespace Gordian.Engine.Input
         public const float MaxFallDistance = EntityGrounding.MaxFallDistance;
 
         /// <summary>
+        /// How far above the feet (yalms) the zone-in settle looks for the floor when there is none in the usual window
+        /// (<see cref="StepUpHeight"/> up, <see cref="MaxFallDistance"/> down), i.e. when the server put the character
+        /// under the floor. LandSandBoat's Western Adoulin Mog House exit is at height +0.75 (internal +Y down) where the
+        /// floor is at -0.75 (its Eastern Adoulin one, -0.15, sits on its floor), 1.5 yalms under: #427, round 2 test
+        /// 2026-10-22, floors read from the retail zone 256 collision. Retail stands the player on the floor there.
+        /// </summary>
+        public const float ArrivalRiseLimit = 2.0f;
+
+        /// <summary>
         /// True while the player is falling.
         /// </summary>
         public bool IsFalling => _airborne;
@@ -419,6 +428,11 @@ namespace Gordian.Engine.Input
                 _menuOpen = (menus != null && menus.ProcessInput(_inputState, elapsed)) || inEvent;
             }
 
+            // 2b. The Map window takes the movement and camera input to pan and zoom the map (#23); the character stands.
+            var map = menus?.MapWindow;
+            _inputState.MovementCaptured = map != null;
+            if (map != null) UpdateMapView(menus!, elapsed);
+
             // 3. Update Camera from keyboard & mouse impulses
             UpdateCamera(elapsed);
 
@@ -431,6 +445,35 @@ namespace Gordian.Engine.Input
 
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
+        }
+
+        /// <summary>
+        /// Pans the open Map window with the movement keys and the left stick (forward = up the map) and zooms it with the
+        /// camera's zoom and pitch keys, the right stick's up/down and the mouse wheel (#23, round 1: retail's map takes
+        /// movement to pan and the camera controls to zoom). The mouse's look deltas are used up so the camera stays put.
+        /// </summary>
+        private void UpdateMapView(Ui.StockUiMenuController menus, TimeSpan elapsed)
+        {
+            float dt = (float)elapsed.TotalSeconds;
+            float x = 0, y = 0, zoom = 0;
+            if (_inputState.IsActionHeldRaw(InputAction.MoveForward)) y -= 1;
+            if (_inputState.IsActionHeldRaw(InputAction.MoveBackward)) y += 1;
+            if (_inputState.IsActionHeldRaw(InputAction.StrafeLeft) || _inputState.IsActionHeldRaw(InputAction.TurnLeft)) x -= 1;
+            if (_inputState.IsActionHeldRaw(InputAction.StrafeRight) || _inputState.IsActionHeldRaw(InputAction.TurnRight)) x += 1;
+            if (_inputState.IsActionHeldRaw(InputAction.CameraZoomIn) || _inputState.IsActionHeldRaw(InputAction.CameraPitchUp)) zoom += 1;
+            if (_inputState.IsActionHeldRaw(InputAction.CameraZoomOut) || _inputState.IsActionHeldRaw(InputAction.CameraPitchDown)) zoom -= 1;
+            var pad = _inputState.RawGamepad;
+            if (pad.IsConnected)
+            {
+                var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
+                var left = GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone);
+                x += left.X;
+                y -= left.Y;
+                var right = GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone);
+                zoom += right.Y;
+            }
+            _inputState.ConsumeMouseDeltas(out _, out _, out float wheel);
+            menus.MoveMapView(Math.Clamp(x, -1, 1) * dt, Math.Clamp(y, -1, 1) * dt, Math.Clamp(zoom, -1, 1) * dt, wheel);
         }
 
         /// <summary>The session's stock chat (null outside a session).</summary>
@@ -1220,7 +1263,8 @@ namespace Gordian.Engine.Input
         /// arrival point of a zone line, the centre of the next zone's landing box (e.g. Southern San d'Oria's <c>z6e1</c>,
         /// 4 yalms tall, its centre about two yalms above the street), and the legacy client shows the player standing
         /// (round 1 of in-game testing, 2026-10-12, saw GordianXI's player floating there). The floor is the highest one at
-        /// most <see cref="StepUpHeight"/> above the feet and at most <see cref="MaxFallDistance"/> below; nothing changes
+        /// most <see cref="StepUpHeight"/> above the feet and at most <see cref="MaxFallDistance"/> below, or, with none
+        /// there (a position under the floor), the highest at most <see cref="ArrivalRiseLimit"/> above; nothing changes
         /// where there is none or ground collision is off.
         /// </summary>
         internal void SettleOnGround(WorldEntity localEnt)
@@ -1228,7 +1272,9 @@ namespace Gordian.Engine.Input
             if ((EffectiveCollision & CollisionLayers.Ground) == 0) return;
             var collision = _world.Collision;
             if (collision == null) return;
-            if (!TryFindGround(collision, localEnt.Position, FootRadius, out var ground)) return;
+            // Under the floor (#427): rise onto the highest floor within ArrivalRiseLimit above the feet.
+            if (!TryFindGround(collision, localEnt.Position, FootRadius, out var ground)
+                && !collision.TryGetGround(localEnt.Position, ArrivalRiseLimit, MaxFallDistance, out ground)) return;
             localEnt.Position = new Vector3(localEnt.Position.X, ground.Height, localEnt.Position.Z);
             _airborne = false;
             _fallSpeed = 0.0f;

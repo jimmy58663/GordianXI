@@ -896,6 +896,9 @@ namespace Gordian.Core.World
 
         #region Auction House
 
+        /// <summary>The Auction House cache (the window's state and the sale slots) every 0x04C answer feeds.</summary>
+        public AuctionHouseState AuctionHouse { get; } = new AuctionHouseState();
+
         /// <summary>The last Auction House answer (S2C 0x04C), or null.</summary>
         public AuctionResponse? LastAuctionResponse { get; private set; }
 
@@ -914,6 +917,7 @@ namespace Gordian.Core.World
             }
 
             AuctionChanged?.Invoke();
+            AuctionHouse.Apply(response);
         }
 
         /// <summary>The latest answer for each Auction House sale slot, by work index, copied under the state lock.</summary>
