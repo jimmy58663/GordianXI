@@ -221,6 +221,9 @@ namespace Gordian.Core.Animation
             _incomingActions.Enqueue(request);
         }
 
+        /// <summary>Whether an action is queued and not yet taken by <c>Advance</c>.</summary>
+        internal bool HasQueuedActions => !_incomingActions.IsEmpty;
+
         /// <summary>
         /// Loads an event motion bank onto the entity (opcode 0x5B; thread-safe): its routines play for event gestures
         /// before the model's own. Loading the same bank again changes nothing.

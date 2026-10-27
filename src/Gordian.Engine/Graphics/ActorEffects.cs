@@ -38,6 +38,8 @@ namespace Gordian.Engine.Graphics
             {
                 emitter.ChildResolver = template => _byTemplate.TryGetValue(template, out var child) ? child : null;
             }
+            // A state-driven model appears in its idle state: the routines its ids0 links (the campfire's flames, #425).
+            foreach (string link in effects.IdleStateLinks) Play(link);
         }
 
         public ActorEffectSet Effects { get; }

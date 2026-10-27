@@ -12,7 +12,8 @@ namespace Gordian.Core.World.Collision
     /// never blocks again until it drops out of render distance or the player changes zone, so a crowd of players (auction
     /// house, zone line) never traps the player twice; NPCs and monsters block every time. Something the player already
     /// overlaps never blocks, so it can always walk out. Hidden, invisible and server-flagged non-blocking entities are
-    /// skipped, as the client skips them in its actor contact check.
+    /// skipped, as the client skips them in its actor contact check, and so are untargetable ones (the server's TargetOff
+    /// flag): scenery the server spawns as NPCs, such as the campfires and fences of Yahse Hunting Grounds' camps (#425).
     /// <para>
     /// Retail (Collision_Bump.mp4, Castoff Point, #16): the stop distance grows with the character's size (a Hume-size NPC
     /// about 0.6-0.8 yalm centre to centre, a Galka-size NPC about 1-1.5, a Galka PC about 1); the hold before passing is
@@ -177,10 +178,18 @@ namespace Gordian.Core.World.Collision
             return nearest;
         }
 
+        /// <summary>
+        /// Whether a character can stop the player. Untargetable characters (Flags1 TargetOff) never do (#425): retail walks
+        /// through the campfires (model 2411) and fences (2779) at Yahse Hunting Grounds' camp (zone 260, about (320, -200)),
+        /// which LandSandBoat spawns as nameless NPCs with <c>entityFlags</c> 0x81B (<c>untargetable</c> 0x800), while every
+        /// character that stopped the player in Collision_Bump.mp4 (Nunana, Castoff Point, Pollinating Swarm, a PC) is
+        /// targetable. Those props do not carry the documented non-blocking bit (Flags3 bit 28; their name byte is 0x68,
+        /// bits 27, 29 and 30). *Inference*: the client's contact check is not documented beyond that bit.
+        /// </summary>
         private static bool Blocks(WorldEntity other, WorldEntity self)
         {
             if (ReferenceEquals(other, self) || other.ServerId == self.ServerId) return false;
-            if (!other.IsSpawned || other.IsHidden || other.IsInvisible || other.IsSleeping || other.IsAutoTargetOnly || other.IsNonBlocking) return false;
+            if (!other.IsSpawned || other.IsHidden || other.IsInvisible || other.IsSleeping || other.IsAutoTargetOnly || other.IsNonBlocking || other.IsTargetOff) return false;
             if (other.Type is not (EntityType.Player or EntityType.Npc or EntityType.Monster or EntityType.Pet or EntityType.Trust)) return false;
             return !(other.Type == EntityType.Monster && other.Hpp == 0); // defeated monsters
         }

@@ -60,10 +60,16 @@ namespace Gordian.Core.World
         /// <summary>The server picked the character's target (S2C 0x058): its server id, 0 for none.</summary>
         public event Action<uint>? AssistTargetReceived;
 
+        /// <summary>An entity digs with its chocobo (S2C 0x02F): its server id and target index.</summary>
+        public event Action<uint, ushort>? DigReceived;
+
         #endregion
 
         /// <summary>The target the server last picked for the character (S2C 0x058), 0 before any.</summary>
         public uint AssistTargetServerId { get; private set; }
+
+        /// <summary>Raises <see cref="DigReceived"/> for an entity the server says digs (S2C 0x02F).</summary>
+        public void RecordDig(uint serverId, ushort targetIndex) => DigReceived?.Invoke(serverId, targetIndex);
 
         /// <summary>Records the target the server picked (S2C 0x058) and raises <see cref="AssistTargetReceived"/>.</summary>
         public void ApplyAssistTarget(uint serverId)
