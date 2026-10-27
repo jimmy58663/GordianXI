@@ -374,6 +374,12 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.ItemSort = container => InventoryModule.SortContainerAsync(container);
             ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
             ActionService.Menus.CharacterStats = CharacterStats;
+            ActionService.Menus.StatusInfo = StatusInfo;
+            // The Map window (#23): the zone's map, and Wide Scan as /widescan.
+            ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
+            // View House (#23): the Mog Safes, Storage and Mog Locker give up their items only in the Mog House (S2C 0x00A).
+            ActionService.Menus.InMogHouse = () => World.ZoneLoginInfo?.InMogHouse == true;
             Inventory.EquipChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             Inventory.ContainerSizesChanged += (_, _, _) => ActionService.Menus.OnItemsChanged();
             // A style lock that could not use some items (S2C 0x11C) prints one error line per item.
@@ -516,7 +522,8 @@ namespace Gordian.Engine.Sessions
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string main = p.MainJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
             string sub = p.SubJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
-            string itemLevel = string.Create(inv, $"ILv {p.ItemLevel}/Su {p.SuperiorLevel}");
+            int? computed = Ui.StockUiStatus.ItemLevel(Inventory, ActionService.Menus.ItemLookup, p.MainJobLevel);
+            string itemLevel = string.Create(inv, $"ILv {(computed is { } level ? level.ToString(inv) : "---")}/Su {p.SuperiorLevel}");
             var bases = new int[7];
             var bonuses = new int[7];
             for (int i = 0; i < 7; i++)
@@ -528,6 +535,26 @@ namespace Gordian.Engine.Sessions
             for (int i = 0; i < 8; i++) resistances[i] = p.ElementalResistances[i];
             return new Ui.StockUiCharacterStats(CharacterName, main, sub, itemLevel, p.CurrentHp, p.MaxHp, p.CurrentMp, p.MaxMp, p.CurrentTp,
                 bases, bonuses, p.Attack, p.Defense, resistances);
+        }
+
+        /// <summary>
+        /// The Status window (#23): the stats side, the level box (main job level, EXP and the EXP to the next level, S2C
+        /// 0x061), the profile (title, nation, race, home point, rank, from 0x061 and the character's appearance), every job's
+        /// level (0x01B) and the skills (0x062). Names come from the client's tables through the menu controller's resolvers.
+        /// </summary>
+        private Ui.StockUiStatusInfo StatusInfo()
+        {
+            var p = LocalPlayer;
+            var menus = ActionService.Menus;
+            int race = World.TryGetByServerId(p.ServerId, out var self) && self != null ? (self.Appearance.FaceModel >> 8) & 0xFF : 0;
+            var skills = p.SkillBase;
+            return new Ui.StockUiStatusInfo(CharacterStats(), p.MainJobLevel, p.ExpNow, p.ExpNext,
+                menus.TitleName?.Invoke(p.TitleId) ?? string.Empty, Ui.StockUiStatus.NationName(p.Nation), Ui.StockUiStatus.RaceName(race),
+                p.HomePointZone != 0 ? menus.ZoneCompactName?.Invoke(p.HomePointZone) ?? string.Empty : string.Empty,
+                p.Rank, p.RankPoints, Ui.StockUiStatus.MasteryRankShown(p.MasteryRank), (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
+                Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.CombatSkills, skills), Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.MagicSkills, skills),
+                Ui.StockUiStatus.CraftLines(skills), (byte)p.SubJob, p.Nation <= 2 ? p.Nation : -1, p.MentorRank,
+                Ui.StockUiStatus.GladiatorRankName(Progression.GladiatorRank), Progression.Prestige);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

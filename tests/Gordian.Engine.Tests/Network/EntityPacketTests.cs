@@ -505,6 +505,10 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(1000, state.MaxHp);
             Assert.Equal(600, state.MaxMp);
             Assert.Equal(65, state.BaseStats[0]);
+            // Every job's level is kept for the Status window's Job Levels (#23); jobs at 0 stay 0.
+            Assert.Equal(75, state.JobLevels[(int)JobId.RedMage]);
+            Assert.Equal(37, state.JobLevels[(int)JobId.BlackMage]);
+            Assert.Equal(0, state.JobLevels[(int)JobId.Warrior]);
         }
 
         [Fact]

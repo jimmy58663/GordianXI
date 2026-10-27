@@ -37,6 +37,9 @@ namespace Gordian.Engine.Ui
         /// row a function and its buttons; Confirm waits for the button to assign.
         /// </summary>
         GamepadAssign,
+
+        /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
+        MapAreas,
     }
 
     /// <summary>
@@ -1262,6 +1265,13 @@ namespace Gordian.Engine.Ui
         {
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
+            bool pageMoved;
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction);
+            if (pageMoved)
+            {
+                Changed?.Invoke();
+                return;
+            }
             lock (_sync)
             {
                 var top = Top;
@@ -1301,7 +1311,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1555,7 +1565,7 @@ namespace Gordian.Engine.Ui
             UiMenuButton? button;
             lock (_sync)
             {
-                top = Top;
+                top = StatusPageConfirm() ?? Top;
                 button = top?.SelectedButton;
             }
             if (top == null || button == null) return;
@@ -1684,6 +1694,12 @@ namespace Gordian.Engine.Ui
             if (top.ListKind == StockUiListKind.GamepadAssign)
             {
                 ActivateGamepadAssign(top, button.ButtonId);
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.MapAreas)
+            {
+                ActivateMapList(top, button.ButtonId);
                 return;
             }
 
@@ -1871,6 +1887,37 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.CurrentTime:
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
+                    break;
+
+                case StockUiMenuCommand.Map:
+                    bool mapped;
+                    lock (_sync) mapped = OpenMap(from) != null;
+                    if (mapped) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.ViewHouse:
+                    bool housed;
+                    lock (_sync) housed = OpenViewHouse(from) != null;
+                    if (housed) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.ViewStorage:
+                    OpenStorage(from, (Gordian.Core.Network.Packets.ContainerId)entry.Argument);
+                    break;
+
+                case StockUiMenuCommand.MapChange:
+                    ChangeMap(from);
+                    break;
+
+                case StockUiMenuCommand.MapWideScan:
+                    if (WideScanRequested is { } wideScan) _ = wideScan();
+                    else NoticePosted?.Invoke("Wide Scan is not available in this session.");
+                    break;
+
+                case StockUiMenuCommand.StatusPage:
+                    bool paged;
+                    lock (_sync) paged = OpenStatusPage((StockUiStatusPage)entry.Argument, from) != null;
+                    if (paged) Changed?.Invoke();
                     break;
 
                 case StockUiMenuCommand.LogOut:

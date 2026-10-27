@@ -1069,6 +1069,7 @@ namespace Gordian.Core.Network.Packets
 
         private const int DataOffset = 4;
         private const int MeritsSize = 5;
+        private const int MonstrositySize = 16;
         private const int JobPointsHeaderSize = 4;
         private const int JobPointEntrySize = 6;
         private const int StatusIconsSize = StatusIconCount * 2 + StatusIconCount * 4;
@@ -1099,6 +1100,7 @@ namespace Gordian.Core.Network.Packets
                 TypeHomepoints => TeleportMaskWordCount * 4,
                 TypeUnity => UnityHeaderSize,
                 TypeStatusIcons => StatusIconsSize,
+                TypeMonstrosity1 => MonstrositySize,
                 _ => 0,
             };
             IsValid = payload.Length >= DataOffset + needed;
@@ -1128,6 +1130,20 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>Maximum merit points (data +4).</summary>
         public byte MaxMeritPoints => IsType(TypeMerits) ? _payload[DataOffset + 4] : (byte)0;
+
+        #endregion
+
+        #region Type 0x03: Monstrosity (1)
+
+        /// <summary>
+        /// The Gladiator rank the Status window's Profile shows: <c>(flags &gt;&gt; 2) &amp; 3</c> of the Monstrosity data's
+        /// <c>flags</c> (data +4), 0 Gla(diator), 1 CG (Champion Gladiator), 2 HCG (High Champion Gladiator) (XiPackets
+        /// world/server/0x0063, type 0x03).
+        /// </summary>
+        public int GladiatorRank => IsType(TypeMonstrosity1) ? (int)((BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + 4)) >> 2) & 3) : 0;
+
+        /// <summary>The prestige the Profile shows: <c>prestige &amp; 0xFFFF</c> (u32 at data +12; XiPackets world/server/0x0063, type 0x03).</summary>
+        public int Prestige => IsType(TypeMonstrosity1) ? (int)(BinaryPrimitives.ReadUInt32LittleEndian(_payload.Slice(DataOffset + 12)) & 0xFFFF) : 0;
 
         #endregion
 

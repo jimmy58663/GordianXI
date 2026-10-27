@@ -232,6 +232,7 @@ namespace Gordian.Engine.Ui
             StockUiListKind.LogRouting => LogListRows,
             StockUiListKind.Effects => EffectRows,
             StockUiListKind.GamepadAssign => GamepadAssignRows,
+            StockUiListKind.MapAreas => StockUiMap.ListRows,
             _ => 0,
         };
 
