@@ -522,8 +522,8 @@ namespace Gordian.Engine.Sessions
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string main = p.MainJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.MainJobLevel} {Ui.StockUiCheck.JobName((byte)p.MainJob)}");
             string sub = p.SubJob == JobId.None ? string.Empty : string.Create(inv, $"Lv{p.SubJobLevel} {Ui.StockUiCheck.JobName((byte)p.SubJob)}");
-            int? averaged = Ui.StockUiStatus.ItemLevel(Inventory, ActionService.Menus.ItemLookup, p.MainJobLevel);
-            string itemLevel = string.Create(inv, $"ILv {(averaged is { } level ? level.ToString(inv) : "---")}/Su {p.SuperiorLevel}");
+            int? computed = Ui.StockUiStatus.ItemLevel(Inventory, ActionService.Menus.ItemLookup, p.MainJobLevel);
+            string itemLevel = string.Create(inv, $"ILv {(computed is { } level ? level.ToString(inv) : "---")}/Su {p.SuperiorLevel}");
             var bases = new int[7];
             var bonuses = new int[7];
             for (int i = 0; i < 7; i++)
