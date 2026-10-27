@@ -42,6 +42,9 @@ namespace Gordian.App.Graphics
             // image-2). It stays drawn, under the fill, as in retail.
             renderer.DrawMenu(definition, placement, includeButtons: false,
                 opaqueBody: true, frameImage: menu.FrameImage,
+                // A client-sized frame (an event query with more or fewer rows than the DAT's three) stretches its
+                // background to its height, so the background meets the bottom border (round 2, O7).
+                frameHeight: frame.AuthoredHeight > 0 && frame.AuthoredHeight != frame.Height ? frame.Height : null,
                 // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
                 // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
                 opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
@@ -300,8 +303,11 @@ namespace Gordian.App.Graphics
             for (int i = from; i <= to; i++)
             {
                 float ry = areaY + (i - first) * pitch * s;
+                // A greyed option (the Mog House exit's "Change floors.", image-23 of round 1, 2026-10-24) in the action
+                // lists' lavender grey.
+                bool greyed = i < menu.QueryOptions.Count && menu.QueryOptions[i].Greyed;
                 renderer.DrawText(font, menu.Rows[i].Text, areaX + QueryOptionTextInset * s, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s,
-                    i == selectedEntry ? SelectedGlyphTint : null);
+                    i == selectedEntry ? SelectedGlyphTint : greyed ? ActionGreyedTint : null);
             }
             renderer.ClearClip();
             if (menu.CanScroll) DrawScrollbar(renderer, placement, definition.Frame, first, menu.Rows.Count, menu.VisibleRows);
