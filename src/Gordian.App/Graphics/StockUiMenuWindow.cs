@@ -51,10 +51,7 @@ namespace Gordian.App.Graphics
                 // A client-sized frame stretches its images from their authored height to its own: a Status page fitted
                 // to its rows, or an event query with more or fewer rows than the DAT's three, so the background meets
                 // the bottom border (round 2, O7).
-                frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null,
-                // The Font Colors list has no title band (retail screenshots, 2026-10-04): opaque to its top edge. Nor has the
-                // Key Items window (its title is in the help bar): its top 20 px stayed see-through (round 2, B14).
-                opaqueTop: menu.ListKind == StockUiListKind.FontColors || menu.IsKeyItemWindow ? 0 : StockUiRenderer.MenuBandHeight);
+                frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null);
 
             foreach (var button in definition.Buttons)
             {
@@ -429,7 +426,7 @@ namespace Gordian.App.Graphics
             if (!library.TryGetMenu(StockUiActionMenu.InfoMenu, out var info)) return;
             float s = scale, ts = s * StockUiPartyWindow.TextScale;
             var placement = new StockUiPlacement(at.X, Math.Max(0, at.Top - (info.Frame.Height + 2) * s), s, false);
-            renderer.DrawMenu(info, placement, includeButtons: false);
+            renderer.DrawMenu(info, placement, includeButtons: false, opaqueBody: true);
             float left = placement.X + InfoLabelX * s, right = placement.X + (info.Frame.Width - InfoValueRightInset) * s;
             float line1 = placement.Y + InfoLine1Y * s, line2 = placement.Y + InfoLine2Y * s;
             void Value(string text, float y) => renderer.DrawText(font, text, right - font.MeasureWidth(text) * ts, y, ts);

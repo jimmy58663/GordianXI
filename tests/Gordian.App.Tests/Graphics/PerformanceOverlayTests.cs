@@ -8,8 +8,8 @@ using Xunit;
 namespace Gordian.App.Tests.Graphics
 {
     /// <summary>The performance overlay's modes, its persisted setting and its frame statistics (#30).</summary>
-    // The overlay mode is process-wide (ViewportRenderSettings); run with the other classes whose view models save it.
-    [Collection("SessionRegistry")]
+    // The overlay mode is process-wide (ViewportRenderSettings) and every view model built elsewhere resets it: run alone (#451).
+    [Collection(ViewportRenderSettingsCollection.Name)]
     public class PerformanceOverlayTests
     {
         [Fact]

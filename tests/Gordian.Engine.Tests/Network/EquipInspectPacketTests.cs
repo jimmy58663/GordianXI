@@ -375,7 +375,7 @@ namespace Gordian.Engine.Tests.Network
             var page = Assert.Single(StockUiItemDescription.Pages(cesti));
             Assert.Equal("Behemoth cesti +1", page.Lines[0]);
             Assert.Equal("(Hand-to-Hand)All Races", page.Lines[1]);
-            Assert.Equal("Lv.70 WAR MNK RDM THF PLD DRK BST RNG DNC", page.Lines[3]);
+            Assert.Equal("Lv.70 WAR/MNK/RDM/THF/PLD/DRK/BST/RNG/DNC", page.Lines[3]);
             Assert.Equal(string.Empty, page.Footer);
             Assert.Equal(4, page.LineCount);
             Assert.Equal("item4inf", StockUiItemDescription.FrameFor(page.LineCount));
