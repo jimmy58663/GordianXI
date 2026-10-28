@@ -16,7 +16,9 @@ namespace Gordian.Engine.Animation
         /// <summary>
         /// Maximum duration (in milliseconds) a remote entity maintains its movement animation
         /// after the last server position packet without further updates or physical travel remaining.
-        /// Defaults to 1750ms to gracefully span LandSandBoat's ~1.35s-1.5s entity broadcast batching interval without mid-stride timeout drops.
+        /// Defaults to 1750ms, set when a Debug LandSandBoat build batched entity updates ~1.4 s apart. With the Release server's
+        /// 0.4 s updates it rarely decides anything: Core ends a move after <c>WorldEntity.StopTimeoutSeconds</c> of silence
+        /// (0.9 s), which clears the speed once playback arrives (#359).
         /// </summary>
         public static int RemoteEntityIdleTimeoutMs { get; set; } = 1750;
 
