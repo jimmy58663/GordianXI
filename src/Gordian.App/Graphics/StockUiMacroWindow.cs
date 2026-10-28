@@ -201,7 +201,8 @@ namespace Gordian.App.Graphics
             var f = definition.Frame;
             var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
             if (shifted) at = at with { X = at.X + CombatShift * scale };
-            renderer.DrawMenu(definition, at, includeButtons: false);
+            // Opaque like the menu windows: the maintainer's retail check (#454, round A1 of the 2026-10-27 test).
+            renderer.DrawMenu(definition, at, includeButtons: false, opaqueBody: true);
             int selected = macros.SelectedKey + 1;
             foreach (var button in definition.Buttons)
             {

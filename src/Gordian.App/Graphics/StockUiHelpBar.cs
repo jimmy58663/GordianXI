@@ -62,7 +62,8 @@ namespace Gordian.App.Graphics
             if (titleAt is { } t && title != null && library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
             {
                 float s = t.Scale;
-                renderer.DrawMenu(titleWindow, t, includeButtons: false, opaqueBody: true);
+                // The help bar keeps the DAT's translucent fade (the maintainer's retail check, #454 round A2).
+                renderer.DrawMenu(titleWindow, t, includeButtons: false);
                 StockUiTextBoxes.DrawLine(renderer, font, logFont, title, t.X + TextX * s, t.Y + (titleWindow.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
                 if (numerator is { } used && denominator is { } total)
                 {
@@ -77,7 +78,7 @@ namespace Gordian.App.Graphics
                 float s = h.Scale;
                 var f = help.Frame;
                 float? width = screenWidth is { } sw ? Math.Max(f.Width, (sw - h.X) / s - HelpRightMargin) : null;
-                renderer.DrawMenu(help, h, includeButtons: false, opaqueBody: true, frameWidth: width);
+                renderer.DrawMenu(help, h, includeButtons: false, frameWidth: width);
                 if (!string.IsNullOrEmpty(text))
                 {
                     StockUiTextBoxes.DrawLine(renderer, font, logFont, text.Replace("\n", " "), h.X + TextX * s, h.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);

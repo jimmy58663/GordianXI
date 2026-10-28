@@ -234,9 +234,12 @@ namespace Gordian.App.Tests.Graphics
                 using var frames = new LobbyFrameRenderer(gd, framebuffer.OutputDescription);
                 var preview = new LobbyPreview();
 
+                // The lobby drops keys while a request runs: wait for the character list before choosing the character
+                // (under a full test run's load the second key used to arrive while the list was still loading).
                 lobby.HandleInput(LobbyInput.Confirm);
+                for (int i = 0; i < 500 && (lobby.IsBusy || lobby.Screen != LobbyScreen.CharacterList); i++) Thread.Sleep(10);
                 lobby.HandleInput(LobbyInput.Confirm);
-                for (int i = 0; i < 200 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
+                for (int i = 0; i < 500 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
                 Assert.Equal(LobbyScreen.Entering, lobby.Screen);
                 Thread.Sleep((int)(Gordian.Engine.Ui.ZoneLoadingScreen.FadeOutSeconds * 1000) + 100);
                 frames.Render(lobby, preview, null, rm, framebuffer, width, height, 1 / 60f);

@@ -24,12 +24,13 @@ namespace Gordian.Engine.Ui
     /// and jobs, and the footer; the next pages repeat the name and slot line and carry up to nine more description lines
     /// (the screenshots' Bihu roundlet +3: eight lines then two).
     /// <para>
-    /// PROVISIONAL (from two screenshots of one item): the weapon line ("(Hand-to-Hand)All Races"), the race wording
-    /// other than "All Races", how retail wraps a long job list, and the Rare / Ex marks (not drawn).
+    /// PROVISIONAL (from two screenshots of one item): the race wording other than "All Races" and the Rare / Ex marks
+    /// (not drawn). The weapon line ("(Dagger)All Races") and the job list's slashes and wrapping are confirmed by the
+    /// Auction House's Misericorde (round 1 of the 2026-10-24 test, image-11).
     /// </para>
     /// <para>
     /// Every line is wrapped to the window's text width (<see cref="TextWidth"/>) by the font's own measure through
-    /// <see cref="StockUiTextLayout.Wrap"/>, the job list included; until round 4 (2026-10-19) the lines were cut at 42
+    /// <see cref="StockUiTextLayout.Wrap"/>, and the job list after a slash (<see cref="LevelLines"/>); until round 4 (2026-10-19) the lines were cut at 42
     /// characters, and wide capitals (the Leather Bandana's fifteen jobs) ran past the window.
     /// </para>
     /// </summary>
@@ -131,26 +132,47 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The level and jobs line(s): "Lv.99 BRD", "All Jobs" when every job may equip it; wrapped to the text width by
-        /// <paramref name="measure"/> (<see cref="DefaultMeasure"/> without one).
+        /// The level and jobs line(s): "Lv.71 WAR/PLD/DRK", "All Jobs" when every job may equip it; wrapped to the text
+        /// width by <paramref name="measure"/> (<see cref="DefaultMeasure"/> without one). Retail separates the jobs with
+        /// "/" and breaks a long list after a slash, which stays at the end of the line ("Lv.71 WAR/BLM/RDM/THF/PLD/DRK/",
+        /// then "BST/BRD/...", round 1 of the 2026-10-24 test, image-11, #448).
         /// </summary>
         public static List<string> LevelLines(ItemRecord record, Func<string, float>? measure = null)
         {
             if (record.Level == 0 || record.Level == ushort.MaxValue || record.JobsMask == 0) return new List<string>();
+            measure ??= FontMeasure ?? DefaultMeasure;
             const uint allJobs = 0x7FFFFE; // jobs 1-22
-            var tokens = new List<string> { string.Create(CultureInfo.InvariantCulture, $"Lv.{record.Level}") };
+            string level = string.Create(CultureInfo.InvariantCulture, $"Lv.{record.Level}");
+            var jobs = new List<string>();
             if ((record.JobsMask & allJobs) == allJobs)
             {
-                tokens.Add("All Jobs");
+                jobs.Add("All Jobs");
             }
             else
             {
                 for (int job = 1; job <= 22; job++)
                 {
-                    if (record.CanEquipJob(job)) tokens.Add(StockUiCheck.JobAbbreviation((byte)job));
+                    if (record.CanEquipJob(job)) jobs.Add(StockUiCheck.JobAbbreviation((byte)job));
                 }
             }
-            return StockUiTextLayout.Wrap(StockUiTextLayout.Join(tokens), measure ?? FontMeasure ?? DefaultMeasure, TextWidth);
+
+            var lines = new List<string>();
+            string line = level + " " + jobs[0];
+            for (int i = 1; i < jobs.Count; i++)
+            {
+                string candidate = line + "/" + jobs[i];
+                // A line that breaks here keeps its slash, so the next job must leave room for one after it.
+                bool last = i == jobs.Count - 1;
+                if (measure(candidate) <= TextWidth && (last || measure(candidate + "/") <= TextWidth))
+                {
+                    line = candidate;
+                    continue;
+                }
+                lines.Add(line + "/");
+                line = jobs[i];
+            }
+            lines.Add(line);
+            return lines;
         }
 
         /// <summary>The footer: "&lt;Item Level:119&gt;" for an item with an item level, else empty.</summary>

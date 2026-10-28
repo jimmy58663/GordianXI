@@ -126,6 +126,16 @@ namespace Gordian.Engine.Ui
             : AuctionView == StockUiAuctionView.History ? AuctionItem.ItemId
             : (ushort)0;
 
+        /// <summary>
+        /// The stack size the item info window draws over <see cref="DescribedItem"/>'s icon when the window describes a
+        /// stack (an Auction House row or price history of a stack, and the bid question under it: retail's image-27 shows
+        /// "12" on the Fire crystal, #464); null otherwise.
+        /// </summary>
+        public int? DescribedStackCount =>
+            IsAuctionList ? SelectedAuctionRow is { Stack: true } row ? row.StackSize : null
+            : AuctionView == StockUiAuctionView.History && AuctionItem.Stack ? AuctionItem.StackSize
+            : null;
+
         private ushort _pagesItem;
         private Func<string, float>? _pagesMeasure;
         private IReadOnlyList<StockUiItemDescriptionPage> _pages = Array.Empty<StockUiItemDescriptionPage>();
