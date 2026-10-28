@@ -191,12 +191,14 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.Equal(0.5f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Mithra)), 2);
             Assert.Equal(0.8f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka)), 2);
 
-            // Elvaan player against a Galka PC: about 1 yalm between centres (Collision_Bump.mp4, frame estimate).
-            float galka = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka));
-            Assert.InRange(galka, 0.85f, 1.05f);
-            // Against a Hume-size NPC: about 0.6-0.8.
-            float hume = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(new WorldEntity(6, 6, EntityType.Npc));
-            Assert.InRange(hume, 0.55f, 0.8f);
+            // The same characters as an Elvaan (round 2): 0.6, 0.7, 0.7, 1.0; every stop is the sum of the two radii.
+            float elvaan = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanFemale));
+            Assert.Equal(0.6f, elvaan + EntityBumpCollision.RadiusOf(Pc(CharacterRace.TaruMale)), 2);
+            Assert.Equal(0.7f, elvaan + EntityBumpCollision.RadiusOf(Pc(CharacterRace.HumeFemale)), 2);
+            Assert.Equal(0.7f, elvaan + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Mithra)), 2);
+            Assert.Equal(1.0f, elvaan + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka)), 2);
+            // A Hume-size NPC with no race model takes the Hume radius: about 0.6-0.8 from an Elvaan (Collision_Bump.mp4).
+            Assert.InRange(elvaan + EntityBumpCollision.RadiusOf(new WorldEntity(6, 6, EntityType.Npc)), 0.6f, 0.8f);
 
         }
 

@@ -18,8 +18,8 @@ namespace Gordian.Core.World.Collision
     /// Retail (Collision_Bump.mp4, Castoff Point, #16): the stop distance grows with the character's size (a Hume-size NPC
     /// about 0.6-0.8 yalm centre to centre, a Galka-size NPC about 1-1.5, a Galka PC about 1). Retail with a distance readout
     /// (the maintainer as a Tarutaru, round 1 test, 2026-10-27): stops of 0.4 against a Tarutaru, 0.5 against a Hume or a
-    /// Mithra and 0.8 against a Galka, which the race radii below are fitted to (provisional until a second race confirms
-    /// the sum). The hold before passing is
+    /// Mithra and 0.8 against a Galka; as an Elvaan, 0.6 / 0.7 / 0.7 / 1.0 against the same characters. Every stop is the sum
+    /// of the two radii below. The hold before passing is
     /// the same for every model (the maintainer, round 2 test, 2026-10-22). The pass-through lasting per player until it
     /// leaves render distance, and only for players, is the maintainer's retail observation. The radii and the hold are
     /// estimates.
@@ -28,11 +28,16 @@ namespace Gordian.Core.World.Collision
     public sealed class EntityBumpCollision
     {
         /// <summary>
-        /// Body radius (yalms) of a Hume, Elvaan or Mithra, and of a character whose race is not known. Retail, a Tarutaru
-        /// player (round 1 test, 2026-10-27, #16): stops 0.5 from a Hume and from a Mithra, less the Tarutaru's 0.2. Elvaan is
-        /// assumed the same as Hume (not measured).
+        /// Body radius (yalms) of a Hume or Mithra, and of a character whose race is not known. Retail, a Tarutaru player
+        /// (round 1 test, 2026-10-27, #16): stops 0.5 from a Hume and from a Mithra, less the Tarutaru's 0.2.
         /// </summary>
         public const float PlayerRadius = 0.3f;
+
+        /// <summary>
+        /// Body radius of an Elvaan: an Elvaan player stops 0.6 from a Tarutaru, 0.7 from a Hume or Mithra and 1.0 from a Galka
+        /// in retail, 0.4 more than each target's radius (#16, round 2, 2026-10-27).
+        /// </summary>
+        public const float ElvaanRadius = 0.4f;
 
         /// <summary>Body radius of a Galka: a Tarutaru player stops 0.8 from one in retail, less the Tarutaru's 0.2 (#16).</summary>
         public const float GalkaRadius = 0.6f;
@@ -89,6 +94,7 @@ namespace Gordian.Core.World.Collision
             float radius = (CharacterRace)((entity.Appearance.FaceModel >> 8) & 0xFF) switch
             {
                 CharacterRace.Galka => GalkaRadius,
+                CharacterRace.ElvaanMale or CharacterRace.ElvaanFemale => ElvaanRadius,
                 CharacterRace.TaruMale or CharacterRace.TaruFemale => TarutaruRadius,
                 _ => PlayerRadius,
             };
