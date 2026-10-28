@@ -59,6 +59,17 @@
 
 - **Rule: `vertex colour x max(N.L, 0) x colour x power / d^2`, nothing at or past the range**, added to the ambient + sun + moon sum before the clamp to 1 (`PointLightTableLayout`, one GLSL copy for every shader). Colour is the bytes / 128 (0x80-neutral, like the vertex colours); power is theta x theta multiplier x the particle's alpha multiplier; range is range x range multiplier. That is D3D's fixed-function point light with quadratic attenuation 1 / theta, which is why the data needs no falloff field. Strong lights saturate per channel near the lamp (pale yellow-white, the glowing lamp glass) and keep their hue further out.
 - **Per vertex for zone meshes** (Gouraud, `TerrainShaders`, as with the sun: see the #7 round 2 section above); per pixel for actors and lit effects. At most four lights per placement, from its references.
+- **A placement can opt out: record `+0x46` bit 0 set means no point lights**, although it still references some (`ZonePlacement.NoPointLights`; `ZoneDataLoader` drops its slots). *Inference* from retail captures, round 1 of 2026-10-27 (#428): retail lights the placements with the bit clear and leaves the ones with it set unlit.
+
+  | Placement | `+0x46` | Retail |
+  |---|---|---|
+  | Meadhouse furniture and walls (all 48) | 2 | lit like the fit below |
+  | Castle Zvahl `b_07b`, the torch-lit floor (#404) | 0 | brown torchlight |
+  | Metalworks hall `tozoner` / `tozonel` (`c_20`-`c_23`, theta 12-15 at 2-3 yalms) | 3 | pillars and back wall dark (`image-6`): (28, 21, 15) on the pillar where theta / d^2 gave (129, 105, 47) |
+  | Lower Jeuno arcade tunnel `step02` (`c4`, 1-3 yalms from the arches) | 3 | arches dark (`image-4`), ours lit them saturated orange |
+
+  Over Lower Jeuno, Metalworks, Zvahl and the Meadhouse the byte is 0-3. Bit 0 is set on the arcade tunnels (`c` lights), Metalworks' halls (`c_`) and Lower Jeuno's shop goods and some walls (`pl` lamps). Bit 1 has no effect found. Lower Jeuno's light table also lists `c4` twice (1-based references 4 and 15). GordianXI binds its one generator to the first; which one retail uses is not known. **Beyond xi-tools:** it names `+0x44` four flag bytes with only the decal bit known.
+- **Lit zone effects take their floor's environment** (`ZoneTerrainRenderer.EffectSceneUniform`): a lit generator over a cave's or interior's floor is lit by that sub-environment's sun and ambient, as the placements and actors there are, not by the outdoor sun. Metalworks' entrance overlays `ent_` / `ent1` (translucent copies of the floor and walls, vertex alpha 0x80 fading to 0, `SrcInvSrcAdd`, lit) took the noon sun and doubled the hall's floor and corridor walls (62 to 130); with `ev01`'s light they add almost nothing, as retail. The floor under the generator is an *inference*, following the actors' rule.
 - **The 0x2F environment does not scale them:** a sub-environment's keyframes set its ambient and sun only. Indoors the ambient is low (the Meadhouse's `ev10` 0.35-0.41, no sun), so the lamps carry the room.
 - **Evidence.** The maintainer's retail capture of the Meadhouse (`Round feedback 2026-10-20/image-3.png`, 2026-10-22, 06:41, Gemini at (-23.26, -62.51, -0.11)) against an offscreen render of the same view (mean colour of matching patches):
 
@@ -71,6 +82,7 @@
   | wall right of the stage | (124, 81, 50) | (62, 45, 33) | (90, 54, 32) |
 
   `power / d` overshot the far wall (155-204) and `power x (1 - d / range)^p` either washed the walls toward white (`p` 1-2) or lost the pillar (29-64). The old rule (colour x power clamped to 1 per channel, x 0.75, x `(1 - d / range)^2`) was 2-6x too dim where it reached and turned orange lights white. Retail's lit walls come out at almost exactly the light's own colour bytes, which only the unclamped colour keeps. The patches are matched by eye between two cameras, so expect a few levels of error.
+- *Round 1 (2026-10-27):* the Meadhouse, its lamp halos, characters under lamps and Zvahl's brown floor passed in game. Metalworks at noon was far too bright: the `ent_` overlays above and the `+0x46` placements. With both fixed the hall renders like its no-point-light look, which is the closest to retail (`image-6`). Its pillars stay about 2x too bright and its back wall 1.3x (environment light, #7).
 - Checked offscreen against the scenes of the earlier calibrations: Southern San d'Oria's door lamps at 22:00 (slightly stronger pools), Metalworks' wall lamp at noon (pale yellow at the lamp, orange beyond) and Lower Jeuno's arcade at 22:00 keep their look, a little warmer. The San d'Oria and Metalworks Windower captures are no longer on disk, so those two are not re-measured: check them in game.
 - Replaces the per-light tweaks: `PointLightFalloffExponent`, `PointLightPowerScale` and `PointLightStrength` are gone.
 
@@ -80,15 +92,22 @@
 - **Interiors dropped them.** An interior's generators other than its lights were never run. The Meadhouse has `ltcu` at each of its three wall lamps: a 10 x 10 quad at half scale (5 yalms), additive, texture `lt`, colour (128, 110, 85, 50), alpha curve `k000`, fading out from 25 to 30 yalms. That is the soft halo round each lamp in retail's `image-5.png`. Interiors now run all their generators and draw them with the zone's effects (`SubAreaInterior.Effects`, `AddInteriorEffectDraws`); `ent0` (the doorway mat) draws too.
 - The lamp glass itself is the lamp mesh lit by its own light at under a yalm: it saturates to near white, as in retail.
 
+### Lower Jeuno's street lamps (Community Service)
+
+- The 12 tall street lamps are doors. LandSandBoat's lamp NPCs `_l00`-`_l11` (look `0x0200`, door-type) have the closed-door animation (9) and the open-door one (8) once lit. The lamplighter Vhana lights them from 01:00, or a player on Community Service does; they go out at 05:00. They are **not** lit at dusk.
+- Their routines sit one level below the door, under other names: `t_ju/door/_l00/ligh/` holds `ints` / `evst` (loop `lton`) and `inte` / `eved` (stop it). `lton` lives in a sibling, `t_ju/door/_l00/lt08/`, and spawns the lantern `RR09` (`rnp0` / `rnp2` mesh) and its glow `sw09` (`ligh` sprite). These are the non-auto-running `rnp0` / `ligh` generators at the `gaitou01` / `gaitou02` lamp heads. Retail DAT read 2026-10-28.
+- GordianXI used to see no door there (the loader only took routines directly under `door/<id>`), so the lamps never lit. Now `ZoneDataLoader` registers a door whose state routines sit one level down, `DoorEffectTrigger` plays `ints` / `inte` / `evst` / `eved` where `into` / `intc` / `open` / `clos` are missing, and `ZoneRoutineLibrary.TryResolveRoutine` finds a routine anywhere under the same door. The pairing of the names is an *inference* from what the routines do. **Beyond xi-tools:** `docs/zone/doors.md` lists the four names only.
+
 ### Open
 
 - Castle Zvahl Baileys (#404): the "brown floor" is the torches' orange light on the grey floor, which the old rule never reached; it draws now. The walls far from any torch are still about 2.2x darker than retail at 19:14 and neutral grey (retail `image-8.png` (68, 67, 72), ours (25-30)): that is the zone's 0x2F sun or ambient, not a point light (#6 / #7).
-- Jeuno by the zone line (#414): see below.
+- Lower Jeuno's arcade tunnel (#414): see below.
 
-## Jeuno near the Upper / Lower zone line (#414)
+## Lower Jeuno's arcade tunnel by the Port Jeuno line (#414)
 
-- Point lights, per-vertex lighting and the mesh chosen for a placement do not depend on where the camera is (GordianXI always draws the highest-detail variant). The one term that does is fog: Lower Jeuno's `suny` keyframes at 06:54 have fog end 450.5 and colour (115, 102, 79), and outdoors the fog starts at 75 % of the end (`ZoneEnvironmentSettings.ApplyKeyframe`). Walls more than 338 yalms away (across the harbour from the `zmru` zone line) are lifted toward that colour, which is brighter than their shaded faces, and the lift fades as you walk toward them. Offscreen at the logged arrival view (display (-46.9, 9.5, 86.1) looking at (-42.0, 6.3, 85.0), 2026-10-19 21:41) and looking east across the harbour from (-70, 9, 86), only those far walls change with fog off; `main` and the #428 branch give the same pixels outside the lamp pools.
-- Whether retail's fog is weaker there needs a retail capture of the same view at a noted time (the round 3 `image-16.png` was not saved with the captures).
+- *Superseded:* the first reading blamed fog across the harbour. The maintainer's retail capture (round 1 of 2026-10-27: `image-4`, Windower (26.4, 59.7, -2.75), 06:13) and a video of GordianXI walking down the stairs show the real spot: the arcade tunnel from the Port Jeuno line.
+- In GordianXI the tunnel's arches and walls were lit saturated orange by the arcade light `c4` (theta 20, range 12) 1-3 yalms away. Seen from the stairs, the indoor fog (`ev01`, 0-203) darkened them, and walking closer revealed the glare. That is the "far wall evens out as you approach".
+- Retail leaves those arches dark. Their placement (`step02`) has `+0x46` = 3, so it now takes no point lights (see [Point lights](#point-lights-428)). Offscreen at the retail view the tunnel matches `image-4`: dark arches, a dimly lit room beyond.
 
 ## Indoor sub-environments and actor lighting
 

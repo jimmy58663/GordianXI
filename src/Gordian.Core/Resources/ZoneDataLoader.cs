@@ -310,6 +310,30 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
+        /// Whether the open directory is one level below a door's (<c>&lt;zone code&gt;/door/&lt;door id&gt;/&lt;dir&gt;</c>)
+        /// and the door id. Lower Jeuno's street lamps keep their state routines there: <c>t_ju/door/_l00/ligh/</c> holds
+        /// <c>ints</c> / <c>evst</c> (loop <c>lton</c>) and <c>inte</c> / <c>eved</c> (stop it), and <c>lton</c> sits in a
+        /// sibling, <c>t_ju/door/_l00/lt08/</c>, spawning the lamp's <c>RR09</c> / <c>sw09</c> (retail DAT, read 2026-10-28).
+        /// </summary>
+        private static bool IsDoorSubdirectory(Stack<string> dirStack, out string doorId)
+        {
+            doorId = string.Empty;
+            if (dirStack.Count < 3) return false;
+            using var top = dirStack.GetEnumerator();
+            top.MoveNext();
+            top.MoveNext();
+            string id = top.Current;
+            top.MoveNext();
+            if (!string.Equals(top.Current, "door", StringComparison.OrdinalIgnoreCase) || id.Length == 0 || id[0] != '_') return false;
+            doorId = id;
+            return true;
+        }
+
+        /// <summary>A door's state routine: <c>open</c> / <c>clos</c> / <c>into</c> / <c>intc</c>, or <c>evst</c> / <c>eved</c> / <c>ints</c> / <c>inte</c>.</summary>
+        private static bool IsDoorStateRoutine(string name) =>
+            name is "open" or "clos" or "into" or "intc" or "evst" or "eved" or "ints" or "inte";
+
+        /// <summary>
         /// Whether a door's directory <c>&lt;zone code&gt;/door/&lt;door id&gt;</c> is open at any depth: the door's own
         /// routines and the effects under it (Alzadaal's <c>door/_20t/door/stat</c>) belong to that door entity.
         /// </summary>
@@ -743,6 +767,11 @@ namespace Gordian.Core.Resources
                             zone.MapRoutines.AddRoutine(routinePath, onDemand, byName: !IsInDoorDirectory(dirStack));
                             onDemandRoutines.Add((routinePath, onDemand));
                             if (isDoorRoutine) zone.DoorDirectories.TryAdd(doorId, routinePath);
+                            // A door whose state routines sit one level down (Lower Jeuno's lamps, door/_l00/ligh/evst).
+                            else if (IsDoorStateRoutine(header.DatId) && IsDoorSubdirectory(dirStack, out string subDoorId))
+                            {
+                                zone.DoorDirectories.TryAdd(subDoorId, routinePath);
+                            }
                         }
                         break;
                     }
@@ -1186,7 +1215,8 @@ namespace Gordian.Core.Resources
                     {
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
-                        instantiated.PointLightSlots = placement.PointLightSlots ?? Array.Empty<int>();
+                        // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some.
+                        instantiated.PointLightSlots = placement.NoPointLights ? Array.Empty<int>() : placement.PointLightSlots ?? Array.Empty<int>();
                         instantiated.SubAreaLink = placement.FileIdLink;
                         if (doorLeaf != null)
                         {

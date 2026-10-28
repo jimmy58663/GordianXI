@@ -45,6 +45,8 @@ namespace Gordian.App.Graphics
         private List<GpuSubmesh> _platformSubmeshes = new();
         private readonly Dictionary<string, ZoneSceneUniform> _subEnvironmentUniforms = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, ActorLighting> _subEnvironmentActorLights = new(StringComparer.OrdinalIgnoreCase);
+        // Sub-environment of the floor under each lit zone effect, null outdoors (see EffectSceneUniform).
+        private readonly Dictionary<WeatherSkyLayer, string?> _effectEnvironments = new();
         private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
 
         // Door leaves, drawn at their door's live pose (the resident zone's list).
@@ -798,6 +800,7 @@ namespace Gordian.App.Graphics
             ResetFootEffects(zone);
             _subEnvironmentUniforms.Clear();
             _subEnvironmentActorLights.Clear();
+            _effectEnvironments.Clear();
             _viewerFloorProbe = new Vector3(float.NaN);
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
@@ -1571,6 +1574,7 @@ namespace Gordian.App.Graphics
                     if (effectMesh.Layer.IsActorAttached) continue;
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
+                    ProbeEffectEnvironment(effectMesh);
                     // Camera-following weather effects sit at their base offset from the eye.
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
@@ -1600,12 +1604,13 @@ namespace Gordian.App.Graphics
                 Pipeline? currentEffectPipeline = null;
                 foreach (var (effectMesh, _, emitter, anchor) in _effectDrawList)
                 {
+                    var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, sceneUniform, ref currentEffectPipeline, anchor);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor);
                         visible++;
                     }
-                    else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, sceneUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
+                    else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, effectUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
                     {
                         draws++;
                         visible++;
@@ -2485,6 +2490,29 @@ namespace Gordian.App.Graphics
             _lightTable[colorBase + slot * 4 + 2] = 2f * light.Color.Z;
             _lightTable[colorBase + slot * 4 + 3] = power;
         }
+
+        /// <summary>
+        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>).
+        /// </summary>
+        private void ProbeEffectEnvironment(GpuWeatherSkySubmesh effectMesh)
+        {
+            var layer = effectMesh.Layer;
+            if (LoadedZone == null || !layer.IsWorldEffect || !layer.LightingEnabled || effectMesh.FollowCamera || _effectEnvironments.ContainsKey(layer)) return;
+            var floor = ZoneRaycaster.FindFloor(LoadedZone, effectMesh.BasePosition + new Vector3(0.0f, 1.0f, 0.0f), 12.0f);
+            _effectEnvironments[layer] = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
+        }
+
+        /// <summary>
+        /// The scene uniform a zone effect is drawn with. A lit effect over a cave's or interior's floor takes that
+        /// sub-environment's sun and ambient, as the placements and actors there do; the rest take the zone's.
+        /// Bastok Metalworks' entrance overlays (<c>ent_</c>, <c>ent1</c>: translucent copies of the floor and walls) lit by
+        /// the outdoor noon sun made the hall about twice as bright as retail (#428 round 1, retail capture image-6).
+        /// The floor under the generator is an inference, following the actors' rule.
+        /// </summary>
+        private ZoneSceneUniform EffectSceneUniform(WeatherSkyLayer layer, ZoneSceneUniform sceneUniform) =>
+            _effectEnvironments.TryGetValue(layer, out var id) && id != null && _subEnvironmentUniforms.TryGetValue(id, out var sub)
+                ? sub
+                : sceneUniform;
 
         /// <summary>
         /// True while the floor under the camera belongs to a placement linked to a sub-environment (a cave or interior).

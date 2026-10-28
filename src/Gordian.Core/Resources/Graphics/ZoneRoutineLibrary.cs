@@ -78,6 +78,18 @@ namespace Gordian.Core.Resources.Graphics
                 foundIn = doorResources;
                 return true;
             }
+            // Then any directory of the same door: Lower Jeuno's lamp door/_l00/ligh/evst loops lton from door/_l00/lt08/.
+            if (DoorRoot(directory) is { } doorRoot)
+            {
+                foreach (var (dir, inDirectory) in _routines)
+                {
+                    if (dir.StartsWith(doorRoot, StringComparison.OrdinalIgnoreCase) && inDirectory.TryGetValue(name, out routine!))
+                    {
+                        foundIn = dir;
+                        return true;
+                    }
+                }
+            }
             foundIn = string.Empty;
             routine = null!;
             return false;
@@ -111,6 +123,21 @@ namespace Gordian.Core.Resources.Graphics
                 if (slash < 0) break;
                 dir = dir.Substring(0, slash);
             }
+        }
+
+        /// <summary>The <c>&lt;zone code&gt;/door/&lt;door id&gt;/</c> prefix of a directory inside a door's, or null.</summary>
+        private static string? DoorRoot(string? directory)
+        {
+            if (string.IsNullOrEmpty(directory)) return null;
+            string[] parts = directory.Split('/');
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (string.Equals(parts[i - 1], "door", StringComparison.OrdinalIgnoreCase) && parts[i].Length > 0 && parts[i][0] == '_')
+                {
+                    return string.Join('/', parts, 0, i + 1) + "/";
+                }
+            }
+            return null;
         }
     }
 }
