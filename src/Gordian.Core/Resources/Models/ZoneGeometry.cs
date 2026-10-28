@@ -65,6 +65,8 @@ namespace Gordian.Core.Resources.Models
     /// that interior is shown; 0 for none (xi-tools docs/zone/subareas.md, #68).</param>
     /// <param name="NoPointLights">Record +0x46 bit 0: the placement takes no point lights although it references some
     /// (inferred from retail captures, #428 round 1; see docs/rendering/lighting.md).</param>
+    /// <param name="InteriorLightsOnly">Record +0x46 bit 1: the placement takes point lights only in a building interior's
+    /// DAT, never in a zone's (inferred from retail captures, #428 round 3; see docs/rendering/lighting.md).</param>
     public readonly record struct ZonePlacement(
         string MeshId,
         Vector3 Position,
@@ -75,7 +77,8 @@ namespace Gordian.Core.Resources.Models
         int[]? PointLightSlots = null,
         string BlockId = "",
         int FileIdLink = 0,
-        bool NoPointLights = false
+        bool NoPointLights = false,
+        bool InteriorLightsOnly = false
     )
     {
         /// <summary>

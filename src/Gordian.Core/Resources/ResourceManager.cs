@@ -578,7 +578,7 @@ namespace Gordian.Core.Resources
                 if (datBytes == null || datBytes.Length == 0 || _keyTable1 == null) return null;
                 var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
                 var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
-                    GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId));
+                    GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId), interior: true);
                 _interiorCollisionCache.TryAdd(id, geometry.Collision);
                 GordianLog.Info("RES", $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
                 return (geometry, decoded);

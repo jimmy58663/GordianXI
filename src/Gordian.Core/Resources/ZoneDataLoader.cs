@@ -523,7 +523,9 @@ namespace Gordian.Core.Resources
         /// Parses an entire Zone DAT container buffer into structured ZoneGeometry and DecodedTextures.
         /// <paramref name="actorEffects"/> reads a model or scene DAT's generators as an actor's effects (see
         /// <see cref="Gordian.Core.Resources.Graphics.ActorEffectLoader"/>); <paramref name="cameraEffects"/> keeps its
-        /// camera-following generators too (a cutscene scene DAT's screen overlays).
+        /// camera-following generators too (a cutscene scene DAT's screen overlays). <paramref name="interior"/> marks a
+        /// building interior's DAT (sub-area, #68), whose placements flagged <see cref="ZonePlacement.InteriorLightsOnly"/>
+        /// keep their point lights.
         /// </summary>
         public static ZoneGeometry ParseZoneContainer(
             ReadOnlySpan<byte> datBytes,
@@ -534,7 +536,8 @@ namespace Gordian.Core.Resources
             SharedEffectResources? sharedEffects = null,
             bool actorEffects = false,
             string? datSource = null,
-            bool cameraEffects = false)
+            bool cameraEffects = false,
+            bool interior = false)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -1215,8 +1218,10 @@ namespace Gordian.Core.Resources
                     {
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
-                        // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some.
-                        instantiated.PointLightSlots = placement.NoPointLights ? Array.Empty<int>() : placement.PointLightSlots ?? Array.Empty<int>();
+                        // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some;
+                        // one flagged at bit 1 takes them only in an interior's DAT.
+                        bool unlit = placement.NoPointLights || (placement.InteriorLightsOnly && !interior);
+                        instantiated.PointLightSlots = unlit ? Array.Empty<int>() : placement.PointLightSlots ?? Array.Empty<int>();
                         instantiated.SubAreaLink = placement.FileIdLink;
                         if (doorLeaf != null)
                         {
