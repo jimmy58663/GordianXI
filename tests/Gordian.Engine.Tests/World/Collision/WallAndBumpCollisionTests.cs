@@ -106,7 +106,7 @@ namespace Gordian.Engine.Tests.World.Collision
         private static int BlockedTicks(EntityBumpCollision bump, WorldState world, WorldEntity self)
         {
             int ticks = 0;
-            while (!bump.TryMove(world, self, new Vector3(0.2f, 0, 0), new Vector3(0.35f, 0, 0), Tick)) ticks++;
+            while (!bump.TryMove(world, self, new Vector3(0.2f, 0, 0), new Vector3(0.45f, 0, 0), Tick)) ticks++;
             return ticks;
         }
 
@@ -132,7 +132,7 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.InRange(BlockedTicks(bump, world, self) * Tick, EntityBumpCollision.HoldSeconds - 0.05f, EntityBumpCollision.HoldSeconds + 0.02f);
             Assert.Equal(1, bump.PassedThroughCount);
             var from = new Vector3(0.2f, 0, 0);
-            var to = new Vector3(0.35f, 0, 0);
+            var to = new Vector3(0.45f, 0, 0);
             Assert.True(bump.TryMove(world, self, from, to, 30.0f));
 
             // Despawned and respawned by the server while still near: the same player, still passable.
@@ -158,7 +158,7 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.Equal(1, bump.PassedThroughCount);
 
             world.CurrentZoneId = 243; // PCs keep their ids across zones
-            Assert.False(bump.TryMove(world, self, new Vector3(0.2f, 0, 0), new Vector3(0.35f, 0, 0), Tick));
+            Assert.False(bump.TryMove(world, self, new Vector3(0.2f, 0, 0), new Vector3(0.45f, 0, 0), Tick));
             Assert.Equal(0, bump.PassedThroughCount);
         }
 
@@ -170,7 +170,7 @@ namespace Gordian.Engine.Tests.World.Collision
 
             // A large monster stops the player further out but holds it no longer (round 2 test).
             var (world, self, _) = Pair(new WorldEntity(100, 100, EntityType.Monster) { GraphSize = 2, Appearance = { ModelId = 300 } }, x: 2.0f);
-            Assert.False(new EntityBumpCollision().TryMove(world, self, new Vector3(0.1f, 0, 0), new Vector3(0.3f, 0, 0), Tick));
+            Assert.False(new EntityBumpCollision().TryMove(world, self, new Vector3(0.1f, 0, 0), new Vector3(0.35f, 0, 0), Tick));
             Assert.InRange(BlockedTicks(new EntityBumpCollision(), world, self) * Tick, EntityBumpCollision.HoldSeconds - 0.05f, EntityBumpCollision.HoldSeconds + 0.02f);
         }
 
@@ -183,13 +183,20 @@ namespace Gordian.Engine.Tests.World.Collision
                 Appearance = { GrapIdTable = { [0] = (ushort)((int)race << 8) } },
             };
 
-            // Elvaan player against a Galka PC: about 1 yalm between centres (Collision_Bump.mp4).
+            // Retail with a distance readout, the maintainer as a Tarutaru (round 1 test, 2026-10-27, #16): stops of 0.4 from a
+            // Tarutaru, 0.5 from a Hume and a Mithra, 0.8 from a Galka (the readout rounds to 0.1).
+            float taru = EntityBumpCollision.RadiusOf(Pc(CharacterRace.TaruMale));
+            Assert.Equal(0.4f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.TaruFemale)), 2);
+            Assert.Equal(0.5f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.HumeMale)), 2);
+            Assert.Equal(0.5f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Mithra)), 2);
+            Assert.Equal(0.8f, taru + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka)), 2);
+
+            // Elvaan player against a Galka PC: about 1 yalm between centres (Collision_Bump.mp4, frame estimate).
             float galka = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(Pc(CharacterRace.Galka));
-            Assert.InRange(galka, 0.95f, 1.05f);
+            Assert.InRange(galka, 0.85f, 1.05f);
             // Against a Hume-size NPC: about 0.6-0.8.
             float hume = EntityBumpCollision.RadiusOf(Pc(CharacterRace.ElvaanMale)) + EntityBumpCollision.RadiusOf(new WorldEntity(6, 6, EntityType.Npc));
-            Assert.InRange(hume, 0.6f, 0.8f);
-            Assert.True(EntityBumpCollision.RadiusOf(Pc(CharacterRace.TaruFemale)) < EntityBumpCollision.PlayerRadius);
+            Assert.InRange(hume, 0.55f, 0.8f);
 
         }
 
@@ -212,7 +219,7 @@ namespace Gordian.Engine.Tests.World.Collision
                 var (w, s) = Crowd(new Vector3(1.0f, 0, 0));
                 w.TryGetByServerId(100, out var npc);
                 mark(npc!);
-                Assert.True(new EntityBumpCollision().TryMove(w, s, new Vector3(0.2f, 0, 0), new Vector3(0.35f, 0, 0), 0.016f));
+                Assert.True(new EntityBumpCollision().TryMove(w, s, new Vector3(0.2f, 0, 0), new Vector3(0.45f, 0, 0), 0.016f));
             }
         }
 

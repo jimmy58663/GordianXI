@@ -16,7 +16,10 @@ namespace Gordian.Core.World.Collision
     /// flag): scenery the server spawns as NPCs, such as the campfires and fences of Yahse Hunting Grounds' camps (#425).
     /// <para>
     /// Retail (Collision_Bump.mp4, Castoff Point, #16): the stop distance grows with the character's size (a Hume-size NPC
-    /// about 0.6-0.8 yalm centre to centre, a Galka-size NPC about 1-1.5, a Galka PC about 1); the hold before passing is
+    /// about 0.6-0.8 yalm centre to centre, a Galka-size NPC about 1-1.5, a Galka PC about 1). Retail with a distance readout
+    /// (the maintainer as a Tarutaru, round 1 test, 2026-10-27): stops of 0.4 against a Tarutaru, 0.5 against a Hume or a
+    /// Mithra and 0.8 against a Galka, which the race radii below are fitted to (provisional until a second race confirms
+    /// the sum). The hold before passing is
     /// the same for every model (the maintainer, round 2 test, 2026-10-22). The pass-through lasting per player until it
     /// leaves render distance, and only for players, is the maintainer's retail observation. The radii and the hold are
     /// estimates.
@@ -24,14 +27,20 @@ namespace Gordian.Core.World.Collision
     /// </summary>
     public sealed class EntityBumpCollision
     {
-        /// <summary>Body radius (yalms) of a Hume, Elvaan or Mithra, and of a character whose race is not known.</summary>
-        public const float PlayerRadius = 0.35f;
+        /// <summary>
+        /// Body radius (yalms) of a Hume, Elvaan or Mithra, and of a character whose race is not known. Retail, a Tarutaru
+        /// player (round 1 test, 2026-10-27, #16): stops 0.5 from a Hume and from a Mithra, less the Tarutaru's 0.2. Elvaan is
+        /// assumed the same as Hume (not measured).
+        /// </summary>
+        public const float PlayerRadius = 0.3f;
 
-        /// <summary>Body radius of a Galka: about 1 yalm between centres from a Galka PC to the Elvaan player (#16).</summary>
-        public const float GalkaRadius = 0.65f;
+        /// <summary>Body radius of a Galka: a Tarutaru player stops 0.8 from one in retail, less the Tarutaru's 0.2 (#16).</summary>
+        public const float GalkaRadius = 0.6f;
 
-        /// <summary>Body radius of a Tarutaru (guessed from its build; not in the capture).</summary>
-        public const float TarutaruRadius = 0.25f;
+        /// <summary>
+        /// Body radius of a Tarutaru: a Tarutaru player stops 0.4 from a Tarutaru in retail, half of it each (#16, round 1).
+        /// </summary>
+        public const float TarutaruRadius = 0.2f;
 
         /// <summary>
         /// The client's position update interval: C2S 0x015 goes out every 250 ms (<c>SessionNetworkManager</c>'s network tick).
