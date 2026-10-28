@@ -472,8 +472,8 @@ void main()
         /// Frames are the persistent windows; buttons draw their unselected state. <paramref name="frameWidth"/>
         /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch;
         /// <paramref name="frameHeight"/> does the same vertically (its bottom half moves). With
-        /// <paramref name="opaqueBody"/> the whole background, title band included, is drawn opaque (menu windows and a
-        /// selected log, #454); without it the authored translucent gradient is kept (the HUD windows, #442). <paramref name="topBorderGap"/> breaks the
+        /// <paramref name="opaqueBody"/> the whole background, title band included, is drawn opaque (every stock window but an
+        /// unselected log, #454); without it the authored translucent gradient is kept (an unselected log, #442). <paramref name="topBorderGap"/> breaks the
         /// top border line for a title. <paramref name="border"/> false leaves out the client's border lines (the lobby's
         /// screens and prompts, whose frames carry their own edges).
         /// </summary>
@@ -521,9 +521,9 @@ void main()
                 {
                     if (!IsBackground(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
-                    // A window asked to be opaque (every menu window, a selected log, the chat input line) is drawn again
-                    // with full alpha and the authored colour gradient, from its top edge: retail's menu windows are as
-                    // opaque as its selected log (#454). The DAT authors the same 0x40 -> 0x7F alpha gradient on every
+                    // A window asked to be opaque (every stock window but an unselected log) is drawn again with full
+                    // alpha and the authored colour gradient, from its top edge: retail's menus, party, target and alliance
+                    // windows are as opaque as its selected log (#454). The DAT authors the same 0x40 -> 0x7F alpha gradient on every
                     // window, so which ones are opaque is the client's rule, not data. Only the whole background is redrawn:
                     // an opaque body under a translucent title band read as a near-white header row over a bright scene (#442).
                     if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch);

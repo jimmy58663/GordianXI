@@ -426,7 +426,7 @@ namespace Gordian.App.Graphics
             if (!library.TryGetMenu(StockUiActionMenu.InfoMenu, out var info)) return;
             float s = scale, ts = s * StockUiPartyWindow.TextScale;
             var placement = new StockUiPlacement(at.X, Math.Max(0, at.Top - (info.Frame.Height + 2) * s), s, false);
-            renderer.DrawMenu(info, placement, includeButtons: false);
+            renderer.DrawMenu(info, placement, includeButtons: false, opaqueBody: true);
             float left = placement.X + InfoLabelX * s, right = placement.X + (info.Frame.Width - InfoValueRightInset) * s;
             float line1 = placement.Y + InfoLine1Y * s, line2 = placement.Y + InfoLine2Y * s;
             void Value(string text, float y) => renderer.DrawText(font, text, right - font.MeasureWidth(text) * ts, y, ts);

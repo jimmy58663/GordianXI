@@ -539,7 +539,7 @@ namespace Gordian.App.Graphics
         private void DrawPlaceholder(StockUiRenderer renderer, string windowId, UiMenuDefinition menu, StockUiPlacement placement)
         {
             if (!Drag.Unlocked || placement.Hidden) return;
-            renderer.DrawMenu(menu, placement, includeButtons: false);
+            renderer.DrawMenu(menu, placement, includeButtons: false, opaqueBody: true);
             Drag.Register(windowId, menu.Frame, placement, placeholder: true);
         }
 
@@ -782,7 +782,7 @@ namespace Gordian.App.Graphics
                 DrawPlaceholder(renderer, StockUiWindowIds.Target, menu, placement);
                 return;
             }
-            renderer.DrawMenu(menu, placement, includeButtons: false);
+            renderer.DrawMenu(menu, placement, includeButtons: false, opaqueBody: true);
             Drag.Register(StockUiWindowIds.Target, menu.Frame, placement);
 
             var partyIds = new List<uint>();
@@ -955,7 +955,7 @@ namespace Gordian.App.Graphics
             {
                 if (Drag.Unlocked)
                 {
-                    renderer.DrawMenu(inline, inputPlacement, includeButtons: false, inputWidth);
+                    renderer.DrawMenu(inline, inputPlacement, includeButtons: false, inputWidth, opaqueBody: true);
                     Drag.Register(StockUiWindowIds.ChatInput, inline.Frame, inputPlacement, hitWidth: inputWidth * s, placeholder: true);
                 }
                 return;
@@ -1149,7 +1149,7 @@ namespace Gordian.App.Graphics
             var placement = ResolveWindow(StockUiWindowIds.Party, menu.Frame, width, height, out bool moved);
             var result = new PartyWindow(placement, menu.Frame, moved);
             if (placement.Hidden) return result;
-            renderer.DrawMenu(menu, placement, includeButtons: false);
+            renderer.DrawMenu(menu, placement, includeButtons: false, opaqueBody: true);
             Drag.Register(StockUiWindowIds.Party, menu.Frame, placement);
             if (session.Party.HasPendingInvite && _font is { } inviteFont) StockUiPartyWindow.DrawInviteIcon(renderer, inviteFont, placement);
 
@@ -1195,7 +1195,7 @@ namespace Gordian.App.Graphics
                     DrawPlaceholder(renderer, id, menu, placement);
                     continue;
                 }
-                renderer.DrawMenu(menu, placement, includeButtons: false);
+                renderer.DrawMenu(menu, placement, includeButtons: false, opaqueBody: true);
                 Drag.Register(id, menu.Frame, placement);
                 if (font == null) continue;
 
