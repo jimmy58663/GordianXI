@@ -323,6 +323,23 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// The intro map tutorial (#168): the Southern San d'Oria intro (230, event 503) opens the zone's map on its map 0
+        /// (0xC8), marks the guide Ailevia at (-10.264, -0.363) (0x8B), says its line and closes the map (0x8A).
+        /// </summary>
+        [Fact]
+        public void SouthernSandoriaIntro_ShowsTheGuideOnTheMap()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 230, 503);
+            var calls = run.Host.MapCalls;
+            int open = calls.IndexOf("open 230 0");
+            Assert.True(open >= 0, string.Join(" | ", calls));
+            Assert.Equal("mark 230 0 -10.264 -0.363 Ailevia", calls[open + 1]);
+            Assert.Equal("close", calls[open + 2]);
+        }
+
+        /// <summary>
         /// The Southern San d'Oria intro (230, event 503) as the maintainer's retail recording showed it (2026-09-30): it
         /// comes with the zone, its NPCs arrive seconds later (the start waits for them, and one arriving after the start
         /// still joins the event with the place its script gave it), the narration shows on the screen in the event message

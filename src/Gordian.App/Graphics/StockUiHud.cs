@@ -257,6 +257,8 @@ namespace Gordian.App.Graphics
             }
             // The Map window's map goes under the party, log and target windows (retail round 1 image-4: the chat over the map).
             if (!zoning && !cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
+            // The event map (#168) likewise goes over the scene and under the HUD, in a cutscene too (the intro's map tutorial).
+            if (!zoning) DrawEventMap(renderer, library, session, width, height);
             if (zoning)
             {
                 // Nothing but the black and the loading sprite below.
@@ -387,6 +389,30 @@ namespace Gordian.App.Graphics
             }
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
             StockUiMapWindow.Draw(renderer, library, font, _logFont, map, texture, zoneName, Layout.Scale, width, height);
+        }
+
+        private readonly Dictionary<(int Zone, int Map), (Gordian.Core.Resources.Graphics.DecodedTexture Texture, Gordian.Core.Resources.Tables.ZoneMapOrigin? Origin)?> _eventMaps = new();
+        private readonly StockUiEventMapWindow _eventMap = new();
+
+        /// <summary>The event map (#168): an event's map tutorial, or the map behind a home point list at the option under the cursor.</summary>
+        private void DrawEventMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font || session.Events.EventMapFocus is not { } focus || _resources == null)
+            {
+                _eventMap.Reset();
+                return;
+            }
+            int mapNumber = Gordian.Core.Resources.Tables.ZoneMapFiles.Resolve(focus.Zone, focus.MapNumber);
+            if (mapNumber < 0) return;
+            var key = (focus.Zone, mapNumber);
+            if (!_eventMaps.TryGetValue(key, out var map))
+            {
+                map = Gordian.Core.Resources.Tables.ZoneMapFiles.LoadWithOrigin(_resources, focus.Zone, mapNumber);
+                _eventMaps[key] = map;
+            }
+            if (map is not { } loaded) return;
+            string zoneName = _resources.TryGetString(DMsgCategory.ZoneNames, focus.Zone, out var name) ? name : string.Empty;
+            _eventMap.Draw(renderer, library, font, _logFont, focus, mapNumber, loaded.Texture, loaded.Origin, zoneName, Layout.Scale, width, height);
         }
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>

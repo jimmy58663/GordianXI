@@ -133,6 +133,27 @@ namespace Gordian.Engine.Events
         private volatile int _queryResult;
         private StockUiOpenMenu? _queryMenu;
         private int _queryStart;
+        private volatile EventMapState _eventMap = EventMapState.Closed;
+
+        /// <summary>The event map's state (#168): the map an event opened and the map behind its query.</summary>
+        public EventMapState EventMap => _eventMap;
+
+        /// <summary>
+        /// What the event map shows now (#168), or null: the query's map at the option under the cursor, or the map the
+        /// event opened. Read by the HUD each frame.
+        /// </summary>
+        public EventMapFocus? EventMapFocus => _eventMap.Focus(SelectedQueryOption);
+
+        /// <summary>The 0-based option (the script's numbering) under the open query's cursor, or null.</summary>
+        private int? SelectedQueryOption
+        {
+            get
+            {
+                if (_queryMenu is not { QueryOptions: { Count: > 0 } options } menu) return null;
+                int index = menu.FirstRow + menu.SelectedButtonId - 1;
+                return index >= 0 && index < options.Count ? options[index].Number - 1 : null;
+            }
+        }
 
         /// <summary>
         /// How long an event's start waits for the entities it names that are not in the zone yet, after asking the
@@ -787,6 +808,7 @@ namespace Gordian.Engine.Events
             _scene = null;
             _info = null;
             CloseQueryMenu();
+            _eventMap = EventMapState.Closed;
             ReleaseParticipants();
             KeepPlayerEventPlacement();
             ClearStaging();
@@ -835,6 +857,7 @@ namespace Gordian.Engine.Events
             _scene = null;
             _info = null;
             CloseQueryMenu();
+            _eventMap = EventMapState.Closed;
             ReleaseParticipants();
             ClearStaging();
             EndEventSound();
@@ -1103,6 +1126,7 @@ namespace Gordian.Engine.Events
         {
             var menu = _queryMenu;
             _queryMenu = null;
+            _eventMap = _eventMap.WithoutQuery();
             if (menu != null) _menus?.CloseQuery(menu);
         }
 
@@ -1381,6 +1405,36 @@ namespace Gordian.Engine.Events
                 return null;
             }
         }
+
+        void IEventVmHost.OpenEventMap(int mapId, int mapNumber)
+        {
+            _eventMap = _eventMap.Open(mapId, mapNumber);
+            GordianLog.Info("EVENT", $"Event map: zone {mapId} map {mapNumber} opened.");
+            Changed?.Invoke();
+        }
+
+        void IEventVmHost.SetEventMapMarker(int mapId, int index, float x, float z, string name)
+        {
+            // Retail only registers the marker when no event map is open (OpenMap2 mode 4, no ShowMark); nothing shows.
+            if (!_eventMap.IsOpen)
+            {
+                GordianLog.Debug("EVENT", $"Event map marker {index} '{name}' on zone {mapId} with no map open: not shown.");
+                return;
+            }
+            _eventMap = _eventMap.Mark(new EventMapMarker(index, x, z, name));
+            GordianLog.Info("EVENT", $"Event map marker {index} '{name}' at ({x:F2}, {z:F2}) on zone {mapId}.");
+            Changed?.Invoke();
+        }
+
+        void IEventVmHost.CloseEventMap()
+        {
+            _eventMap = _eventMap.Close();
+            Changed?.Invoke();
+        }
+
+        void IEventVmHost.OpenQueryMap() => _eventMap = _eventMap.WithQueryMap();
+
+        void IEventVmHost.SetQueryMapEntry(int option, EventQueryMapEntry entry) => _eventMap = _eventMap.WithQueryEntry(option, entry);
 
         void IEventVmHost.OpenEventZone(int zoneId)
         {

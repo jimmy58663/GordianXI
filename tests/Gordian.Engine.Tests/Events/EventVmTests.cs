@@ -56,6 +56,16 @@ namespace Gordian.Engine.Tests.Events
         public int GetEntityValue(uint serverId, int key) => EntityValues.TryGetValue(key, out int v) ? v : 0;
         public void OnSkippedOpcode(byte opcode, int pc) => Skipped.Add(opcode);
 
+        /// <summary>The event map calls (#168), in order: "open zone map", "mark map index x z name", "close", "query", "entry option sub first second v1 v2 v3".</summary>
+        public List<string> MapCalls { get; } = new();
+        public void OpenEventMap(int mapId, int mapNumber) => MapCalls.Add($"open {mapId} {mapNumber}");
+        public void SetEventMapMarker(int mapId, int index, float x, float z, string name) =>
+            MapCalls.Add(FormattableString.Invariant($"mark {mapId} {index} {x:F3} {z:F3} {name}"));
+        public void CloseEventMap() => MapCalls.Add("close");
+        public void OpenQueryMap() => MapCalls.Add("query");
+        public void SetQueryMapEntry(int option, EventQueryMapEntry entry) =>
+            MapCalls.Add($"entry {option} sub {entry.Sub} {entry.First} {entry.Second} {entry.Value1} {entry.Value2} {entry.Value3}");
+
         /// <summary>Recipe requests of opcode 0x8C (#405): mode, skill, level, Param0-Param4.</summary>
         public List<(ushort Mode, ushort Skill, ushort Level, ushort P0, ushort P1, ushort P2, ushort P3, ushort P4)> Recipes { get; } = new();
         /// <summary>Answers a recipe request at once (writes the work zone as S2C 0x031 would); null leaves it pending.</summary>

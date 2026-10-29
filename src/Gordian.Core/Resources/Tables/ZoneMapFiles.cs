@@ -152,6 +152,29 @@ namespace Gordian.Core.Resources.Tables
             return Decode(dat, path);
         }
 
+        /// <summary>
+        /// A zone's map texture and where its image sits (<see cref="ZoneMapProjection"/>), or null when the zone has no
+        /// such map or its DAT is missing.
+        /// </summary>
+        public static (DecodedTexture Texture, ZoneMapOrigin? Origin)? LoadWithOrigin(ResourceManager resources, int zoneId, int map)
+        {
+            string? path = PathOf(zoneId, map);
+            if (path == null || resources.LoadDatBytes(path) is not { } dat || Decode(dat, path) is not { } texture) return null;
+            return (texture, ZoneMapProjection.ReadOrigin(dat));
+        }
+
+        /// <summary>The map number to show for a requested one: it if the zone has it, else the zone's first map, or -1 for none.</summary>
+        public static int Resolve(int zoneId, int map)
+        {
+            var maps = MapsOf(zoneId);
+            if (maps.Count == 0) return -1;
+            foreach (byte m in maps)
+            {
+                if (m == map) return m;
+            }
+            return maps[0];
+        }
+
         /// <summary>The first texture section of a map DAT.</summary>
         public static DecodedTexture? Decode(byte[] dat, string source)
         {
