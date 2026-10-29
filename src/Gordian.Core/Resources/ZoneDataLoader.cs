@@ -128,7 +128,9 @@ namespace Gordian.Core.Resources
             (ZoneDefDecoder.IsCelestialMesh(datId) && datId.StartsWith("sun", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Adds a sky layer's geometry converted to display coordinates (-x, -y, z), matching world placements.
+        /// Adds a sky layer's geometry converted to display coordinates (-x, -y, z), matching world placements. Each mesh
+        /// keeps its double-sided flag (Section 0x2E flag 0x2000; Section 0x1F particle meshes are always double-sided):
+        /// an entrance overlay drawn from a single-sided zone mesh is culled like the placement it copies (#414 round 6).
         /// </summary>
         private static void AddDisplayMeshGroups(WeatherSkyLayer layer, List<MeshGroup> submeshes, string fallbackTexture)
         {
@@ -157,7 +159,7 @@ namespace Gordian.Core.Resources
                     MinBounds = minBounds,
                     MaxBounds = maxBounds,
                     IsBlend = true,
-                    NoCull = true
+                    NoCull = submesh.NoCull
                 });
             }
         }

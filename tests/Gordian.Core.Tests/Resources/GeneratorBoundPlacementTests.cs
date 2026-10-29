@@ -41,19 +41,21 @@ namespace Gordian.Core.Tests.Resources
         }
 
         /// <summary>
-        /// Lower Jeuno's generators under <c>t_ju/mode/entr</c> (<c>ent1</c>-<c>ent3</c>) are entrance overlays, which the
-        /// renderer draws only across an environment boundary (#414 round 5); its other lit effects are not.
+        /// Lower Jeuno's generators under <c>t_ju/mode/entr</c> (<c>ent1</c>-<c>ent3</c>) are entrance overlays drawn from
+        /// single-sided zone meshes, so the renderer culls their back faces: <c>ent2</c> shows from the street, not from the
+        /// stairs (#414 round 6). Its other lit effects are not entrance overlays.
         /// </summary>
         [Fact]
-        public void LowerJeunoEntranceOverlays_AreFlagged()
+        public void LowerJeunoEntranceOverlays_AreFlaggedAndSingleSided()
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
             rm.InitializeFileTable();
             if (!rm.TryLoadZone(245, out var zone, out _) || zone == null) return;
 
-            var entrances = zone.EffectLayers.Where(l => l.IsEntranceOverlay).Select(l => l.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "ent1", "ent2", "ent3" }, entrances);
+            var entrances = zone.EffectLayers.Where(l => l.IsEntranceOverlay).ToList();
+            Assert.Equal(new[] { "ent1", "ent2", "ent3" }, entrances.Select(l => l.Name).OrderBy(n => n).ToArray());
+            Assert.All(entrances.SelectMany(l => l.MeshGroups), m => Assert.False(m.NoCull));
             Assert.DoesNotContain(zone.EffectLayers, l => l.Name == "tama" && l.IsEntranceOverlay);
         }
     }

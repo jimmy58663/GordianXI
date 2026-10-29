@@ -130,6 +130,12 @@ namespace Gordian.App.Graphics
         private Pipeline _weatherSkyReverseSubtractPipeline = null!;
         // World-space zone effects: [straight alpha, additive, reverse subtract] x [no depth write, depth write]
         private readonly Pipeline[,] _effectPipelines = new Pipeline[5, 2];
+
+        /// <summary>
+        /// <see cref="_effectPipelines"/> with back faces culled, indexed [blend, depth write, front face]: front face 0 is
+        /// <see cref="ZoneFrontFace"/>, 1 the other winding (a mirrored generator).
+        /// </summary>
+        private readonly Pipeline[,,] _culledEffectPipelines = new Pipeline[5, 2, 2];
         private Pipeline _lensFlarePipeline = null!;
         private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
         private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
@@ -226,7 +232,7 @@ namespace Gordian.App.Graphics
         private ushort _mapRoutineZoneId;
         private readonly List<MapSchedulerRequest> _mapSchedulerRequests = new();
         private Vector3 _viewerFloorProbe = new(float.NaN);
-        private string? _viewerEnvironmentId;
+        private bool _viewerInSubEnvironment;
         private const float EmitterWarmupFrames = 1200.0f;
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
@@ -369,6 +375,12 @@ namespace Gordian.App.Graphics
             public string TextureName { get; init; } = string.Empty;
             public WeatherSkyLayer Layer { get; init; } = null!;
             public int CardIndex { get; init; } = -1;
+
+            /// <summary>
+            /// Double-sided (Section 0x2E flag 0x2000, and every Section 0x1F particle mesh); a single-sided entrance overlay
+            /// mesh is drawn with back faces culled (<c>DrawSkyGenerator</c>).
+            /// </summary>
+            public bool NoCull { get; init; } = true;
 
             /// <summary>
             /// Textures of an actor effect's model DAT; null for zone layers, which sample the zone's textures.
@@ -718,6 +730,15 @@ namespace Gordian.App.Graphics
                         comparisonKind: ComparisonKind.LessEqual);
                     effectDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, zoneEffectShaders);
                     _effectPipelines[blend, depthWrite] = factory.CreateGraphicsPipeline(effectDesc);
+                    for (int front = 0; front < 2; front++)
+                    {
+                        var culledDesc = effectDesc;
+                        var raster = culledDesc.RasterizerState;
+                        var frontFace = front == 0 ? ZoneFrontFace : ZoneFrontFace == FrontFace.Clockwise ? FrontFace.CounterClockwise : FrontFace.Clockwise;
+                        culledDesc.RasterizerState = new RasterizerStateDescription(FaceCullMode.Back, raster.FillMode, frontFace,
+                            raster.DepthClipEnabled, raster.ScissorTestEnabled);
+                        _culledEffectPipelines[blend, depthWrite, front] = factory.CreateGraphicsPipeline(culledDesc);
+                    }
                 }
             }
 
@@ -1197,6 +1218,7 @@ namespace Gordian.App.Graphics
                     TextureName = group.TextureName,
                     Layer = layer,
                     CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
+                    NoCull = group.NoCull,
                     Textures = textures,
                     BoundingRadius = MathF.Sqrt(radiusSquared),
                     Morph = morph,
@@ -1575,7 +1597,6 @@ namespace Gordian.App.Graphics
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
                     ProbeEffectEnvironment(effectMesh);
-                    if (effectMesh.Layer.IsEntranceOverlay && !DrawsEntranceOverlay(effectMesh.Layer, camera.Position)) continue;
                     // Camera-following weather effects sit at their base offset from the eye.
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
@@ -1909,6 +1930,7 @@ namespace Gordian.App.Graphics
             }
 
             Matrix4x4 world = Matrix4x4.Identity;
+            int cullFront = -1;
             Vector2 uvOrFlareCenter = skyMesh.UVScroll * frames;
             float layerType = 3.0f;
             if (layer.IsLensFlare)
@@ -1937,9 +1959,15 @@ namespace Gordian.App.Graphics
                         Matrix4x4.CreateTranslation(center);
                 // A voyage zone's scenery effects (its river) move with the scenery (#403).
                 if (layer.IsWorldEffect && !skyMesh.FollowCamera && !layer.OnVessel) world *= _sceneryTransform;
+                // An entrance overlay drawn from a single-sided zone mesh culls its back faces as the placement it copies
+                // does, flipping the test under a mirroring scale. Lower Jeuno's ent2 copies step01's walls facing the
+                // street; drawn double-sided it painted a pale pillar and arch over the wall seen from the stairs, which
+                // retail never shows (#414 round 6, retail image-11 / -13 / -15). Other single-sided world effects (light
+                // shafts, window glows, sea surfaces) stay double-sided until a retail check says otherwise.
+                if (layer.IsWorldEffect && layer.IsEntranceOverlay && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
-            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline);
+            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);
         }
 
         /// <summary>
@@ -2041,6 +2069,8 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Binds the pipeline for a generator layer's blend mode (sky or world effect) and draws one of its meshes with the
         /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
+        /// A world effect with <paramref name="cullFront"/> 0 or 1 culls its back faces (see <see cref="_culledEffectPipelines"/>);
+        /// -1 draws both sides.
         /// </summary>
         private bool SubmitGeneratorDraw(
             GpuWeatherSkySubmesh skyMesh,
@@ -2049,7 +2079,8 @@ namespace Gordian.App.Graphics
             float layerType,
             Vector4 textureFactor,
             ZoneSceneUniform sceneUniform,
-            ref Pipeline? currentPipeline)
+            ref Pipeline? currentPipeline,
+            int cullFront = -1)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2074,7 +2105,9 @@ namespace Gordian.App.Graphics
                     blendIndex = blendIndex == 0 ? 3 : 4;
                     blendOutput = blendIndex;
                 }
-                pipeline = _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
+                pipeline = cullFront >= 0
+                    ? _culledEffectPipelines[blendIndex, layer.DepthWrite ? 1 : 0, cullFront]
+                    : _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
             }
             if (currentPipeline != pipeline)
             {
@@ -2493,30 +2526,13 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>): under
-        /// the generator, else under its meshes as placed. Lower Jeuno's <c>ent2</c>, a copy of the <c>step01</c> room's walls,
-        /// has its origin over no floor; lit by the outdoor sun it drew a pale grey shape over that room's back wall, seen
-        /// from the stairs (#414 round 4).
+        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>).
         /// </summary>
         private void ProbeEffectEnvironment(GpuWeatherSkySubmesh effectMesh)
         {
             var layer = effectMesh.Layer;
             if (LoadedZone == null || !layer.IsWorldEffect || !layer.LightingEnabled || effectMesh.FollowCamera || _effectEnvironments.ContainsKey(layer)) return;
             var floor = ZoneRaycaster.FindFloor(LoadedZone, effectMesh.BasePosition + new Vector3(0.0f, 1.0f, 0.0f), 12.0f);
-            if (floor == null)
-            {
-                // The static draw's placement (DrawSkyGenerator): raw-axis rotation under the display flip.
-                Matrix4x4 placed = Matrix4x4.CreateScale(layer.Scale) *
-                                   Matrix4x4.CreateRotationX(-layer.Rotation.X) *
-                                   Matrix4x4.CreateRotationY(-layer.Rotation.Y) *
-                                   Matrix4x4.CreateRotationZ(layer.Rotation.Z) *
-                                   Matrix4x4.CreateTranslation(effectMesh.BasePosition);
-                foreach (var group in layer.MeshGroups)
-                {
-                    floor = ZoneRaycaster.FindFloor(LoadedZone, Vector3.Transform((group.MinBounds + group.MaxBounds) * 0.5f, placed), 12.0f);
-                    if (floor != null) break;
-                }
-            }
             _effectEnvironments[layer] = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
         }
 
@@ -2534,37 +2550,19 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// True while the floor under the camera belongs to a placement linked to a sub-environment (a cave or interior).
+        /// The client picks the viewer's environment from the floor under the camera; re-cast only when the eye moves.
         /// </summary>
-        private bool IsViewerInSubEnvironment(Vector3 eye) => ViewerEnvironmentId(eye) != null;
-
-        /// <summary>
-        /// The sub-environment of the floor under the camera, or null for the zone's own. The client picks the viewer's
-        /// environment from the floor under the camera; re-cast only when the eye moves.
-        /// </summary>
-        private string? ViewerEnvironmentId(Vector3 eye)
+        private bool IsViewerInSubEnvironment(Vector3 eye)
         {
-            if (LoadedZone == null) return null;
+            if (LoadedZone == null) return false;
             if (!(Vector3.DistanceSquared(eye, _viewerFloorProbe) < 0.25f))
             {
                 _viewerFloorProbe = eye;
                 var floor = ZoneRaycaster.FindFloor(LoadedZone, eye, 500.0f);
-                _viewerEnvironmentId = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
+                _viewerInSubEnvironment = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId);
             }
-            return _viewerEnvironmentId;
+            return _viewerInSubEnvironment;
         }
-
-        /// <summary>
-        /// Whether an entrance overlay (<see cref="WeatherSkyLayer.IsEntranceOverlay"/>) draws: only while the viewer stands
-        /// in another environment than the one it is lit with, looking across the threshold. Its copy of the walls carries
-        /// lighter baked shading than the placement under it, so drawn from the same side it paints that placement's
-        /// shadows over. Lower Jeuno's <c>ent2</c> drew a pale pillar and arch over <c>step01</c>'s back wall, seen from the
-        /// stairs (both <c>ev01</c>), that retail never shows (#414 round 5, retail <c>image-11</c> / <c>-13</c> / <c>-15</c>);
-        /// Metalworks' hall (outdoor environment, its overlays <c>ev01</c>) keeps them, as round 1 passed. An
-        /// <em>inference</em> that fits every retail view so far, not a decoded flag: no generator, record or routine field
-        /// gates these overlays.
-        /// </summary>
-        private bool DrawsEntranceOverlay(WeatherSkyLayer layer, Vector3 eye) =>
-            !string.Equals(ViewerEnvironmentId(eye), _effectEnvironments.GetValueOrDefault(layer), StringComparison.Ordinal);
 
         /// <summary>
         /// The stronger of the model sun and moon light colors, for daylight-tinted particles.
@@ -2950,6 +2948,7 @@ namespace Gordian.App.Graphics
             _weatherSkyAdditivePipeline?.Dispose();
             _weatherSkyReverseSubtractPipeline?.Dispose();
             foreach (var effectPipeline in _effectPipelines) effectPipeline?.Dispose();
+            foreach (var effectPipeline in _culledEffectPipelines) effectPipeline?.Dispose();
             _lensFlarePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();

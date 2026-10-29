@@ -296,9 +296,9 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// An entrance overlay: its generator is under a <c>mode/entr</c> directory (Lower Jeuno's <c>ent_</c> / <c>ent2</c>,
-        /// Metalworks' <c>ent0</c>-<c>ent3</c>, Bibiki Bay's cave mouths). Each is a translucent copy of the walls and floor
-        /// at a building's or cave's mouth, with lighter baked shading than the placement it copies and vertex alpha
-        /// falling to 0 inward. The renderer draws it only while the viewer stands in another environment (#414 round 5).
+        /// Metalworks' <c>ent0</c>-<c>ent3</c>, Bibiki Bay's cave mouths, Castle Zvahl's <c>tt00</c>-<c>tt06</c>). Each is a
+        /// translucent copy of the walls and floor at a building's or cave's mouth, single-sided with the winding of the
+        /// placement it copies; the renderer culls its back faces as that placement's are (#414 round 6).
         /// </summary>
         public bool IsEntranceOverlay { get; set; }
 
