@@ -2492,13 +2492,30 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>).
+        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>): under
+        /// the generator, else under its meshes as placed. Lower Jeuno's <c>ent2</c>, a copy of the <c>step01</c> room's walls,
+        /// has its origin over no floor; lit by the outdoor sun it drew a pale grey shape over that room's back wall, seen
+        /// from the stairs (#414 round 4).
         /// </summary>
         private void ProbeEffectEnvironment(GpuWeatherSkySubmesh effectMesh)
         {
             var layer = effectMesh.Layer;
             if (LoadedZone == null || !layer.IsWorldEffect || !layer.LightingEnabled || effectMesh.FollowCamera || _effectEnvironments.ContainsKey(layer)) return;
             var floor = ZoneRaycaster.FindFloor(LoadedZone, effectMesh.BasePosition + new Vector3(0.0f, 1.0f, 0.0f), 12.0f);
+            if (floor == null)
+            {
+                // The static draw's placement (DrawSkyGenerator): raw-axis rotation under the display flip.
+                Matrix4x4 placed = Matrix4x4.CreateScale(layer.Scale) *
+                                   Matrix4x4.CreateRotationX(-layer.Rotation.X) *
+                                   Matrix4x4.CreateRotationY(-layer.Rotation.Y) *
+                                   Matrix4x4.CreateRotationZ(layer.Rotation.Z) *
+                                   Matrix4x4.CreateTranslation(effectMesh.BasePosition);
+                foreach (var group in layer.MeshGroups)
+                {
+                    floor = ZoneRaycaster.FindFloor(LoadedZone, Vector3.Transform((group.MinBounds + group.MaxBounds) * 0.5f, placed), 12.0f);
+                    if (floor != null) break;
+                }
+            }
             _effectEnvironments[layer] = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
         }
 
