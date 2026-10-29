@@ -1942,7 +1942,7 @@ namespace Gordian.App.Graphics
             }
             else if (layer.IsSpriteSheet)
             {
-                world = CreateCameraFacingCardMatrix(camera, center, scale);
+                world = CreateCameraFacingCardMatrix(camera, center, scale, skyMesh.AttachType == ParticleAttachType.Moon ? MoonCardRoll(dayFraction) : 0.0f);
             }
             else if (attachedToLight)
             {
@@ -2705,10 +2705,6 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// XYZ billboard for a sprite-sheet card stored in display axes (-x, -y, z): the card's image-left
-        /// (raw -X) maps to screen left and image-top (raw -Y) to screen top, as xim's LOOK_AT_NEG_Z basis does.
-        /// </summary>
-        /// <summary>
         /// Maps display-local particle axes (raw DAT axes with X and Y flipped) onto a camera-facing frame: local X to
         /// camera left, local Y to <paramref name="up"/>, local Z to the view direction.
         /// </summary>
@@ -2718,10 +2714,26 @@ namespace Gordian.App.Graphics
             forward.X, forward.Y, forward.Z, 0f,
             0f, 0f, 0f, 1f);
 
-        private static Matrix4x4 CreateCameraFacingCardMatrix(ViewportCamera camera, Vector3 center, Vector3 scale)
+        /// <summary>
+        /// How far the moon's phase card turns clockwise on screen: with the moon's orbit, a full turn a day, upright at
+        /// midnight (moon at the zenith), a quarter turn clockwise at 06:00 (setting in the west) and anticlockwise at
+        /// 18:00 (rising in the east). *Inference* from the maintainer's retail capture (#469, round 1 of 2026-10-27,
+        /// image-2: Lower Jeuno, 05:11): the waxing half-moon card, lit toward its upper right in <c>moonshap</c>, shows
+        /// lit toward the lower right, about 78 degrees clockwise. The generator (<c>weat/*/moon</c>, XYZ billboard)
+        /// authors no rotation, so the turn comes with the orbit.
+        /// </summary>
+        internal static float MoonCardRoll(float dayFraction) => dayFraction * MathF.Tau;
+
+        /// <summary>
+        /// XYZ billboard for a sprite-sheet card stored in display axes (-x, -y, z): the card's image-left
+        /// (raw -X) maps to screen left and image-top (raw -Y) to screen top, as xim's LOOK_AT_NEG_Z basis does,
+        /// turned clockwise on screen by <paramref name="screenRoll"/> radians.
+        /// </summary>
+        internal static Matrix4x4 CreateCameraFacingCardMatrix(ViewportCamera camera, Vector3 center, Vector3 scale, float screenRoll = 0.0f)
         {
-            Vector3 right = camera.Right * -scale.X;
-            Vector3 up = camera.Up * scale.Y;
+            float cos = MathF.Cos(screenRoll), sin = MathF.Sin(screenRoll);
+            Vector3 right = (camera.Right * cos - camera.Up * sin) * -scale.X;
+            Vector3 up = (camera.Right * sin + camera.Up * cos) * scale.Y;
             Vector3 forward = camera.Forward * scale.Z;
             return new Matrix4x4(
                 right.X, right.Y, right.Z, 0f,

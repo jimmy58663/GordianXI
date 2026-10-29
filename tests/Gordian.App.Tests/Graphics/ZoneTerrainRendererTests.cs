@@ -401,6 +401,33 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void MoonCard_TurnsClockwiseWithTheOrbit_UprightAtMidnight()
+        {
+            var camera = new Gordian.Engine.Graphics.ViewportCamera { Mode = Gordian.Engine.Graphics.CameraMode.FirstPerson };
+            camera.Update(System.Numerics.Vector3.Zero, 30.0f, 180.0f, 0.0f, 4f / 3f);
+            var scale = new System.Numerics.Vector3(20f);
+            static System.Numerics.Vector3 Row(System.Numerics.Matrix4x4 m, int row) =>
+                row == 0 ? new(m.M11, m.M12, m.M13) : new(m.M21, m.M22, m.M23);
+            static void Near(System.Numerics.Vector3 expected, System.Numerics.Vector3 actual) =>
+                Assert.True(System.Numerics.Vector3.Distance(expected, actual) < 1e-3f, $"expected {expected}, got {actual}");
+
+            // Midnight: card upright, display +X (image left) to screen left, display +Y (image top) to screen up.
+            var midnight = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.0f));
+            Near(-camera.Right * 20f, Row(midnight, 0));
+            Near(camera.Up * 20f, Row(midnight, 1));
+
+            // 06:00, moon setting in the west: a quarter turn clockwise, image left to the top and image top to the right.
+            var dawn = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.25f));
+            Near(camera.Up * 20f, Row(dawn, 0));
+            Near(camera.Right * 20f, Row(dawn, 1));
+
+            // 18:00, moon rising in the east: a quarter turn anticlockwise.
+            var dusk = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.75f));
+            Near(-camera.Up * 20f, Row(dusk, 0));
+            Near(-camera.Right * 20f, Row(dusk, 1));
+        }
+
+        [Fact]
         public void ComputeSkyTextureFactor_AppliesModulate2xTintsAndClockAlpha()
         {
             var layer = new Gordian.Core.Resources.Graphics.WeatherSkyLayer

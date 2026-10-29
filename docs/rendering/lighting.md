@@ -13,6 +13,10 @@
 - **Why on the colour, not the summed light.** Bibiki Bay's calibrated 15:58 sand (above) already sits at the light clamp in red and green, so a shoulder on the light would have darkened it. On the output colour it only touches channels above 0.65: the 15:58 sand's red (0.72) moves by one level (168 to 167 mean over the sand), the 19:50 dusk cliffs (under 0.6) not at all.
 - **Retail brightness (opt-in).** `ViewportSettings.RetailTerrainBrightness` (settings file; no Settings UI yet) restores the plain clamp: `ViewportRenderSettings.RetailTerrainBrightness` sets `ZoneTerrainRenderer.RetailTerrainBrightness` each frame, which zeroes `TerrainTone`.
 - Open on #7: the actor light cap (0.75) and the sun glow behind `clod` / `suny` are still unchecked against retail.
+- Retail captures still needed for #7 (each with the Windower position, game time, weather and camera direction noted):
+  - Actor cap: a character standing in full sun at about 12:00 in clear weather on open ground (Valkurm Dunes or Bibiki Bay), camera behind them at the default distance. Check whether retail's lit skin and armour sit near the texel brightness (our cap 0.75 = 1.5x the texel) or higher.
+  - Sun glow: the camera pointed at the sun at about 10:00 and 14:00 in sunshine (`suny`, the `sun0` scale-50 glare) and in clouds (`clod`, `sun1` behind the overcast), in the same zone and spot for both.
+  - Castle Zvahl Baileys walls at 19:14 in snow (the #404 comment): the existing retail `image-8.png` is from the 2026-10-18 round 1 folder. A second capture at noon in the same spot would show whether the gap is the dusk sun on vertical faces or the ambient.
 
 ## Per-vertex terrain lighting (#7 round 2, F10)
 
@@ -40,6 +44,18 @@
   - Lit west-facing walls: retail (97, 72, 69), r/g 1.34, b/g 0.96; ours `fine` (129, 96, 89), r/g 1.34, b/g 0.93; ours `suny` (107, 69, 65), r/g 1.55.
   - Shaded walls and floor: retail b/g 1.29-1.31; ours `suny` 1.23-1.32, `fine` 1.16-1.19.
 - So retail does light the west faces with a warm directional term after sunset (the lit wall is 1.8x the shaded one); there is no cut-off below the horizon to add. What remains is that in `suny` our lit faces are about 12% redder than retail. Ruled out: dropping the sun below the horizon (retail keeps the directional light), lighting terrain with the 0x2F model sun instead (it fits the dusk hue but would break the 15:58 calibration above). Not yet known: how the client interpolates the `suny` 18:00 -> 21:00 keyframes (sun (208, 130, 72) x1.5 -> black).
+- *Re-measured 2026-10-29 (current renderer, per-vertex light).* Offscreen from the capture poses (camera 7 yalms behind the player, outside yaw 297 / 19:50, inside yaw 117 / 19:32), mean colour of the same screen regions:
+
+  | Region | Retail | Ours `suny` | Ours `fine` |
+  |---|---|---|---|
+  | Outside, lit (west-facing) right wall | (114, 84, 82), r/g 1.37 | (86, 59, 65), r/g 1.47 | (110, 82, 82), r/g 1.34 |
+  | Outside, shaded left wall | (72, 57, 73), b/g 1.29 | (80, 63, 86), b/g 1.36 | (82, 64, 75), b/g 1.17 |
+  | Outside, floor | (67, 55, 71), b/g 1.30 | (84, 69, 96), b/g 1.38 | (86, 71, 84), b/g 1.19 |
+  | Inside, lit left wall by the mouth | (127, 92, 87), r/g 1.37 | (98, 64, 62), r/g 1.55 | (117, 86, 83), r/g 1.35 |
+  | Inside, shaded right wall | (59, 47, 60) | (77, 61, 80) | (74, 59, 68) |
+  | Sky through the mouth | (130, 97, 93), r/g 1.34, b/g 0.95 | (97, 72, 78), r/g 1.34, b/g 1.08 | (119, 98, 91), r/g 1.21, b/g 0.93 |
+
+- With `fine` keyframes the lit walls match retail within 4-8% in every channel, and the sky is closer in brightness and blue. With `suny` the lit walls are 25-35% too dark and orange (a stronger sun saturates red at the vertex clamp while green and blue keep rising, so retail's brighter sun reads pinker, not more orange). Only the shaded faces sit between the two (b/g 1.29 against 1.17 / 1.36). Both weathers use the same formula. `fine` has no keyframe after 18:00, so its sun fades toward 00:00 and stays (0.68, 0.55, 0.40) at 19:50, while `suny`'s fades to black at 21:00. So the captures were most likely taken in `fine` (clear), not `suny` as assumed above from the sky's red/green alone. The orange the issue reports is our `suny` dusk. No code change: a retail capture at 19:30-19:50 with the weather noted (ideally both clear and sunshine) has to decide whether retail's `suny` dusk is also orange.
 
 
 ## Point lights (#428)
