@@ -56,9 +56,9 @@ namespace Gordian.Engine.Tests.Ui
                 ItemId = 12440, Name = "Leather Bandana", LogName = "leather bandana", Level = 7, JobsMask = jobs, RacesMask = 0x1FE,
                 EquipSlotsMask = 1 << (int)EquipSlotId.Head, ItemType = 5, Description = "DEF:3",
             };
-            // Without a font (about 42 characters to the line) the first line is image-17's 40 characters, too wide in wide capitals.
+            // Without a font (about 42 characters to the line) the first line holds nine jobs, too wide in wide capitals.
             string old = StockUiItemDescription.LevelLines(record)[0];
-            Assert.Equal("Lv.7 WAR RDM THF PLD DRK BST BRD RNG SAM", old);
+            Assert.Equal("Lv.7 WAR/RDM/THF/PLD/DRK/BST/BRD/RNG/SAM/", old);
             Assert.True(Wide(old) > StockUiItemDescription.TextWidth);
             var level = StockUiItemDescription.LevelLines(record, Wide);
             Assert.True(level.Count >= 2);
@@ -66,6 +66,29 @@ namespace Gordian.Engine.Tests.Ui
             var page = Assert.Single(StockUiItemDescription.Pages(record, Wide));
             Assert.All(page.Lines, l => Assert.True(Wide(l) <= StockUiItemDescription.TextWidth, l));
             Assert.Equal(new[] { "Leather bandana", "[Head]All Races", "DEF:3" }, page.Lines.Take(3));
+        }
+
+        /// <summary>
+        /// #448: retail joins the jobs with "/" (image-11, the Misericorde: "Lv.71 WAR/BLM/RDM/THF/PLD/DRK/" then
+        /// "BST/BRD/RNG/SAM/NIN/DRG/SMN/SCH/" then "GEO") and breaks a long list after a slash, which ends the line.
+        /// </summary>
+        [Fact]
+        public void ItemDescription_JobsAreSlashSeparated_AndALongListBreaksAfterASlash()
+        {
+            static ItemRecord Record(uint jobs) => new()
+            {
+                ItemId = 16753, Name = "Misericorde", LogName = "misericorde", Level = 71, JobsMask = jobs, RacesMask = 0x1FE,
+                EquipSlotsMask = 1 << (int)EquipSlotId.Main, ItemType = 4, Description = "DMG:27 Delay:183",
+            };
+            Assert.Equal(new[] { "Lv.71 WAR/PLD/DRK" }, StockUiItemDescription.LevelLines(Record((1u << 1) | (1u << 7) | (1u << 8))));
+            Assert.Equal(new[] { "Lv.71 All Jobs" }, StockUiItemDescription.LevelLines(Record(0x7FFFFE)));
+
+            // The Misericorde's fifteen jobs, wrapped 33 characters to the line, as image-11 breaks it.
+            uint misericorde = 0;
+            foreach (int job in new[] { 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21 }) misericorde |= 1u << job;
+            float perChar = StockUiItemDescription.TextWidth / 33f;
+            var lines = StockUiItemDescription.LevelLines(Record(misericorde), t => t.Length * perChar);
+            Assert.Equal(new[] { "Lv.71 WAR/BLM/RDM/THF/PLD/DRK/", "BST/BRD/RNG/SAM/NIN/DRG/SMN/SCH/", "GEO" }, lines);
         }
     }
 }

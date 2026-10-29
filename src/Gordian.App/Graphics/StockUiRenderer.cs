@@ -103,7 +103,7 @@ void main()
         /// </summary>
         public float Opacity { get; set; } = 1f;
 
-        /// <summary>Height of a menu window's title band in layout pixels (see <see cref="DrawMenu"/>'s <c>opaqueTop</c>).</summary>
+        /// <summary>Height of a menu window's title band in layout pixels (a list's scrollbar starts below it).</summary>
         public const float MenuBandHeight = 20;
 
         private UiClip? _clip;
@@ -472,14 +472,15 @@ void main()
         /// Frames are the persistent windows; buttons draw their unselected state. <paramref name="frameWidth"/>
         /// widens or narrows the frame (layout pixels): its right half moves and parts spanning the middle stretch;
         /// <paramref name="frameHeight"/> does the same vertically (its bottom half moves). With
-        /// <paramref name="opaqueBody"/> and <paramref name="opaqueTop"/> 0 the whole background is drawn opaque; a window
-        /// with a title band (<paramref name="opaqueTop"/> above 0) keeps the authored translucent gradient (#442). <paramref name="topBorderGap"/> breaks the
+        /// <paramref name="opaqueBody"/> the whole background, title band included, is drawn opaque (every stock window but an
+        /// unselected log, the help bar and the engaged vitals block, #454); without it the authored translucent gradient
+        /// is kept (those three, #442). <paramref name="topBorderGap"/> breaks the
         /// top border line for a title. <paramref name="border"/> false leaves out the client's border lines (the lobby's
         /// screens and prompts, whose frames carry their own edges).
         /// </summary>
         public void DrawMenu(UiMenuDefinition menu, StockUiPlacement placement, bool includeButtons = true, float? frameWidth = null,
             Predicate<UiSpritePart>? excludeFramePart = null, bool opaqueBody = false, float? frameHeight = null,
-            float opaqueTop = MenuBandHeight, (float Start, float End)? topBorderGap = null, UiImage? frameImage = null, bool border = true)
+            (float Start, float End)? topBorderGap = null, UiImage? frameImage = null, bool border = true)
         {
             if (_library == null || placement.Hidden) return;
             var stretch = frameWidth is { } w ? UiStretch.Horizontal(menu.Frame.Width, w) : default;
@@ -521,12 +522,13 @@ void main()
                 {
                     if (!IsBackground(part)) continue;
                     DrawPart(part, placement.X, placement.Y, placement.Scale, null, stretch);
-                    // A window without a title band asked to be opaque (the chat input line, the Font Colors and key item
-                    // lists) is drawn again with full alpha and the authored colour gradient. Windows with a title band keep
-                    // the DAT's 0x40 -> 0x7F alpha gradient, as the HUD windows do (#442, round 1 of the 2026-10-24 test: an
-                    // opaque body under the translucent band read as a near-white header row over a bright scene; retail's
-                    // Job Levels measures 0.47 opaque at 16 px, 0.52 at 31 and 0.64 at 43, the authored gradient's line).
-                    if (opaqueBody && opaqueTop <= 0) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch, opaqueTop);
+                    // A window asked to be opaque (every stock window but an unselected log, the help bar and the engaged
+                    // vitals block) is drawn again with full alpha and the authored colour gradient, from its top edge:
+                    // retail's menus, party, target and alliance windows are as opaque as its selected log (#454). The DAT
+                    // authors the same 0x40 -> 0x7F alpha gradient on every window, so which ones are opaque is the client's
+                    // rule, not data. Only the whole background is redrawn: an opaque body under a translucent title band
+                    // read as a near-white header row over a bright scene (#442).
+                    if (opaqueBody) DrawBodyPlate(part, placement.X, placement.Y, placement.Scale, stretch);
                     hasBackground = true;
                 }
                 if (hasBackground && border) DrawWindowBorder(placement.X, placement.Y, borderWidth, borderHeight, placement.Scale, topBorderGap);
@@ -686,14 +688,13 @@ void main()
             UiResourceLibrary.TrimResourceName(part.TextureName).Equals("newtex", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Draws the part of a window background below <paramref name="opaqueTop"/> (layout pixels) opaque, with the
-        /// part's colour gradient interpolated at the split so the band and the body meet seamlessly.
+        /// Draws a window background part again opaque, keeping the part's authored colour gradient.
         /// </summary>
-        private void DrawBodyPlate(UiSpritePart part, float x, float y, float scale, UiStretch stretch, float opaqueTop)
+        private void DrawBodyPlate(UiSpritePart part, float x, float y, float scale, UiStretch stretch)
         {
             if (_library == null || !TryGetTextureSet(part.TextureName, out var set, out float texWidth, out float texHeight)) return;
             float quadWidth = part.TopRight.X - part.TopLeft.X, quadHeight = part.BottomLeft.Y - part.TopLeft.Y;
-            if (quadHeight <= opaqueTop || quadWidth <= 0) return;
+            if (quadHeight <= 0 || quadWidth <= 0) return;
             float srcWidth = part.SourceWidth, srcHeight = part.SourceHeight;
             if (stretch.ExtraX != 0 && part.TopLeft.X < stretch.PivotX && part.TopRight.X >= stretch.PivotX)
                 srcWidth += stretch.ExtraX * srcWidth / quadWidth;
@@ -707,17 +708,14 @@ void main()
             var tr = Point(part.TopRight, x, y, scale, stretch);
             var bl = Point(part.BottomLeft, x, y, scale, stretch);
             var br = Point(part.BottomRight, x, y, scale, stretch);
-            float t = Math.Clamp(opaqueTop * scale / Math.Max(1, bl.Y - tl.Y), 0, 1);
-            float vMid = v0 + (v1 - v0) * t;
             AddQuad(set, part.BlendMode,
-                new UiVertex { Position = Vector2.Lerp(tl, bl, t), TexCoord = new Vector2(u0, vMid), Color = Pack(LerpOpaque(part.ColorTopLeft, part.ColorBottomLeft, t), null) },
-                new UiVertex { Position = Vector2.Lerp(tr, br, t), TexCoord = new Vector2(u1, vMid), Color = Pack(LerpOpaque(part.ColorTopRight, part.ColorBottomRight, t), null) },
-                new UiVertex { Position = bl, TexCoord = new Vector2(u0, v1), Color = Pack(LerpOpaque(part.ColorBottomLeft, part.ColorBottomLeft, 0), null) },
-                new UiVertex { Position = br, TexCoord = new Vector2(u1, v1), Color = Pack(LerpOpaque(part.ColorBottomRight, part.ColorBottomRight, 0), null) });
+                new UiVertex { Position = tl, TexCoord = new Vector2(u0, v0), Color = Pack(Opaque(part.ColorTopLeft), null) },
+                new UiVertex { Position = tr, TexCoord = new Vector2(u1, v0), Color = Pack(Opaque(part.ColorTopRight), null) },
+                new UiVertex { Position = bl, TexCoord = new Vector2(u0, v1), Color = Pack(Opaque(part.ColorBottomLeft), null) },
+                new UiVertex { Position = br, TexCoord = new Vector2(u1, v1), Color = Pack(Opaque(part.ColorBottomRight), null) });
         }
 
-        private static UiColor LerpOpaque(UiColor a, UiColor b, float t) =>
-            new((byte)(a.R + (b.R - a.R) * t), (byte)(a.G + (b.G - a.G) * t), (byte)(a.B + (b.B - a.B) * t), 0x80);
+        private static UiColor Opaque(UiColor c) => c with { A = 0x80 };
 
         private static Vector2 Point(UiPoint p, float x, float y, float scale, UiStretch stretch)
         {

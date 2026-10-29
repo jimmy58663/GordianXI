@@ -302,7 +302,7 @@ namespace Gordian.Core.Tests.World
         [Fact]
         public void WorldEntity_SlowNpcWalk_PlaysContinuouslyAtObservedPace()
         {
-            // Captured NPC pattern: walk speed 40 on the wire, but it advances only ~1 yalm per ~1.4s update
+            // Captured NPC pattern (Debug server): walk speed 40 on the wire, but it advances only ~1 yalm per ~1.4s update
             var entity = new WorldEntity(0x560, 105, EntityType.Npc) { Position = new Vector3(0f, 0f, 0f), Speed = 40 };
             double now = 500.0;
             float[] gaps = { 1.40f, 1.35f, 1.44f, 1.33f, 1.47f, 1.35f, 1.38f, 1.52f };
@@ -321,8 +321,10 @@ namespace Gordian.Core.Tests.World
                 }
             }
 
-            // Once it starts walking it keeps walking at the observed pace instead of dashing 1 yalm and idling
-            int first = translating.IndexOf(true);
+            // Once it starts walking it keeps walking at the observed pace instead of dashing 1 yalm and idling. The default
+            // delay is tuned to the Release server's 0.4 s updates (#359): the first 1.4 s gap pauses once, and from the second
+            // update on the cadence is learned.
+            int first = translating.IndexOf(true, (int)MathF.Round(gaps[0] * 60f));
             Assert.True(first >= 0);
             Assert.DoesNotContain(false, translating.GetRange(first, translating.Count - first));
         }

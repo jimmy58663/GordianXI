@@ -1463,9 +1463,9 @@ namespace Gordian.Engine.Tests.Network
             /// <summary>
             /// Asserts that once travel began it continued without a pause until the final position was reached.
             /// </summary>
-            public void AssertContinuousTravel()
+            public void AssertContinuousTravel(double after = double.NegativeInfinity)
             {
-                int first = Frames.FindIndex(f => f.Translating);
+                int first = Frames.FindIndex(f => f.Translating && f.Time >= after);
                 int last = Frames.FindLastIndex(f => f.Translating);
                 Assert.True(first >= 0, "never moved");
                 for (int i = first; i <= last; i++)
@@ -1523,7 +1523,9 @@ namespace Gordian.Engine.Tests.Network
                 h.Render(wait);
             }
 
-            h.AssertContinuousTravel();
+            // The default playback delay is tuned to the Release server's 0.4 s updates (#359), so the first 1.3 s gap of this
+            // Debug-server capture pauses once; from the second update on the cadence is learned and the run is continuous.
+            h.AssertContinuousTravel(after: 1000.0 + capture[0].SecondsUntilNext);
 
             // Before playback starts moving the character it stays idle: no running in place while the move is buffered
             int firstMove = h.Frames.FindIndex(f => f.Translating);
@@ -1532,10 +1534,11 @@ namespace Gordian.Engine.Tests.Network
                 Assert.Equal(Gordian.Core.Animation.AnimationCategory.Idle, h.Frames[i].Animation);
             }
 
-            // A move from rest starts StartLeadSeconds sooner than the default playback delay: the player really began
-            // 40 ticks (0.67s) before the first packet arrived
+            // A move from rest starts StartLeadIntervals update intervals sooner than the default playback delay: the player really
+            // began 40 ticks (0.67s) before the first packet arrived, which is more than that start delay, so it moves at once
+            double startDelay = WorldEntity.DefaultPlaybackDelaySeconds - (WorldEntity.StartLeadIntervals * WorldEntity.DefaultUpdateIntervalSeconds);
             double firstMoveAfterArrival = h.Frames[firstMove].Time - 1000.0;
-            Assert.InRange(firstMoveAfterArrival, 0.0, WorldEntity.DefaultPlaybackDelaySeconds - WorldEntity.StartLeadSeconds - (40 / 60.0) + 0.05);
+            Assert.InRange(firstMoveAfterArrival, 0.0, Math.Max(0.0, startDelay - (40 / 60.0)) + 0.05);
 
             // Playback speed stays close to the true 5 yalms/sec run speed (no sprint-then-wait segments)
             for (int i = 1; i < h.Frames.Count; i++)

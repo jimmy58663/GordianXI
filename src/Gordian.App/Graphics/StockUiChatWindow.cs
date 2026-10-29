@@ -170,7 +170,7 @@ namespace Gordian.App.Graphics
             float titleLeft = frameWidth - TitleRightInset - titleWidth;
             (float, float)? gap = titleWidth > 0 ? (titleLeft - TitleGap, frameWidth - TitleRightInset + TitleGap) : null;
             renderer.DrawMenu(frame, placement, includeButtons: false, frameWidth, opaqueBody: selected, frameHeight: frameHeight,
-                opaqueTop: 0, topBorderGap: gap);
+                topBorderGap: gap);
             if (titleWidth > 0) titles.Draw(renderer, title, placement.X + titleLeft * s, placement.Y + TitleTop * s, s, titleFallback);
 
             float textWidth = frameWidth - TextLeft - TextRight;
@@ -279,7 +279,7 @@ namespace Gordian.App.Graphics
             float top = FullLogTop * s;
             float height = Math.Max(RowTop + RowPitch, (bottom - top) / s);
             var placement = new StockUiPlacement(x, top, s, false);
-            renderer.DrawMenu(frame, placement, includeButtons: false, width, opaqueBody: true, frameHeight: height, opaqueTop: 0);
+            renderer.DrawMenu(frame, placement, includeButtons: false, width, opaqueBody: true, frameHeight: height);
 
             if (library.TryGetGroup("fep", out var fep))
             {
@@ -345,7 +345,7 @@ namespace Gordian.App.Graphics
             StockUiPlacement placement, float frameWidth, StockUiChatInput input, long timestamp)
         {
             float s = placement.Scale;
-            renderer.DrawMenu(inline, placement, includeButtons: false, frameWidth, opaqueBody: true, opaqueTop: 0);
+            renderer.DrawMenu(inline, placement, includeButtons: false, frameWidth, opaqueBody: true);
 
             string text = input.Text;
             if (!text.StartsWith('/') && library.TryGetGroup("fep", out var fep) && (int)input.Mode < fep.Images.Count)
