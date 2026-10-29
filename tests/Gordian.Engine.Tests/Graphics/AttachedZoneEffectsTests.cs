@@ -132,6 +132,38 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         [Fact]
+        public void StreetLamp_LightsWhenItsDoorOpens_ThroughItsEvstRoutine()
+        {
+            // Lower Jeuno's lamp _l00, shortened: state routines one level down under other names, lton in a sibling.
+            var library = new ZoneRoutineLibrary();
+            library.AddRoutine("t_ju/door/_l00/ligh", Routine("inte", 2, Cmd(0x5F, 0, "lton")), byName: false);
+            library.AddRoutine("t_ju/door/_l00/ligh", Routine("evst", 2, Cmd(0x73, 0, "lton")), byName: false);
+            library.AddRoutine("t_ju/door/_l00/ligh", Routine("eved", 2, Cmd(0x5F, 0, "lton")), byName: false);
+            library.AddRoutine("t_ju/door/_l00/lt08", Routine("lton", 60, Cmd(0x02, 0, "RR09")), byName: false);
+            var lamp = Generator("RR09", 0);
+            library.AddGenerator("t_ju/door/_l00/lt08", "RR09", lamp);
+            var emitter = new ZoneParticleEmitter(lamp);
+            var player = new ZoneRoutinePlayer(library);
+            void Run(int frames)
+            {
+                for (int i = 0; i < frames; i++)
+                {
+                    player.Update(1f, t => t == lamp ? emitter : null);
+                    emitter.Update(1f, new ZoneParticleFrame(Vector3.Zero, 0.5f, Vector3.One));
+                }
+            }
+
+            var trigger = new DoorEffectTrigger(new Dictionary<string, string> { ["_l00"] = "t_ju/door/_l00/ligh" });
+            trigger.Observe("_l00", 0x0202, open: false, player); // intc is missing: inte plays
+            Run(3);
+            Assert.Empty(emitter.Particles);
+            trigger.Observe("_l00", 0x0202, open: true, player); // open is missing: evst loops lton
+            Run(3);
+            Assert.NotEmpty(emitter.Particles);
+            Assert.True(player.IsPlaying("lton"));
+        }
+
+        [Fact]
         public void StopGenerator_EndsTheEmission_AndLeavesTheParticles()
         {
             var library = new ZoneRoutineLibrary();

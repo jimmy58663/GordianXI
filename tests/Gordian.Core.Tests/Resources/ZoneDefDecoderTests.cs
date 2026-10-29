@@ -187,6 +187,31 @@ namespace Gordian.Core.Tests.Resources
 
             Assert.Equal("ev01", placement.EnvironmentId);
             Assert.Equal(new[] { 13, 36 }, placement.PointLightSlots);
+            Assert.False(placement.NoPointLights);
+            Assert.False(placement.InteriorLightsOnly);
+        }
+
+        [Theory]
+        [InlineData(0x00, false, false)] // Castle Zvahl's torch-lit floor b_07b
+        [InlineData(0x02, false, true)]  // the Meadhouse's furniture, Lower Jeuno's step01
+        [InlineData(0x01, true, false)]  // Lower Jeuno's shop goods
+        [InlineData(0x03, true, true)]   // Metalworks' hall, Lower Jeuno's arcade tunnel
+        public void ParseZonePlacements_ReadsTheNoPointLightsBits(byte flags, bool noPointLights, bool interiorLightsOnly)
+        {
+            int stride = ZoneDefDecoder.StrideModern;
+            byte[] payload = new byte[0x20 + stride];
+            int b = 0x20;
+            Encoding.ASCII.GetBytes("tozoner").CopyTo(payload.AsSpan(b, 7));
+            BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x40, 4), 120.0f);
+            payload[b + 0x46] = flags;
+            payload[b + 0x47] = 0x01;
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(b + 0x54, 4), 63);
+
+            var placement = Assert.Single(ZoneDefDecoder.ParseZonePlacements(payload, 1));
+
+            Assert.Equal(noPointLights, placement.NoPointLights);
+            Assert.Equal(interiorLightsOnly, placement.InteriorLightsOnly);
+            Assert.Equal(new[] { 62 }, placement.PointLightSlots);
         }
 
         [Fact]

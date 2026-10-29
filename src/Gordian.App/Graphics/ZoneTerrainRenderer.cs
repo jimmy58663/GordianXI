@@ -45,6 +45,8 @@ namespace Gordian.App.Graphics
         private List<GpuSubmesh> _platformSubmeshes = new();
         private readonly Dictionary<string, ZoneSceneUniform> _subEnvironmentUniforms = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, ActorLighting> _subEnvironmentActorLights = new(StringComparer.OrdinalIgnoreCase);
+        // Sub-environment of the floor under each lit zone effect, null outdoors (see EffectSceneUniform).
+        private readonly Dictionary<WeatherSkyLayer, string?> _effectEnvironments = new();
         private PlatformHeight[] _platformHeights = Array.Empty<PlatformHeight>();
 
         // Door leaves, drawn at their door's live pose (the resident zone's list).
@@ -128,6 +130,12 @@ namespace Gordian.App.Graphics
         private Pipeline _weatherSkyReverseSubtractPipeline = null!;
         // World-space zone effects: [straight alpha, additive, reverse subtract] x [no depth write, depth write]
         private readonly Pipeline[,] _effectPipelines = new Pipeline[5, 2];
+
+        /// <summary>
+        /// <see cref="_effectPipelines"/> with back faces culled, indexed [blend, depth write, front face]: front face 0 is
+        /// <see cref="ZoneFrontFace"/>, 1 the other winding (a mirrored generator).
+        /// </summary>
+        private readonly Pipeline[,,] _culledEffectPipelines = new Pipeline[5, 2, 2];
         private Pipeline _lensFlarePipeline = null!;
         private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
         private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
@@ -192,28 +200,6 @@ namespace Gordian.App.Graphics
         private readonly float[] _lightTable = new float[PointLightTableLayout.SizeInBytes / sizeof(float)];
         private List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> _pointLights = new();
         private string _effectWeather = "fine";
-
-        /// <summary>
-        /// Point-light falloff exponent: a light's contribution is color x power x (1 - distance / range) ^ exponent. The
-        /// client's attenuation is not documented in any available reference; 2 matched Windower captures of Southern
-        /// San d'Oria's wall lamps at night (2026-09-24).
-        /// </summary>
-        public float PointLightFalloffExponent { get; set; } = 2.0f;
-
-        /// <summary>
-        /// Scale from a light's power (theta x theta multiplier) to its intensity; 1 matched the same captures.
-        /// </summary>
-        public float PointLightPowerScale { get; set; } = 1.0f;
-
-        /// <summary>
-        /// Brightness of a saturated point light. Each light's colour is its half-range colour x2 x power (theta x
-        /// theta multiplier), clamped to 1 per channel, times this strength. Calibrated against two Windower captures
-        /// (2026-09-25): Southern San d'Oria's auction-house lamps at 22:03 (gold, power 2 via their clock curve) and
-        /// Bastok Metalworks' always-on interior lights (orange, power 12-40, which saturate to a pale yellow-white);
-        /// the clamp reproduces both zones' colour balance, where scaling by power made Metalworks 6-20x too bright and
-        /// orange. The client's exact light pipeline is not decoded.
-        /// </summary>
-        public float PointLightStrength { get; set; } = 0.75f;
 
         /// <summary>
         /// Where terrain highlights start to roll off (#7): a lit terrain colour channel (after the modulate-2x) above
@@ -389,6 +375,12 @@ namespace Gordian.App.Graphics
             public string TextureName { get; init; } = string.Empty;
             public WeatherSkyLayer Layer { get; init; } = null!;
             public int CardIndex { get; init; } = -1;
+
+            /// <summary>
+            /// Double-sided (Section 0x2E flag 0x2000, and every Section 0x1F particle mesh); a single-sided entrance overlay
+            /// mesh is drawn with back faces culled (<c>DrawSkyGenerator</c>).
+            /// </summary>
+            public bool NoCull { get; init; } = true;
 
             /// <summary>
             /// Textures of an actor effect's model DAT; null for zone layers, which sample the zone's textures.
@@ -738,6 +730,15 @@ namespace Gordian.App.Graphics
                         comparisonKind: ComparisonKind.LessEqual);
                     effectDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, zoneEffectShaders);
                     _effectPipelines[blend, depthWrite] = factory.CreateGraphicsPipeline(effectDesc);
+                    for (int front = 0; front < 2; front++)
+                    {
+                        var culledDesc = effectDesc;
+                        var raster = culledDesc.RasterizerState;
+                        var frontFace = front == 0 ? ZoneFrontFace : ZoneFrontFace == FrontFace.Clockwise ? FrontFace.CounterClockwise : FrontFace.Clockwise;
+                        culledDesc.RasterizerState = new RasterizerStateDescription(FaceCullMode.Back, raster.FillMode, frontFace,
+                            raster.DepthClipEnabled, raster.ScissorTestEnabled);
+                        _culledEffectPipelines[blend, depthWrite, front] = factory.CreateGraphicsPipeline(culledDesc);
+                    }
                 }
             }
 
@@ -820,6 +821,7 @@ namespace Gordian.App.Graphics
             ResetFootEffects(zone);
             _subEnvironmentUniforms.Clear();
             _subEnvironmentActorLights.Clear();
+            _effectEnvironments.Clear();
             _viewerFloorProbe = new Vector3(float.NaN);
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
@@ -1216,6 +1218,7 @@ namespace Gordian.App.Graphics
                     TextureName = group.TextureName,
                     Layer = layer,
                     CardIndex = layer.IsSpriteSheet || layer.IsLensFlare ? g : -1,
+                    NoCull = group.NoCull,
                     Textures = textures,
                     BoundingRadius = MathF.Sqrt(radiusSquared),
                     Morph = morph,
@@ -1579,7 +1582,7 @@ namespace Gordian.App.Graphics
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
             if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
-                                      FootEffectCount > 0))
+                                      FootEffectCount > 0 || HasInteriorEffects()))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
                 Vector3 effectSunDir = Vector3.Normalize(environment.SunDirection);
@@ -1593,6 +1596,7 @@ namespace Gordian.App.Graphics
                     if (effectMesh.Layer.IsActorAttached) continue;
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
+                    ProbeEffectEnvironment(effectMesh);
                     // Camera-following weather effects sit at their base offset from the eye.
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
@@ -1612,6 +1616,7 @@ namespace Gordian.App.Graphics
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
                 AddFootEffectDraws(camera);
+                AddInteriorEffectDraws(camera);
                 _effectDrawList.Sort((a, b) =>
                     a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
                         ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
@@ -1621,12 +1626,13 @@ namespace Gordian.App.Graphics
                 Pipeline? currentEffectPipeline = null;
                 foreach (var (effectMesh, _, emitter, anchor) in _effectDrawList)
                 {
+                    var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, sceneUniform, ref currentEffectPipeline, anchor);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor);
                         visible++;
                     }
-                    else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, sceneUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
+                    else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, effectUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
                     {
                         draws++;
                         visible++;
@@ -1924,6 +1930,7 @@ namespace Gordian.App.Graphics
             }
 
             Matrix4x4 world = Matrix4x4.Identity;
+            int cullFront = -1;
             Vector2 uvOrFlareCenter = skyMesh.UVScroll * frames;
             float layerType = 3.0f;
             if (layer.IsLensFlare)
@@ -1952,9 +1959,15 @@ namespace Gordian.App.Graphics
                         Matrix4x4.CreateTranslation(center);
                 // A voyage zone's scenery effects (its river) move with the scenery (#403).
                 if (layer.IsWorldEffect && !skyMesh.FollowCamera && !layer.OnVessel) world *= _sceneryTransform;
+                // An entrance overlay drawn from a single-sided zone mesh culls its back faces as the placement it copies
+                // does, flipping the test under a mirroring scale. Lower Jeuno's ent2 copies step01's walls facing the
+                // street; drawn double-sided it painted a pale pillar and arch over the wall seen from the stairs, which
+                // retail never shows (#414 round 6, retail image-11 / -13 / -15). Other single-sided world effects (light
+                // shafts, window glows, sea surfaces) stay double-sided until a retail check says otherwise.
+                if (layer.IsWorldEffect && layer.IsEntranceOverlay && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
-            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline);
+            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);
         }
 
         /// <summary>
@@ -2056,6 +2069,8 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Binds the pipeline for a generator layer's blend mode (sky or world effect) and draws one of its meshes with the
         /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
+        /// A world effect with <paramref name="cullFront"/> 0 or 1 culls its back faces (see <see cref="_culledEffectPipelines"/>);
+        /// -1 draws both sides.
         /// </summary>
         private bool SubmitGeneratorDraw(
             GpuWeatherSkySubmesh skyMesh,
@@ -2064,7 +2079,8 @@ namespace Gordian.App.Graphics
             float layerType,
             Vector4 textureFactor,
             ZoneSceneUniform sceneUniform,
-            ref Pipeline? currentPipeline)
+            ref Pipeline? currentPipeline,
+            int cullFront = -1)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2089,7 +2105,9 @@ namespace Gordian.App.Graphics
                     blendIndex = blendIndex == 0 ? 3 : 4;
                     blendOutput = blendIndex;
                 }
-                pipeline = _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
+                pipeline = cullFront >= 0
+                    ? _culledEffectPipelines[blendIndex, layer.DepthWrite ? 1 : 0, cullFront]
+                    : _effectPipelines[blendIndex, layer.DepthWrite ? 1 : 0];
             }
             if (currentPipeline != pipeline)
             {
@@ -2463,56 +2481,28 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Fills the frame's point-light table from the running light generators: each slot takes its generator's live
-        /// particle (display-space position, range x range multiplier, and the saturated colour described at
-        /// <see cref="PointLightStrength"/>).
+        /// particle (display-space position, range x range multiplier, colour and power; the rule is at
+        /// <see cref="PointLightTableLayout"/>).
         /// </summary>
         private void UploadPointLights()
         {
             Array.Clear(_lightTable);
-            _lightTable[0] = PointLightFalloffExponent;
-            _lightTable[1] = PointLightPowerScale;
-            const int positionBase = 4;
-            const int colorBase = 4 + PointLightTableLayout.Slots * 4;
             if (EnableZoneEffects)
             {
                 foreach (var (layer, emitter) in _pointLights)
                 {
                     if (layer.WeatherIds.Count > 0 && !layer.WeatherIds.Contains(_effectWeather)) continue;
-                    ZoneParticle? light = null;
-                    foreach (var particle in emitter.Particles)
-                    {
-                        if (!particle.IsExpired) { light = particle; break; }
-                    }
-                    if (light == null) continue;
-
-                    float range = light.LightRange * light.LightRangeMultiplier;
-                    var factor = light.TextureFactor;
-                    float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
-                    if (range <= 0.0f || power <= 0.0f) continue;
-
-                    int slot = layer.PointLightSlot;
-                    var position = ToDisplay(light.WorldPosition);
-                    _lightTable[positionBase + slot * 4] = position.X;
-                    _lightTable[positionBase + slot * 4 + 1] = position.Y;
-                    _lightTable[positionBase + slot * 4 + 2] = position.Z;
-                    _lightTable[positionBase + slot * 4 + 3] = range;
-                    // The client saturates each light's colour x power per channel: a strong light washes out toward
-                    // white instead of scaling its hue, so power sets how pale a light is, not how bright.
-                    var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One)
-                                     * PointLightStrength;
-                    _lightTable[colorBase + slot * 4] = lightColor.X;
-                    _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
-                    _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
-                    _lightTable[colorBase + slot * 4 + 3] = 1.0f;
+                    WriteLight(emitter, layer.PointLightSlot, Matrix4x4.Identity);
                 }
+                WriteInteriorLights();
             }
-            if (EnableZoneEffects) WriteInteriorLights(positionBase, colorBase);
             _commandList.UpdateBuffer(_lightTableBuffer, 0, _lightTable);
         }
 
         /// <summary>Writes one light generator's live particle into its slot of the light table (see <see cref="UploadPointLights"/>).</summary>
-        private void WriteLight(ZoneParticleEmitter emitter, int slot, int positionBase, int colorBase)
+        private void WriteLight(ZoneParticleEmitter emitter, int slot, Matrix4x4 transform)
         {
+            const int colorBase = PointLightTableLayout.Slots * 4;
             if ((uint)slot >= PointLightTableLayout.Slots) return;
             ZoneParticle? light = null;
             foreach (var particle in emitter.Particles)
@@ -2523,17 +2513,40 @@ namespace Gordian.App.Graphics
             float range = light.LightRange * light.LightRangeMultiplier;
             float power = light.LightTheta * light.LightThetaMultiplier * light.ColorMultiplier.W;
             if (range <= 0.0f || power <= 0.0f) return;
-            var position = Vector3.Transform(ToDisplay(light.WorldPosition), _sceneryTransform);
-            _lightTable[positionBase + slot * 4] = position.X;
-            _lightTable[positionBase + slot * 4 + 1] = position.Y;
-            _lightTable[positionBase + slot * 4 + 2] = position.Z;
-            _lightTable[positionBase + slot * 4 + 3] = range;
-            var lightColor = Vector3.Min(2.0f * power * new Vector3(light.Color.X, light.Color.Y, light.Color.Z), Vector3.One) * PointLightStrength;
-            _lightTable[colorBase + slot * 4] = lightColor.X;
-            _lightTable[colorBase + slot * 4 + 1] = lightColor.Y;
-            _lightTable[colorBase + slot * 4 + 2] = lightColor.Z;
-            _lightTable[colorBase + slot * 4 + 3] = 1.0f;
+            var position = Vector3.Transform(ToDisplay(light.WorldPosition), transform);
+            _lightTable[slot * 4] = position.X;
+            _lightTable[slot * 4 + 1] = position.Y;
+            _lightTable[slot * 4 + 2] = position.Z;
+            _lightTable[slot * 4 + 3] = range;
+            // Colour bytes are 0x80-neutral, like the vertex colours they multiply.
+            _lightTable[colorBase + slot * 4] = 2f * light.Color.X;
+            _lightTable[colorBase + slot * 4 + 1] = 2f * light.Color.Y;
+            _lightTable[colorBase + slot * 4 + 2] = 2f * light.Color.Z;
+            _lightTable[colorBase + slot * 4 + 3] = power;
         }
+
+        /// <summary>
+        /// Finds once the sub-environment of the floor under a lit zone effect (see <see cref="EffectSceneUniform"/>).
+        /// </summary>
+        private void ProbeEffectEnvironment(GpuWeatherSkySubmesh effectMesh)
+        {
+            var layer = effectMesh.Layer;
+            if (LoadedZone == null || !layer.IsWorldEffect || !layer.LightingEnabled || effectMesh.FollowCamera || _effectEnvironments.ContainsKey(layer)) return;
+            var floor = ZoneRaycaster.FindFloor(LoadedZone, effectMesh.BasePosition + new Vector3(0.0f, 1.0f, 0.0f), 12.0f);
+            _effectEnvironments[layer] = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
+        }
+
+        /// <summary>
+        /// The scene uniform a zone effect is drawn with. A lit effect over a cave's or interior's floor takes that
+        /// sub-environment's sun and ambient, as the placements and actors there do; the rest take the zone's.
+        /// Bastok Metalworks' entrance overlays (<c>ent_</c>, <c>ent1</c>: translucent copies of the floor and walls) lit by
+        /// the outdoor noon sun made the hall about twice as bright as retail (#428 round 1, retail capture image-6).
+        /// The floor under the generator is an inference, following the actors' rule.
+        /// </summary>
+        private ZoneSceneUniform EffectSceneUniform(WeatherSkyLayer layer, ZoneSceneUniform sceneUniform) =>
+            _effectEnvironments.TryGetValue(layer, out var id) && id != null && _subEnvironmentUniforms.TryGetValue(id, out var sub)
+                ? sub
+                : sceneUniform;
 
         /// <summary>
         /// True while the floor under the camera belongs to a placement linked to a sub-environment (a cave or interior).
@@ -2935,6 +2948,7 @@ namespace Gordian.App.Graphics
             _weatherSkyAdditivePipeline?.Dispose();
             _weatherSkyReverseSubtractPipeline?.Dispose();
             foreach (var effectPipeline in _effectPipelines) effectPipeline?.Dispose();
+            foreach (var effectPipeline in _culledEffectPipelines) effectPipeline?.Dispose();
             _lensFlarePipeline?.Dispose();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();

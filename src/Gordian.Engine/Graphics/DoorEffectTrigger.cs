@@ -17,7 +17,14 @@ namespace Gordian.Engine.Graphics
     /// Alzadaal Undersea Ruins' door <c>_20t</c> (retail DAT, read 2026-10-18): <c>intc</c> and <c>clos</c> start
     /// <c>map1</c>, which starts the never-expiring meshes <c>g000</c>-<c>g009</c> about two yalms up the door; <c>open</c>
     /// starts <c>stat</c>: the sound <c>se01</c>, the burst <c>s001</c> (rings <c>f001</c> / <c>f002</c>, sparks
-    /// <c>h000</c>-<c>h009</c>, <c>e001</c> / <c>e002</c>), <c>kill</c> and the closing flash <c>s000</c>. Door behaviour
+    /// <c>h000</c>-<c>h009</c>, <c>e001</c> / <c>e002</c>), <c>kill</c> and the closing flash <c>s000</c>.
+    /// </para>
+    /// <para>
+    /// A door without those names plays <c>ints</c> / <c>inte</c> / <c>evst</c> / <c>eved</c> in their place (into / intc /
+    /// open / clos). Lower Jeuno's street lamps <c>_l00</c>-<c>_l11</c> are such doors: <c>ints</c> and <c>evst</c> loop
+    /// <c>lton</c>, which lights the lamp, and the server opens them when the lamps are lit (LandSandBoat's Community
+    /// Service sets the lamp NPCs to the open-door animation; retail DAT read 2026-10-28, #428 round 1). The pairing of
+    /// the names is an *inference* from the routines' contents. Door behaviour
     /// referenced from xi-tools (https://github.com/vekien/xi-tools, docs/zone/doors.md, after the PS2 client's
     /// <c>XiDoorActor</c>).
     /// </para>
@@ -58,7 +65,8 @@ namespace Gordian.Engine.Graphics
             if (!first && was == open) return;
             _open[doorId] = open;
             string routine = first ? (open ? "into" : "intc") : (open ? "open" : "clos");
-            player.PlayAt(directory, routine, new ZoneRoutineActors(doorServerId, doorServerId));
+            var actors = new ZoneRoutineActors(doorServerId, doorServerId);
+            if (!player.PlayAt(directory, routine, actors)) player.PlayAt(directory, AlternateName(routine), actors);
         }
 
         /// <summary>
@@ -72,8 +80,23 @@ namespace Gordian.Engine.Graphics
             if (doorId == null || !_directories.TryGetValue(doorId, out var directory)) return false;
             if (string.Equals(routine, "open", StringComparison.Ordinal)) _open[doorId] = true;
             else if (string.Equals(routine, "clos", StringComparison.Ordinal)) _open[doorId] = false;
-            return player.PlayAt(directory, routine, new ZoneRoutineActors(doorServerId, doorServerId));
+            var actors = new ZoneRoutineActors(doorServerId, doorServerId);
+            return player.PlayAt(directory, routine, actors) || player.PlayAt(directory, AlternateName(routine), actors);
         }
+
+        /// <summary>The other name of a door state routine (<c>open</c> / <c>evst</c>, <c>clos</c> / <c>eved</c>, <c>into</c> / <c>ints</c>, <c>intc</c> / <c>inte</c>).</summary>
+        public static string AlternateName(string routine) => routine switch
+        {
+            "open" => "evst",
+            "clos" => "eved",
+            "into" => "ints",
+            "intc" => "inte",
+            "evst" => "open",
+            "eved" => "clos",
+            "ints" => "into",
+            "inte" => "intc",
+            _ => routine,
+        };
 
         /// <summary>Whether <paramref name="routine"/> is one of a door's own routines (<c>open</c>, <c>clos</c>, <c>into</c>, <c>intc</c>).</summary>
         public static bool IsDoorRoutine(string routine) => routine is "open" or "clos" or "into" or "intc";

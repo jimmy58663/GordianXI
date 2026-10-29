@@ -50,38 +50,7 @@ layout(location = 1) out vec3 fsin_Lit;
 layout(location = 2) out vec2 fsin_TexCoord;
 layout(location = 3) out vec4 fsin_Color;
 " + SceneUniforms + @"
-// Zone point lights: the frame's light table (256 ZoneDef slots) and the up-to-four slots that light this placement.
-layout(set = 2, binding = 0) uniform PointLightTable
-{
-    vec4 LightFalloff;               // x = falloff exponent, y = power scale
-    vec4 LightPositionRange[256];    // display-space position, range (0 = off)
-    vec4 LightColorPower[256];       // color, power (theta x theta multiplier)
-};
-
-layout(set = 2, binding = 1) uniform PointLightRefs
-{
-    ivec4 LightSlots;                // -1 = none
-};
-
-vec3 PointLighting(vec3 worldPos, vec3 N, vec3 vertexColor)
-{
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < 4; i++)
-    {
-        int slot = LightSlots[i];
-        if (slot < 0) continue;
-        vec4 positionRange = LightPositionRange[slot];
-        if (positionRange.w <= 0.0) continue;
-        vec3 toLight = positionRange.xyz - worldPos;
-        float dist = length(toLight);
-        if (dist >= positionRange.w) continue;
-        vec4 colorPower = LightColorPower[slot];
-        float falloff = pow(clamp(1.0 - dist / positionRange.w, 0.0, 1.0), LightFalloff.x);
-        float NdotL = max(dot(N, toLight / max(dist, 0.0001)), 0.0);
-        sum += vertexColor * NdotL * colorPower.rgb * (colorPower.w * LightFalloff.y * falloff);
-    }
-    return sum;
-}
+" + PointLightTableLayout.Glsl + @"
 
 void main()
 {

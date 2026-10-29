@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/ZoneTerrainRenderer.SubAreas.cs
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Engine.Graphics;
@@ -37,6 +38,13 @@ namespace Gordian.App.Graphics
             /// <summary>The interior's own light generators and the zone light-table slot its slot 0 is moved to.</summary>
             public List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> Lights { get; } = new();
             public int SlotOffset { get; init; }
+
+            /// <summary>
+            /// The interior's other generators (#428: the Meadhouse's lamp halos <c>ltcu</c>, one at each lamp) and their
+            /// running emitters, drawn like the zone's own effects.
+            /// </summary>
+            public ActorEffectSet? Effects { get; init; }
+            public List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> EffectEmitters { get; } = new();
         }
 
         /// <summary>The first light-table slot not taken by the zone or an interior shown since it loaded.</summary>
@@ -47,7 +55,7 @@ namespace Gordian.App.Graphics
         /// its own light table, so its lights are moved past the zone's (Lower Jeuno's tavern lamps; #68 round 1, retail's
         /// warm pools of lamp light were missing).
         /// </summary>
-        private void WriteInteriorLights(int positionBase, int colorBase)
+        private void WriteInteriorLights()
         {
             foreach (int id in _shownSubAreas)
             {
@@ -55,7 +63,11 @@ namespace Gordian.App.Graphics
                 foreach (var (layer, emitter) in interior.Lights)
                 {
                     if (_lastEmitterFrame is { } frame) emitter.Update(_lastEmitterFrames, frame);
-                    WriteLight(emitter, interior.SlotOffset + layer.PointLightSlot, positionBase, colorBase);
+                    WriteLight(emitter, interior.SlotOffset + layer.PointLightSlot, _sceneryTransform);
+                }
+                if (_lastEmitterFrame is { } effectFrame)
+                {
+                    foreach (var (_, emitter) in interior.EffectEmitters) emitter.Update(_lastEmitterFrames, effectFrame);
                 }
             }
         }
@@ -135,9 +147,11 @@ namespace Gordian.App.Graphics
                 bool lit = lightCount > 0 && _nextInteriorLightSlot + lightCount <= PointLightTableLayout.Slots;
                 int offset = lit ? _nextInteriorLightSlot : 0;
                 if (lit) _nextInteriorLightSlot += lightCount;
+                var effectLayers = geometry.EffectLayers.FindAll(layer => layer.PointLightSlot < 0 && layer.Emitter != null);
                 interior = new SubAreaInterior
                 {
-                    Textures = textures, Environment = geometry.EnvironmentData, Scenes = CreateSubEnvironmentScenes(geometry), SlotOffset = offset
+                    Textures = textures, Environment = geometry.EnvironmentData, Scenes = CreateSubEnvironmentScenes(geometry), SlotOffset = offset,
+                    Effects = effectLayers.Count > 0 ? new ActorEffectSet(effectLayers, Array.Empty<WeatherRoutineVariant>(), textures) : null
                 };
                 foreach (var group in geometry.MeshGroups)
                 {
@@ -158,7 +172,19 @@ namespace Gordian.App.Graphics
                         if (layer.PointLightSlot >= 0 && layer.Emitter != null) interior.Lights.Add((layer, new ZoneParticleEmitter(layer.Emitter, seed: seed++)));
                     }
                 }
-                GordianLog.Info("Graphics", $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes uploaded.");
+                if (interior.Effects is { } effects)
+                {
+                    UploadActorEffectMeshes(effects);
+                    var byTemplate = new Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter>(ReferenceEqualityComparer.Instance);
+                    int effectSeed = 0;
+                    foreach (var layer in effects.Layers)
+                    {
+                        var emitter = new ZoneParticleEmitter(layer.Emitter!, seed: effectSeed++) { ChildResolver = template => byTemplate.GetValueOrDefault(template) };
+                        byTemplate[layer.Emitter!] = emitter;
+                        interior.EffectEmitters.Add((layer, emitter));
+                    }
+                }
+                GordianLog.Info("Graphics", $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes, {interior.EffectEmitters.Count} effect generators uploaded.");
             }
             else
             {
@@ -166,6 +192,48 @@ namespace Gordian.App.Graphics
             }
             _interiors[subAreaId] = interior;
             return interior;
+        }
+
+        /// <summary>Live particles of the shown interiors' effect generators (tests).</summary>
+        internal int InteriorEffectParticleCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (int id in _shownSubAreas)
+                {
+                    if (!_interiors.TryGetValue(id, out var interior) || interior == null) continue;
+                    foreach (var (_, emitter) in interior.EffectEmitters) count += emitter.Particles.Count;
+                }
+                return count;
+            }
+        }
+
+        /// <summary>Whether a shown interior has effect generators to draw this frame.</summary>
+        private bool HasInteriorEffects()
+        {
+            foreach (int id in _shownSubAreas)
+            {
+                if (_interiors.TryGetValue(id, out var interior) && interior?.EffectEmitters.Count > 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Queues the shown interiors' effect particles, in the interiors' frame (the scenery's, on a voyage).</summary>
+        private void AddInteriorEffectDraws(ViewportCamera camera)
+        {
+            Matrix4x4? anchor = _sceneryTransform.IsIdentity ? null : _sceneryTransform;
+            foreach (int id in _shownSubAreas)
+            {
+                if (!_interiors.TryGetValue(id, out var interior) || interior?.Effects == null ||
+                    !_actorEffectMeshes.TryGetValue(interior.Effects, out var byLayer)) continue;
+                foreach (var (layer, emitter) in interior.EffectEmitters)
+                {
+                    if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                    float distance = Vector3.Distance(camera.Position, Vector3.Transform(layer.Position, _sceneryTransform));
+                    foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, anchor));
+                }
+            }
         }
 
         private static int UsedLightSlots(List<string>? table)
@@ -185,6 +253,13 @@ namespace Gordian.App.Graphics
                 if (interior == null) continue;
                 foreach (var submesh in interior.Submeshes) submesh.Dispose();
                 DisposeSubEnvironmentScenes(interior.Scenes);
+                if (interior.Effects != null && _actorEffectMeshes.Remove(interior.Effects, out var meshes))
+                {
+                    foreach (var list in meshes.Values)
+                    {
+                        foreach (var mesh in list) mesh.Dispose();
+                    }
+                }
             }
             _interiors.Clear();
             _interiorLoads.Clear();

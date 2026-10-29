@@ -128,7 +128,9 @@ namespace Gordian.Core.Resources
             (ZoneDefDecoder.IsCelestialMesh(datId) && datId.StartsWith("sun", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Adds a sky layer's geometry converted to display coordinates (-x, -y, z), matching world placements.
+        /// Adds a sky layer's geometry converted to display coordinates (-x, -y, z), matching world placements. Each mesh
+        /// keeps its double-sided flag (Section 0x2E flag 0x2000; Section 0x1F particle meshes are always double-sided):
+        /// an entrance overlay drawn from a single-sided zone mesh is culled like the placement it copies (#414 round 6).
         /// </summary>
         private static void AddDisplayMeshGroups(WeatherSkyLayer layer, List<MeshGroup> submeshes, string fallbackTexture)
         {
@@ -157,7 +159,7 @@ namespace Gordian.Core.Resources
                     MinBounds = minBounds,
                     MaxBounds = maxBounds,
                     IsBlend = true,
-                    NoCull = true
+                    NoCull = submesh.NoCull
                 });
             }
         }
@@ -251,6 +253,15 @@ namespace Gordian.Core.Resources
             return false;
         }
 
+        /// <summary>Whether a directory path (<c>t_ju/mode/entr</c>) is a zone's entrance-overlay directory (#414).</summary>
+        private static bool IsEntrancePath(string path)
+        {
+            var parts = path.Split('/');
+            return parts.Length >= 2 &&
+                   string.Equals(parts[^1], "entr", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(parts[^2], "mode", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// Places a ship zone's vessel ZoneDef (#403): its meshes resolve the vessel directory's own meshes first, then the
         /// zone's. Every part is drawn static with the vessel (its doors and lifts are not animated yet).
@@ -308,6 +319,30 @@ namespace Gordian.Core.Resources
             doorId = id;
             return true;
         }
+
+        /// <summary>
+        /// Whether the open directory is one level below a door's (<c>&lt;zone code&gt;/door/&lt;door id&gt;/&lt;dir&gt;</c>)
+        /// and the door id. Lower Jeuno's street lamps keep their state routines there: <c>t_ju/door/_l00/ligh/</c> holds
+        /// <c>ints</c> / <c>evst</c> (loop <c>lton</c>) and <c>inte</c> / <c>eved</c> (stop it), and <c>lton</c> sits in a
+        /// sibling, <c>t_ju/door/_l00/lt08/</c>, spawning the lamp's <c>RR09</c> / <c>sw09</c> (retail DAT, read 2026-10-28).
+        /// </summary>
+        private static bool IsDoorSubdirectory(Stack<string> dirStack, out string doorId)
+        {
+            doorId = string.Empty;
+            if (dirStack.Count < 3) return false;
+            using var top = dirStack.GetEnumerator();
+            top.MoveNext();
+            top.MoveNext();
+            string id = top.Current;
+            top.MoveNext();
+            if (!string.Equals(top.Current, "door", StringComparison.OrdinalIgnoreCase) || id.Length == 0 || id[0] != '_') return false;
+            doorId = id;
+            return true;
+        }
+
+        /// <summary>A door's state routine: <c>open</c> / <c>clos</c> / <c>into</c> / <c>intc</c>, or <c>evst</c> / <c>eved</c> / <c>ints</c> / <c>inte</c>.</summary>
+        private static bool IsDoorStateRoutine(string name) =>
+            name is "open" or "clos" or "into" or "intc" or "evst" or "eved" or "ints" or "inte";
 
         /// <summary>
         /// Whether a door's directory <c>&lt;zone code&gt;/door/&lt;door id&gt;</c> is open at any depth: the door's own
@@ -499,7 +534,9 @@ namespace Gordian.Core.Resources
         /// Parses an entire Zone DAT container buffer into structured ZoneGeometry and DecodedTextures.
         /// <paramref name="actorEffects"/> reads a model or scene DAT's generators as an actor's effects (see
         /// <see cref="Gordian.Core.Resources.Graphics.ActorEffectLoader"/>); <paramref name="cameraEffects"/> keeps its
-        /// camera-following generators too (a cutscene scene DAT's screen overlays).
+        /// camera-following generators too (a cutscene scene DAT's screen overlays). <paramref name="interior"/> marks a
+        /// building interior's DAT (sub-area, #68), whose placements flagged <see cref="ZonePlacement.InteriorLightsOnly"/>
+        /// keep their point lights.
         /// </summary>
         public static ZoneGeometry ParseZoneContainer(
             ReadOnlySpan<byte> datBytes,
@@ -510,7 +547,8 @@ namespace Gordian.Core.Resources
             SharedEffectResources? sharedEffects = null,
             bool actorEffects = false,
             string? datSource = null,
-            bool cameraEffects = false)
+            bool cameraEffects = false,
+            bool interior = false)
         {
             var zone = new ZoneGeometry { ZoneId = zoneId };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
@@ -743,6 +781,11 @@ namespace Gordian.Core.Resources
                             zone.MapRoutines.AddRoutine(routinePath, onDemand, byName: !IsInDoorDirectory(dirStack));
                             onDemandRoutines.Add((routinePath, onDemand));
                             if (isDoorRoutine) zone.DoorDirectories.TryAdd(doorId, routinePath);
+                            // A door whose state routines sit one level down (Lower Jeuno's lamps, door/_l00/ligh/evst).
+                            else if (IsDoorStateRoutine(header.DatId) && IsDoorSubdirectory(dirStack, out string subDoorId))
+                            {
+                                zone.DoorDirectories.TryAdd(subDoorId, routinePath);
+                            }
                         }
                         break;
                     }
@@ -1186,7 +1229,10 @@ namespace Gordian.Core.Resources
                     {
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
                         instantiated.EnvironmentId = placement.EnvironmentId;
-                        instantiated.PointLightSlots = placement.PointLightSlots ?? Array.Empty<int>();
+                        // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some;
+                        // one flagged at bit 1 takes them only in an interior's DAT.
+                        bool unlit = placement.NoPointLights || (placement.InteriorLightsOnly && !interior);
+                        instantiated.PointLightSlots = unlit ? Array.Empty<int>() : placement.PointLightSlots ?? Array.Empty<int>();
                         instantiated.SubAreaLink = placement.FileIdLink;
                         if (doorLeaf != null)
                         {
@@ -1390,6 +1436,7 @@ namespace Gordian.Core.Resources
                     effect.AttachType = gen.AttachType;
                 }
                 effect.OwnerDoorId = ownerDoor;
+                effect.IsEntranceOverlay = IsEntrancePath(genPath);
                 effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;
