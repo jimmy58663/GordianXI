@@ -370,7 +370,7 @@ namespace Gordian.Core.Resources.Graphics
 
         private static readonly string[] SkyPrefixes =
         {
-            "sun", "moon", "star", "clod", "cld", "cloud", "kamo", "suny", "sora", "dust", "fogd", "fog", "haze", "mist", "ykum"
+            "sun", "moon", "star", "clod", "cld", "cloud", "suny", "sora", "dust", "fogd", "fog", "haze", "mist", "ykum"
         };
 
         /// <summary>

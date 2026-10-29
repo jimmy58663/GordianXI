@@ -249,8 +249,8 @@ namespace Gordian.Engine.Tests.Graphics
         public void TimedRoutines_CarryTheirClockWindows_AndDoNotLoop()
         {
             // Windurst Walls (239) cyo/c101: 10:30-11:51, 93,600 / 10,800 ms, spawning cyo1 (and c102 at 21:00-21:39).
-            // Port Windurst's ducks (mode/kamo, 12:00-13:30) are not checked: the kamo generator attaches to a zone actor
-            // and is not drawn yet.
+            // Port Windurst's ducks (mode/kamo, 12:00-13:30) are checked in AttachedZoneEffectsTests (their mesh kamo was
+            // read as a sky mesh until #336 part 1).
             if (LoadZone(239) is not { } walls) return;
             var cyo1 = walls.EffectLayers.Where(l => l.Name == "cyo1" && l.Emitter?.Schedule != null).ToList();
             Assert.NotEmpty(cyo1);
