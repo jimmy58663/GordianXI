@@ -656,6 +656,15 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Equal((420, 36, 784), (march.Id, march.Icon, march.MenuIndex));
             Assert.True(catalog.TryFindJobAbility("Soul Voice", out _, out var soulVoice));
             Assert.Equal(75, StockUiActionMenu.CommandIcon(soulVoice));
+            // Pictures 1000 and up are magico2w's (ROM/324/95, #361): Inner Strength 1065 is image 65 on texture sp2_02_m.
+            Assert.True(library.TryGetGroup(StockUiActionMenu.SecondIconGroup, out var second));
+            Assert.Equal(89, second.Images.Count);
+            Assert.True(catalog.TryFindJobAbility("Inner Strength", out _, out var innerStrength));
+            Assert.Equal(1065, StockUiActionMenu.CommandIcon(innerStrength));
+            Assert.Same(second.Images[65], StockUiActionMenu.PictureImage(library, 1065));
+            Assert.Contains("sp2_02_m", second.Images[65].Parts[0].TextureName);
+            Assert.Same(icons.Images[75], StockUiActionMenu.PictureImage(library, 75));
+            Assert.Null(StockUiActionMenu.PictureImage(library, 0xFFFF));
             // Job traits at command 1536 + id (LandSandBoat sql/traits.sql: Fencer 107), named in ROM/181/72.
             Assert.Equal("Magic Def. Bonus", catalog.JobAbilityName(StockUiActionMenu.TraitBase + 6 - 512));
             Assert.Equal("Fencer", catalog.JobAbilityName(StockUiActionMenu.TraitBase + 107 - 512));
