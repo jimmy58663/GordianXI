@@ -159,6 +159,12 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<uint, ActorEffectInstance> _actorEffects = new();
         private readonly HashSet<uint> _liveEffectActors = new();
 
+        /// <summary>
+        /// Diagnostic (#474): cull the back faces of every static world effect drawn from a single-sided zone mesh, as
+        /// entrance overlays always are, to measure what the rule would change before a retail check settles it per family.
+        /// </summary>
+        internal bool CullSingleSidedWorldEffects { get; set; }
+
         /// <summary>A scene file's effects playing on one actor (see <see cref="UpdateSceneEffects"/>).</summary>
         private sealed class SceneEffectSlot
         {
@@ -1967,7 +1973,7 @@ namespace Gordian.App.Graphics
                 // street; drawn double-sided it painted a pale pillar and arch over the wall seen from the stairs, which
                 // retail never shows (#414 round 6, retail image-11 / -13 / -15). Other single-sided world effects (light
                 // shafts, window glows, sea surfaces) stay double-sided until a retail check says otherwise.
-                if (layer.IsWorldEffect && layer.IsEntranceOverlay && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
+                if (layer.IsWorldEffect && (layer.IsEntranceOverlay || CullSingleSidedWorldEffects) && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
             return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);

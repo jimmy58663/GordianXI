@@ -1437,6 +1437,7 @@ namespace Gordian.Core.Resources
                 }
                 effect.OwnerDoorId = ownerDoor;
                 effect.IsEntranceOverlay = IsEntrancePath(genPath);
+                effect.GeneratorPath = genPath;
                 effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;

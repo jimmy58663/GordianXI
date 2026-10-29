@@ -302,6 +302,9 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public bool IsEntranceOverlay { get; set; }
 
+        /// <summary>The directory path of a zone generator's layer (<c>t_ju/mode/entr</c>), empty for other layers.</summary>
+        public string GeneratorPath { get; set; } = string.Empty;
+
         /// <summary>
         /// The generator's z offset (Section 2 opcode 0x30, <c>InitZOffset</c> in the PS2 beta's names, xi-tools
         /// docs/reference/ps2_beta_2001.md): negative pulls it toward the camera (wakes and splashes, -0.01 to -55), sky and
