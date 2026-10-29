@@ -251,6 +251,15 @@ namespace Gordian.Core.Resources
             return false;
         }
 
+        /// <summary>Whether a directory path (<c>t_ju/mode/entr</c>) is a zone's entrance-overlay directory (#414).</summary>
+        private static bool IsEntrancePath(string path)
+        {
+            var parts = path.Split('/');
+            return parts.Length >= 2 &&
+                   string.Equals(parts[^1], "entr", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(parts[^2], "mode", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// Places a ship zone's vessel ZoneDef (#403): its meshes resolve the vessel directory's own meshes first, then the
         /// zone's. Every part is drawn static with the vessel (its doors and lifts are not animated yet).
@@ -1425,6 +1434,7 @@ namespace Gordian.Core.Resources
                     effect.AttachType = gen.AttachType;
                 }
                 effect.OwnerDoorId = ownerDoor;
+                effect.IsEntranceOverlay = IsEntrancePath(genPath);
                 effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;

@@ -295,6 +295,14 @@ namespace Gordian.Core.Resources.Graphics
         public bool OnVessel { get; set; }
 
         /// <summary>
+        /// An entrance overlay: its generator is under a <c>mode/entr</c> directory (Lower Jeuno's <c>ent_</c> / <c>ent2</c>,
+        /// Metalworks' <c>ent0</c>-<c>ent3</c>, Bibiki Bay's cave mouths). Each is a translucent copy of the walls and floor
+        /// at a building's or cave's mouth, with lighter baked shading than the placement it copies and vertex alpha
+        /// falling to 0 inward. The renderer draws it only while the viewer stands in another environment (#414 round 5).
+        /// </summary>
+        public bool IsEntranceOverlay { get; set; }
+
+        /// <summary>
         /// The generator's z offset (Section 2 opcode 0x30, <c>InitZOffset</c> in the PS2 beta's names, xi-tools
         /// docs/reference/ps2_beta_2001.md): negative pulls it toward the camera (wakes and splashes, -0.01 to -55), sky and
         /// backdrop layers carry painter weights of 10,000 and more. A vessel's surface overlays with a small positive offset

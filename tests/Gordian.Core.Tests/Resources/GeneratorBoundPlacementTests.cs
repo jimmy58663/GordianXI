@@ -39,5 +39,22 @@ namespace Gordian.Core.Tests.Resources
             Assert.DoesNotContain(zone.MeshGroups, g => g.Name.Contains("yama_3c_ent"));
             Assert.Contains(zone.MeshGroups, g => g.Name.Contains("yama_3c_m")); // the tunnel itself stays
         }
+
+        /// <summary>
+        /// Lower Jeuno's generators under <c>t_ju/mode/entr</c> (<c>ent1</c>-<c>ent3</c>) are entrance overlays, which the
+        /// renderer draws only across an environment boundary (#414 round 5); its other lit effects are not.
+        /// </summary>
+        [Fact]
+        public void LowerJeunoEntranceOverlays_AreFlagged()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(245, out var zone, out _) || zone == null) return;
+
+            var entrances = zone.EffectLayers.Where(l => l.IsEntranceOverlay).Select(l => l.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "ent1", "ent2", "ent3" }, entrances);
+            Assert.DoesNotContain(zone.EffectLayers, l => l.Name == "tama" && l.IsEntranceOverlay);
+        }
     }
 }

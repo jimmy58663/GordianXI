@@ -226,7 +226,7 @@ namespace Gordian.App.Graphics
         private ushort _mapRoutineZoneId;
         private readonly List<MapSchedulerRequest> _mapSchedulerRequests = new();
         private Vector3 _viewerFloorProbe = new(float.NaN);
-        private bool _viewerInSubEnvironment;
+        private string? _viewerEnvironmentId;
         private const float EmitterWarmupFrames = 1200.0f;
         private readonly List<GpuSubmesh> _fallbackSubmeshes = new();
         private GpuSubmesh? _groundPlaneSubmesh;
@@ -1575,6 +1575,7 @@ namespace Gordian.App.Graphics
                     var weatherIds = effectMesh.Layer.WeatherIds;
                     if (weatherIds.Count > 0 && !weatherIds.Contains(effectWeather)) continue;
                     ProbeEffectEnvironment(effectMesh);
+                    if (effectMesh.Layer.IsEntranceOverlay && !DrawsEntranceOverlay(effectMesh.Layer, camera.Position)) continue;
                     // Camera-following weather effects sit at their base offset from the eye.
                     float sortDistance = effectMesh.FollowCamera
                         ? effectMesh.BasePosition.Length()
@@ -2533,19 +2534,37 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// True while the floor under the camera belongs to a placement linked to a sub-environment (a cave or interior).
-        /// The client picks the viewer's environment from the floor under the camera; re-cast only when the eye moves.
         /// </summary>
-        private bool IsViewerInSubEnvironment(Vector3 eye)
+        private bool IsViewerInSubEnvironment(Vector3 eye) => ViewerEnvironmentId(eye) != null;
+
+        /// <summary>
+        /// The sub-environment of the floor under the camera, or null for the zone's own. The client picks the viewer's
+        /// environment from the floor under the camera; re-cast only when the eye moves.
+        /// </summary>
+        private string? ViewerEnvironmentId(Vector3 eye)
         {
-            if (LoadedZone == null) return false;
+            if (LoadedZone == null) return null;
             if (!(Vector3.DistanceSquared(eye, _viewerFloorProbe) < 0.25f))
             {
                 _viewerFloorProbe = eye;
                 var floor = ZoneRaycaster.FindFloor(LoadedZone, eye, 500.0f);
-                _viewerInSubEnvironment = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId);
+                _viewerEnvironmentId = floor != null && !string.IsNullOrEmpty(floor.EnvironmentId) ? floor.EnvironmentId : null;
             }
-            return _viewerInSubEnvironment;
+            return _viewerEnvironmentId;
         }
+
+        /// <summary>
+        /// Whether an entrance overlay (<see cref="WeatherSkyLayer.IsEntranceOverlay"/>) draws: only while the viewer stands
+        /// in another environment than the one it is lit with, looking across the threshold. Its copy of the walls carries
+        /// lighter baked shading than the placement under it, so drawn from the same side it paints that placement's
+        /// shadows over. Lower Jeuno's <c>ent2</c> drew a pale pillar and arch over <c>step01</c>'s back wall, seen from the
+        /// stairs (both <c>ev01</c>), that retail never shows (#414 round 5, retail <c>image-11</c> / <c>-13</c> / <c>-15</c>);
+        /// Metalworks' hall (outdoor environment, its overlays <c>ev01</c>) keeps them, as round 1 passed. An
+        /// <em>inference</em> that fits every retail view so far, not a decoded flag: no generator, record or routine field
+        /// gates these overlays.
+        /// </summary>
+        private bool DrawsEntranceOverlay(WeatherSkyLayer layer, Vector3 eye) =>
+            !string.Equals(ViewerEnvironmentId(eye), _effectEnvironments.GetValueOrDefault(layer), StringComparison.Ordinal);
 
         /// <summary>
         /// The stronger of the model sun and moon light colors, for daylight-tinted particles.
