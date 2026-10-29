@@ -7,6 +7,8 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
+using Gordian.Tests.Shared;
 using Gordian.Engine.Tests.Resources;
 using Xunit;
 
@@ -222,5 +224,72 @@ namespace Gordian.Engine.Tests.Graphics
             for (int i = 0; i < 30; i++) instance.Update(1f, RetailFrame);
             Assert.Contains(instance.Emitters, e => e.Layer.Name == "bnd0" && e.Emitter.Particles.Count > 0);
         }
-    }
+    
+        /// <summary>
+        /// A weapon DAT shaped like the Afterglow weapons' (#8): <c>!in1</c> starts <c>auon</c>, which repeats <c>lop0</c>
+        /// (56 frames: <c>gp00</c> for 50, particles living 30).
+        /// </summary>
+        private static byte[] BuildAfterglowDat() => ZoneWaterGeneratorTests.Concat(
+            ZoneWaterGeneratorTests.BuildChunk(DatSectionType.ParticleMesh, ParticleMeshBuilder.BuildParticleMeshPayload("effect  pi1 ", 0x40), "pi1"),
+            ZoneWaterGeneratorTests.BuildChunk(DatSectionType.ParticleGenerator,
+                ZoneWaterGeneratorTests.BuildSyntheticWaterGeneratorPayload("gp00", "pi1", Vector3.Zero, Vector2.Zero,
+                    maxLifeSpan: 30, attach: ParticleAttachType.SourceActor), "gp00"),
+            ZoneWaterGeneratorTests.BuildChunk(DatSectionType.EffectRoutine, EffectRoutineBuilder.BuildRoutinePayload(56, ("gp00", 0, 50)), "lop0"),
+            ZoneWaterGeneratorTests.BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineBuilder.BuildPayload(0, new() { EffectRoutineBuilder.Command(0x73, 0, 0, "lop0") }), "auon"),
+            ZoneWaterGeneratorTests.BuildChunk(DatSectionType.EffectRoutine,
+                EffectRoutineBuilder.BuildPayload(0, new() { EffectRoutineBuilder.Command(0x03, 0, 0, "auon") }), "!in1"));
+
+        [Fact]
+        public void WeaponEquipRoutine_LeadsToItsRepeatingLoop()
+        {
+            var effects = ActorEffectLoader.Load(BuildAfterglowDat())!;
+
+            var loop = Assert.Single(effects.EquippedRoutines);
+            Assert.Equal(("lop0", true), (loop.RoutineId, loop.Repeats));
+            Assert.Empty(ActorEffectLoader.Load(BuildModelDat())!.EquippedRoutines);
+        }
+
+        /// <summary>
+        /// The equipped loop keeps the glow alive past its first 50-frame window (one play alone would leave nothing after
+        /// frame 80), and <see cref="ActorEffectInstance.Stop"/> lets the last particles finish their lives.
+        /// </summary>
+        [Fact]
+        public void WeaponEquipLoop_KeepsEmittingUntilStopped()
+        {
+            var instance = new ActorEffectInstance(ActorEffectLoader.Load(BuildAfterglowDat())!);
+            var frame = new ZoneParticleFrame(new Vector3(0f, -1f, 5f), 0.5f, Vector3.One);
+            for (int i = 0; i < 300; i++) instance.Update(1f, frame);
+            Assert.True(instance.HasParticles);
+
+            instance.Stop();
+            Assert.True(instance.IsStopping);
+            for (int i = 0; i < 40; i++) instance.Update(1f, frame);
+            Assert.False(instance.HasParticles);
+        }
+
+        /// <summary>
+        /// The retail Afterglow weapons (#8): Ragnarok's 119 Afterglow model for the Hume male (main model 546, file 63677)
+        /// carries <c>gp00</c> / <c>fr00</c> and loops <c>lop0</c> while equipped; the plain Ragnarok (319) carries none.
+        /// </summary>
+        [Fact]
+        public void RetailAfterglowWeapons_LoopTheirGlowWhileEquipped()
+        {
+            if (!System.IO.Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var effects = rm.GetGearEffects(CharacterRace.HumeMale, CharacterSlot.Main, 546);
+            Assert.NotNull(effects);
+            Assert.Equal(("lop0", true), (effects!.EquippedRoutines[0].RoutineId, effects.EquippedRoutines[0].Repeats));
+            Assert.Equal(new[] { "fr00", "gp00" }, effects.Layers.Select(l => l.Name).OrderBy(n => n).ToArray());
+            Assert.Null(rm.GetGearEffects(CharacterRace.HumeMale, CharacterSlot.Main, 319));
+            // Sub and ranged Afterglow models name their routines !in3 / !in2.
+            Assert.Equal("lop1", rm.GetGearEffects(CharacterRace.HumeMale, CharacterSlot.Sub, 556)!.EquippedRoutines[0].RoutineId);
+            Assert.Equal("lop2", rm.GetGearEffects(CharacterRace.HumeMale, CharacterSlot.Ranged, 103)!.EquippedRoutines[0].RoutineId);
+
+            var instance = new ActorEffectInstance(effects);
+            for (int i = 0; i < 240; i++) instance.Update(1f, RetailFrame);
+            Assert.Contains(instance.Emitters, e => e.Layer.Name == "gp00" && e.Emitter.Particles.Count > 0);
+        }
+}
 }

@@ -40,6 +40,50 @@ namespace Gordian.Engine.Graphics
             }
             // A state-driven model appears in its idle state: the routines its ids0 links (the campfire's flames, #425).
             foreach (string link in effects.IdleStateLinks) Play(link);
+            // A worn weapon's equip routines (the Afterglow, #8): the repeating ones replay at their own length.
+            foreach (var start in effects.EquippedRoutines)
+            {
+                if (!Effects.Routines.TryGetValue(start.RoutineId, out var routine)) continue;
+                PlayAt(routine, start.StartFrame);
+                if (start.Repeats && routine.TotalFrames > 0) _loops.Add(new RoutineLoop(routine, start.StartFrame));
+            }
+        }
+
+        private sealed class RoutineLoop(WeatherRoutineVariant routine, float firstStart)
+        {
+            public WeatherRoutineVariant Routine { get; } = routine;
+
+            /// <summary>Frames until the routine starts over.</summary>
+            public float UntilNext { get; set; } = firstStart + routine.TotalFrames;
+        }
+
+        private readonly List<RoutineLoop> _loops = new();
+
+        /// <summary>Whether <see cref="Stop"/> has ended the instance's emission; it is dropped once its particles are gone.</summary>
+        public bool IsStopping { get; private set; }
+
+        /// <summary>Whether any emitter still has live particles.</summary>
+        public bool HasParticles
+        {
+            get
+            {
+                foreach (var (_, emitter) in _emitters)
+                {
+                    if (emitter.Particles.Count > 0) return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Ends every loop and every emitter's emission; live particles finish their lives. A weapon taken off plays its
+        /// <c>!kl?</c>, which stops its generators with op 0x2D the same way.
+        /// </summary>
+        public void Stop()
+        {
+            IsStopping = true;
+            _loops.Clear();
+            foreach (var (_, emitter) in _emitters) emitter.StopEmitting();
         }
 
         public ActorEffectSet Effects { get; }
@@ -53,11 +97,16 @@ namespace Gordian.Engine.Graphics
         public bool Play(string routineId)
         {
             if (string.IsNullOrEmpty(routineId) || !Effects.Routines.TryGetValue(routineId, out var routine)) return false;
+            PlayAt(routine, 0);
+            return true;
+        }
+
+        private void PlayAt(WeatherRoutineVariant routine, int delayFrames)
+        {
             foreach (var spawn in routine.Spawns)
             {
-                if (_byTemplate.TryGetValue(spawn.Template, out var emitter)) emitter.Trigger(spawn.StartFrame, spawn.Duration);
+                if (_byTemplate.TryGetValue(spawn.Template, out var emitter)) emitter.Trigger(delayFrames + spawn.StartFrame, spawn.Duration);
             }
-            return true;
         }
 
         /// <summary>
@@ -66,6 +115,16 @@ namespace Gordian.Engine.Graphics
         /// </summary>
         public void Update(float frames, in ZoneParticleFrame frame)
         {
+            foreach (var loop in _loops)
+            {
+                loop.UntilNext -= frames;
+                while (loop.UntilNext <= 0f)
+                {
+                    // Started where it fell in this step, so the cycle keeps its length.
+                    PlayAt(loop.Routine, Math.Max(0, (int)MathF.Round(loop.UntilNext + frames)));
+                    loop.UntilNext += loop.Routine.TotalFrames;
+                }
+            }
             foreach (var (_, emitter) in _emitters) emitter.Update(frames, frame);
         }
 

@@ -80,6 +80,31 @@ namespace Gordian.Core.Resources.Graphics
         /// </para>
         /// </summary>
         public IReadOnlyList<string> IdleStateLinks { get; init; } = Array.Empty<string>();
+
+        /// <summary>Prefix of the routine a weapon's model DAT plays while the weapon is equipped (<see cref="EquippedRoutines"/>).</summary>
+        public const string EquipRoutinePrefix = "!in";
+
+        /// <summary>
+        /// The routines that run while the weapon this DAT models is equipped (#8), reached from its <c>!in?</c> routine
+        /// through the routines it starts: <see cref="EffectRoutineStart.Repeats"/> for one that op 0x73 repeats at its own
+        /// length until the weapon comes off, once otherwise. Empty for every DAT without an <c>!in?</c> routine.
+        /// <para>
+        /// The Afterglow of the REMA and Prime weapons. Every such weapon DAT (read 2026-10-29, all three weapon slots of
+        /// the Hume male's model ids 0-1499) carries one directory with two generators, <c>gp00</c> (particle mesh
+        /// <c>pi1</c>) and <c>fr00</c> (mesh <c>flm</c>), both SourceActor at skeleton reference 43, and the routines
+        /// <c>!in1</c> (op 0x03 <c>auon</c>, which repeats <c>lop0</c> with op 0x73), <c>!kl1</c> (op 0x03 <c>aukl</c>,
+        /// which stops both generators with op 0x2D, and op 0x5F on <c>!in1</c>) and <c>lop0</c> (spawns <c>gp00</c> for
+        /// 50 frames and <c>fr00</c> for 56, 56 frames long). Sub-slot DATs name them <c>!in3</c> / <c>!kl3</c> /
+        /// <c>auo1</c> / <c>auk1</c> / <c>lop1</c> (<c>gp01</c>, <c>fr01</c>), ranged ones <c>!in2</c> / <c>!kl2</c> /
+        /// <c>auo2</c> / <c>auk2</c> / <c>lop2</c>. Only the generators' base colours differ, one per family: Relic
+        /// (0x80, 0x80, 0x76) white, Mythic (0x62, 0x76, 0x80) blue, Empyrean (0x80, 0x4E, 0x4E) red, Ergon
+        /// (0x4E, 0x80, 0x4E) green, Prime (0x80, 0x12, 0x80) purple. *Inference*: that the client plays <c>!in?</c> when
+        /// the weapon is equipped and <c>!kl?</c> when it comes off (no reference names these routines; the maintainer's
+        /// account of retail is that the glow comes from having the weapon equipped). Other effect weapons use
+        /// <c>!w00</c>-<c>!w02</c> (kill, repeat, stop their loop), which are not read.
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<EffectRoutineStart> EquippedRoutines { get; init; } = Array.Empty<EffectRoutineStart>();
     }
 
     /// <summary>
@@ -98,8 +123,14 @@ namespace Gordian.Core.Resources.Graphics
             // Most models carry no generators: skip the full parse (and a second decode of their body textures).
             bool hasGenerator = false, stateDriven = false;
             var idleLinks = new List<string>();
+            string? equipRoutine = null;
             foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
             {
+                if (equipRoutine == null && header.TypeCode == DatSectionType.EffectRoutine &&
+                    header.DatId.StartsWith(ActorEffectSet.EquipRoutinePrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    equipRoutine = header.DatId;
+                }
                 if (header.TypeCode == DatSectionType.ParticleGenerator) hasGenerator = true;
                 // ids0 starts nothing itself, so the parse below (routines with spawns) does not list it.
                 else if (header.TypeCode == DatSectionType.EffectRoutine && string.Equals(header.DatId, ActorEffectSet.IdleStateRoutine, StringComparison.OrdinalIgnoreCase))
@@ -109,6 +140,21 @@ namespace Gordian.Core.Resources.Graphics
                 }
             }
             if (!hasGenerator) return null;
+
+            // A weapon's equip routine (#8) and the routines it leads to.
+            Dictionary<string, EffectRoutine>? routinesByName = null;
+            if (equipRoutine != null)
+            {
+                routinesByName = new Dictionary<string, EffectRoutine>(StringComparer.OrdinalIgnoreCase);
+                foreach (var header in DatSectionWalker.ReadHeaders(datBytes))
+                {
+                    if (header.TypeCode == DatSectionType.EffectRoutine &&
+                        EffectRoutineDecoder.Decode(datBytes.Slice(header.DataOffset, header.DataSizeBytes), header.DatId) is { } routine)
+                    {
+                        routinesByName.TryAdd(header.DatId, routine);
+                    }
+                }
+            }
 
             var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
             var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource, cameraEffects: cameraEffects);
@@ -142,7 +188,30 @@ namespace Gordian.Core.Resources.Graphics
             {
                 StateTriggered = stateTriggered,
                 IdleStateLinks = stateDriven ? idleLinks : Array.Empty<string>(),
+                EquippedRoutines = equipRoutine != null && routinesByName != null
+                    ? EquippedRoutineChain(equipRoutine, routinesByName)
+                    : Array.Empty<EffectRoutineStart>(),
             };
+        }
+
+        /// <summary>
+        /// The routines an equip routine (<see cref="ActorEffectSet.EquippedRoutines"/>) leads to: each routine it starts
+        /// once is followed in turn (to a few levels), and each it repeats is listed with <c>Repeats</c>, as is any routine
+        /// on the way that spawns generators itself.
+        /// </summary>
+        internal static IReadOnlyList<EffectRoutineStart> EquippedRoutineChain(string root, IReadOnlyDictionary<string, EffectRoutine> routines)
+        {
+            var chain = new List<EffectRoutineStart>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Walk(string id, int startFrame, bool repeats, int depth)
+            {
+                if (depth > 4 || !seen.Add(id) || !routines.TryGetValue(id, out var routine)) return;
+                if (repeats || routine.Spawns.Count > 0) chain.Add(new EffectRoutineStart(id, startFrame, repeats));
+                if (repeats) return;
+                foreach (var start in routine.Starts) Walk(start.RoutineId, startFrame + start.StartFrame, start.Repeats, depth + 1);
+            }
+            Walk(root, 0, false, 0);
+            return chain;
         }
 
         /// <summary>

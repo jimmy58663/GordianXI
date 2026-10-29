@@ -817,6 +817,7 @@ namespace Gordian.App.Graphics
             _entityRenderer?.ResetEnvironmentProbes();
             _lightSourceVisibility.Clear();
             _actorEffects.Clear();
+            ClearWeaponEffects();
             ClearActionEffects();
             ResetFootEffects(zone);
             _subEnvironmentUniforms.Clear();
@@ -1505,6 +1506,7 @@ namespace Gordian.App.Graphics
                 culled += _entityRenderer.CulledEntities;
             }
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
+            UpdateWeaponEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateActionEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateFootEffects(camera, environment, entities, resourceManager, deltaSeconds);
@@ -1581,7 +1583,7 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || WeaponEffectCount > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
                                       FootEffectCount > 0 || HasInteriorEffects()))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
@@ -1612,6 +1614,7 @@ namespace Gordian.App.Graphics
                     _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null));
                 }
                 AddActorEffectDraws(camera);
+                AddWeaponEffectDraws(camera);
                 AddAttachedEffectDraws(camera);
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
@@ -2235,20 +2238,23 @@ namespace Gordian.App.Graphics
         private void AddActorEffectDraws(ViewportCamera camera)
         {
             if (_entityRenderer == null) return;
-            foreach (var (serverId, instance) in _actorEffects)
+            foreach (var (serverId, instance) in _actorEffects) AddActorInstanceDraws(camera, serverId, instance);
+        }
+
+        /// <summary>Queues one actor-effect instance's live particle layers, placed on the actor <paramref name="serverId"/>.</summary>
+        private void AddActorInstanceDraws(ViewportCamera camera, uint serverId, ActorEffectInstance instance)
+        {
+            if (_entityRenderer == null || !_entityRenderer.ActorAnchors.TryGetValue(serverId, out var anchor) ||
+                !_actorEffectMeshes.TryGetValue(instance.Effects, out var byLayer)) return;
+            float distance = Vector3.Distance(camera.Position, anchor.ModelToWorld.Translation);
+            var pose = anchor.Pose;
+            foreach (var (layer, emitter) in instance.Emitters)
             {
-                if (!_entityRenderer.ActorAnchors.TryGetValue(serverId, out var anchor) ||
-                    !_actorEffectMeshes.TryGetValue(instance.Effects, out var byLayer)) continue;
-                float distance = Vector3.Distance(camera.Position, anchor.ModelToWorld.Translation);
-                var pose = anchor.Pose;
-                foreach (var (layer, emitter) in instance.Emitters)
-                {
-                    if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
-                    Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
-                        ActorEffectInstance.GetJointReference(emitter.Template.Definition));
-                    Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
-                    foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
-                }
+                if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
+                    ActorEffectInstance.GetJointReference(emitter.Template.Definition));
+                Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
+                foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
             }
         }
 
