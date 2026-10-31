@@ -1655,6 +1655,7 @@ namespace Gordian.Engine.Ui
             }
 
             if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
+            if (TryActivateQuestLog(top, button)) return;
             if (TryActivateSynthesis(top, button) || TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
@@ -2046,6 +2047,18 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.KeyItems:
                     OpenKeyItems(from);
+                    break;
+
+                case StockUiMenuCommand.MissionGroup:
+                    OpenMissionGroup(entry.Argument, from);
+                    break;
+
+                case StockUiMenuCommand.Quests:
+                    OpenQuestAreas(from);
+                    break;
+
+                case StockUiMenuCommand.RegionConquest:
+                    OpenConquest(from);
                     break;
 
                 case StockUiMenuCommand.EquipmentSets:

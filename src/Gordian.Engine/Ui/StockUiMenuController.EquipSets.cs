@@ -57,7 +57,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>A list or grid that scrolls and pages as the action lists do (the end rows link to themselves).</summary>
         internal bool PagesAsList => IsKeyItemWindow || IsEquipSetList || IsAuctionList || AuctionView == StockUiAuctionView.History
-            || IsBlueMagicWindow;
+            || IsBlueMagicWindow || IsQuestLogList;
 
         /// <summary>A set slot list's storage choice (<see cref="StockUiEquipSets.StorageMenu"/>).</summary>
         public bool IsEquipSetStorage { get; init; }

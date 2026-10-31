@@ -209,6 +209,12 @@ namespace Gordian.App.Graphics
                 var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
                 menus.KeyItemCatalog = () => catalog.Value;
             }
+            if (menus.QuestLogCatalog == null && _resources is { } questLog)
+            {
+                // The Missions and Quests windows' names and texts (the quest and mission d_msg tables, #488), read per book.
+                var catalog = StockUiQuestLogCatalog.FromTables(questLog.GetDMsgTable);
+                menus.QuestLogCatalog = () => catalog;
+            }
 
             renderer.Begin(library);
             // An event's screen fades (#165): the 3D scene's under the interface (and its 0x72 flashes, #192), then the interface's own.

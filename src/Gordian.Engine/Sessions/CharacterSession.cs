@@ -491,6 +491,7 @@ namespace Gordian.Engine.Sessions
             AttachSynthesisAndGuildShop();
             AttachAuctionHouse();
             AttachBlueMagic();
+            AttachQuestLog();
         }
 
         /// <summary>
