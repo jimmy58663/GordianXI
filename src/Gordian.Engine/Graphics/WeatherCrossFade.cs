@@ -14,11 +14,11 @@ namespace Gordian.Engine.Graphics
     public sealed class WeatherCrossFade
     {
         /// <summary>
-        /// Length of a weather change, in real seconds (12.5 Vana'diel minutes). *Calibration* from the maintainer's
-        /// side-by-side watch of a change in Bibiki Bay (round 1 of 2026-10-29, clouds to sunshine at 22:06): retail
-        /// eased over about 10-15 Vana'diel minutes where GordianXI switched at once. xi-model-viewer uses 3.33 seconds.
+        /// Length of a weather change, in real seconds. *Calibration* from the maintainer's retail observation
+        /// (round 2 of 2026-10-29, observed 2026-10-31): retail's weather transition takes about 5 seconds. Round 1 used
+        /// 30 seconds from an estimate of the Bibiki Bay change at 22:06. xi-model-viewer uses 3.33 seconds.
         /// </summary>
-        public const float DurationSeconds = 30.0f;
+        public const float DurationSeconds = 5.0f;
 
         /// <summary>The weather being faded in (or fully shown).</summary>
         public string? Weather { get; private set; }
