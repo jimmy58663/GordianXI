@@ -502,6 +502,8 @@ namespace Gordian.Engine.Tests.World
             Assert.All(rows, r => Assert.Equal(StockUiActionType.Mount, r.Type));
             Assert.All(rows, r => Assert.Null(r.GreyedReason));
             Assert.Equal("help 30", rows[2].Help);
+            // The paws of magico2w (#361): the chocobo's yellow one, the beige one for the others.
+            Assert.Equal(new[] { 1086, 1087, 1087 }, rows.Select(r => r.Icon));
             Assert.True(rows[0].RecastEndsAt > 1000);
             Assert.Equal(0, StockUiActionMenu.MountRows(new[] { 1 }, id => names.GetValueOrDefault(id), _ => null, TimeSpan.Zero, 5)[0].RecastEndsAt);
         }

@@ -70,7 +70,8 @@ namespace Gordian.Core.Resources.Tables
     /// cast 2 s, recast 5 s, WHM 1 / RDM 3 / PLD 5; Fire: black, fire, elemental, 7 MP, BLM 13 / RDM 19; Sleep (253):
     /// enfeebling, dark, 19 MP, BLM 20 / RDM 25). Of the command fields, id, type, icon, targets, range, the recast id
     /// (+0x08, see <see cref="CommandRecord.RecastId"/>) and the TP cost (+0x0C, Curing Waltz 200) were checked; the rest
-    /// are not exposed (the level byte xi-tools names at +0x0F reads 0 for job abilities).
+    /// are not exposed (the level byte xi-tools names at +0x0F is set only on the Monstrosity moves, records 1792 and
+    /// up; see docs/world/dat-files.md). ROM/118/116 is an older copy of both tables with the names inside, not read.
     /// </para>
     /// </summary>
     public sealed class SpellCommandTables
