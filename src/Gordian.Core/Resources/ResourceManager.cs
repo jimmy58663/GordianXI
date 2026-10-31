@@ -39,6 +39,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<uint, Gordian.Core.Resources.Graphics.ActorEffectSet?> _actorEffectCache = new();
         private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _sceneEffectCache = new();
+        private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _gearEffectCache = new();
         private byte[]? _keyTable1;
         private byte[]? _keyTable2;
         private SharedEffectResources? _sharedEffects;
@@ -813,6 +814,27 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
+        /// The effects a worn weapon's model DAT runs on its wearer while it is equipped (#8, the Afterglow of the REMA and
+        /// Prime weapons: <see cref="ActorEffectSet.EquippedRoutines"/>), or null when the slot's DAT has none. Only the
+        /// weapon slots (main, sub, ranged) carry them. <paramref name="modelId"/> is the grap table entry without its slot
+        /// nibble. Cached per file id, including DATs without such effects.
+        /// </summary>
+        public Gordian.Core.Resources.Graphics.ActorEffectSet? GetGearEffects(CharacterRace race, CharacterSlot slot, ushort modelId)
+        {
+            if (modelId == 0 || slot is not (CharacterSlot.Main or CharacterSlot.Sub or CharacterSlot.Ranged) ||
+                !CharacterEquipmentResolver.TryResolveGearFileId(race, slot, modelId, out int fileId))
+            {
+                return null;
+            }
+            return _gearEffectCache.GetOrAdd(fileId, id =>
+            {
+                var bytes = LoadDatBytesByFileId(id);
+                var effects = bytes == null ? null : Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id));
+                return effects is { EquippedRoutines.Count: > 0 } ? effects : null;
+            });
+        }
+
+        /// <summary>
         /// The particle effects of a cutscene scene resource DAT (the files the scheduler opcodes 0x45 / 0x9F load, see
         /// <see cref="Events.EventSceneResource"/>), camera-following generators included, or null when it has none.
         /// Cached per file id.
@@ -907,6 +929,7 @@ namespace Gordian.Core.Resources
             ClearMountCaches();
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
+            _gearEffectCache.Clear();
             Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
             lock (_lock)
             {

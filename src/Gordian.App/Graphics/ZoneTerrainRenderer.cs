@@ -159,6 +159,12 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<uint, ActorEffectInstance> _actorEffects = new();
         private readonly HashSet<uint> _liveEffectActors = new();
 
+        /// <summary>
+        /// Diagnostic (#474): cull the back faces of every static world effect drawn from a single-sided zone mesh, as
+        /// entrance overlays always are, to measure what the rule would change before a retail check settles it per family.
+        /// </summary>
+        internal bool CullSingleSidedWorldEffects { get; set; }
+
         /// <summary>A scene file's effects playing on one actor (see <see cref="UpdateSceneEffects"/>).</summary>
         private sealed class SceneEffectSlot
         {
@@ -182,8 +188,10 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// One entry of the zone effect pass: a generator mesh with its emitter (null for a static layer) and, for an actor
         /// effect, the transform from the zone-effect display frame to the world (the actor's placement and joint).
+        /// <paramref name="OnModel"/> marks an effect a model or worn gear carries (<see cref="AddActorInstanceDraws"/>), whose
+        /// generator z offset is drawn as a depth push behind the wearer (<see cref="WeatherSkyLayer.DepthOffset"/>, #8).
         /// </summary>
-        private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor);
+        private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false);
         private Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private ScenePostProcess? _postProcess;
 
@@ -819,6 +827,7 @@ namespace Gordian.App.Graphics
             _entityRenderer?.ResetEnvironmentProbes();
             _lightSourceVisibility.Clear();
             _actorEffects.Clear();
+            ClearWeaponEffects();
             ClearActionEffects();
             ResetFootEffects(zone);
             _subEnvironmentUniforms.Clear();
@@ -1521,6 +1530,7 @@ namespace Gordian.App.Graphics
                 culled += _entityRenderer.CulledEntities;
             }
             UpdateActorEffects(camera, environment, entities, resourceManager, deltaSeconds);
+            UpdateWeaponEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateSceneEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateActionEffects(camera, environment, entities, resourceManager, deltaSeconds);
             UpdateFootEffects(camera, environment, entities, resourceManager, deltaSeconds);
@@ -1597,7 +1607,7 @@ namespace Gordian.App.Graphics
 
             // Pass 3a: World-space zone effects (sea surfaces, sunset glints on the water) from Section 0x05 generators.
             // Depth-writing surfaces (e.g. Bibiki Bay's open sea) draw first, then the rest back to front.
-            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
+            if (EnableZoneEffects && (_effectSubmeshes.Count > 0 || _actorEffects.Count > 0 || WeaponEffectCount > 0 || _sceneEffects.Count > 0 || ActionEffectCount > 0 ||
                                       FootEffectCount > 0 || HasInteriorEffects()))
             {
                 string effectWeather = ResolveLayerWeather(_effectSubmeshes, environment.WeatherId ?? "fine");
@@ -1628,6 +1638,7 @@ namespace Gordian.App.Graphics
                     _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null));
                 }
                 AddActorEffectDraws(camera);
+                AddWeaponEffectDraws(camera);
                 AddAttachedEffectDraws(camera);
                 AddSceneEffectDraws(camera);
                 AddActionEffectDraws(camera);
@@ -1640,12 +1651,12 @@ namespace Gordian.App.Graphics
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _, emitter, anchor) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor, onModel) in _effectDrawList)
                 {
                     var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor, onModel);
                         visible++;
                     }
                     else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, effectUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
@@ -1982,7 +1993,7 @@ namespace Gordian.App.Graphics
                 // street; drawn double-sided it painted a pale pillar and arch over the wall seen from the stairs, which
                 // retail never shows (#414 round 6, retail image-11 / -13 / -15). Other single-sided world effects (light
                 // shafts, window glows, sea surfaces) stay double-sided until a retail check says otherwise.
-                if (layer.IsWorldEffect && layer.IsEntranceOverlay && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
+                if (layer.IsWorldEffect && (layer.IsEntranceOverlay || CullSingleSidedWorldEffects) && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
             return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);
@@ -1992,7 +2003,7 @@ namespace Gordian.App.Graphics
         /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
         /// Returns the number of draw calls issued.
         /// </summary>
-        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null)
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null, bool onModel = false)
         {
             var layer = skyMesh.Layer;
             int drawn = 0;
@@ -2063,7 +2074,7 @@ namespace Gordian.App.Graphics
                         world = worldFacing ? oriented * Matrix4x4.CreateTranslation(center) : world * actorFrame;
                     }
                     if (!frustum.IntersectsSphere(center, radius)) continue;
-                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline))
+                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline, pushDepth: onModel))
                     {
                         drawn++;
                     }
@@ -2088,7 +2099,8 @@ namespace Gordian.App.Graphics
         /// Binds the pipeline for a generator layer's blend mode (sky or world effect) and draws one of its meshes with the
         /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
         /// A world effect with <paramref name="cullFront"/> 0 or 1 culls its back faces (see <see cref="_culledEffectPipelines"/>);
-        /// -1 draws both sides.
+        /// -1 draws both sides. <paramref name="pushDepth"/> depth-tests a positive generator z offset that many yalms farther
+        /// along the view ray, as a vessel's overlays are (a model's or worn weapon's effect, #8).
         /// </summary>
         private bool SubmitGeneratorDraw(
             GpuWeatherSkySubmesh skyMesh,
@@ -2098,7 +2110,8 @@ namespace Gordian.App.Graphics
             Vector4 textureFactor,
             ZoneSceneUniform sceneUniform,
             ref Pipeline? currentPipeline,
-            int cullFront = -1)
+            int cullFront = -1,
+            bool pushDepth = false)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2145,7 +2158,7 @@ namespace Gordian.App.Graphics
                 layer.FogEnabled ? 1.0f : 0.0f,
                 layer.BlendFunc == ParticleBlendFunc.SrcOneAdd ? 1.0f : 0.0f,
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
-                layer.OnVessel && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
+                (layer.OnVessel || pushDepth) && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
                     ? 2.0f + layer.DepthOffset
                     : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
@@ -2253,20 +2266,23 @@ namespace Gordian.App.Graphics
         private void AddActorEffectDraws(ViewportCamera camera)
         {
             if (_entityRenderer == null) return;
-            foreach (var (serverId, instance) in _actorEffects)
+            foreach (var (serverId, instance) in _actorEffects) AddActorInstanceDraws(camera, serverId, instance);
+        }
+
+        /// <summary>Queues one actor-effect instance's live particle layers, placed on the actor <paramref name="serverId"/>.</summary>
+        private void AddActorInstanceDraws(ViewportCamera camera, uint serverId, ActorEffectInstance instance)
+        {
+            if (_entityRenderer == null || !_entityRenderer.ActorAnchors.TryGetValue(serverId, out var anchor) ||
+                !_actorEffectMeshes.TryGetValue(instance.Effects, out var byLayer)) return;
+            float distance = Vector3.Distance(camera.Position, anchor.ModelToWorld.Translation);
+            var pose = anchor.Pose;
+            foreach (var (layer, emitter) in instance.Emitters)
             {
-                if (!_entityRenderer.ActorAnchors.TryGetValue(serverId, out var anchor) ||
-                    !_actorEffectMeshes.TryGetValue(instance.Effects, out var byLayer)) continue;
-                float distance = Vector3.Distance(camera.Position, anchor.ModelToWorld.Translation);
-                var pose = anchor.Pose;
-                foreach (var (layer, emitter) in instance.Emitters)
-                {
-                    if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
-                    Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
-                        ActorEffectInstance.GetJointReference(emitter.Template.Definition));
-                    Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
-                    foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
-                }
+                if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
+                    ActorEffectInstance.GetJointReference(emitter.Template.Definition));
+                Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
+                foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame, OnModel: true));
             }
         }
 

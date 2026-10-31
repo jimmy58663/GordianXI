@@ -302,11 +302,16 @@ namespace Gordian.Core.Resources.Graphics
         /// </summary>
         public bool IsEntranceOverlay { get; set; }
 
+        /// <summary>The directory path of a zone generator's layer (<c>t_ju/mode/entr</c>), empty for other layers.</summary>
+        public string GeneratorPath { get; set; } = string.Empty;
+
         /// <summary>
         /// The generator's z offset (Section 2 opcode 0x30, <c>InitZOffset</c> in the PS2 beta's names, xi-tools
         /// docs/reference/ps2_beta_2001.md): negative pulls it toward the camera (wakes and splashes, -0.01 to -55), sky and
         /// backdrop layers carry painter weights of 10,000 and more. A vessel's surface overlays with a small positive offset
         /// (the Selbina ship's <c>col1</c> +5 and <c>sea1</c> +10) are pushed that far back and so stay under the sea (#430).
+        /// A model's or worn weapon's effect is pushed back the same way, so its wearer covers it (every Afterglow generator
+        /// carries +0.2, #8).
         /// </summary>
         public float DepthOffset { get; set; }
 

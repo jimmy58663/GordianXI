@@ -312,6 +312,51 @@ namespace Gordian.Engine.Tests.Graphics
         /// The birds' spawners follow their point list (0x54 / 0x34, round 1 E1): Phanauet Channel's and Carpenters'
         /// Landing's <c>wbi0</c> circle about 40 yalms around their base instead of hovering, and face along the circle.
         /// </summary>
+        /// <summary>
+        /// The zone birds on <c>line</c> / <c>lin1</c> / <c>lin2</c> paths (#336 part 1): East Ronfaure's pigeons <c>hato</c>,
+        /// Valkurm Dunes' ducks <c>kamo</c>, Batallia Downs' eagles <c>was1</c> fly the point list their init 0x54 names, from
+        /// its first point to its last over their life, never more than a yalm off it.
+        /// </summary>
+        [Theory]
+        [InlineData(101, "hato")]
+        [InlineData(103, "kamo")]
+        [InlineData(84, "was1")]
+        public void ZoneBirds_FlyTheirLinePath(int zoneId, string generator)
+        {
+            if (LoadZone(zoneId) is not { } zone) return;
+            // The ducks' mesh kamo was read as a sky mesh, which dropped every kamo generator, until #336 part 1.
+            var template = zone.EffectLayers.First(l => l.Name == generator && l.Emitter is { PointLists.Count: > 0 }).Emitter!;
+            var path = template.PointLists.Values.Single();
+            var emitter = new ZoneParticleEmitter(template);
+            var frame = new ZoneParticleFrame(template.RawBasePosition, 0.5f, Vector3.One);
+            emitter.Trigger(0, 1);
+            emitter.Update(1f, frame);
+            var bird = emitter.Particles.First();
+            var origin = bird.WorldPosition - bird.Position;
+            float pathLength = 0f;
+            for (int i = 1; i < path.Length; i++) pathLength += Vector3.Distance(path[i - 1], path[i]);
+            float worst = 0f, travelled = 0f;
+            var last = bird.WorldPosition;
+            for (int i = 0; i < 20000 && emitter.Particles.Contains(bird); i++)
+            {
+                emitter.Update(1f, frame);
+                float nearest = float.MaxValue;
+                for (int k = 1; k < path.Length; k++) nearest = MathF.Min(nearest, DistanceToSegment(bird.WorldPosition - origin, path[k - 1], path[k]));
+                worst = MathF.Max(worst, nearest);
+                travelled += Vector3.Distance(last, bird.WorldPosition);
+                last = bird.WorldPosition;
+            }
+            Assert.True(worst < 1f, $"{generator} strays {worst:F2} yalms off its {path.Length}-point path");
+            Assert.True(travelled > pathLength * 0.8f, $"{generator} flew {travelled:F1} of its {pathLength:F1}-yalm path");
+        }
+
+        private static float DistanceToSegment(Vector3 p, Vector3 a, Vector3 b)
+        {
+            var ab = b - a;
+            float t = ab.LengthSquared() > 0f ? Math.Clamp(Vector3.Dot(p - a, ab) / ab.LengthSquared(), 0f, 1f) : 0f;
+            return Vector3.Distance(p, a + ab * t);
+        }
+
         [Theory]
         [InlineData(1)]
         [InlineData(2)]
