@@ -360,6 +360,8 @@ namespace Gordian.App.Graphics
         private ZoneGeometry? _currentZoneGeom;
         private float _lastVanaHour = -1f;
         private string? _lastWeatherId;
+        /// <summary>Fades the environment across a weather change (#6 round 1); a zone's arrival weather shows at once.</summary>
+        private readonly WeatherCrossFade _weatherFade = new();
         private int _timeOfDayCycleIndex = 0;
 
         private void OnWorldZoneChanged(ushort zoneId)
@@ -619,12 +621,13 @@ namespace Gordian.App.Graphics
                 string weather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
                 _lastVanaHour = vanaHour;
                 _lastWeatherId = weather;
+                _weatherFade.Reset(weather);
                 var keyframe = zoneGeom.EnvironmentData.Interpolate(vanaHour, weather);
                 if (keyframe != null)
                 {
                     Environment.ApplyKeyframe(keyframe);
                     Environment.SetTimeOfDay(vanaHour);
-                    Environment.WeatherId = weather;
+                    _weatherFade.ApplyTo(Environment);
                     _renderer.SkyDomeRenderer?.UpdateDome(Environment);
                     GordianLog.Info("Graphics", $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
                 }
@@ -985,16 +988,18 @@ namespace Gordian.App.Graphics
                             {
                                 float vanaHour = CurrentVanaHour();
                                 string activeWeather = _activeSession?.World.WeatherId ?? WorldState?.WeatherId ?? Environment.WeatherId ?? "fine";
-                                if (Math.Abs(vanaHour - _lastVanaHour) >= 0.05f || activeWeather != _lastWeatherId)
+                                // A weather change fades in over WeatherCrossFade.DurationSeconds, as retail eases it.
+                                bool fading = _weatherFade.Advance(activeWeather, deltaSeconds);
+                                if (fading || Math.Abs(vanaHour - _lastVanaHour) >= 0.05f)
                                 {
                                     _lastVanaHour = vanaHour;
                                     _lastWeatherId = activeWeather;
-                                    var kf = _currentZoneGeom.EnvironmentData.Interpolate(vanaHour, activeWeather);
+                                    var kf = _weatherFade.Resolve(_currentZoneGeom.EnvironmentData, vanaHour);
                                     if (kf != null)
                                     {
                                         Environment.ApplyKeyframe(kf);
                                         Environment.SetTimeOfDay(vanaHour);
-                                        Environment.WeatherId = activeWeather;
+                                        _weatherFade.ApplyTo(Environment);
                                         _renderer.SkyDomeRenderer?.UpdateDome(Environment);
                                     }
                                 }
@@ -1781,7 +1786,8 @@ namespace Gordian.App.Graphics
                     {
                         Environment.ApplyKeyframe(kf);
                         Environment.SetTimeOfDay(vanaHour);
-                        Environment.WeatherId = currentWeather;
+                        _weatherFade.Reset(currentWeather);
+                        _weatherFade.ApplyTo(Environment);
                         _lastVanaHour = vanaHour;
                         _lastWeatherId = currentWeather;
                         _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
@@ -1812,7 +1818,8 @@ namespace Gordian.App.Graphics
                 {
                     Environment.ApplyKeyframe(kf);
                     Environment.SetTimeOfDay(targetHour);
-                    Environment.WeatherId = targetWeather;
+                    _weatherFade.Reset(targetWeather);
+                    _weatherFade.ApplyTo(Environment);
                     _lastVanaHour = targetHour;
                     _lastWeatherId = targetWeather;
                     _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
@@ -1889,6 +1896,9 @@ namespace Gordian.App.Graphics
                 WorldState.WeatherId = weatherId;
             }
             _lastWeatherId = weatherId;
+            _weatherFade.Reset(weatherId);
+            Environment.PreviousWeatherId = null;
+            Environment.WeatherBlend = 1.0f;
             if (_renderer?.LoadedZone?.EnvironmentData != null)
             {
                 float vanaHour = CurrentVanaHour();

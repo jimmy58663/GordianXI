@@ -202,16 +202,18 @@ namespace Gordian.App.Graphics
         private string _effectWeather = "fine";
 
         /// <summary>
-        /// Where terrain highlights start to roll off (#7): a lit terrain colour channel (after the modulate-2x) above
-        /// this knee is compressed smoothly toward <see cref="TerrainHighlightCeiling"/> (excess e becomes
-        /// e / (1 + e / (ceiling - knee))) instead of clipping at white. Retail clips: at noon Valkurm Dunes' sand
-        /// saturates to pure white across the frame (maintainer capture <c>Bright_Sand.png</c>, 2026-10-17, about 13:17,
-        /// clear). The maintainer chose a toned-down default over that parity. Valkurm's noon sand reaches about 1.5
-        /// before the clamp and now draws at about 0.84 (light grey-white); Bibiki Bay's calibrated 15:58 sand (red 0.72)
-        /// moves by under 2% and the dusk cliffs (0.6) not at all. The shoulder is on the output colour, not the summed
-        /// light, because the summed light is already at its clamp (1) on that calibrated 15:58 sand.
+        /// Where terrain highlights start to roll off (#7): when a lit terrain colour's brightest channel (after the
+        /// modulate-2x) is above this knee, that channel is compressed smoothly toward <see cref="TerrainHighlightCeiling"/>
+        /// (excess e becomes e / (1 + e / (ceiling - knee))) and the other channels scale with it, instead of clipping at
+        /// white. Retail clips: at noon Valkurm Dunes' sand saturates to pure white across the frame (maintainer capture
+        /// <c>Bright_Sand.png</c>, 2026-10-17, about 13:17, clear). The maintainer chose a toned-down default over that
+        /// parity. Valkurm's noon sand reaches about 1.5 before the clamp and now draws at about 0.89.
+        /// *Round 1 of 2026-10-29:* retail's Eastern Altepa sand at 10:41-11:20 (image-14 to -17: none, sunshine, clouds,
+        /// hot spell) matches our untoned output within 5% per channel, red 0.78-0.88. The old per-channel shoulder from
+        /// 0.65 pulled red down and left green and blue alone, so that sand came out pale yellow instead of orange
+        /// (r/g 1.09-1.16 against retail 1.21-1.30). Now the knee is 0.8 and the shoulder keeps the hue.
         /// </summary>
-        public float TerrainHighlightKnee { get; set; } = 0.65f;
+        public float TerrainHighlightKnee { get; set; } = 0.8f;
 
         /// <summary>The level toned terrain highlights approach (#7); see <see cref="TerrainHighlightKnee"/>.</summary>
         public float TerrainHighlightCeiling { get; set; } = 0.9f;
@@ -1353,6 +1355,13 @@ namespace Gordian.App.Graphics
                 // elemental weather (rain, snow, thdr, ...) fall back to its canonical category (clod, suny, fine, mist).
                 // Celestial bodies are weather-scoped too: e.g. only fine/suny author star and moon, so overcast skies have none.
                 string skyWeather = ResolveLayerWeather(_weatherSkySubmeshes, activeWeather);
+                // During a weather change the outgoing weather's layers fade out as the incoming ones fade in; a layer both
+                // weathers author (e.g. fine and suny share the moon and stars) stays at full strength.
+                string? fadingSkyWeather = environment.PreviousWeatherId is { } previousWeather
+                    ? ResolveLayerWeather(_weatherSkySubmeshes, previousWeather)
+                    : null;
+                if (string.Equals(fadingSkyWeather, skyWeather, StringComparison.OrdinalIgnoreCase)) fadingSkyWeather = null;
+                float weatherBlend = Math.Clamp(environment.WeatherBlend, 0.0f, 1.0f);
 
                 for (int i = 0; i < _weatherSkySubmeshes.Count; i++)
                 {
@@ -1369,9 +1378,16 @@ namespace Gordian.App.Graphics
                     if (isStardust && !EnableMilkyWay) continue;
 
                     var weatherIds = skyMesh.Layer.WeatherIds;
-                    if (weatherIds.Count > 0 && !weatherIds.Contains(skyWeather)) continue;
+                    float weatherOpacity = 1.0f;
+                    if (weatherIds.Count > 0)
+                    {
+                        bool incoming = weatherIds.Contains(skyWeather);
+                        bool outgoing = fadingSkyWeather != null && weatherIds.Contains(fadingSkyWeather);
+                        if (!incoming && !outgoing) continue;
+                        if (incoming != outgoing) weatherOpacity = incoming ? weatherBlend : 1.0f - weatherBlend;
+                    }
 
-                    if (DrawSkyGenerator(skyMesh, camera, sunDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline))
+                    if (DrawSkyGenerator(skyMesh, camera, sunDir, sceneUniform, dayOfWeek, moonPhaseIndex, dayFraction, ref currentSkyPipeline, weatherOpacity))
                     {
                         draws++;
                         visible++;
@@ -1889,7 +1905,8 @@ namespace Gordian.App.Graphics
             int dayOfWeek,
             int moonPhaseIndex,
             float dayFraction,
-            ref Pipeline? currentPipeline)
+            ref Pipeline? currentPipeline,
+            float weatherOpacity = 1.0f)
         {
             var layer = skyMesh.Layer;
             if (layer.IsSpriteSheet)
@@ -1899,6 +1916,7 @@ namespace Gordian.App.Graphics
             }
 
             Vector4 textureFactor = ComputeSkyTextureFactor(layer, dayOfWeek, moonPhaseIndex, dayFraction);
+            textureFactor.W *= weatherOpacity;
             if (textureFactor.W <= 0.001f) return false;
 
             // Generator effects advance at 60 frames per second; a ship zone's clouds, which ride the viewer (attach type 5,
@@ -1942,7 +1960,7 @@ namespace Gordian.App.Graphics
             }
             else if (layer.IsSpriteSheet)
             {
-                world = CreateCameraFacingCardMatrix(camera, center, scale, skyMesh.AttachType == ParticleAttachType.Moon ? MoonCardRoll(dayFraction) : 0.0f);
+                world = CreateCameraFacingCardMatrix(camera, center, scale, skyMesh.AttachType == ParticleAttachType.Moon ? MoonCardTurn : 0.0f);
             }
             else if (attachedToLight)
             {
@@ -2715,14 +2733,15 @@ namespace Gordian.App.Graphics
             0f, 0f, 0f, 1f);
 
         /// <summary>
-        /// How far the moon's phase card turns clockwise on screen: with the moon's orbit, a full turn a day, upright at
-        /// midnight (moon at the zenith), a quarter turn clockwise at 06:00 (setting in the west) and anticlockwise at
-        /// 18:00 (rising in the east). *Inference* from the maintainer's retail capture (#469, round 1 of 2026-10-27,
-        /// image-2: Lower Jeuno, 05:11): the waxing half-moon card, lit toward its upper right in <c>moonshap</c>, shows
-        /// lit toward the lower right, about 78 degrees clockwise. The generator (<c>weat/*/moon</c>, XYZ billboard)
-        /// authors no rotation, so the turn comes with the orbit.
+        /// How far the moon's phase card turns clockwise on screen: a fixed quarter turn at every hour. *Inference* from
+        /// the maintainer's retail captures (#469): Lower Jeuno at 05:11 (round 1 of 2026-10-27, image-2) and 04:17, and
+        /// Valkurm Dunes at moonrise, 20:33 (round 1 of 2026-10-29, image-25 and image-1), all show the waxing half-moon
+        /// card the same way round, lit toward the lower right (in <c>moonshap</c> it is lit toward the upper right). The
+        /// 04:17 and 20:33 moons correlate 0.94 with each other. Against them, offscreen renders turned 60-120 degrees peak
+        /// at 90 (0.76 / 0.80), while a vertical flip scores 0.12-0.47. The generator (<c>weat/*/moon</c>, XYZ billboard)
+        /// authors no rotation.
         /// </summary>
-        internal static float MoonCardRoll(float dayFraction) => dayFraction * MathF.Tau;
+        internal const float MoonCardTurn = MathF.PI / 2.0f;
 
         /// <summary>
         /// XYZ billboard for a sprite-sheet card stored in display axes (-x, -y, z): the card's image-left
@@ -2784,6 +2803,12 @@ namespace Gordian.App.Graphics
             {
                 var uniform = sceneUniform;
                 var keyframe = data.InterpolateSubEnvironment(id, environment.TimeOfDayHours, environment.WeatherId);
+                // Across a weather change the sub-environment's lights fade as the zone's do (WeatherCrossFade).
+                if (keyframe != null && environment.PreviousWeatherId is { } previousWeather &&
+                    data.InterpolateSubEnvironment(id, environment.TimeOfDayHours, previousWeather) is { } previous)
+                {
+                    keyframe = EnvironmentKeyframe.Lerp(previous, keyframe, Math.Clamp(environment.WeatherBlend, 0.0f, 1.0f), keyframe.Hour);
+                }
                 if (keyframe != null)
                 {
                     var lighting = new ZoneEnvironmentSettings();

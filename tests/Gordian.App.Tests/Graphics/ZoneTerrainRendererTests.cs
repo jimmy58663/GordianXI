@@ -401,7 +401,7 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void MoonCard_TurnsClockwiseWithTheOrbit_UprightAtMidnight()
+        public void MoonCard_IsTurnedAQuarterClockwise()
         {
             var camera = new Gordian.Engine.Graphics.ViewportCamera { Mode = Gordian.Engine.Graphics.CameraMode.FirstPerson };
             camera.Update(System.Numerics.Vector3.Zero, 30.0f, 180.0f, 0.0f, 4f / 3f);
@@ -411,20 +411,15 @@ namespace Gordian.App.Tests.Graphics
             static void Near(System.Numerics.Vector3 expected, System.Numerics.Vector3 actual) =>
                 Assert.True(System.Numerics.Vector3.Distance(expected, actual) < 1e-3f, $"expected {expected}, got {actual}");
 
-            // Midnight: card upright, display +X (image left) to screen left, display +Y (image top) to screen up.
-            var midnight = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.0f));
-            Near(-camera.Right * 20f, Row(midnight, 0));
-            Near(camera.Up * 20f, Row(midnight, 1));
+            // Unturned: display +X (image left) to screen left, display +Y (image top) to screen up.
+            var upright = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale);
+            Near(-camera.Right * 20f, Row(upright, 0));
+            Near(camera.Up * 20f, Row(upright, 1));
 
-            // 06:00, moon setting in the west: a quarter turn clockwise, image left to the top and image top to the right.
-            var dawn = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.25f));
-            Near(camera.Up * 20f, Row(dawn, 0));
-            Near(camera.Right * 20f, Row(dawn, 1));
-
-            // 18:00, moon rising in the east: a quarter turn anticlockwise.
-            var dusk = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardRoll(0.75f));
-            Near(-camera.Up * 20f, Row(dusk, 0));
-            Near(-camera.Right * 20f, Row(dusk, 1));
+            // The moon: a quarter turn clockwise, image left to the top and image top to the right.
+            var moon = ZoneTerrainRenderer.CreateCameraFacingCardMatrix(camera, System.Numerics.Vector3.Zero, scale, ZoneTerrainRenderer.MoonCardTurn);
+            Near(camera.Up * 20f, Row(moon, 0));
+            Near(camera.Right * 20f, Row(moon, 1));
         }
 
         [Fact]
@@ -800,7 +795,7 @@ namespace Gordian.App.Tests.Graphics
                 devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 64, 64, GraphicsBackendPreference.Direct3D11, vsync: false);
                 if (devMgr.Device == null) return;
                 using var renderer = new ZoneTerrainRenderer(devMgr.Device);
-                Assert.Equal(new System.Numerics.Vector4(0.65f, 0.9f, 0f, 0f), renderer.TerrainTone);
+                Assert.Equal(new System.Numerics.Vector4(0.8f, 0.9f, 0f, 0f), renderer.TerrainTone);
                 renderer.RetailTerrainBrightness = true;
                 Assert.Equal(System.Numerics.Vector4.Zero, renderer.TerrainTone);
             }

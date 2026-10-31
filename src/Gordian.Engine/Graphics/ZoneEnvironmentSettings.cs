@@ -116,6 +116,15 @@ namespace Gordian.Engine.Graphics
         public string WeatherId { get; set; } = "fine";
 
         /// <summary>
+        /// The weather fading out during a weather change (<see cref="WeatherCrossFade"/>), or null when none is under way.
+        /// Its sky layers draw at 1 - <see cref="WeatherBlend"/>.
+        /// </summary>
+        public string? PreviousWeatherId { get; set; }
+
+        /// <summary>How far a weather change has gone: the sky layers of <see cref="WeatherId"/> draw at this opacity.</summary>
+        public float WeatherBlend { get; set; } = 1.0f;
+
+        /// <summary>
         /// Indicates whether this environment configuration represents an indoor or cave area (no celestial skybox or ocean plane).
         /// </summary>
         public bool Indoors { get; set; } = false;
