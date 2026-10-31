@@ -69,6 +69,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         MenuMessages,
         /// <summary>
+        /// The menus' short strings (ROM/165/77.DAT, 528 entries; read 2026-10-31, #487): the currency names of the Status
+        /// window's Currencies pages (136-219 and 350-524, not in packet order: 136 "Conquest Points (San d'Oria)", 191
+        /// "Bayld", 443 "Unity Accolades"), the Records of Eminence texts (108-135) and the Unity texts (395-453).
+        /// </summary>
+        MenuStrings,
+        /// <summary>
         /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
         /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
         /// </summary>

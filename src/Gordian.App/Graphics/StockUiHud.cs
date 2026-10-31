@@ -173,6 +173,8 @@ namespace Gordian.App.Graphics
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
+                // The Status window's currency names (ROM/165/77, #487).
+                menus.MenuStringText = i => strings.TryGetString(DMsgCategory.MenuStrings, i, out var text) ? text : null;
                 // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
                 menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
                 menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;

@@ -40,6 +40,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
         MapAreas,
+
+        /// <summary>The Status window's Currencies, Job Points and Alter Ego Points lists (#487): each row a name and its amount.</summary>
+        StatusValues,
     }
 
     /// <summary>
@@ -80,7 +83,7 @@ namespace Gordian.Engine.Ui
             StockUiConfigPages.TryGet(menu.Name, out var page);
             ConfigPage = page;
             ListKind = listKind ?? StockUiConfigPages.ListKindOf(menu.Name);
-            VisibleRows = ListKind != StockUiListKind.None ? StockUiConfigPages.VisibleRowsOf(ListKind) : visibleRows;
+            VisibleRows = ListKind != StockUiListKind.None && StockUiConfigPages.VisibleRowsOf(ListKind) is > 0 and var rows ? rows : visibleRows;
         }
 
         /// <summary>The Log page's window (1 or 2) a category menu or list is for.</summary>
@@ -1318,7 +1321,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1712,6 +1715,12 @@ namespace Gordian.Engine.Ui
                 return;
             }
 
+            if (top.ListKind == StockUiListKind.StatusValues)
+            {
+                ActivateStatusList(top);
+                return;
+            }
+
             if (top.ListKind == StockUiListKind.Effects)
             {
                 int index = top.EntryIndex(button.ButtonId);
@@ -1927,6 +1936,10 @@ namespace Gordian.Engine.Ui
                     bool paged;
                     lock (_sync) paged = OpenStatusPage((StockUiStatusPage)entry.Argument, from) != null;
                     if (paged) Changed?.Invoke();
+                    break;
+
+                case StockUiMenuCommand.MeritMode:
+                    SwitchMeritMode(entry, from);
                     break;
 
                 case StockUiMenuCommand.LogOut:

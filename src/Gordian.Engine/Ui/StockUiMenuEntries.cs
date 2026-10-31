@@ -26,6 +26,9 @@ namespace Gordian.Engine.Ui
         /// <summary>A Status list entry: opens its page (the Argument is a <see cref="StockUiStatusPage"/>).</summary>
         StatusPage,
 
+        /// <summary>Merit Points' Mode Switch list (<c>merit2</c>): sends the merit mode (the Argument: 0 EXP, 1 Limit Points).</summary>
+        MeritMode,
+
         /// <summary>Main menu Map: opens the Map window on the zone's map (<see cref="StockUiMap"/>).</summary>
         Map,
 
@@ -276,17 +279,25 @@ namespace Gordian.Engine.Ui
             // Status (#23): statcom2's entries in their top-to-bottom order.
             [(StockUiStatus.CommandMenu, StockUiStatus.ProfileButton)] = new("Profile", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Profile),
             [(StockUiStatus.CommandMenu, StockUiStatus.JobLevelsButton)] = new("Job Levels", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobLevels),
-            [(StockUiStatus.CommandMenu, StockUiStatus.MasterLevelsButton)] = new("Master Levels", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MasterLevelsButton)] = new("Master Levels", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.MasterLevels),
             [(StockUiStatus.CommandMenu, StockUiStatus.CombatSkillsButton)] = new("Combat Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CombatSkills),
             [(StockUiStatus.CommandMenu, StockUiStatus.MagicSkillsButton)] = new("Magic Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.MagicSkills),
             [(StockUiStatus.CommandMenu, StockUiStatus.CraftSkillsButton)] = new("Craft Skl.", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.CraftSkills),
-            [(StockUiStatus.CommandMenu, StockUiStatus.CurrenciesButton)] = new("Currencies", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.Currencies2Button)] = new("Currencies 2", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.UnityButton)] = new("Unity", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.PlayTimeButton)] = new("Play Time", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.MeritPointsButton)] = new("Merit Points", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatus.CommandMenu, StockUiStatus.CurrenciesButton)] = new("Currencies", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Currencies),
+            [(StockUiStatus.CommandMenu, StockUiStatus.Currencies2Button)] = new("Currencies 2", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Currencies2),
+            [(StockUiStatus.CommandMenu, StockUiStatus.UnityButton)] = new("Unity", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.Unity),
+            [(StockUiStatus.CommandMenu, StockUiStatus.PlayTimeButton)] = new("Play Time", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.PlayTime),
+            [(StockUiStatus.CommandMenu, StockUiStatus.MeritPointsButton)] = new("Merit Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.MeritPoints),
+            [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobPoints),
+            [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.AlterEgoPoints),
+            // Merit Points and Unity (#487): merit1, merit2 and ut_menu. Categories and the Unity lists are not done yet.
+            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritCategoriesButton)] = new("Categories", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritModeSwitchButton)] = new("Mode Switch", Opens: StockUiStatusPages.MeritModeMenu),
+            [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeExpButton)] = new("EXP", Command: StockUiMenuCommand.MeritMode, Argument: 0),
+            [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeLimitButton)] = new("Limit Points", Command: StockUiMenuCommand.MeritMode, Argument: 1),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityInfoButton)] = new("Unity Info", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityRankingButton)] = new("Ranking Info", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityListsButton)] = new("Unity Lists", Command: StockUiMenuCommand.NotAvailable),
 
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),

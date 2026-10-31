@@ -76,35 +76,45 @@ namespace Gordian.App.Graphics
             StockUiMenuController menus, float scale, uint width, uint height)
         {
             var info = menus.StatusInfo?.Invoke();
-            if (library.TryGetMenu(StockUiStatus.WindowMenu, out var window))
+            var open = menus.OpenMenus;
+            // The Currencies, Job Points and Alter Ego Points lists (16,48) stand where the stats side and level box are (#487).
+            bool list = open.Count > 0 && open[^1].IsStatusValueList;
+            string? box = StockUiStatusPagesWindow.BoxOf(open);
+            if (!list && library.TryGetMenu(StockUiStatus.WindowMenu, out var window))
             {
                 var f = window.Frame;
                 StockUiItemWindow.DrawStatsSide(renderer, font, window, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height), info?.Stats);
             }
-            if (library.TryGetMenu(StockUiStatus.LevelMenu, out var level))
+            if (!list && !StockUiStatusPagesWindow.ReplacesLevelBox(box) && library.TryGetMenu(StockUiStatus.LevelMenu, out var level))
             {
                 var f = level.Frame;
                 var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
                 renderer.DrawMenu(level, at, includeButtons: false, opaqueBody: true);
                 if (info != null) DrawLevel(renderer, font, info, at);
             }
+            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, menus.StatusPoints?.Invoke(), scale, width, height);
 
-            var open = menus.OpenMenus;
-            string? help = null;
+            string? help = null, title = null;
             if (open.Count > 0 && open[^1].StatusPage == StockUiStatusPage.Profile)
             {
                 help = info is { Title.Length: > 0 } ? "Title: " + info.Title : null;
+            }
+            else if (list)
+            {
+                var top = open[^1];
+                help = top.SelectedStatusRowHelp is >= 0 and var id ? menus.MenuHelpText?.Invoke(id) : null;
+                title = StockUiStatusPagesWindow.TitleOf(top);
             }
             else
             {
                 for (int i = open.Count - 1; i >= 0; i--)
                 {
-                    if (!open[i].IsStatusList) continue;
+                    if (!StockUiStatusPagesWindow.ShowsHelp(open[i])) continue;
                     if (open[i].SelectedButton is { HelpTextId: >= 0 } button) help = menus.MenuHelpText?.Invoke(button.HelpTextId);
                     break;
                 }
             }
-            StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, null, help, scale, width, height);
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, title, help, scale, width, height);
         }
 
         private static void DrawLevel(StockUiRenderer renderer, UiFont font, StockUiStatusInfo info, StockUiPlacement at)
@@ -132,7 +142,11 @@ namespace Gordian.App.Graphics
                     DrawProfile(renderer, library, font, logFont, info, placement);
                     break;
                 case StockUiStatusPage.JobLevels:
-                    DrawJobLevels(renderer, font, logFont, menu, info, placement);
+                    DrawJobLevels(renderer, font, logFont, info, placement,
+                        job => (job < info.JobLevels.Count ? info.JobLevels[job] : 0).ToString(CultureInfo.InvariantCulture));
+                    break;
+                case StockUiStatusPage.MasterLevels:
+                    DrawJobLevels(renderer, font, logFont, info, placement, job => StockUiStatusPages.MasterLevelText(info, job));
                     break;
                 case StockUiStatusPage.CombatSkills:
                     DrawSkills(renderer, font, logFont, info.CombatSkills, placement);
@@ -171,11 +185,11 @@ namespace Gordian.App.Graphics
 
         private const float TextHalfHeight = 6;
 
-        private static void DrawJobLevels(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiStatusInfo info,
-            StockUiPlacement p)
+        /// <summary>Job Levels and Master Levels (#487, the same 22 rows in <c>masterle</c>): each job's name and its level as <paramref name="levelText"/> writes it.</summary>
+        private static void DrawJobLevels(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiStatusInfo info,
+            StockUiPlacement p, Func<byte, string> levelText)
         {
             float s = p.Scale;
-            var inv = CultureInfo.InvariantCulture;
             for (int button = 1; button <= StockUiStatus.JobRowsPerColumn * 2; button++)
             {
                 byte job = StockUiStatus.JobOfRow(button);
@@ -185,8 +199,7 @@ namespace Gordian.App.Graphics
                 var tint = job == info.MainJob ? MainJobRowTint : job == info.SubJob ? SubJobRowTint : White;
                 float y = RowTextY(p, row);
                 Name(renderer, font, StockUiCheck.JobName(job), p.X + (column + TextInset) * s, y, (JobLevelRight - TextInset - LevelRoom + 8) * s, s, tint);
-                int level = job < info.JobLevels.Count ? info.JobLevels[job] : 0;
-                RightText(renderer, font, logFont, level.ToString(inv), p.X + (column + JobLevelRight) * s, y, s, tint);
+                RightText(renderer, font, logFont, levelText(job), p.X + (column + JobLevelRight) * s, y, s, tint);
             }
         }
 
