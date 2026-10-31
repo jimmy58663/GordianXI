@@ -338,6 +338,8 @@ namespace Gordian.Engine.Ui
                 // The crystal list and the synthesis grid leave the right of the screen empty (Crystal_Synthesis.png, the
                 // video 2026-10-16): the Synthesis menu and main menu there are hidden (#330).
                 if (ItemListKind == StockUiItemListKind.Crystals || IsSynthesisGrid) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
+                // A trade window: the inventory beside it and (with a player) the partner's offer under it (#486).
+                if (IsTradeWindow) return (f.X, f.Y, UiResourceLibrary.LayoutWidth - 16, Math.Max(bottom, StockUiTrade.PartnerY + f.Height));
                 if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
                 if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 // A set's grid while it is edited: the storage's list beside it, and the options and set list gone (image-12).
@@ -639,6 +641,7 @@ namespace Gordian.Engine.Ui
         /// <summary>Closes the top menu (a prompt closes as "No").</summary>
         public void CloseTop()
         {
+            if (TryCancelTrade()) return; // the trade window asks "Cancel trade transaction?" (#486)
             StockUiOpenMenu? closed;
             lock (_sync)
             {
@@ -1607,6 +1610,7 @@ namespace Gordian.Engine.Ui
             if (top.IsQuantity)
             {
                 if (top.SynthesisPickRow is { } pick) RunSynthesisQuantity(top, pick);
+                else if (top.PickerRow is { } picked) RunPickerQuantity(top, picked);
                 else if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
                 else RunQuantity(top);
                 return;
@@ -1655,7 +1659,7 @@ namespace Gordian.Engine.Ui
             }
 
             if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
-            if (TryActivateSynthesis(top, button) || TryActivateItemWindow(top, button)) return;
+            if (TryActivateSynthesis(top, button) || TryActivateTrade(top, button) || TryActivateItemWindow(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -2018,6 +2022,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.RangedAttack:
                     RunRangedAttack(from);
+                    break;
+
+                case StockUiMenuCommand.Trade:
+                    RunTradeCommand(from);
                     break;
 
                 case StockUiMenuCommand.Items:

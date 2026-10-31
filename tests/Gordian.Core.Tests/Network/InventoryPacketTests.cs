@@ -951,6 +951,47 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void InventoryState_PlayerTradeLifecycle_FollowsLandSandBoat()
+        {
+            var state = new InventoryState();
+            var results = new List<(TradeResultKind Kind, uint Id, ushort Index)>();
+            (uint Id, ushort Index)? requested = null;
+            state.TradeRequested += (id, index) => requested = (id, index);
+            state.TradeResultReceived += (kind, id, index) => results.Add((kind, id, index));
+
+            // S2C 0x021: a request is remembered, the window is not open yet.
+            state.ReceiveTradeRequest(0x1234, 10);
+            Assert.Equal((0x1234u, (ushort)10), requested);
+            Assert.Equal(0x1234u, state.TradeRequesterServerId);
+            Assert.False(state.IsTrading);
+
+            // S2C 0x022 Start opens it with the partner it names; the request is answered.
+            state.SetTradeStatus(TradeResultKind.Start, 0x1234, 10);
+            Assert.True(state.IsTrading);
+            Assert.Equal(0u, state.TradeRequesterServerId);
+            Assert.Equal((TradeResultKind.Start, 0x1234u, (ushort)10), results.Last());
+
+            // S2C 0x022 Make lights the partner's OK; any slot change (0x023 / 0x025) withdraws it; 0x023 keeps its counter.
+            state.SetTradeStatus(TradeResultKind.Make, 0x1234, 10);
+            Assert.True(state.TradePartnerAccepted);
+            state.SetPartnerTradeItem(0, InventoryState.GilItemId, 500, ReadOnlySpan<byte>.Empty, 5);
+            Assert.False(state.TradePartnerAccepted);
+            Assert.Equal(5, state.TradeCounter);
+            state.SetTradeStatus(TradeResultKind.Make, 0x1234, 10);
+            state.SetMyTradeItem(1, 4096, 3, 2);
+            Assert.False(state.TradePartnerAccepted);
+            var (mine, partner) = state.SnapshotTrade();
+            Assert.Equal((ushort)4096, mine[1].ItemId);
+            Assert.Equal(500u, partner[0].Count);
+
+            // An error closes it and clears both offers.
+            state.SetTradeStatus(TradeResultKind.ErrYouTrade, 0x1234, 10);
+            Assert.False(state.IsTrading);
+            Assert.Empty(state.MyTradeItems);
+            Assert.Empty(state.PartnerTradeItems);
+        }
+
+        [Fact]
         public void InventoryState_TradeShopBazaarLifecycles()
         {
             var state = new InventoryState();

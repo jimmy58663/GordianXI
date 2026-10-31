@@ -168,7 +168,7 @@ namespace Gordian.Engine.Ui
                     rows.Add(AbilitiesRow);
                     rows.Add(TrustRow);
                     rows.Add(ItemsRow);
-                    rows.Add(Unavailable(Trade));
+                    rows.Add(Row(Trade, StockUiMenuCommand.Trade));
                     if (context.HasTreasure) rows.Add(TreasureRow);
                     rows.Add(Row(Check, StockUiMenuCommand.Check));
                     break;

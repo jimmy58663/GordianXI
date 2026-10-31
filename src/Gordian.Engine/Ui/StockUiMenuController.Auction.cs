@@ -598,7 +598,7 @@ namespace Gordian.Engine.Ui
             else if (input.WasActionTriggered(InputAction.Cancel)) ClosePriceSet(menu);
             else if (key is { } k)
             {
-                uint cap = menu.PriceFor == StockUiAuctionPriceFor.Bid ? Math.Min(Gil, StockUiAuction.MaxPrice) : StockUiAuction.MaxPrice;
+                uint cap = menu.PriceFor is StockUiAuctionPriceFor.Bid or StockUiAuctionPriceFor.TradeGil ? Math.Min(Gil, StockUiAuction.MaxPrice) : StockUiAuction.MaxPrice;
                 var (price, digit) = StockUiAuction.StepPrice(StockUiAuction.ParsePrice(MacroField.Text), menu.AuctionPriceDigit, k, cap);
                 menu.AuctionPriceDigit = digit;
                 MacroField.Cancel();
@@ -631,6 +631,14 @@ namespace Gordian.Engine.Ui
         private void ConfirmPrice(StockUiOpenMenu menu, uint price)
         {
             var item = menu.AuctionItem;
+            if (menu.PriceFor == StockUiAuctionPriceFor.TradeGil)
+            {
+                // A trade window's gil (#486): 0 takes the gil back out.
+                var window = menu.Parent;
+                ClosePriceSet(menu);
+                SetTradeGil(window, price);
+                return;
+            }
             if (price == 0)
             {
                 // Nothing typed: the field opens again (the server takes 1 to 999,999,999).
