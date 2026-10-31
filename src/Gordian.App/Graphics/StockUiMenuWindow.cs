@@ -395,14 +395,12 @@ namespace Gordian.App.Graphics
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
             float iconX = placement.X + firstRow.X * s;
             float textX = iconX + ActionRowTextInset * s;
-            library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons);
             for (int i = from; i <= to; i++)
             {
                 var row = rows[i];
                 float ry = areaY + (i - first) * pitch * s;
-                // The picture, else the small icon (pictures 677 and up are not in magiconw; their source is unknown).
-                int icon = icons != null && row.Icon >= 0 && row.Icon < icons.Images.Count ? row.Icon : row.SmallIcon;
-                if (icons != null && icon >= 0 && icon < icons.Images.Count) DrawIcon(renderer, icons.Images[icon], iconX, ry, ActionIconSize * s);
+                // The picture (magiconw, or magico2w from 1000), else the small icon.
+                if (StockUiActionMenu.RowImage(library, row.Icon, row.SmallIcon) is { } icon) DrawIcon(renderer, icon, iconX, ry, ActionIconSize * s);
                 UiColor tint = i == selectedEntry ? ActionSelectedTint : row.IsGreyedAt(timestamp) ? ActionGreyedTint : White;
                 if (logFont != null) logFont.Draw(renderer, row.Name, textX, ry + ActionRowTextDrop * s, s, tint);
                 else renderer.DrawText(font, row.Name, textX, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, tint);

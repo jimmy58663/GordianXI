@@ -116,14 +116,16 @@ layout(location = 0) out vec4 fsout_Color;
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
-// TerrainTone: a soft shoulder on the lit colour after the modulate-2x (#7). Below x the colour is untouched; the excess
-// above it rolls off toward y instead of clipping at white. y <= x keeps the plain clamp (the retail look).
+// TerrainTone: a soft shoulder on the lit colour after the modulate-2x (#7). A colour whose brightest channel is below x is
+// untouched; above it the brightest channel rolls off toward y instead of clipping at white, and the other channels scale
+// with it so the hue holds. y <= x keeps the plain clamp (the retail look).
 vec3 ToneTerrain(vec3 c)
 {
     float span = TerrainTone.y - TerrainTone.x;
-    if (span <= 0.0) return c;
-    vec3 over = max(c - TerrainTone.x, vec3(0.0));
-    return min(c, TerrainTone.x + over / (1.0 + over / span));
+    float peak = max(c.r, max(c.g, c.b));
+    if (span <= 0.0 || peak <= TerrainTone.x) return c;
+    float over = peak - TerrainTone.x;
+    return c * ((TerrainTone.x + over / (1.0 + over / span)) / peak);
 }
 
 // Modulate-2x, the highlight shoulder and fog: defined after main().
