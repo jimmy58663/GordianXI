@@ -157,9 +157,9 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x86 |  | 6 | stepped | 194 | Sets or clears `Render.Flags3` bit 3 of an actor. |
 | 0x87 |  | 2 | stepped | 10 | World pass request: sends C2S 0x01B and waits for the answer. |
 | 0x88 |  | 2 | stepped | 15 | The other world pass request (C2S 0x01B with another mode). |
-| 0x89 |  | 3 | stepped | 179 | Opens a zone map in the map window for the event. |
-| 0x8A |  | 1 | stepped | 229 | Closes that map window ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
-| 0x8B | `CodeSETEVENTMARK` | 25 | stepped | 101 | Places a named marker on a zone map ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
+| 0x89 |  | 3 | runs | 179 | Opens a zone map for the event, on its first map (`IEventVmHost.OpenEventMap`, `EventMapState`; [#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
+| 0x8A |  | 1 | runs | 229 | Closes the event map (`CloseEventMap`, [#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
+| 0x8B | `CodeSETEVENTMARK` | 25 | runs | 101 | Places a named marker on the open event map: world x / z in thousandths, a 16-byte name with `_` for spaces (`SetEventMapMarker`, [#168](https://github.com/jimmy58663/GordianXI/issues/168), see [0x8B](#0x8b)). |
 | 0x8C |  | by sub | runs | 55 | Crafting requests (recipes, synthesis support) sent as C2S 0x058, and the wait for the answer ([#405](https://github.com/jimmy58663/GordianXI/issues/405), see [0x8C](#0x8c)). |
 | 0x8D |  | 5 | stepped | 85 | Opens the map window on a map and sub-map without markers. |
 | 0x8E |  | 1 | stepped | 27 | Sets the event entity's event status to 45. |
@@ -220,7 +220,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xC5 |  | 17 | runs | 708 | Starts a scene task like 0x45, from file 67355 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xC6 |  | 15 | runs | 47 | Waits for a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xC7 |  | 15 | runs | 4 | Stops a 0xC5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
-| 0xC8 |  | 7 | stepped | 29 | Opens the map window with given parameters (the intro map tutorial, [#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
+| 0xC8 |  | 7 | runs | 29 | Opens a zone's map on one of its maps: the intro map tutorial (`OpenEventMap`, [#168](https://github.com/jimmy58663/GordianXI/issues/168), see [0x8B](#0x8b)). |
 | 0xC9 |  | 1 | stepped | 16 | Restarts the clock (unlike 0x78 it leaves the weather). |
 | 0xCA |  | ? | no length | 0 | No handler in the current client. |
 | 0xCB |  | ? | no length | 8 | No handler in the current client; all eight census hits are 0x9D table data. |
@@ -232,7 +232,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0xD1 |  | 15 | runs | 0 | Waits for a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD2 |  | 15 | runs | 0 | Stops a 0xD0 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD3 |  | 6 | stepped | 89 | Clears an actor's queued motions. |
-| 0xD4 |  | by sub | partial | 655 | The query with the zone map behind it (home point lists) and the map marker data for it ([#168](https://github.com/jimmy58663/GordianXI/issues/168)). |
+| 0xD4 |  | by sub | runs | 655 | The query with the zone map behind it (home point lists) and each option's place on it ([#168](https://github.com/jimmy58663/GordianXI/issues/168), see [0xD4](#0xd4)). |
 | 0xD5 |  | 17 | runs | 73 | Starts a scene task like 0x45, from file 102449 + n. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD6 |  | 15 | runs | 4 | Waits for a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
 | 0xD7 |  | 15 | runs | 1 | Stops a 0xD5 task. [#199](https://github.com/jimmy58663/GordianXI/issues/199). |
@@ -662,6 +662,13 @@ When a change makes an opcode run, update its row and detail section in the same
 - Layout: `87 sub`, `88 sub`. Subs 0 and 2 queue C2S 0x01B (world pass) with a mode (0x87: 0 / 2, 0x88: 1 / 3) and yield; sub 1 yields until the server's answer clears the wait flag (XiEvents OpCodes/0x0087, 0x0088).
 - Stepped. Most census hits are table data (25 of 37 and 20 of 32 uses); about 3 events use each as code.
 
+### 0x8B
+
+- Layouts: `89 map:work` (3) opens a zone's map on its first map; `C8 map:work number:work flag:work` (7) on one of its maps; `8B map:work index:work x:work z:work name:16` (25) marks it; `8A` (1) closes it (XiEvents OpCodes/0x0089, 0x00C8, 0x008B, 0x008A). The map is a zone id; x and z are world coordinates in thousandths (z north); the name's `_` are spaces.
+- Retail registers an 0x8B marker without showing it when no event map is open (OpenMap2 mode 4, no ShowMark); GordianXI drops it then (logged at Debug).
+- Census (2026-10-29): the intros of Southern San d'Oria (503, player actor), Northern San d'Oria (535), Port San d'Oria (500), Bastok Mines (1), Bastok Markets (7) and Port Bastok (1) run `C8 zone 0 1`, `8B zone 0 x z <guide>`, a line, then `8A`: S. San d'Oria marks Ailevia at (-10.264, -0.363), N. San d'Oria Matildie, Port San d'Oria Teilsa, Bastok Mines Arva, Bastok Markets Reet, Port Bastok Dulsie (`MultiEntityEventTests.SouthernSandoriaIntro_ShowsTheGuideOnTheMap`). The Windurst intros have none. Event 3520 in S. San d'Oria runs `89` / `8B` / `8A` once per shop NPC.
+- GordianXI: `EventMapState` (open map, its markers), shown by `StockUiEventMapWindow` centred on the last marker ([ui/stock-ui.md](../ui/stock-ui.md#event-map-168)). 0xC8's third value is not used (1 in every intro).
+
 ### 0x8C
 
 - Layout (operands are 16-bit work values, XiEvents OpCodes/0x008C): `8C 00 skill level param0` (8 bytes) sends C2S 0x058 mode 1; `8C 01` (2) waits for the answer; `8C 02 skill level rank first last` (12) mode 2 (`Param4` the rank, `Param1` / `Param2` the page's first and last index: 0 / 16, then 16 / 32...); `8C 03` / `8C 04 skill level rank index` (10) modes 3 / 4 (`Param4`, `Param3`); `8C 05 param1 skill level param4 param3 param0` (14) mode 5, which does not wait. Subs 0 and 2-4 set retail's `RecRecipeFlag`, which S2C 0x031 (`RecvRecipe`) clears; every sub yields a frame. Packet fields: XiPackets `world/client/0x0058`, `world/server/0x0031`.
@@ -805,14 +812,17 @@ When a change makes an opcode run, update its row and detail section in the same
 
 | Sub | Bytes | Events | Meaning (XiEvents OpCodes/0x00D4) | GordianXI |
 |---|---|---|---|---|
-| 0x00 | 8 | 488 | The 0x24 query, one byte later, with the zone's own map (type 6) opened behind it | runs as the query; no map drawn |
-| 0x01 | 8 | 488 | Marker data for the query from three work values | stepped (diagnostic) |
+| 0x00 | 8 | 488 | The 0x24 query, one byte later, with the zone's own map (type 6) opened behind it | runs: `OpenQueryMap`, then the query |
+| 0x01 | 8 | 488 | `D4 01 option:work kind:work number:work`: an option's travel point | runs (`SetQueryMapEntry`); kind 0 (home points) is shown |
 | 0x02 | 8 | 166 | The 0x24 query without the map | runs (`OpenQuery`) |
-| 0x03 | 6 | 163 | Marker data from two work values | stepped (diagnostic) |
-| 0x04 | 12 | 6 | Marker data from five work values | stepped (diagnostic) |
-| 0x05 | 12 | 19 | As 0x04 with another marker kind | stepped (diagnostic) |
+| 0x03 | 6 | 163 | `D4 03 option:work value:work` | recorded (`SetQueryMapEntry`), not shown |
+| 0x04 | 12 | 6 | `D4 04 option:work value:work a:work b:work c:work` | recorded, not shown |
+| 0x05 | 12 | 19 | As 0x04 with another marker kind | recorded, not shown |
 
-- Evidence: the home point lists open their query with 0xD4 and send their markers with subs 1 / 3 / 4 / 5 ([#168](https://github.com/jimmy58663/GordianXI/issues/168)); the query window's geometry is from the maintainer's retail recording of the home point menu (2026-09-28, [ui/stock-ui.md](../ui/stock-ui.md), chunk 6). The map and its markers are [#168](https://github.com/jimmy58663/GordianXI/issues/168).
+- Evidence: the home point lists open their query with 0xD4 and send their markers with subs 1 / 3 / 4 / 5 ([#168](https://github.com/jimmy58663/GordianXI/issues/168)); the query window's geometry is from the maintainer's retail recording of the home point menu (2026-09-28, [ui/stock-ui.md](../ui/stock-ui.md), chunk 6).
+- Trace (2026-10-29, `HomePointCaptureTests.TravelToAnotherZone_EndsWithTheTeleportChoice`, Southern San d'Oria event 8700 to Northern San d'Oria): before the "Teleport where? (Northern San d'Oria)" list the script sends `D4 01` for options 1-4 with kind 0 and numbers 3, 4, 5 and 98, then opens the list with `D4 00`. The option is the 0-based index of the choice ("Nowhere." is 0). The zone list and the "Teleport?" confirm get no entries, as the retail capture shows no map there.
+- **Beyond XiEvents:** sub 1's two values are a travel point kind and its number. Kind 0 is the home points, numbered as the retail home point event's own tables (`HomePoints`, LandSandBoat's `hpIndex`); the census's other kinds are 2 and 3 (other travel networks: *inference*, from Adoulin and survival guide events). Subs 3-5 hold a place given directly; which value is which is not traced, so GordianXI records them and shows no map for them.
+- The entries go with the query: `EventDialogController` clears them, and the map behind the query, when the query closes. While the query is open the HUD shows the map only with the cursor on an option whose place is known (`EventMapState.Focus`, `StockUiEventMapWindow`; [ui/stock-ui.md](../ui/stock-ui.md#event-map-168)).
 - An unknown sub ends the request here; retail neither advances nor yields.
 
 ### 0xD8

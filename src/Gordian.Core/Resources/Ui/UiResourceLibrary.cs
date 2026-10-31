@@ -25,6 +25,12 @@ namespace Gordian.Core.Resources.Ui
 
         /// <summary>The spell icon DAT (ROM/280/15): 32 x 32 textures and the element group the magic lists draw from.</summary>
         public const int SpellIconFileId = 39551;
+
+        /// <summary>
+        /// The second spell icon DAT (ROM/324/95): the element group <c>magico2w</c> (89 images: the trusts' pictures, the
+        /// job point abilities', the mount icons) the lists draw pictures 1000 and up from.
+        /// </summary>
+        public const int SecondSpellIconFileId = 39560;
         public const int FirstWindowSkinFileId = 14;
         public const int WindowSkinCount = 8;
 
@@ -67,6 +73,9 @@ namespace Gordian.Core.Resources.Ui
             // The spell icons the Magic lists draw before each name (#240): ROM/280/15, a 0x31 group over 32 x 32 textures.
             var spellIcons = resources.LoadDatBytesByFileId(SpellIconFileId);
             if (spellIcons != null) library.AddDat(spellIcons);
+            // Pictures 1000 and up (#361): ROM/324/95's magico2w group.
+            var secondSpellIcons = resources.LoadDatBytesByFileId(SecondSpellIconFileId);
+            if (secondSpellIcons != null) library.AddDat(secondSpellIcons);
             GordianLog.Info("UI", $"Stock UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
                                   $"{library._texturePayloads.Count} textures (window skin {skin}).");
             return library;

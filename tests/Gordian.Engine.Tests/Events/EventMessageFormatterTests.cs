@@ -26,6 +26,16 @@ namespace Gordian.Engine.Tests.Events
             Assert.Equal(new[] { "Obtained: Fire Crystal.", "You have 250 gil right." }, lines);
         }
 
+        /// <summary>The home point list's question (round 1 of #168): the full-width parentheses read as retail shows them.</summary>
+        [Fact]
+        public void FullWidthParentheses_ReadAsASpaceAndHalfWidthOnes()
+        {
+            // "Teleport where?" CP932 0x8169 "Pso'Xja" 0x816A
+            var raw = Ascii("Teleport where?").Concat(new byte[] { 0x81, 0x69 }).Concat(Ascii("Pso'Xja")).Concat(new byte[] { 0x81, 0x6A }).ToArray();
+            var lines = EventMessageFormatter.FormatLines(EventMessageDecoder.Decode(raw), new SimpleMessageContext(new int[0]));
+            Assert.Equal("Teleport where? (Pso'Xja)", Assert.Single(lines));
+        }
+
         [Fact]
         public void FormatQuery_SplitsCommentsFromChoices()
         {

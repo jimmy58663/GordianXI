@@ -5,6 +5,7 @@ using System.Globalization;
 using Gordian.Engine.Actions;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Engine.Ui
 {
@@ -49,7 +50,7 @@ namespace Gordian.Engine.Ui
         StockUiTargetContext? Target);
 
     /// <summary>
-    /// One row of a spell or ability list: the action, its name, its icon (an image of the <c>magiconw</c> group, -1 for
+    /// One row of a spell or ability list: the action, its name, its picture (<c>StockUiActionMenu.PictureImage</c>, -1 for
     /// none) and the small icon to fall back on, the MP it costs (spells; -1 otherwise), its recast's end
     /// (<see cref="System.Diagnostics.Stopwatch"/> ticks, 0 when ready), why it is greyed (null when usable), whether a
     /// running recast greys it (job abilities, retail D2 note 2026-10-12), its help line, and for a pet command that opens
@@ -142,6 +143,40 @@ namespace Gordian.Engine.Ui
         /// <summary>The element group the list icons come from (ROM/280/15, file id 39551: 677 images over 32 x 32 textures).</summary>
         public const string IconGroup = "magiconw";
 
+        /// <summary>
+        /// The element group pictures <see cref="SecondIconBase"/> and up come from (ROM/324/95, file id 39560, 89 images):
+        /// picture p is its image p - 1000. Images 0-62 are the trusts' pictures (textures <c>fa_1_1</c> ... <c>fa_7_9</c>),
+        /// 64-85 the job point abilities' (<c>sp2_01_w</c> Brazen Rush ... <c>sp2_22_r</c> Odyllic Subterfuge, in job order),
+        /// 86 / 87 the mount icons (<c>mnt_chco</c>, <c>mnt_mons</c>).
+        /// <b>Beyond xi-tools:</b> found by a scan of the install for 0x31 groups (2026-10-29, #361); every picture past
+        /// <c>magiconw</c> in the retail tables is 1000-1085 (the 122 trust spells, kind 8, and the 22 job point
+        /// abilities), and each lands on its own texture (Inner Strength 1065 on <c>sp2_02_m</c>, Clarion Call 1073 on
+        /// <c>sp2_10_b</c>).
+        /// </summary>
+        public const string SecondIconGroup = "magico2w";
+
+        /// <summary>The first picture number <see cref="SecondIconGroup"/> holds.</summary>
+        public const int SecondIconBase = 1000;
+
+        /// <summary>The mount list's paws: <see cref="SecondIconGroup"/> images 86 (<c>mnt_chco</c>) and 87 (<c>mnt_mons</c>).</summary>
+        public const int ChocoboMountPicture = SecondIconBase + 86, MountPicture = SecondIconBase + 87;
+
+        /// <summary>
+        /// The image a spell or command picture number names: <see cref="IconGroup"/> image p below
+        /// <see cref="SecondIconBase"/>, <see cref="SecondIconGroup"/> image p - 1000 from there; null when it has none.
+        /// </summary>
+        public static UiImage? PictureImage(UiResourceLibrary library, int picture)
+        {
+            if (picture < 0) return null;
+            string group = picture >= SecondIconBase ? SecondIconGroup : IconGroup;
+            int index = picture >= SecondIconBase ? picture - SecondIconBase : picture;
+            return library.TryGetGroup(group, out var icons) && index < icons.Images.Count ? icons.Images[index] : null;
+        }
+
+        /// <summary>A row's icon: its picture, else its small icon (traits' "Ab" tiles, songs' notes); null for neither.</summary>
+        public static UiImage? RowImage(UiResourceLibrary library, int picture, int smallIcon) =>
+            PictureImage(library, picture) ?? PictureImage(library, smallIcon);
+
         /// <summary>Rows the list windows show at once (their twelve row buttons).</summary>
         public const int VisibleRows = 12;
 
@@ -184,7 +219,9 @@ namespace Gordian.Engine.Ui
         /// The mount list (#87): the unlocked mounts of S2C 0x0AE in mount id order, named by the mount name table
         /// (ROM/351/84, row = mount id) and skipping ids it has no name for (id 63, the reserved slots), with the help line
         /// of ROM/351/85 for the help bar. Never greyed (retail capture Mounts.mp4: a GM with every mount, all white); one
-        /// recast for all (S2C 0x119 <c>MountRecast</c>), shown as the info window's "Next".
+        /// recast for all (S2C 0x119 <c>MountRecast</c>), shown as the info window's "Next". Each row's icon is a paw from
+        /// <see cref="SecondIconGroup"/>: the chocobo's yellow one (<see cref="ChocoboMountPicture"/>), the other mounts' beige
+        /// one (<see cref="MountPicture"/>); PROVISIONAL which mount takes which, from the texture names.
         /// </summary>
         public static List<StockUiActionRow> MountRows(IReadOnlyList<int> unlocked, Func<int, string?> name, Func<int, string?> help,
             TimeSpan recast, long now)
@@ -194,7 +231,8 @@ namespace Gordian.Engine.Ui
             foreach (int id in unlocked)
             {
                 if (id is < 0 or > ushort.MaxValue || name(id) is not { Length: > 0 } mountName) continue;
-                rows.Add(new StockUiActionRow(StockUiActionType.Mount, (ushort)id, mountName, ActionTargetFlags.Self, -1, -1, ends, null,
+                rows.Add(new StockUiActionRow(StockUiActionType.Mount, (ushort)id, mountName, ActionTargetFlags.Self,
+                    id == 0 ? ChocoboMountPicture : MountPicture, -1, ends, null,
                     Help: help(id)));
             }
             return rows;
@@ -375,9 +413,8 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// A command's list icon: its picture (+0x04, Soul Voice 75) when it has one, else its small icon (+0x03, the "Ab"
-        /// tiles traits show). Pictures numbered 677 and up (Inner Strength 1065, Clarion Call 1073 and the other newer
-        /// abilities, 122 spells) lie past <c>magiconw</c>'s 677 images; their source is not found yet, so the lists fall
-        /// back to the small icon for them.
+        /// tiles traits show). Pictures 1000 and up (Inner Strength 1065, Clarion Call 1073) are <see cref="SecondIconGroup"/>'s
+        /// (<see cref="PictureImage"/>).
         /// </summary>
         public static int CommandIcon(CommandRecord record) => record.Icon2 >= 0 ? record.Icon2 : record.Icon;
 

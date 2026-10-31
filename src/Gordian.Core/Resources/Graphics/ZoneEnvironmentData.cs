@@ -70,6 +70,54 @@ namespace Gordian.Core.Resources.Graphics
         /// Elevation slices (up to 8) defining the celestial sky gradient from horizon to zenith.
         /// </summary>
         public List<SkySlice> Slices { get; } = new();
+
+        /// <summary>
+        /// Blends two keyframes component by component: <paramref name="t"/> 0 gives <paramref name="a"/>, 1 gives
+        /// <paramref name="b"/>. Used between a weather's time-of-day keyframes and across a weather change.
+        /// Interpolation as xim's computeInterpolatedEnvResource, referenced from xi-model-viewer
+        /// (https://github.com/vekien/xi-model-viewer, ui/js/environment.js resolveEnvironment / lerpEnv).
+        /// </summary>
+        public static EnvironmentKeyframe Lerp(EnvironmentKeyframe a, EnvironmentKeyframe b, float t, int hour)
+        {
+            var result = new EnvironmentKeyframe
+            {
+                Hour = hour,
+                Indoors = a.Indoors,
+                ClearColor = Vector4.Lerp(a.ClearColor, b.ClearColor, t),
+                DrawDistance = MathF.Max(10f, float.Lerp(a.DrawDistance, b.DrawDistance, t)),
+                Spokes = a.Spokes > 0 ? a.Spokes : (ushort)16,
+                Radius = float.Lerp(a.Radius, b.Radius, t),
+
+                TerrainSunColor = Vector4.Lerp(a.TerrainSunColor, b.TerrainSunColor, t),
+                TerrainMoonColor = Vector4.Lerp(a.TerrainMoonColor, b.TerrainMoonColor, t),
+                TerrainAmbientColor = Vector4.Lerp(a.TerrainAmbientColor, b.TerrainAmbientColor, t),
+                TerrainFogColor = Vector4.Lerp(a.TerrainFogColor, b.TerrainFogColor, t),
+                TerrainFogStart = float.Lerp(a.TerrainFogStart, b.TerrainFogStart, t),
+                TerrainFogEnd = float.Lerp(a.TerrainFogEnd, b.TerrainFogEnd, t),
+                TerrainDiffuseMult = float.Lerp(a.TerrainDiffuseMult, b.TerrainDiffuseMult, t),
+
+                ModelSunColor = Vector4.Lerp(a.ModelSunColor, b.ModelSunColor, t),
+                ModelMoonColor = Vector4.Lerp(a.ModelMoonColor, b.ModelMoonColor, t),
+                ModelAmbientColor = Vector4.Lerp(a.ModelAmbientColor, b.ModelAmbientColor, t),
+                ModelFogColor = Vector4.Lerp(a.ModelFogColor, b.ModelFogColor, t),
+                ModelFogStart = float.Lerp(a.ModelFogStart, b.ModelFogStart, t),
+                ModelFogEnd = float.Lerp(a.ModelFogEnd, b.ModelFogEnd, t),
+                ModelDiffuseMult = float.Lerp(a.ModelDiffuseMult, b.ModelDiffuseMult, t)
+            };
+
+            // Interpolate sky slices
+            int sliceCount = Math.Min(a.Slices.Count, b.Slices.Count);
+            for (int i = 0; i < sliceCount; i++)
+            {
+                var s0 = a.Slices[i];
+                var s1 = b.Slices[i];
+                var c = Vector4.Lerp(s0.Color, s1.Color, t);
+                var elev = float.Lerp(s0.Elevation, s1.Elevation, t);
+                result.Slices.Add(new SkySlice(c, elev));
+            }
+
+            return result;
+        }
     }
 
     /// <summary>
@@ -249,44 +297,7 @@ namespace Gordian.Core.Resources.Graphics
             float currentT = tHours < floor.Hour ? tHours + 24f : tHours;
             float factor = Math.Clamp((currentT - t0) / (t1 - t0), 0.0f, 1.0f);
 
-            var result = new EnvironmentKeyframe
-            {
-                Hour = (int)tHours,
-                Indoors = floor.Indoors,
-                ClearColor = Vector4.Lerp(floor.ClearColor, ceil.ClearColor, factor),
-                DrawDistance = MathF.Max(10f, float.Lerp(floor.DrawDistance, ceil.DrawDistance, factor)),
-                Spokes = floor.Spokes > 0 ? floor.Spokes : (ushort)16,
-                Radius = float.Lerp(floor.Radius, ceil.Radius, factor),
-
-                TerrainSunColor = Vector4.Lerp(floor.TerrainSunColor, ceil.TerrainSunColor, factor),
-                TerrainMoonColor = Vector4.Lerp(floor.TerrainMoonColor, ceil.TerrainMoonColor, factor),
-                TerrainAmbientColor = Vector4.Lerp(floor.TerrainAmbientColor, ceil.TerrainAmbientColor, factor),
-                TerrainFogColor = Vector4.Lerp(floor.TerrainFogColor, ceil.TerrainFogColor, factor),
-                TerrainFogStart = float.Lerp(floor.TerrainFogStart, ceil.TerrainFogStart, factor),
-                TerrainFogEnd = float.Lerp(floor.TerrainFogEnd, ceil.TerrainFogEnd, factor),
-                TerrainDiffuseMult = float.Lerp(floor.TerrainDiffuseMult, ceil.TerrainDiffuseMult, factor),
-
-                ModelSunColor = Vector4.Lerp(floor.ModelSunColor, ceil.ModelSunColor, factor),
-                ModelMoonColor = Vector4.Lerp(floor.ModelMoonColor, ceil.ModelMoonColor, factor),
-                ModelAmbientColor = Vector4.Lerp(floor.ModelAmbientColor, ceil.ModelAmbientColor, factor),
-                ModelFogColor = Vector4.Lerp(floor.ModelFogColor, ceil.ModelFogColor, factor),
-                ModelFogStart = float.Lerp(floor.ModelFogStart, ceil.ModelFogStart, factor),
-                ModelFogEnd = float.Lerp(floor.ModelFogEnd, ceil.ModelFogEnd, factor),
-                ModelDiffuseMult = float.Lerp(floor.ModelDiffuseMult, ceil.ModelDiffuseMult, factor)
-            };
-
-            // Interpolate sky slices
-            int sliceCount = Math.Min(floor.Slices.Count, ceil.Slices.Count);
-            for (int i = 0; i < sliceCount; i++)
-            {
-                var s0 = floor.Slices[i];
-                var s1 = ceil.Slices[i];
-                var c = Vector4.Lerp(s0.Color, s1.Color, factor);
-                var elev = float.Lerp(s0.Elevation, s1.Elevation, factor);
-                result.Slices.Add(new SkySlice(c, elev));
-            }
-
-            return result;
+            return EnvironmentKeyframe.Lerp(floor, ceil, factor, (int)tHours);
         }
     }
 }

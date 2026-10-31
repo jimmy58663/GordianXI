@@ -45,7 +45,7 @@ namespace Gordian.Engine.Tests.Events
         /// <summary>Plays an event, answering each query by the text of the option to pick (a substring), in order.</summary>
         private void Drive(EventVm vm, RecordingHost host, ZoneDialogTable dialog, EventWorkZone zone, Queue<string> picks, int maxTicks = 20000)
         {
-            int answered = 0;
+            int answered = 0, mapLogged = 0;
             var trace = new Queue<(int Pc, byte Op)>();
             vm.Trace = (pc, op) =>
             {
@@ -63,6 +63,8 @@ namespace Gordian.Engine.Tests.Events
                     var message = dialog.GetMessage(query.Message)!;
                     var context = new SimpleMessageContext(Enumerable.Range(0, 40).Select(zone.GetMessageParameter).ToArray());
                     var (comments, choices) = EventMessageFormatter.FormatQuery(message, context);
+                    foreach (var call in host.MapCalls.Skip(mapLogged)) _output.WriteLine($"   map: {call}");
+                    mapLogged = host.MapCalls.Count;
                     _output.WriteLine($"query {query.Message} default {query.Default} hidden 0x{query.Hidden:X}: {string.Join(" | ", comments)}");
                     _output.WriteLine($"   zone[0..40]: {string.Join(",", zone.Zone.Take(41))}");
                     _output.WriteLine($"   locals[0..48]: {string.Join(",", vm.Locals.Take(49))}");
@@ -75,6 +77,7 @@ namespace Gordian.Engine.Tests.Events
                     answered++;
                 }
             }
+            foreach (var call in host.MapCalls.Skip(mapLogged)) _output.WriteLine($"   map: {call}");
             foreach (var p in host.Printed) _output.WriteLine($"msg {p.Message}: {dialog.GetPlainText(p.Message)}");
             if (host.Skipped.Contains(0xFF)) _output.WriteLine($"trace: {string.Join(" ", trace.Select(t => $"{t.Pc}:{t.Op:X2}"))}");
             _output.WriteLine($"updates: {string.Join(",", host.Updates.Select(u => $"0x{u:X}"))} positions: {string.Join(",", host.PositionUpdates.Select(p => $"0x{p.Parameter:X}@({p.X:F2},{p.Y:F2},{p.Z:F2})"))} end=0x{vm.EndParameter:X} finished={vm.IsFinished} cancelled={vm.IsCancelled} pc={vm.ProgramCounter} skipped={string.Join(" ", host.Skipped.Distinct().Select(b => b.ToString("X2")))}");
@@ -138,6 +141,12 @@ namespace Gordian.Engine.Tests.Events
             Assert.True(vm.IsFinished);
             Assert.Equal(new uint[] { 8, 0x30002 }, host.Updates);
             Assert.Equal(0x30002u, vm.EndParameter);
+            // The home point list behind the map (#168): each Home Point option gets its global number (kind 0) with
+            // D4 01, then D4 00 opens the list with the map behind it. The zone list and the confirm prompt have none.
+            Assert.Equal(new[]
+            {
+                "entry 1 sub 1 0 3 0 0 0", "entry 2 sub 1 0 4 0 0 0", "entry 3 sub 1 0 5 0 0 0", "entry 4 sub 1 0 98 0 0 0", "query",
+            }, host.MapCalls);
         }
     }
 }

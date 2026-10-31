@@ -68,7 +68,6 @@ namespace Gordian.App.Graphics
             float first = StockUiMenuWindow.ScrolledFirstRow(menu, timestamp);
             float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
             float ts = s * StockUiPartyWindow.TextScale;
-            library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons);
             renderer.SetClip(placement.X, areaY, definition.Frame.Width * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.BlueSlots.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
@@ -81,7 +80,7 @@ namespace Gordian.App.Graphics
                 renderer.DrawText(font, slot.Slot.ToString("00", CultureInfo.InvariantCulture), areaX + NumberX * s,
                     ry + (firstRow.Height * s - font.LineHeight * ts) * 0.5f, ts, number);
                 if (slot.SpellId == 0) continue;
-                if (icons != null && slot.Icon >= 0 && slot.Icon < icons.Images.Count) StockUiMenuWindow.DrawIcon(renderer, icons.Images[slot.Icon], areaX + IconX * s, ry, 16 * s);
+                if (StockUiActionMenu.PictureImage(library, slot.Icon) is { } icon) StockUiMenuWindow.DrawIcon(renderer, icon, areaX + IconX * s, ry, 16 * s);
                 Line(renderer, font, logFont, slot.Name, areaX + NameX * s, ry, s, i == selected ? StockUiMenuWindow.ActionSelectedTint : StockUiMenuWindow.White);
             }
             renderer.ClearClip();
@@ -99,7 +98,6 @@ namespace Gordian.App.Graphics
             foreach (var b in definition.Buttons) if (StockUiMenuController.IsSelectable(b)) visible++;
             float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
             float ts = s * StockUiPartyWindow.TextScale;
-            library.TryGetGroup(StockUiActionMenu.IconGroup, out var icons);
             renderer.SetClip(placement.X, areaY, definition.Frame.Width * s, visible * pitch * s);
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(rows.Count - 1, (int)Math.Ceiling(first) + visible);
             for (int i = from; i <= to; i++)
@@ -118,7 +116,7 @@ namespace Gordian.App.Graphics
                     : row.RemoveAll ? RemoveAllTint
                     : row.IsSet ? SetTint
                     : row.GreyedReason != null ? StockUiMenuWindow.ActionGreyedTint : StockUiMenuWindow.White;
-                if (icons != null && row.Icon >= 0 && row.Icon < icons.Images.Count) StockUiMenuWindow.DrawIcon(renderer, icons.Images[row.Icon], areaX, ry, 16 * s);
+                if (StockUiActionMenu.PictureImage(library, row.Icon) is { } icon) StockUiMenuWindow.DrawIcon(renderer, icon, areaX, ry, 16 * s);
                 Line(renderer, font, logFont, row.Name, areaX + LearnedNameX * s, ry, s, tint);
             }
             renderer.ClearClip();

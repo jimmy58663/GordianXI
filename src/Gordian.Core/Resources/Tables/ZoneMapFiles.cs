@@ -16,7 +16,7 @@ namespace Gordian.Core.Resources.Tables
     /// ROM/17, 18, 169, 242, 254, 258, 267, 282-286, 292, 293, 302, 307, 311, 316, 318, 333, 337 and 342. **Beyond xi-tools:** the name pattern, the
     /// folders past 286 and that the expansion folders re-ship 21 base maps (ROM/282-285 copies of ROM/17-18 files; the later
     /// copy is listed, unverified which one retail reads). <c>m_000_00</c> placeholders and the <c>eventmap</c> files of
-    /// ROM/303-311 are left out. Which map is the player's floor, and the world-to-map scale and offset the position marker
+    /// ROM/303-311 are left out, and so are a zone's "Dummy Map" / "NO MAP" placeholders when it has real maps. Which map is the player's floor, and the world-to-map scale and offset the position marker
     /// and the <c>&lt;pos&gt;</c> placeholder need, are not in these files.
     /// </summary>
     public static class ZoneMapFiles
@@ -112,6 +112,21 @@ namespace Gordian.Core.Resources.Tables
             (288, 0, 333, 8), (289, 0, 337, 37), (291, 1, 342, 69),
         };
 
+        /// <summary>
+        /// The maps whose image is a placeholder rather than a map: the parchment stamped "Dummy Map" over a stand-in floor
+        /// (one image, shipped 30 times) and the blank "NO MAP" parchment (two images), found by their pixels; all but one place the 0x31 quad at (0, 0)
+        /// (read 2026-10-31, round 2 of #168: Castle Zvahl Keep's home point opened on its "Dummy Map" map 0, image-33).
+        /// A zone that also has real maps leaves these out (<see cref="MapsOf"/>); a zone with nothing else keeps them, as
+        /// the battlefields' "NO MAP" is all retail has to show there.
+        /// </summary>
+        private static readonly HashSet<(int Zone, int Map)> Placeholders = new()
+        {
+            (139, 0), (144, 0), (146, 0), (147, 16), (153, 0), (155, 15), (155, 16), (155, 17), (155, 18), (156, 0), (159, 15),
+            (159, 16), (160, 0), (162, 0), (163, 1), (163, 15), (163, 16), (164, 0), (165, 0), (168, 0), (168, 15), (170, 0),
+            (171, 0), (175, 15), (175, 16), (176, 0), (177, 15), (177, 16), (178, 0), (179, 0), (180, 0), (181, 0), (182, 0),
+            (202, 0), (203, 0), (206, 0), (242, 0),
+        };
+
         private static readonly Dictionary<int, byte[]> MapsByZone = BuildIndex();
 
         private static Dictionary<int, byte[]> BuildIndex()
@@ -123,11 +138,18 @@ namespace Gordian.Core.Resources.Tables
                 list.Add(map);
             }
             var index = new Dictionary<int, byte[]>(lists.Count);
-            foreach (var (zone, list) in lists) index[zone] = list.ToArray();
+            foreach (var (zone, list) in lists)
+            {
+                var real = list.FindAll(m => !Placeholders.Contains((zone, m)));
+                index[zone] = (real.Count > 0 ? real : list).ToArray();
+            }
             return index;
         }
 
-        /// <summary>The map numbers a zone has, ascending; empty for a zone without maps.</summary>
+        /// <summary>Whether a map's image is a "Dummy Map" or "NO MAP" placeholder.</summary>
+        public static bool IsPlaceholder(int zoneId, int map) => Placeholders.Contains((zoneId, map));
+
+        /// <summary>The map numbers a zone has, ascending, without placeholders when it has real maps; empty for a zone without maps.</summary>
         public static IReadOnlyList<byte> MapsOf(int zoneId) => MapsByZone.TryGetValue(zoneId, out var maps) ? maps : Array.Empty<byte>();
 
         /// <summary>The DAT path of a zone's map (<c>ROM/18/60.DAT</c> for 231, map 0), or null.</summary>
@@ -150,6 +172,29 @@ namespace Gordian.Core.Resources.Tables
             string? path = PathOf(zoneId, map);
             if (path == null || resources.LoadDatBytes(path) is not { } dat) return null;
             return Decode(dat, path);
+        }
+
+        /// <summary>
+        /// A zone's map texture and where its image sits (<see cref="ZoneMapProjection"/>), or null when the zone has no
+        /// such map or its DAT is missing.
+        /// </summary>
+        public static (DecodedTexture Texture, ZoneMapOrigin? Origin)? LoadWithOrigin(ResourceManager resources, int zoneId, int map)
+        {
+            string? path = PathOf(zoneId, map);
+            if (path == null || resources.LoadDatBytes(path) is not { } dat || Decode(dat, path) is not { } texture) return null;
+            return (texture, ZoneMapProjection.ReadOrigin(dat));
+        }
+
+        /// <summary>The map number to show for a requested one: it if the zone has it, else the zone's first map, or -1 for none.</summary>
+        public static int Resolve(int zoneId, int map)
+        {
+            var maps = MapsOf(zoneId);
+            if (maps.Count == 0) return -1;
+            foreach (byte m in maps)
+            {
+                if (m == map) return m;
+            }
+            return maps[0];
         }
 
         /// <summary>The first texture section of a map DAT.</summary>

@@ -502,9 +502,10 @@ layout(set = 1, binding = 1) uniform sampler uSampler;
 vec3 ToneTerrain(vec3 c)
 {
     float span = TerrainTone.y - TerrainTone.x;
-    if (span <= 0.0) return c;
-    vec3 over = max(c - TerrainTone.x, vec3(0.0));
-    return min(c, TerrainTone.x + over / (1.0 + over / span));
+    float peak = max(c.r, max(c.g, c.b));
+    if (span <= 0.0 || peak <= TerrainTone.x) return c;
+    float over = peak - TerrainTone.x;
+    return c * ((TerrainTone.x + over / (1.0 + over / span)) / peak);
 }
 
 void main()
@@ -577,9 +578,10 @@ layout(set = 1, binding = 1) uniform sampler uSampler;
 vec3 ToneTerrain(vec3 c)
 {
     float span = TerrainTone.y - TerrainTone.x;
-    if (span <= 0.0) return c;
-    vec3 over = max(c - TerrainTone.x, vec3(0.0));
-    return min(c, TerrainTone.x + over / (1.0 + over / span));
+    float peak = max(c.r, max(c.g, c.b));
+    if (span <= 0.0 || peak <= TerrainTone.x) return c;
+    float over = peak - TerrainTone.x;
+    return c * ((TerrainTone.x + over / (1.0 + over / span)) / peak);
 }
 
 void main()
@@ -664,9 +666,10 @@ layout(set = 1, binding = 1) uniform sampler uSampler;
 vec3 ToneTerrain(vec3 c)
 {
     float span = TerrainTone.y - TerrainTone.x;
-    if (span <= 0.0) return c;
-    vec3 over = max(c - TerrainTone.x, vec3(0.0));
-    return min(c, TerrainTone.x + over / (1.0 + over / span));
+    float peak = max(c.r, max(c.g, c.b));
+    if (span <= 0.0 || peak <= TerrainTone.x) return c;
+    float over = peak - TerrainTone.x;
+    return c * ((TerrainTone.x + over / (1.0 + over / span)) / peak);
 }
 
 void main()
