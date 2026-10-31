@@ -122,6 +122,13 @@ Zone meshes cull back faces by the Section 0x2E double-sided flag (0x2000), and 
   4. Lower or Port Jeuno's window glows `5w01`-`5w06` from the street and from inside if reachable.
   5. A sea surface from above and from below if the camera can go under (Bibiki Bay or Port Jeuno).
   6. One `mode/ent` / `ent0` / `enta` entrance (e.g. zone 99's `ent0`) from both sides, as `mode/entr` was checked.
+- **Retail answers (round 1, TESTING-2026-10-29 C1, 2026-10-30) and the rule kept.** Back faces stay drawn: only `mode/entr` overlays are culled (#414). Item by item:
+  1. *Bastok Markets' auction house:* retail lights the arches warm from the plaza (`image-19`) and shows the light shafts from behind the building too (`image-20`). Those are the back faces of `auc_lt`, which culling would darken (69 % of the view). This rejects culling single-sided generator effects in general; `auc_lt` stays double-sided.
+  2. *Lower Jeuno's `SPLT`:* retail shows the beam and its bright top from the room, the stairs and below (`image-21`-`image-24`), and our six-side sampling found no view where culling changes it. Kept double-sided.
+  3. *Windurst Waters' house lights:* retail's windows are shut, with no light visible from the street; the views cannot tell culled from double-sided. Unchanged, still open.
+  4. *Lower and Port Jeuno's `5w01`-`5w06`:* none seen in retail. `image-25` was taken at (5.7, -24.7, -6.0) in Windower order, about 173 yalms from these generators (internal (-75, 2.4, 128.4) for `5w01`, Windower (-74.9, 128.4, 2.4)); rendered from there at eight headings, culling changes at most 61 pixels of 320 x 240. The capture does not decide them. Unchanged, still open: needs a capture of those windows at night from the street.
+  5. *Sea surfaces:* retail draws the sea from above and below in Bibiki Bay (`image-27`, `image-28`) and the Manaclipper (`image-30`, `image-29`), as ours does (culling changed none of the water layers). Unchanged.
+  6. *Zone 99's `ent0`:* the Brass Door shot (`image-31`, `image-32`, at (-193.9, -19.8, 0.3)) is 130 yalms or more from every `d_oz/mode/ent0` layer, which sit in `et`/`em` pairs on a 40-yalm grid (`et01`/`em01` at internal (-140, 16, -140), Windower (-140, -140, 16); `et09`/`em09` at (-60, -8, -220), Windower (-60, -220, -8)). At the door, culling changes nothing. Unchanged, still open: needs a capture at one of those points from both sides.
 
 ## Closed questions
 

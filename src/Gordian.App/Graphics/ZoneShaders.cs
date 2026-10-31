@@ -358,7 +358,8 @@ void main()
     // over the tunnel it re-tessellates) is pulled toward the eye like a decal, so it wins the depth test against the
     // coincident terrain instead of z-fighting with it.
     // SkyLayerParams.w = 2 + d: a vessel's surface overlay with a positive z offset (op 0x30, #430) is depth-tested d yalms
-    // farther along the view ray, which keeps it under the sea it lies just above.
+    // farther along the view ray, which keeps it under the sea it lies just above; a model's or worn weapon's effect
+    // particle likewise stays behind its wearer (the Afterglow's +0.2, #8).
     if (SkyLayerParams.w > 1.5)
     {
         vec3 away = worldPos.xyz - EyePosition.xyz;

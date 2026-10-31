@@ -94,6 +94,7 @@ namespace Gordian.App.Tests.Graphics
                     return rgba;
                 }
 
+                byte[] empty = Frame(Array.Empty<WorldEntity>(), 30);
                 byte[] without = Frame(plain, 90);
                 byte[] with = Frame(glowing, 90);
                 if (Environment.GetEnvironmentVariable("GORDIAN_UI_DUMP") is { Length: > 0 } dump)
@@ -114,6 +115,7 @@ namespace Gordian.App.Tests.Graphics
                 }
                 var changed = new int[columns];
                 var added = new Vector3[columns];
+                int overBody = 0, glowPixels = 0;
                 for (int y = 0; y < Height; y++)
                 {
                     for (int x = 0; x < Width; x++)
@@ -121,6 +123,9 @@ namespace Gordian.App.Tests.Graphics
                         int i = (y * Width + x) * 4;
                         var d = new Vector3(with[i] - without[i], with[i + 1] - without[i + 1], with[i + 2] - without[i + 2]);
                         if (d.X + d.Y + d.Z < 60f) continue;
+                        glowPixels++;
+                        // A pixel of the wearer's body (the plain holder differs from the empty view) the glow brightens.
+                        if (Math.Abs(without[i] - empty[i]) + Math.Abs(without[i + 1] - empty[i + 1]) + Math.Abs(without[i + 2] - empty[i + 2]) > 30) overBody++;
                         int column = 0;
                         for (int c = 1; c < columns; c++)
                         {
@@ -131,6 +136,7 @@ namespace Gordian.App.Tests.Graphics
                         added[column] += Vector3.Max(d, Vector3.Zero);
                     }
                 }
+                _out.WriteLine($"{overBody} of {glowPixels} brightened pixels lie on a wearer");
                 for (int c = 0; c < columns; c++)
                 {
                     var mean = changed[c] > 0 ? added[c] / changed[c] : Vector3.Zero;
@@ -140,6 +146,9 @@ namespace Gordian.App.Tests.Graphics
                 // Every holder glows; the colour leans to its family: Relic white, Mythic blue, Empyrean red, Ergon green,
                 // Prime purple (red and blue over green).
                 for (int c = 0; c < columns; c++) Assert.True(changed[c] > 30, $"model {Afterglow[c]} should glow ({changed[c]} pixels)");
+                // The generators' z offset (+0.2, op 0x30) keeps the glow behind its wearer: drawn in front, as before #8 round
+                // 2, 32 % of the glow lay over the bodies (477 of 1,495 pixels); pushed back, 23 % (299 of 1,273), at the rim.
+                Assert.True(overBody < glowPixels * 0.28f, $"the wearers should cover their glow ({overBody} of {glowPixels} pixels on a body)");
                 Vector3 Mean(int c) => added[c] / changed[c];
                 Assert.True(Mean(1).Z > Mean(1).X, $"Mythic should be blue: {Mean(1)}");
                 Assert.True(Mean(2).X > Mean(2).Y * 1.3f && Mean(2).X > Mean(2).Z * 1.3f, $"Empyrean should be red: {Mean(2)}");
