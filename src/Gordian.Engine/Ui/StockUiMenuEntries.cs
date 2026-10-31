@@ -175,6 +175,15 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Party menu's Disband: breaks the party up (leader, C2S 0x070) or, for a member, leaves it (C2S 0x06F), after a prompt.</summary>
         PartyDisband,
+
+        /// <summary>
+        /// A Party menu entry that runs through the party commands (#489, <see cref="StockUiParty"/>); the Argument is a
+        /// <see cref="StockUiPartyAction"/>, with the value it sets in its upper bits (<see cref="StockUiParty.Action"/>).
+        /// </summary>
+        PartyAction,
+
+        /// <summary>An entry of the options for a person in a people list (<c>scoption</c>); the Argument is a <see cref="StockUiPartyAction"/>.</summary>
+        PersonAction,
     }
 
     /// <summary>
@@ -299,34 +308,64 @@ namespace Gordian.Engine.Ui
             [(StockUiGuildShop.MenuName, StockUiGuildShop.BuyButton)] = new("Buy", Command: StockUiMenuCommand.GuildBuy),
             [(StockUiGuildShop.MenuName, StockUiGuildShop.SellButton)] = new("Sell", Command: StockUiMenuCommand.GuildSell),
 
-            // Party (#397): "prty1" not in a party, "prty2" a member, "prty3" the leader (label sprites read against the retail
-            // captures). Only Disband works so far; the rest post "not available yet".
-            [(StockUiParty.NotInPartyMenu, StockUiParty.SeekPartyButton)] = new("Seek Party", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedFindMemberButton)] = new("Find Member", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.AutogroupButton)] = new("Autogroup", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.LanguagesButton)] = new("Languages", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.NotInPartyMenu, StockUiParty.AlarmTypeButton)] = new("Alarm Type", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.MemberMenu, StockUiParty.MemberListButton)] = new("Member List", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.MemberMenu, StockUiParty.MemberRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.MemberMenu, StockUiParty.MemberViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
+            // Party (#397, #489): "prty1" not in a party, "prty6" the same with the party flag on, "prty2" a member, "prty3" the
+            // leader (label sprites read against the retail captures). Rearrange still posts "not available yet".
+            [(StockUiParty.NotInPartyMenu, StockUiParty.SeekPartyButton)] = Party("Seek Party", StockUiPartyAction.SeekParty),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedFindMemberButton)] = Party("Find Member", StockUiPartyAction.FindMember),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedRequestButton)] = Party("Request", StockUiPartyAction.Request),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.UngroupedViewRequestButton)] = Party("View Request", StockUiPartyAction.ViewRequest),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.AutogroupButton)] = Party("Autogroup", StockUiPartyAction.Autogroup),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.LanguagesButton)] = new("Languages", Opens: StockUiParty.LanguagesMenu),
+            [(StockUiParty.NotInPartyMenu, StockUiParty.AlarmTypeButton)] = new("Alarm Type", Opens: StockUiParty.AlarmMenu),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingOffButton)] = Party("Seek Party", StockUiPartyAction.SeekParty),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingFindMemberButton)] = Party("Find Member", StockUiPartyAction.FindMember),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingRequestButton)] = Party("Request", StockUiPartyAction.Request),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingViewRequestButton)] = Party("View Request", StockUiPartyAction.ViewRequest),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingAutogroupButton)] = Party("Autogroup", StockUiPartyAction.Autogroup),
+            [(StockUiParty.SeekingMenu, StockUiParty.SeekingLanguagesButton)] = new("Languages", Opens: StockUiParty.LanguagesMenu),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberListButton)] = Party("Member List", StockUiPartyAction.MemberList),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberRequestButton)] = Party("Request", StockUiPartyAction.Request),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberViewRequestButton)] = Party("View Request", StockUiPartyAction.ViewRequest),
             [(StockUiParty.MemberMenu, StockUiParty.MemberRearrangeButton)] = new("Rearrange", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.MemberMenu, StockUiParty.MemberFocusButton)] = new("Focus", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.MemberMenu, StockUiParty.MemberDistributionButton)] = new("Distribution", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberFocusButton)] = Party("Focus", StockUiPartyAction.Focus),
+            [(StockUiParty.MemberMenu, StockUiParty.MemberDistributionButton)] = Party("Distribution", StockUiPartyAction.ShowDistribution),
             [(StockUiParty.MemberMenu, StockUiParty.MemberDisbandButton)] = new("Disband", Command: StockUiMenuCommand.PartyDisband),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFindMemberButton)] = new("Find Member", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderMemberListButton)] = new("Member List", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderRequestButton)] = new("Request", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderViewRequestButton)] = new("View Request", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderDistributionButton)] = new("Distribution", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.ChangeLeaderButton)] = new("Chg. Leader", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFindMemberButton)] = Party("Find Member", StockUiPartyAction.FindMember),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderMemberListButton)] = Party("Member List", StockUiPartyAction.MemberList),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderRequestButton)] = Party("Request", StockUiPartyAction.Request),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderViewRequestButton)] = Party("View Request", StockUiPartyAction.ViewRequest),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderDistributionButton)] = new("Distribution", Opens: StockUiParty.DistributionMenu),
+            [(StockUiParty.LeaderMenu, StockUiParty.ChangeLeaderButton)] = Party("Chg. Leader", StockUiPartyAction.ChangeLeader),
             [(StockUiParty.LeaderMenu, StockUiParty.LeaderRearrangeButton)] = new("Rearrange", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFocusButton)] = new("Focus", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.RemoveMemberButton)] = new("Rmv. Member", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.LeaderFocusButton)] = Party("Focus", StockUiPartyAction.Focus),
+            [(StockUiParty.LeaderMenu, StockUiParty.RemoveMemberButton)] = Party("Rmv. Member", StockUiPartyAction.RemoveMember),
             [(StockUiParty.LeaderMenu, StockUiParty.LeaderDisbandButton)] = new("Disband", Command: StockUiMenuCommand.PartyDisband),
-            [(StockUiParty.LeaderMenu, StockUiParty.AllianceButton)] = new("Alliance", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiParty.LeaderMenu, StockUiParty.LevelSyncButton)] = new("Level Sync", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiParty.LeaderMenu, StockUiParty.AllianceButton)] = new("Alliance", Opens: StockUiParty.AllianceMenu),
+            [(StockUiParty.LeaderMenu, StockUiParty.LevelSyncButton)] = Party("Level Sync", StockUiPartyAction.LevelSync),
+            [(StockUiParty.AllianceMenu, StockUiParty.AllianceFormButton)] = Party("Form", StockUiPartyAction.AllianceForm),
+            [(StockUiParty.AllianceMenu, StockUiParty.AllianceDissolveButton)] = Party("Dissolve", StockUiPartyAction.AllianceDissolve),
+            [(StockUiParty.DistributionMenu, StockUiParty.LotteryButton)] = Party("Lottery", StockUiPartyAction.Lottery),
+            [(StockUiParty.DistributionMenu, StockUiParty.QuartermasterButton)] = Party("Leader", StockUiPartyAction.Quartermaster),
+            [(StockUiParty.LanguagesMenu, 1)] = Party("English", StockUiPartyAction.Language, 0x02),
+            [(StockUiParty.LanguagesMenu, 2)] = Party("French", StockUiPartyAction.Language, 0x08),
+            [(StockUiParty.LanguagesMenu, 3)] = Party("German", StockUiPartyAction.Language, 0x04),
+            [(StockUiParty.LanguagesMenu, 4)] = Party("Japanese", StockUiPartyAction.Language, 0x01),
+            [(StockUiParty.LanguagesMenu, 5)] = Party("Other", StockUiPartyAction.Language, 0x10),
+            [(StockUiParty.AlarmMenu, 1)] = Party("Off", StockUiPartyAction.Alarm, 0),
+            [(StockUiParty.AlarmMenu, 2)] = Party("Sound 1", StockUiPartyAction.Alarm, 1),
+            [(StockUiParty.AlarmMenu, 3)] = Party("Sound 2", StockUiPartyAction.Alarm, 2),
+            [(StockUiParty.AlarmMenu, 4)] = Party("Sound 3", StockUiPartyAction.Alarm, 3),
+            [(StockUiParty.AlarmMenu, 5)] = Party("Sound 4", StockUiPartyAction.Alarm, 4),
+            [(StockUiParty.AlarmMenu, 6)] = Party("Sound 5", StockUiPartyAction.Alarm, 5),
+            [(StockUiParty.AlarmMenu, 7)] = Party("Sound 6", StockUiPartyAction.Alarm, 6),
+            [(StockUiParty.AlarmMenu, 8)] = Party("Sound 7", StockUiPartyAction.Alarm, 7),
+
+            // The options for a person in a people list ("scoption", #489 / #490). Send Message is PlayOnline's.
+            [(StockUiPeople.OptionsMenu, StockUiPeople.TellButton)] = Person("Tell", StockUiPartyAction.Tell),
+            [(StockUiPeople.OptionsMenu, StockUiPeople.RequestButton)] = Person("Request", StockUiPartyAction.RequestJoin),
+            [(StockUiPeople.OptionsMenu, StockUiPeople.CancelRequestButton)] = Person("Cancel Request", StockUiPartyAction.CancelRequest),
+            [(StockUiPeople.OptionsMenu, StockUiPeople.MessageButton)] = new("Send Message", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiPeople.OptionsMenu, StockUiPeople.InviteButton)] = Person("Invite", StockUiPartyAction.Invite),
 
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).
@@ -420,6 +459,12 @@ namespace Gordian.Engine.Ui
             [(StockUiActionMenu.CommandAbilityMenu, 5)] = new("Mount", Command: StockUiMenuCommand.MountList),
             [(StockUiActionMenu.CommandAbilityMenu, 4)] = new("Pet Command", Command: StockUiMenuCommand.PetCommandList),
         };
+
+        private static StockUiMenuEntry Party(string label, StockUiPartyAction action, int value = 0) =>
+            new(label, Command: StockUiMenuCommand.PartyAction, Argument: StockUiParty.Action(action, value));
+
+        private static StockUiMenuEntry Person(string label, StockUiPartyAction action) =>
+            new(label, Command: StockUiMenuCommand.PersonAction, Argument: (int)action);
 
         private static StockUiMenuEntry Spells(string label, int button) =>
             new(label, Command: StockUiMenuCommand.SpellList, Argument: StockUiActionMenu.CategoryKinds[button]);

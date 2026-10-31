@@ -201,14 +201,15 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.People)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
                         // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
                         // window's Change Map lists (#23) the same way: the area or zone in white in the log font (upright,
-                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right.
+                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
+                        // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
                         UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
-                        bool mapRow = menu.ListKind == StockUiListKind.MapAreas;
+                        bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
                                 placement.X + (frame.Width - ScrollbarInset) * s, firstRow.Height * s);

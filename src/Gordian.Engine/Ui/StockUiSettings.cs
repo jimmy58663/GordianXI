@@ -131,6 +131,12 @@ namespace Gordian.Engine.Ui
         /// </summary>
         EffectFilters,
 
+        /// <summary>
+        /// The Party menu's Alarm Type (<c>alarm</c>, #489): 0 no sound when invited to a party (retail's default), 1-7 one
+        /// of the seven sounds. Stored only: which sound effect each plays is not known yet.
+        /// </summary>
+        PartyInviteAlarm,
+
         // Font Colors (conftxtc -> textcol1 -> textcol3): the colour being edited, 0-255 per channel in the 0x80
         // half scale. Transient: OK copies them into the row's colour (StockUiSettings.SetFontColor).
         FontColorEditRed,
@@ -245,6 +251,7 @@ namespace Gordian.Engine.Ui
             Toggle(StockUiSettingKey.AutoLockOnEngage, true);
             Add(StockUiSettingKey.LogWindow2Types, (int)StockUiChatLog.DefaultWindow2Types, 0, int.MaxValue);
             Add(StockUiSettingKey.EffectFilters, 0, 0, int.MaxValue);
+            Add(StockUiSettingKey.PartyInviteAlarm, 0, 0, StockUiParty.AlarmSounds);
             // Retail's step per key press is not captured; 4 reaches every default in the cnf.dat table but 0xFF / 0x3F / 0xAF.
             Add(StockUiSettingKey.FontColorEditRed, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);
             Add(StockUiSettingKey.FontColorEditGreen, 0x80, 0, 255, StockUiSettingScope.Transient, FontColorStep);

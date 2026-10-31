@@ -12,7 +12,8 @@ namespace Gordian.Engine.Ui
     /// <param name="IsLeader">The character leads the party.</param>
     /// <param name="OtherMembers">How many members besides the character (Trusts included).</param>
     /// <param name="InAlliance">The party belongs to an alliance.</param>
-    public readonly record struct StockUiPartyContext(bool InParty, bool IsLeader, int OtherMembers, bool InAlliance);
+    /// <param name="SeekingParty">The party flag is on (seeking a party): the ungrouped list is <c>prty6</c>.</param>
+    public readonly record struct StockUiPartyContext(bool InParty, bool IsLeader, int OtherMembers, bool InAlliance, bool SeekingParty = false);
 
     /// <summary>
     /// The main menu's Party entry (#397, #24). The English menu DAT carries three Party lists in the top right corner,
@@ -21,12 +22,57 @@ namespace Gordian.Engine.Ui
     /// (not in a party: Seek Party, Find Member, Request, View Request, Autogroup, Languages, Alarm Type), <c>prty2</c> (a
     /// member: Member List, Request, View Request, Rearrange, Focus, Distribution, Disband) and <c>prty3</c> (the leader:
     /// Find Member, Member List, Request, View Request, Distribution, Chg. Leader, Rearrange, Focus, Rmv. Member, Disband,
-    /// Alliance, Level Sync). <c>prty6</c> and <c>prty7</c> are other variants (the leader of an alliance, a party flagged as
-    /// seeking) whose state is not captured; they are not opened.
+    /// Alliance, Level Sync). <c>prty6</c> is the ungrouped list with the party flag on (its first entry's help is "Turn off
+    /// party flag." where <c>prty1</c>'s is "Toggle party flag.", and it has no Alarm Type); <c>prty7</c> is a leader's list
+    /// whose Distribution only shows the setting ("Check treasure distribution setting."), a state not captured, so it is
+    /// not opened. The entries' submenus (#489, the 2026-10-31 dump with titles ROM/165/76 and help ROM/165/75): Alliance
+    /// opens <c>prty4</c> (title 96: Form 1, Dissolve 2), Languages <c>prty5us</c> (title 97: English 1, French 2, German 3,
+    /// Japanese 4, Other 5; <c>prty5</c> is the Japanese order), the leader's Distribution <c>prty8</c> (title 98: Lottery 1,
+    /// the representative 2) and Alarm Type <c>alarm</c> (440,48, 56 x 140, title 19: Off 1 and sounds 1-7 as 2-8).
     /// </summary>
+    /// <summary>What a Party menu entry (or a person's option) does (#489); the menu entry's Argument with <see cref="StockUiParty.Action"/>.</summary>
+    public enum StockUiPartyAction
+    {
+        None,
+        MemberList,
+        FindMember,
+        SeekParty,
+        Autogroup,
+        Request,
+        ViewRequest,
+        ChangeLeader,
+        RemoveMember,
+        LevelSync,
+        Focus,
+        ShowDistribution,
+        Lottery,
+        Quartermaster,
+        AllianceForm,
+        AllianceDissolve,
+
+        /// <summary>A Languages row: toggles its bit (the value).</summary>
+        Language,
+
+        /// <summary>An Alarm Type row: 0 off, 1-7 a sound (the value).</summary>
+        Alarm,
+
+        // A person's options (scoption).
+        Tell,
+        RequestJoin,
+        CancelRequest,
+        Invite,
+    }
+
     public static class StockUiParty
     {
-        public const string NotInPartyMenu = "prty1", MemberMenu = "prty2", LeaderMenu = "prty3";
+        /// <summary>Packs a Party entry's action and the value it sets (a language bit, an alarm sound) into a menu entry's Argument.</summary>
+        public static int Action(StockUiPartyAction action, int value = 0) => (int)action | (value << 8);
+
+        /// <summary>Unpacks <see cref="Action"/>.</summary>
+        public static (StockUiPartyAction Action, int Value) ActionOf(int argument) => ((StockUiPartyAction)(argument & 0xFF), argument >> 8);
+
+        public const string NotInPartyMenu = "prty1", MemberMenu = "prty2", LeaderMenu = "prty3", SeekingMenu = "prty6";
+        public const string AllianceMenu = "prty4", LanguagesMenu = "prty5us", DistributionMenu = "prty8", AlarmMenu = "alarm";
 
         // Button ids of the DAT's buttons (their order down the list is not their id order).
         public const int SeekPartyButton = 1, UngroupedFindMemberButton = 2, UngroupedRequestButton = 5, UngroupedViewRequestButton = 6,
@@ -36,35 +82,82 @@ namespace Gordian.Engine.Ui
         public const int LeaderFindMemberButton = 1, LeaderMemberListButton = 2, LeaderRequestButton = 11, LeaderViewRequestButton = 12,
             LeaderDistributionButton = 3, ChangeLeaderButton = 4, LeaderRearrangeButton = 9, LeaderFocusButton = 10,
             RemoveMemberButton = 5, LeaderDisbandButton = 6, AllianceButton = 7, LevelSyncButton = 8;
+        public const int SeekingOffButton = 1, SeekingFindMemberButton = 2, SeekingRequestButton = 5, SeekingViewRequestButton = 6,
+            SeekingAutogroupButton = 3, SeekingLanguagesButton = 4;
+        public const int AllianceFormButton = 1, AllianceDissolveButton = 2;
+        public const int LotteryButton = 1, QuartermasterButton = 2;
+
+        /// <summary>The Alarm Type list's first button (Off); sounds 1-7 are the buttons after it.</summary>
+        public const int AlarmOffButton = 1, AlarmSounds = 7;
+
+        /// <summary>
+        /// The Languages list's buttons in order and the <c>PartyLanguages</c> bit each sets (C2S 0x0DB kind 1; bits from
+        /// LandSandBoat <c>GP_CLI_COMMAND_CONFIG_LANGUAGE_FLAGS</c>, https://github.com/LandSandBoat/server: Japanese 1,
+        /// English 2, German 4, French 8, Other 0x10).
+        /// </summary>
+        public static readonly IReadOnlyList<(int Button, int Bit)> LanguageBits = new[] { (1, 0x02), (2, 0x08), (3, 0x04), (4, 0x01), (5, 0x10) };
 
         /// <summary>The Party menu that fits the character's state.</summary>
         public static string MenuFor(StockUiPartyContext party) =>
-            !party.InParty ? NotInPartyMenu : party.IsLeader ? LeaderMenu : MemberMenu;
+            !party.InParty ? (party.SeekingParty ? SeekingMenu : NotInPartyMenu) : party.IsLeader ? LeaderMenu : MemberMenu;
 
         /// <summary>
         /// The help bar's title for a Party menu (null for any other menu): "Party" for the ungrouped and member lists and
         /// "Party Leader" for the leader's, as the captures' help bar reads (frame title ids 19 / 94 / 95, ROM/165/76).
         /// </summary>
         public static string? TitleOf(string menuName) =>
-            menuName.Equals(LeaderMenu, StringComparison.OrdinalIgnoreCase) ? "Party Leader"
-            : menuName.Equals(NotInPartyMenu, StringComparison.OrdinalIgnoreCase) || menuName.Equals(MemberMenu, StringComparison.OrdinalIgnoreCase) ? "Party"
+            Is(menuName, LeaderMenu) ? "Party Leader"
+            : Is(menuName, NotInPartyMenu) || Is(menuName, MemberMenu) || Is(menuName, SeekingMenu) || Is(menuName, AlarmMenu) ? "Party"
+            : Is(menuName, AllianceMenu) ? "Alliance"
+            : Is(menuName, LanguagesMenu) ? "Languages"
+            : Is(menuName, DistributionMenu) ? "Distribution"
             : null;
+
+        private static bool Is(string menuName, string name) => menuName.Equals(name, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The entries drawn with the "in effect" marker: the party languages that are set, the Alarm Type in use, and the
+        /// distribution in effect (Lottery, or the representative while a member collects all treasure).
+        /// </summary>
+        public static HashSet<int>? MarkedButtons(string menuName, StockUiSocialState state, int alarmType)
+        {
+            if (Is(menuName, LanguagesMenu))
+            {
+                var marked = new HashSet<int>();
+                foreach (var (button, bit) in LanguageBits)
+                {
+                    if ((state.PartyLanguages & bit) != 0) marked.Add(button);
+                }
+                return marked;
+            }
+            if (Is(menuName, AlarmMenu)) return new HashSet<int> { AlarmOffButton + Math.Clamp(alarmType, 0, AlarmSounds) };
+            if (Is(menuName, DistributionMenu)) return new HashSet<int> { state.QuartermasterName != null ? QuartermasterButton : LotteryButton };
+            return null;
+        }
 
         /// <summary>
         /// The entries drawn greyed (their kind-4 alternate images). Retail's capture greys only Alliance of a leader's menu
-        /// and does not say why. <b>Provisional:</b> Alliance is greyed while the party has no other member or already
-        /// belongs to an alliance, and Chg. Leader / Rmv. Member while there is nobody else to pass leadership to or remove.
+        /// and does not say why. <b>Provisional:</b> Alliance is greyed while the party has no other member and no alliance
+        /// (it opens Form / Dissolve, so an alliance keeps it), and Chg. Leader, Rmv. Member and Level Sync while there is
+        /// nobody else in the party.
         /// </summary>
         public static HashSet<int>? GreyedButtons(string menuName, StockUiPartyContext party)
         {
-            if (!menuName.Equals(LeaderMenu, StringComparison.OrdinalIgnoreCase)) return null;
+            if (Is(menuName, AllianceMenu))
+            {
+                // Dissolve while there is no alliance (PROVISIONAL: both buttons have greyed alternates; when retail uses them is not captured).
+                return party.InAlliance ? null : new HashSet<int> { AllianceDissolveButton };
+            }
+            if (!Is(menuName, LeaderMenu)) return null;
             var greyed = new HashSet<int>();
             if (party.OtherMembers == 0)
             {
                 greyed.Add(ChangeLeaderButton);
                 greyed.Add(RemoveMemberButton);
+                greyed.Add(LevelSyncButton);
             }
-            if (party.OtherMembers == 0 || party.InAlliance) greyed.Add(AllianceButton);
+            // Alliance opens the Form / Dissolve list, so an alliance keeps it open to dissolve.
+            if (party.OtherMembers == 0 && !party.InAlliance) greyed.Add(AllianceButton);
             return greyed.Count > 0 ? greyed : null;
         }
     }
