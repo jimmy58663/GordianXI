@@ -1112,7 +1112,6 @@ namespace Gordian.Engine.Events
                 _queryResult = 255;
                 return;
             }
-            foreach (string comment in comments) _chat?.Log.Add(ChatLogChannel.Dialog, comment);
             _queryStart = Environment.TickCount;
             _queryMenu = menus.OpenQuery(comments, options, cursor, result => _queryResult = result);
             if (_queryMenu == null) _queryResult = 255;
@@ -1432,7 +1431,11 @@ namespace Gordian.Engine.Events
             Changed?.Invoke();
         }
 
-        void IEventVmHost.OpenQueryMap() => _eventMap = _eventMap.WithQueryMap();
+        void IEventVmHost.OpenQueryMap()
+        {
+            _eventMap = _eventMap.WithQueryMap();
+            GordianLog.Info("EVENT", $"Query map: {string.Join(", ", _eventMap.QueryEntries.OrderBy(e => e.Key).Select(e => $"option {e.Key} = {e.Value}"))}.");
+        }
 
         void IEventVmHost.SetQueryMapEntry(int option, EventQueryMapEntry entry) => _eventMap = _eventMap.WithQueryEntry(option, entry);
 

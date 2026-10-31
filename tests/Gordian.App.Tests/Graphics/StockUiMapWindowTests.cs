@@ -82,5 +82,35 @@ namespace Gordian.App.Tests.Graphics
             var below = screen.Pixel(shot, (int)screen.Width / 2, (int)margin + 6);
             Assert.True(below.R > 60, $"map's top edge pixel {below}");
         }
+
+        /// <summary>The zone's home points on the Map window (round 1 of #168): the pale-blue crystal on each, here Northern San d'Oria #4.</summary>
+        [Fact]
+        public void ShowsTheZonesHomePoints()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var menus = new StockUiMenuController { Library = screen.Library, CurrentZone = () => 231 };
+            Assert.True(menus.OpenMainMenu());
+            menus.Top!.SelectedButtonId = 12; // Map
+            menus.Activate();
+            var map = menus.MapWindow!;
+            var loaded = ZoneMapFiles.LoadWithOrigin(screen.Resources, map.MapZone, map.MapNumber)!.Value;
+            var shot = screen.Render(r => StockUiMapWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, map, loaded.Texture, "Northern San d'Oria", 1,
+                screen.Width, screen.Height, loaded.Origin), "gpu_map_home_points.png");
+            var (x, y, w, h) = StockUiMapWindow.Placement(map, loaded.Texture.Width, loaded.Texture.Height, screen.Width, screen.Height,
+                StockUiMapWindow.Margin(screen.Library, 1, screen.Width, screen.Height));
+            var (u, v) = ZoneMapProjection.ToMap(loaded.Origin!.Value, ZoneMapProjection.TownScale, -133, 195);
+            int px = (int)(x + u * w / loaded.Texture.Width), py = (int)(y + v * h / loaded.Texture.Height);
+            bool blue = false;
+            for (int dy = -6; dy <= 6 && !blue; dy++)
+            {
+                for (int dx = -6; dx <= 6 && !blue; dx++)
+                {
+                    var p = screen.Pixel(shot, px + dx, py + dy);
+                    blue = p.B > p.R + 20 && p.B > 120;
+                }
+            }
+            Assert.True(blue, $"no crystal near ({px}, {py})");
+        }
     }
 }

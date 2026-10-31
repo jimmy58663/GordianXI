@@ -33,9 +33,12 @@ namespace Gordian.Core.Tests.Resources
         [Fact]
         public void ScaleOf_AnswersOnlyForCalibratedMaps()
         {
-            Assert.Equal(1f, ZoneMapProjection.ScaleOf(230, 0));
-            Assert.Equal(1f, ZoneMapProjection.ScaleOf(241, 0));
-            Assert.Null(ZoneMapProjection.ScaleOf(100, 0)); // West Ronfaure: a field map
+            Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(230, 0));
+            Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(241, 0));
+            Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(204, 1)); // Fei'Yin
+            Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(130, 0)); // Ru'Aun Gardens
+            Assert.Null(ZoneMapProjection.ScaleOf(100, 0)); // West Ronfaure: no home point to check it by
+            Assert.Null(ZoneMapProjection.ScaleOf(9, 1)); // Pso'Xja: which floor its home point is on is not known
             Assert.Null(ZoneMapProjection.ScaleOf(230, 1));
         }
 
@@ -49,10 +52,29 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(new ZoneMapOrigin(-304, -304), north);
 
             // The retail capture (Main_Menu_Page1.mp4): Northern San d'Oria (-133.184, 201.095) is grid square F-4. The grid
-            // is 32 px squares, A-O across and 1-15 down from the image's top-left corner.
+            // is 32 px squares, A-O across and 1-15 down, inside the image's 16 px border.
             var (u, v) = ZoneMapProjection.ToMap(north!.Value, ZoneMapProjection.ScaleOf(231, 0)!.Value, -133.184f, 201.095f);
-            Assert.Equal('F', (char)('A' + (int)(u / 32)));
-            Assert.Equal(4, (int)(v / 32) + 1);
+            Assert.Equal('F', (char)('A' + (int)((u - 16) / 32)));
+            Assert.Equal(4, (int)((v - 16) / 32) + 1);
+        }
+
+        /// <summary>
+        /// The maintainer's retail screenshots of the home point map (round 1 of #168, 2556 x 1438), registered against the
+        /// map images (5.0 screen px per map px): the pale-blue crystal stands on these map pixels.
+        /// </summary>
+        [Theory]
+        [InlineData(3, 231, 162.3f, 247.7f)] // Northern San d'Oria #1 (image-5)
+        [InlineData(98, 231, 199.6f, 149.2f)] // Northern San d'Oria #4 (image-7)
+        [InlineData(1, 230, 323.8f, 300.2f)] // Southern San d'Oria #2 (image-9)
+        public void HomePoints_LandWhereRetailPinsThem(int number, int zone, float retailU, float retailV)
+        {
+            var resources = OpenGame();
+            if (resources == null) return;
+            Assert.True(HomePoints.TryGet(number, out int zoneId, out _, out float x, out float z));
+            Assert.Equal(zone, zoneId);
+            var (u, v) = ZoneMapProjection.ToMap(ReadOrigin(resources, zone)!.Value, ZoneMapProjection.ScaleOf(zone, 0)!.Value, x, z);
+            Assert.InRange(u, retailU - 3, retailU + 3);
+            Assert.InRange(v, retailV - 3, retailV + 3);
         }
 
         private static ZoneMapOrigin? ReadOrigin(ResourceManager resources, int zone) =>
@@ -71,6 +93,8 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(-133f, x, 3);
             Assert.Equal(195f, z, 3);
             Assert.False(HomePoints.TryGet(HomePoints.Count, out _, out _, out _, out _));
+            Assert.Equal(4, HomePoints.InZone(231).Count);
+            Assert.Equal(-133f, HomePoints.InZone(231)[3].X, 3);
         }
 
         /// <summary>

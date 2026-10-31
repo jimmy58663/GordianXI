@@ -164,7 +164,7 @@ namespace Gordian.Engine.Events
                 switch (segment.Kind)
                 {
                     case EventMessageSegmentKind.Text:
-                        line.Append(segment.Text);
+                        line.Append(HalfWidthParentheses(segment.Text));
                         break;
                     case EventMessageSegmentKind.LineBreak:
                         Flush();
@@ -250,6 +250,14 @@ namespace Gordian.Engine.Events
             while (choices.Count > 0 && choices[^1].Length == 0) choices.RemoveAt(choices.Count - 1);
             return (comments, choices);
         }
+
+        /// <summary>
+        /// The full-width parentheses of the event text (CP932 0x8169 / 0x816A) as the stock fonts show them: the home point
+        /// list's "Teleport where?（Northern San d'Oria）" is "Teleport where? (Northern San d'Oria)" in retail (round 1 of
+        /// #168, maintainer's capture): the full-width cell's blank left half reads as a space.
+        /// </summary>
+        public static string HalfWidthParentheses(string text) =>
+            text.IndexOf('（') < 0 && text.IndexOf('）') < 0 ? text : text.Replace("（", " (").Replace("）", ")");
 
         /// <summary>
         /// A number as its code writes it: 0x0A plain, 0x94 two digits ("{0A 00}:{7F 94 01}" is a clock time), 0x99 four

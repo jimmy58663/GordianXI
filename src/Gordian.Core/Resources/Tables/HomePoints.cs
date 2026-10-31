@@ -1,5 +1,6 @@
 // src/Gordian.Core/Resources/Tables/HomePoints.cs
 using System;
+using System.Collections.Generic;
 
 namespace Gordian.Core.Resources.Tables
 {
@@ -57,6 +58,17 @@ namespace Gordian.Core.Resources.Tables
             var p = Points[number];
             (zoneId, numberInZone, x, z) = (p.Zone, p.Number, p.X * 0.001f, p.Z * 0.001f);
             return true;
+        }
+
+        /// <summary>The home points of zone <paramref name="zoneId"/>: their x / z in yalms, in global number order (the Map window's icons).</summary>
+        public static IReadOnlyList<(float X, float Z)> InZone(int zoneId)
+        {
+            var points = new List<(float X, float Z)>();
+            foreach (var p in Points)
+            {
+                if (p.Zone == zoneId) points.Add((p.X * 0.001f, p.Z * 0.001f));
+            }
+            return points;
         }
     }
 }
