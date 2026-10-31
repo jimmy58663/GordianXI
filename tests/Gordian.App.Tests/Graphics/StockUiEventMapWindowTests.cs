@@ -42,6 +42,40 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Round 2 of #168: the crystal stands upright, as retail's 13 x 5 px one does (the DAT's sprite leans right). Drawn
+        /// eight times larger, its pale-blue pixels are a tall, narrow shape whose top and bottom sit over its centre.
+        /// </summary>
+        [Fact]
+        public void HomePointCrystal_StandsUpright()
+        {
+            using var screen = StockUiOffscreen.TryCreate(256, 256);
+            if (screen == null) return;
+            var shot = screen.Render(r => StockUiEventMapWindow.DrawPin(r, null, EventMapPin.HomePoint, string.Empty, 128, 128, 8),
+                "gpu_event_map_crystal.png");
+            int minX = int.MaxValue, maxX = 0, minY = int.MaxValue, maxY = 0;
+            float topX = 0, bottomX = 0;
+            for (int y = 0; y < 256; y++)
+            {
+                int rowMin = int.MaxValue, rowMax = -1;
+                for (int x = 0; x < 256; x++)
+                {
+                    var p = screen.Pixel(shot, x, y);
+                    if (p.B < 60) continue;
+                    (rowMin, rowMax) = (Math.Min(rowMin, x), Math.Max(rowMax, x));
+                }
+                if (rowMax < 0) continue;
+                if (minY == int.MaxValue) topX = (rowMin + rowMax) * 0.5f;
+                bottomX = (rowMin + rowMax) * 0.5f;
+                (minX, maxX, minY, maxY) = (Math.Min(minX, rowMin), Math.Max(maxX, rowMax), Math.Min(minY, y), y);
+            }
+            int width = maxX - minX + 1, height = maxY - minY + 1;
+            Assert.True(height > 2 * width, $"crystal {width} x {height}");
+            Assert.InRange(height, 90, 115); // 13 px at scale 1 is 104 at 8
+            Assert.InRange(topX, 128 - 8, 128 + 8);
+            Assert.InRange(bottomX, 128 - 8, 128 + 8);
+        }
+
         private static bool HasPin(StockUiOffscreen screen, byte[] shot, int x, int y, int radius)
         {
             for (int dy = -radius; dy <= radius; dy++)

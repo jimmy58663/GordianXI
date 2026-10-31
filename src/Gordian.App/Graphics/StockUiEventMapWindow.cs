@@ -20,7 +20,7 @@ namespace Gordian.App.Graphics
     /// <see cref="EdgeShare"/> of the screen (Southern San d'Oria #2's pin at (989, 571) with the map's right edge at
     /// x = 1930), so the screen is black past it; on a new point the map jumps most of the way and settles with a short
     /// slide (<see cref="JumpShare"/>, <see cref="SlideSeconds"/>); a home point shows as the pale-blue <c>maphp</c> crystal
-    /// centred on the point, labelled "Home Point" to its right; the help bar's title box is empty and its help box holds
+    /// upright and centred on the point, labelled "Home Point" to its right; the help bar's title box is empty and its help box holds
     /// the zone's name.
     /// <para>
     /// PROVISIONAL: the edge rule on the other three edges (only the right one was seen held), the slide's shares and
@@ -48,6 +48,14 @@ namespace Gordian.App.Graphics
 
         private const string HomePointPin = "maphp", EventPin = "marker";
         private const int HomePointPinSize = 32, EventPinCell = 16;
+
+        /// <summary>
+        /// The home point crystal: the menu DAT stores it leaning right (its long axis 37 degrees off vertical, 37 x 16 px of
+        /// the 32 x 32 cell), and retail draws it upright, 13 x 5 screen px at UI scale ~1 (round 1 screenshots image-5, 7, 9;
+        /// round 2 of #168: ours leaned), so the cell is drawn this many layout px across and turned back by
+        /// <see cref="HomePointTurn"/> degrees.
+        /// </summary>
+        internal const float HomePointSize = 11, HomePointTurn = -37;
 
         private static readonly UiColor Neutral = new(0x80, 0x80, 0x80, 0x80);
 
@@ -128,7 +136,7 @@ namespace Gordian.App.Graphics
             float size = PinSize * s;
             if (pin == EventMapPin.HomePoint)
             {
-                renderer.DrawTextureRect(HomePointPin, 0, 0, HomePointPinSize, HomePointPinSize, x - size * 0.5f, y - size * 0.5f, size, size, Neutral);
+                renderer.DrawTextureRectRotated(HomePointPin, 0, 0, HomePointPinSize, HomePointPinSize, x, y, HomePointSize * s, HomePointTurn, Neutral);
             }
             else
             {
