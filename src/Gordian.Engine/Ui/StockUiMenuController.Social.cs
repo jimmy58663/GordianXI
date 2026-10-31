@@ -72,7 +72,8 @@ namespace Gordian.Engine.Ui
             if (people.Count == 0)
             {
                 NoticePosted?.Invoke(StockUiPeople.EmptyNotice(purpose));
-                return null;
+                // The friend list and the blacklist open empty too: left / right switch between them.
+                if (purpose is not (StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Blacklist)) return null;
             }
             var library = _library;
             if (library == null || !library.TryGetMenu(menuName, out var definition))
@@ -99,12 +100,23 @@ namespace Gordian.Engine.Ui
         private bool TryActivateSocial(StockUiOpenMenu top, UiMenuButton button)
         {
             if (top.ListKind != StockUiListKind.People) return false;
+            if (top.PeoplePurpose == StockUiPeoplePurpose.LinkshellItems)
+            {
+                lock (_sync) OpenLinkshellOptions(top);
+                return true;
+            }
             if (top.SelectedPerson is not { } person) return true;
             switch (top.PeoplePurpose)
             {
                 case StockUiPeoplePurpose.MemberList or StockUiPeoplePurpose.SearchResults or StockUiPeoplePurpose.Friends:
                     // The options read the person from the list beneath them.
                     lock (_sync) Push(StockUiPeople.OptionsMenu, top, Array.Empty<string>(), null, null);
+                    break;
+                case StockUiPeoplePurpose.LinkshellMembers:
+                    lock (_sync) Push(StockUiSearch.LinkshellMemberMenu, top, Array.Empty<string>(), null, null);
+                    break;
+                case StockUiPeoplePurpose.Blacklist:
+                    lock (_sync) Push(StockUiSearch.BlacklistOptionsMenu, top, Array.Empty<string>(), null, null);
                     break;
                 case StockUiPeoplePurpose.ChangeLeader:
                     _ = ConfirmSocialAsync($"Pass leadership to {person.Name}?", StockUiSocialCommand.PassLeader, person);

@@ -1335,6 +1335,10 @@ namespace Gordian.Engine.Ui
                         top.SelectedButtonId = link;
                         changed = true;
                     }
+                    else if (horizontal && TryFlipSocialList(top))
+                    {
+                        changed = true;
+                    }
                     else if (horizontal && IsChatModeTell(top, button.ButtonId) && top.TellCandidates.Count > 1)
                     {
                         // The Tell row cycles through the tell candidates (retail: left/right on Tell).
@@ -1903,6 +1907,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.PersonAction:
                     RunPersonAction(entry, from);
+                    break;
+
+                case StockUiMenuCommand.SearchAction:
+                    RunSearchAction(entry, from);
                     break;
 
                 case StockUiMenuCommand.CurrentTime:

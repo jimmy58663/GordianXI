@@ -25,6 +25,9 @@ namespace Gordian.App.Graphics
         private const float BarSourceX = 7, BarSourceY = 23, BarThickness = 2;
         private static readonly UiColor BarColor = new(0x80, 0x18, 0x18, 0x80);
 
+        /// <summary>Where a window's text field starts when it has no button to sit on (the search comment box), in layout px.</summary>
+        private const float SocialFieldInset = 10;
+
         /// <summary>
         /// Draws one open menu: the frame, its buttons' label sprites (the page arrows only on a paged menu; the
         /// selected entry tinted orange, glyphs and capsule, as retail does), the red bar under the
@@ -248,6 +251,15 @@ namespace Gordian.App.Graphics
                 if (shown.Length < sample.Length) shown = shown.TrimEnd() + "..";
                 if (logFont != null) logFont.Draw(renderer, shown, placement.X + SampleTextX * s, placement.Y + (frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, menu.SampleColor);
                 else renderer.DrawText(font, shown, placement.X + SampleTextX * s, sampleY, s, menu.SampleColor);
+            }
+
+            if (font != null && menu.SocialField is { IsOpen: true } field)
+            {
+                // Search by Name's name and the search comment (#490): the shared text field over its button (scname's
+                // 96 x 14 field), or inside the frame's top left (the comment box).
+                var at = menu.SocialFieldButton > 0 ? definition.FindButton(menu.SocialFieldButton) : null;
+                float fieldX = placement.X + (at?.X ?? SocialFieldInset) * s, fieldY = placement.Y + (at?.Y ?? SocialFieldInset) * s;
+                StockUiTextFieldView.Draw(renderer, font, logFont, field, fieldX, fieldY, s, timestamp, at?.Width ?? frame.Width - 2 * SocialFieldInset);
             }
 
             if (font != null && menu.TitleSuffix?.Invoke() is { Length: > 0 } suffix)

@@ -184,6 +184,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>An entry of the options for a person in a people list (<c>scoption</c>); the Argument is a <see cref="StockUiPartyAction"/>.</summary>
         PersonAction,
+
+        /// <summary>A Search, Linkshell or Communication entry (#490, <see cref="StockUiSearch"/>); the Argument packs a <see cref="StockUiSearchAction"/>.</summary>
+        SearchAction,
     }
 
     /// <summary>
@@ -240,8 +243,8 @@ namespace Gordian.Engine.Ui
             [(MainMenu, 5)] = new("Abilities", Opens: StockUiActionMenu.AbilityMenu),
             [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.PartyMenu),
             [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 8)] = new("Search", Opens: StockUiSearch.SearchMenu),
+            [(MainMenu, 9)] = Search("Linkshell", StockUiSearchAction.LinkshellItems),
             [(MainMenu, 11)] = new("Region Info", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.Map),
 
@@ -255,7 +258,7 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 7)] = new("Config", Opens: ConfigMenu),
             [(MainMenuPage2, 8)] = new("Help Desk", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 10)] = new("Current Time", Command: StockUiMenuCommand.CurrentTime),
-            [(MainMenuPage2, 9)] = new("Communication", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenuPage2, 9)] = new("Communication", Opens: StockUiSearch.CommunicationMenu),
             [(MainMenuPage2, 11)] = new("Shut Down", Command: StockUiMenuCommand.ShutDown),
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
 
@@ -367,6 +370,110 @@ namespace Gordian.Engine.Ui
             [(StockUiPeople.OptionsMenu, StockUiPeople.MessageButton)] = new("Send Message", Command: StockUiMenuCommand.NotAvailable),
             [(StockUiPeople.OptionsMenu, StockUiPeople.InviteButton)] = Person("Invite", StockUiPartyAction.Invite),
 
+            // Search (#490): "searchma" and its lists. Master Level, Requesting, Unity, Besieged and Monipulators are not done.
+            [(StockUiSearch.SearchMenu, 1)] = Search("Area", StockUiSearchAction.Area),
+            [(StockUiSearch.SearchMenu, 2)] = new("Name", Opens: StockUiSearch.NameMenu),
+            [(StockUiSearch.SearchMenu, 3)] = new("Job", Opens: StockUiSearch.JobMenu),
+            [(StockUiSearch.SearchMenu, 4)] = new("Allegiance", Opens: StockUiSearch.NationMenu),
+            [(StockUiSearch.SearchMenu, 5)] = new("Race", Opens: StockUiSearch.RaceMenu),
+            [(StockUiSearch.SearchMenu, 6)] = new("Level", Opens: StockUiSearch.LevelMenu),
+            [(StockUiSearch.SearchMenu, 17)] = new("Master Level", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.SearchMenu, 7)] = new("Rank", Opens: StockUiSearch.RankMenu),
+            [(StockUiSearch.SearchMenu, 16)] = new("Requesting", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.SearchMenu, 14)] = new("Unity", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.SearchMenu, 8)] = Search("Friend", StockUiSearchAction.Friends),
+            [(StockUiSearch.SearchMenu, 9)] = Search("Linkshell", StockUiSearchAction.LinkshellMembers, 1),
+            [(StockUiSearch.SearchMenu, 15)] = Search("Linkshell 2", StockUiSearchAction.LinkshellMembers, 2),
+            [(StockUiSearch.SearchMenu, 10)] = new("Besieged", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.SearchMenu, 13)] = new("Monipulators", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.SearchMenu, 11)] = Search("Comment", StockUiSearchAction.CommentSearch),
+            [(StockUiSearch.SearchMenu, 12)] = Search("Edit Comment", StockUiSearchAction.CommentEdit),
+            [(StockUiSearch.NameMenu, StockUiSearch.NameFieldButton)] = Search("Name", StockUiSearchAction.NameField),
+            [(StockUiSearch.NameMenu, StockUiSearch.NameBeginButton)] = Search("Begin", StockUiSearchAction.NameBegin),
+            [(StockUiSearch.NameMenu, StockUiSearch.NameCancelButton)] = Search("Cancel", StockUiSearchAction.NameCancel),
+            [(StockUiSearch.NationMenu, 1)] = Search("San d'Oria", StockUiSearchAction.Nation, 0),
+            [(StockUiSearch.NationMenu, 2)] = Search("Bastok", StockUiSearchAction.Nation, 1),
+            [(StockUiSearch.NationMenu, 3)] = Search("Windurst", StockUiSearchAction.Nation, 2),
+            [(StockUiSearch.RaceMenu, 1)] = Search("Hume", StockUiSearchAction.Race, 0),
+            [(StockUiSearch.RaceMenu, 2)] = Search("Elvaan", StockUiSearchAction.Race, 1),
+            [(StockUiSearch.RaceMenu, 3)] = Search("Tarutaru", StockUiSearchAction.Race, 2),
+            [(StockUiSearch.RaceMenu, 4)] = Search("Mithra", StockUiSearchAction.Race, 3),
+            [(StockUiSearch.RaceMenu, 5)] = Search("Galka", StockUiSearchAction.Race, 4),
+            [(StockUiSearch.JobMenu, 1)] = Search("WAR", StockUiSearchAction.Job, 1),
+            [(StockUiSearch.JobMenu, 2)] = Search("MNK", StockUiSearchAction.Job, 2),
+            [(StockUiSearch.JobMenu, 3)] = Search("WHM", StockUiSearchAction.Job, 3),
+            [(StockUiSearch.JobMenu, 4)] = Search("BLM", StockUiSearchAction.Job, 4),
+            [(StockUiSearch.JobMenu, 5)] = Search("RDM", StockUiSearchAction.Job, 5),
+            [(StockUiSearch.JobMenu, 6)] = Search("THF", StockUiSearchAction.Job, 6),
+            [(StockUiSearch.JobMenu, 7)] = Search("PLD", StockUiSearchAction.Job, 7),
+            [(StockUiSearch.JobMenu, 8)] = Search("DRK", StockUiSearchAction.Job, 8),
+            [(StockUiSearch.JobMenu, 9)] = Search("BST", StockUiSearchAction.Job, 9),
+            [(StockUiSearch.JobMenu, 10)] = Search("BRD", StockUiSearchAction.Job, 10),
+            [(StockUiSearch.JobMenu, 11)] = Search("RNG", StockUiSearchAction.Job, 11),
+            [(StockUiSearch.JobMenu, 12)] = Search("SAM", StockUiSearchAction.Job, 12),
+            [(StockUiSearch.JobMenu, 13)] = Search("NIN", StockUiSearchAction.Job, 13),
+            [(StockUiSearch.JobMenu, 14)] = Search("DRG", StockUiSearchAction.Job, 14),
+            [(StockUiSearch.JobMenu, 15)] = Search("SMN", StockUiSearchAction.Job, 15),
+            [(StockUiSearch.JobMenu, 16)] = Search("BLU", StockUiSearchAction.Job, 16),
+            [(StockUiSearch.JobMenu, 17)] = Search("COR", StockUiSearchAction.Job, 17),
+            [(StockUiSearch.JobMenu, 18)] = Search("PUP", StockUiSearchAction.Job, 18),
+            [(StockUiSearch.JobMenu, 19)] = Search("DNC", StockUiSearchAction.Job, 19),
+            [(StockUiSearch.JobMenu, 20)] = Search("SCH", StockUiSearchAction.Job, 20),
+            [(StockUiSearch.JobMenu, 21)] = Search("GEO", StockUiSearchAction.Job, 21),
+            [(StockUiSearch.JobMenu, 22)] = Search("RUN", StockUiSearchAction.Job, 22),
+            [(StockUiSearch.LevelMenu, 1)] = Search("Lv. 1-10", StockUiSearchAction.Level, 1),
+            [(StockUiSearch.LevelMenu, 2)] = Search("Lv. 11-20", StockUiSearchAction.Level, 2),
+            [(StockUiSearch.LevelMenu, 3)] = Search("Lv. 21-30", StockUiSearchAction.Level, 3),
+            [(StockUiSearch.LevelMenu, 4)] = Search("Lv. 31-40", StockUiSearchAction.Level, 4),
+            [(StockUiSearch.LevelMenu, 5)] = Search("Lv. 41-50", StockUiSearchAction.Level, 5),
+            [(StockUiSearch.LevelMenu, 6)] = Search("Lv. 51-60", StockUiSearchAction.Level, 6),
+            [(StockUiSearch.LevelMenu, 7)] = Search("Lv. 61-70", StockUiSearchAction.Level, 7),
+            [(StockUiSearch.LevelMenu, 8)] = Search("Lv. 71-80", StockUiSearchAction.Level, 8),
+            [(StockUiSearch.LevelMenu, 9)] = Search("Lv. 81-90", StockUiSearchAction.Level, 9),
+            [(StockUiSearch.LevelMenu, 10)] = Search("Lv. 91-99", StockUiSearchAction.Level, 10),
+            [(StockUiSearch.RankMenu, 1)] = Search("Rank 1", StockUiSearchAction.Rank, 1),
+            [(StockUiSearch.RankMenu, 2)] = Search("Rank 2", StockUiSearchAction.Rank, 2),
+            [(StockUiSearch.RankMenu, 3)] = Search("Rank 3", StockUiSearchAction.Rank, 3),
+            [(StockUiSearch.RankMenu, 4)] = Search("Rank 4", StockUiSearchAction.Rank, 4),
+            [(StockUiSearch.RankMenu, 5)] = Search("Rank 5", StockUiSearchAction.Rank, 5),
+            [(StockUiSearch.RankMenu, 6)] = Search("Rank 6", StockUiSearchAction.Rank, 6),
+            [(StockUiSearch.RankMenu, 7)] = Search("Rank 7", StockUiSearchAction.Rank, 7),
+            [(StockUiSearch.RankMenu, 8)] = Search("Rank 8", StockUiSearchAction.Rank, 8),
+            [(StockUiSearch.RankMenu, 9)] = Search("Rank 9", StockUiSearchAction.Rank, 9),
+            [(StockUiSearch.RankMenu, 10)] = Search("Rank 10", StockUiSearchAction.Rank, 10),
+            [(StockUiSearch.PartyCommentMenu, 1)] = Search("Seek Party", StockUiSearchAction.CommentRefine, 1),
+            [(StockUiSearch.PartyCommentMenu, 2)] = Search("Find Member", StockUiSearchAction.CommentRefine, 2),
+            [(StockUiSearch.PartyCommentMenu, 3)] = Search("Other", StockUiSearchAction.CommentRefine, 3),
+            [(StockUiSearch.ItemCommentMenu, 1)] = Search("Sell", StockUiSearchAction.CommentRefine, 1),
+            [(StockUiSearch.ItemCommentMenu, 2)] = Search("Buy", StockUiSearchAction.CommentRefine, 2),
+            [(StockUiSearch.ItemCommentMenu, 3)] = Search("Other", StockUiSearchAction.CommentRefine, 3),
+            [(StockUiSearch.LinkshellCommentMenu, 1)] = Search("Seek Linkshell", StockUiSearchAction.CommentRefine, 1),
+            [(StockUiSearch.LinkshellCommentMenu, 2)] = Search("Recruit", StockUiSearchAction.CommentRefine, 2),
+            [(StockUiSearch.LinkshellCommentMenu, 3)] = Search("Other", StockUiSearchAction.CommentRefine, 3),
+            [(StockUiSearch.CommentTypeMenu, 1)] = Search("Job Levels", StockUiSearchAction.CommentGenre, 1),
+            [(StockUiSearch.CommentTypeMenu, 2)] = Search("Battle Content", StockUiSearchAction.CommentGenre, 2),
+            [(StockUiSearch.CommentTypeMenu, 3)] = Search("Missions / Quests", StockUiSearchAction.CommentGenre, 3),
+            [(StockUiSearch.CommentTypeMenu, 4)] = Search("Items", StockUiSearchAction.CommentGenre, 4),
+            [(StockUiSearch.CommentTypeMenu, 5)] = Search("Linkshells", StockUiSearchAction.CommentGenre, 5),
+            [(StockUiSearch.CommentTypeMenu, 6)] = Search("Friends", StockUiSearchAction.CommentGenre, 6),
+            [(StockUiSearch.CommentTypeMenu, 7)] = Search("Others", StockUiSearchAction.CommentGenre, 7),
+
+            // Linkshell (#490): a linkshell item's options, a member's options.
+            [(StockUiSearch.LinkshellMenu, 1)] = Search("Members", StockUiSearchAction.ItemMembers),
+            [(StockUiSearch.LinkshellMenu, 2)] = Search("Equip", StockUiSearchAction.ItemEquip),
+            [(StockUiSearch.LinkshellMenu, 3)] = Search("Create Linkpearl", StockUiSearchAction.ItemMakePearl),
+            [(StockUiSearch.PearlsackMenu, 1)] = Search("Members", StockUiSearchAction.ItemMembers),
+            [(StockUiSearch.PearlsackMenu, 2)] = Search("Equip", StockUiSearchAction.ItemEquip),
+            [(StockUiSearch.PearlsackMenu, 3)] = Search("Create Linkpearl", StockUiSearchAction.ItemMakePearl),
+            [(StockUiSearch.LinkpearlMenu, 1)] = Search("Members", StockUiSearchAction.ItemMembers),
+            [(StockUiSearch.LinkpearlMenu, 2)] = Search("Equip", StockUiSearchAction.ItemEquip),
+            [(StockUiSearch.LinkshellMemberMenu, 1)] = Person("Tell", StockUiPartyAction.Tell),
+
+            // Communication (#490): "commenu", and the blacklist's Delete.
+            [(StockUiSearch.CommunicationMenu, 1)] = Search("Friend List", StockUiSearchAction.FriendList),
+            [(StockUiSearch.CommunicationMenu, 2)] = new("Emote List", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiSearch.BlacklistOptionsMenu, 1)] = Search("Delete", StockUiSearchAction.BlacklistDelete),
+
             // Config list (label sprites: 338 Gameplay, 364 Chat Filters, 365 Font Colors, 366 Windows, 728 Log,
             // 367 Misc., 470 Misc. 2, 752 Misc. 3, 792 Misc. 4, 539 Effects, 527 Mouse/Cam., 359 Global, 840 Gamepad).
             // Font Colors ("conftxtc" -> "textcol1"/"textcol3"), Log ("conf11l" -> "conf11s"/"conf11m") and Effects
@@ -465,6 +572,9 @@ namespace Gordian.Engine.Ui
 
         private static StockUiMenuEntry Person(string label, StockUiPartyAction action) =>
             new(label, Command: StockUiMenuCommand.PersonAction, Argument: (int)action);
+
+        private static StockUiMenuEntry Search(string label, StockUiSearchAction action, int value = 0) =>
+            new(label, Command: StockUiMenuCommand.SearchAction, Argument: StockUiSearch.Action(action, value));
 
         private static StockUiMenuEntry Spells(string label, int button) =>
             new(label, Command: StockUiMenuCommand.SpellList, Argument: StockUiActionMenu.CategoryKinds[button]);

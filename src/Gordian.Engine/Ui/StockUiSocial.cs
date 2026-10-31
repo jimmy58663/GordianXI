@@ -64,6 +64,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The blacklist: Confirm opens <c>blkmain</c> (Delete from blacklist).</summary>
         Blacklist,
+
+        /// <summary>The Linkshell window's items (<c>link5</c>): Confirm opens the item's options.</summary>
+        LinkshellItems,
     }
 
     /// <summary>The social commands a menu entry asks the session to run (<see cref="IStockUiSocial.RunAsync"/>).</summary>
@@ -156,6 +159,15 @@ namespace Gordian.Engine.Ui
         /// <summary>The members of the linkshell worn in slot 1 or 2.</summary>
         Task<StockUiPeopleResult> LinkshellMembersAsync(int slot);
 
+        /// <summary>The members of a linkshell by its id (a linkshell item's extra data).</summary>
+        Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId);
+
+        /// <summary>The linkshell items the character holds (inventory and wardrobes), worn ones first.</summary>
+        IReadOnlyList<StockUiLinkshellItem> LinkshellItems();
+
+        /// <summary>Equips or unequips a linkshell item (C2S 0x0C4), or makes a linkpearl from it (C2S 0x0C3).</summary>
+        Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action);
+
         /// <summary>The blacklist (asked for first when the client has not got it whole).</summary>
         Task<StockUiPeopleResult> BlacklistAsync();
 
@@ -196,6 +208,7 @@ namespace Gordian.Engine.Ui
             StockUiPeoplePurpose.LinkshellMembers => "Linkshell",
             StockUiPeoplePurpose.Friends => "Friend List",
             StockUiPeoplePurpose.Blacklist => "Blacklist",
+            StockUiPeoplePurpose.LinkshellItems => "Linkshell",
             _ => string.Empty,
         };
 

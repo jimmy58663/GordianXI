@@ -130,6 +130,82 @@ namespace Gordian.Engine.Ui
             return new StockUiPeopleResult(result.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
         }
 
+        public async Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId)
+        {
+            var search = Search;
+            if (search is not { IsConfigured: true }) return StockUiPeopleResult.Failed("Linkshell: the search server address is not known yet.");
+            if (groupId == 0) return StockUiPeopleResult.Failed("Linkshell: this linkshell's id is not known.");
+            var result = await search.RefreshLinkshellListByIdAsync(groupId).ConfigureAwait(false);
+            if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
+            return new StockUiPeopleResult(result.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
+        }
+
+        /// <summary>The containers a linkshell item can be worn from: the inventory and the wardrobes.</summary>
+        private static readonly ContainerId[] LinkshellContainers =
+        {
+            ContainerId.Inventory, ContainerId.Wardrobe, ContainerId.Wardrobe2, ContainerId.Wardrobe3, ContainerId.Wardrobe4,
+            ContainerId.Wardrobe5, ContainerId.Wardrobe6, ContainerId.Wardrobe7, ContainerId.Wardrobe8,
+        };
+
+        /// <summary>
+        /// The linkshells, pearlsacks and linkpearls held. The extra data is LandSandBoat's <c>Exdata::Linkshell</c>
+        /// (<c>src/map/items/exdata/linkshell.h</c>, https://github.com/LandSandBoat/server): the group id (u32) at 0, then
+        /// the key, colour and flag, and the 6-bit packed name (15 bytes) at 9.
+        /// </summary>
+        public IReadOnlyList<StockUiLinkshellItem> LinkshellItems()
+        {
+            var inventory = _actions.InventoryModule?.State;
+            if (inventory == null) return Array.Empty<StockUiLinkshellItem>();
+            var worn = new[] { _party.GetLinkshellItem(1), _party.GetLinkshellItem(2) };
+            var items = new List<StockUiLinkshellItem>();
+            foreach (var container in LinkshellContainers)
+            {
+                foreach (var item in inventory.SnapshotItems(container))
+                {
+                    if (item.ItemId is < (ushort)StockUiLinkshellKind.Linkshell or > (ushort)StockUiLinkshellKind.Linkpearl || item.Slot == 0) continue;
+                    var kind = (StockUiLinkshellKind)item.ItemId;
+                    byte[]? ext = item.ExtData;
+                    uint groupId = ext is { Length: >= 4 } ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(ext) : 0;
+                    string name = ext is { Length: >= 24 } ? LinkshellNameCodec.Decode(ext.AsSpan(9, 15)) : string.Empty;
+                    if (name.Length == 0) name = _actions.Menus.ItemLookup?.Invoke(item.ItemId)?.Name ?? kind.ToString();
+                    int slot = 0;
+                    for (int i = 0; i < worn.Length; i++)
+                    {
+                        if (worn[i] is { } at && at.Container == container && at.ItemIndex == item.Slot) slot = i + 1;
+                    }
+                    items.Add(new StockUiLinkshellItem(name, kind, (byte)container, item.Slot, groupId, slot));
+                }
+            }
+            return items.OrderBy(i => i.WornSlot == 0 ? 3 : i.WornSlot).ToList();
+        }
+
+        /// <summary>
+        /// Equips a linkshell item in the first free slot or unequips a worn one (C2S 0x0C4), or makes a linkpearl from a worn
+        /// linkshell or pearlsack (C2S 0x0C3).
+        /// </summary>
+        public async Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action)
+        {
+            var module = _actions.SocialModule;
+            if (module == null) return "Linkshell is unavailable in this session.";
+            switch (action)
+            {
+                case StockUiSearchAction.ItemEquip when item.WornSlot != 0:
+                    await module.SetLinkshellEquippedAsync(false, (byte)item.WornSlot, item.Index, (ContainerId)item.Container).ConfigureAwait(false);
+                    return null;
+                case StockUiSearchAction.ItemEquip:
+                    int slot = !_party.HasLinkshell(1) ? 1 : !_party.HasLinkshell(2) ? 2 : 0;
+                    if (slot == 0) return "Both linkshell slots are in use. Unequip one first.";
+                    await module.SetLinkshellEquippedAsync(true, (byte)slot, item.Index, (ContainerId)item.Container).ConfigureAwait(false);
+                    return null;
+                case StockUiSearchAction.ItemMakePearl:
+                    if (item.WornSlot == 0) return "Equip the linkshell first.";
+                    await module.MakeLinkpearlAsync((byte)item.WornSlot).ConfigureAwait(false);
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
         public async Task<StockUiPeopleResult> BlacklistAsync()
         {
             var module = _actions.SocialModule;

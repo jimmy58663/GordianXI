@@ -39,9 +39,33 @@ namespace Gordian.Engine.Tests.Ui
                 return Task.FromResult(SearchResult);
             }
 
-            public Task<StockUiPeopleResult> LinkshellMembersAsync(int slot) => Task.FromResult(SearchResult);
+            public Task<StockUiPeopleResult> LinkshellMembersAsync(int slot)
+            {
+                LinkshellSlotAsked = slot;
+                return Task.FromResult(SearchResult);
+            }
 
-            public Task<StockUiPeopleResult> BlacklistAsync() => Task.FromResult(SearchResult);
+            public StockUiPeopleResult Blacklist { get; set; } = new(Array.Empty<StockUiPerson>());
+            public List<StockUiLinkshellItem> Linkshells { get; } = new();
+            public List<(StockUiLinkshellItem Item, StockUiSearchAction Action)> LinkshellRuns { get; } = new();
+            public uint? LinkshellIdAsked { get; private set; }
+            public int? LinkshellSlotAsked { get; private set; }
+
+            public Task<StockUiPeopleResult> BlacklistAsync() => Task.FromResult(Blacklist);
+
+            public Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId)
+            {
+                LinkshellIdAsked = groupId;
+                return Task.FromResult(SearchResult);
+            }
+
+            public IReadOnlyList<StockUiLinkshellItem> LinkshellItems() => Linkshells;
+
+            public Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action)
+            {
+                lock (LinkshellRuns) LinkshellRuns.Add((item, action));
+                return Task.FromResult<string?>(null);
+            }
 
             public Task<string?> RunAsync(StockUiSocialCommand command, StockUiPerson person = default, int argument = 0)
             {
