@@ -377,6 +377,30 @@ void main()
         }
 
         /// <summary>
+        /// Draws a rectangle of a UI texture centred on (<paramref name="centerX"/>, <paramref name="centerY"/>) at
+        /// <paramref name="size"/> x <paramref name="size"/>, turned <paramref name="degrees"/> clockwise on the screen (a
+        /// sprite the DAT stores tilted, such as the home point crystal).
+        /// </summary>
+        public void DrawTextureRectRotated(string textureName, float srcX, float srcY, float srcWidth, float srcHeight,
+            float centerX, float centerY, float size, float degrees, UiColor color)
+        {
+            if (_library == null || size <= 0) return;
+            if (!TryGetTextureSet(textureName, out var set, out float texWidth, out float texHeight)) return;
+            // Half a texel in from each edge: the turned quad's edges otherwise filter in the opposite edge's texels (the UI
+            // sampler wraps), a stray line beside the home point crystal.
+            float u0 = (srcX + 0.5f) / texWidth, v0 = (srcY + 0.5f) / texHeight;
+            float u1 = (srcX + srcWidth - 0.5f) / texWidth, v1 = (srcY + srcHeight - 0.5f) / texHeight;
+            float angle = degrees * MathF.PI / 180f, cos = MathF.Cos(angle), sin = MathF.Sin(angle), h = size * 0.5f;
+            Vector2 Corner(float dx, float dy) => new(centerX + dx * cos - dy * sin, centerY + dx * sin + dy * cos);
+            uint c = Pack(color, null);
+            AddQuad(set, UiBlendMode.Alpha,
+                new UiVertex { Position = Corner(-h, -h), TexCoord = new Vector2(u0, v0), Color = c },
+                new UiVertex { Position = Corner(h, -h), TexCoord = new Vector2(u1, v0), Color = c },
+                new UiVertex { Position = Corner(-h, h), TexCoord = new Vector2(u0, v1), Color = c },
+                new UiVertex { Position = Corner(h, h), TexCoord = new Vector2(u1, v1), Color = c });
+        }
+
+        /// <summary>
         /// Draws a rectangle (texture pixels) of a texture that does not come from the UI library (the log font's glyph
         /// atlas), cached under <paramref name="cacheKey"/>.
         /// </summary>

@@ -892,26 +892,28 @@ namespace Gordian.Engine.Events
                     _pc += 7;
                     return;
                 case 0xD4:
-                    // The map opcode: sub-cases 0 (map behind the list) and 2 open a query like 0x24 with the
-                    // operands one byte on; 1, 3, 4 and 5 hand marker data to the map window (no map here yet).
+                    // The map opcode (XiEvents OpCodes/0x00D4): sub-cases 0 (the zone's map behind the list) and 2 open a
+                    // query like 0x24 with the operands one byte on; 1, 3, 4 and 5 give an option of the next query its
+                    // place on the map (#168).
                     switch (Code8(1))
                     {
                         case 0:
                         case 2:
+                            if (!_queryOpen && Code8(1) == 0) _host.OpenQueryMap();
                             OpenQuery(2);
                             _pc += 8;
                             return;
                         case 1:
-                            _host.OnSkippedOpcode(op, _pc);
+                            _host.SetQueryMapEntry(GetWork(2), new EventQueryMapEntry(1, (ushort)GetWork(4), (ushort)GetWork(6), 0, 0, 0));
                             _pc += 8;
                             return;
                         case 3:
-                            _host.OnSkippedOpcode(op, _pc);
+                            _host.SetQueryMapEntry(GetWork(2), new EventQueryMapEntry(3, (ushort)GetWork(4), 0, 0, 0, 0));
                             _pc += 6;
                             return;
                         case 4:
                         case 5:
-                            _host.OnSkippedOpcode(op, _pc);
+                            _host.SetQueryMapEntry(GetWork(2), new EventQueryMapEntry(Code8(1), (ushort)GetWork(4), 0, GetWork(6), GetWork(8), GetWork(10)));
                             _pc += 12;
                             return;
                         default:
@@ -1501,6 +1503,26 @@ namespace Gordian.Engine.Events
                     SetWork(1, 2); // English client
                     _pc += 3;
                     return;
+                case 0x89:
+                    // Opens a zone's map for the event, on its default map (XiEvents OpCodes/0x0089, OpenMap2 mode 1).
+                    _host.OpenEventMap(GetWork(1), -1);
+                    _pc += 3;
+                    return;
+                case 0xC8:
+                    // Opens a zone's map on one of its maps (XiEvents OpCodes/0x00C8; the intro map tutorial, #168).
+                    _host.OpenEventMap(GetWork(1), GetWork(3));
+                    _pc += 7;
+                    return;
+                case 0x8B:
+                    // CodeSETEVENTMARK (XiEvents OpCodes/0x008B): map, marker index, world x and z in thousandths, then a
+                    // 16-byte name with '_' for spaces.
+                    _host.SetEventMapMarker(GetWork(1), GetWork(3), GetWork(5) * 0.001f, GetWork(7) * 0.001f, MarkerName(9));
+                    _pc += 25;
+                    return;
+                case 0x8A:
+                    _host.CloseEventMap();
+                    _pc++;
+                    return;
                 case 0xB0:
                 {
                     var (id, index) = ResolveActor(Code32(2));
@@ -1810,6 +1832,20 @@ namespace Gordian.Engine.Events
         {
             Scene.EndEntityActions(serverId);
             _host.StopEntityMotion(serverId, string.Empty);
+        }
+
+        /// <summary>0x8B's 16-byte marker name at <paramref name="offset"/>: up to the first NUL, '_' read as a space.</summary>
+        private string MarkerName(int offset)
+        {
+            Span<char> chars = stackalloc char[16];
+            int length = 0;
+            for (int i = 0; i < 16; i++)
+            {
+                byte b = Code8(offset + i);
+                if (b == 0) break;
+                chars[length++] = b == (byte)'_' ? ' ' : (char)b;
+            }
+            return new string(chars[..length]);
         }
 
         /// <summary>A little-endian FourCC operand as text (trailing NULs dropped).</summary>

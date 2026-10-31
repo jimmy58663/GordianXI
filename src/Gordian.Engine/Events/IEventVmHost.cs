@@ -270,6 +270,40 @@ namespace Gordian.Engine.Events
         bool IsEventZoneLoading => false;
 
         /// <summary>
+        /// Opcodes 0x89 / 0xC8: opens the event map on a zone's map (<paramref name="mapId"/> is a zone id; <paramref name="mapNumber"/>
+        /// one of its maps, -1 for its first). #168.
+        /// </summary>
+        void OpenEventMap(int mapId, int mapNumber)
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0x8B (CodeSETEVENTMARK): marker <paramref name="index"/> of map <paramref name="mapId"/> at world
+        /// (<paramref name="x"/>, <paramref name="z"/>), labelled <paramref name="name"/>; shown on the event map when it is open.
+        /// </summary>
+        void SetEventMapMarker(int mapId, int index, float x, float z, string name)
+        {
+        }
+
+        /// <summary>Opcode 0x8A: closes the event map.</summary>
+        void CloseEventMap()
+        {
+        }
+
+        /// <summary>
+        /// Opcode 0xD4 sub-case 0: the query about to open has the zone's map behind it, showing the place of the option
+        /// under the cursor (<see cref="SetQueryMapEntry"/>); it closes with the query.
+        /// </summary>
+        void OpenQueryMap()
+        {
+        }
+
+        /// <summary>Opcode 0xD4 sub-cases 1 / 3 / 4 / 5: the map data of query option <paramref name="option"/> (1-based).</summary>
+        void SetQueryMapEntry(int option, EventQueryMapEntry entry)
+        {
+        }
+
+        /// <summary>
         /// Opcodes 0x1E / 0x4A / 0x79 (lookatone): an entity (server id; 0 = the local player) looks at another, with
         /// retail's speech frame; <paramref name="targetServerId"/> <see cref="uint.MaxValue"/> ends the look (0x7B).
         /// </summary>
