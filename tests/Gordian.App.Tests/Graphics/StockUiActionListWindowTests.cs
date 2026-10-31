@@ -65,6 +65,43 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(screen.HasLightPixel(shot, (int)anchor.Item1 + 7, (int)anchor.Item1 + 60, infoTop + 30), "no Next label");
         }
 
+        /// <summary>
+        /// Pictures 1000 and up come from <c>magico2w</c> (ROM/324/95, #361): Inner Strength (1065, <c>sp2_02_m</c>), Clarion
+        /// Call (1073) and a trust (1000, <c>fa_1_1</c>) draw their own picture with no small icon to fall back on.
+        /// </summary>
+        [Fact]
+        public void RendersPicturesFromTheSecondIconGroup()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var rows = new List<StockUiActionRow>
+            {
+                new(StockUiActionType.JobAbility, 836, "Inner Strength", ActionTargetFlags.Self, 1065, -1, 0, null),
+                new(StockUiActionType.JobAbility, 844, "Clarion Call", ActionTargetFlags.Self, 1073, -1, 0, null),
+                new(StockUiActionType.Spell, 896, "Shantotto", ActionTargetFlags.Self, 1000, 0, 0, null),
+            };
+            var menus = new StockUiMenuController { Library = screen.Library, ActionRowsProvider = (_, _, _) => rows };
+            var list = menus.OpenActionList(StockUiActionList.JobAbilities, 0, null)!;
+            var frame = list.Menu.Frame;
+            var at = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
+            var shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, at, 0, logFont: screen.LogFont), "gpu_second_icon_group.png");
+            int px = (int)at.X, py = (int)at.Y;
+            for (int row = 0; row < rows.Count; row++)
+            {
+                bool icon = false;
+                int top = py + 4 + row * 16;
+                for (int x = px + 16; x < px + 32 && !icon; x++)
+                {
+                    for (int y = top; y < top + 16 && !icon; y++)
+                    {
+                        var p = screen.Pixel(shot, x, y);
+                        icon = System.Math.Max(p.R, System.Math.Max(p.G, p.B)) - System.Math.Min(p.R, System.Math.Min(p.G, p.B)) > 50;
+                    }
+                }
+                Assert.True(icon, $"no picture on row {row} ({rows[row].Name})");
+            }
+        }
+
         [Fact]
         public void RendersPetRowAndBloodPactInfoWindow()
         {
@@ -104,7 +141,7 @@ namespace Gordian.App.Tests.Graphics
 
         /// <summary>
         /// The mount list (#87) in the DAT's <c>mount</c> window, as the retail capture (Mounts.mp4, 30 s): every owned mount's
-        /// name in the log font 35 px in, and the scrollbar past twelve rows.
+        /// name in the log font 35 px in, its paw, and the scrollbar past twelve rows.
         /// </summary>
         [Fact]
         public void RendersMountList()
@@ -124,7 +161,17 @@ namespace Gordian.App.Tests.Graphics
             var shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, list, at, 0, logFont: screen.LogFont), "gpu_mount_list_rows.png");
             int px = (int)at.X, py = (int)at.Y;
             Assert.True(screen.HasLightPixel(shot, px + 35, px + 120, py + 20 + 8), "no mount name on the second row");
-            // The paw icon retail draws before each mount is not drawn yet (its sprite is not found, #87).
+            // The paw before each mount (magico2w 86 / 87, #361): coloured pixels in the first row's 16 px.
+            bool paw = false;
+            for (int x = px + 16; x < px + 32 && !paw; x++)
+            {
+                for (int y = py + 4; y < py + 20 && !paw; y++)
+                {
+                    var p = screen.Pixel(shot, x, y);
+                    paw = System.Math.Max(p.R, System.Math.Max(p.G, p.B)) - System.Math.Min(p.R, System.Math.Min(p.G, p.B)) > 50;
+                }
+            }
+            Assert.True(paw, "no paw on the first row");
         }
     }
 }
