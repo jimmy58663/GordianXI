@@ -289,7 +289,8 @@ namespace Gordian.Engine.Ui
         {
             get
             {
-                foreach (var menu in _open) if (menu.IsMacroWindow) return true;
+                // Search by Name and the search comment (#490) type in the same field.
+                foreach (var menu in _open) if (menu.IsMacroWindow || menu.SocialField == MacroField) return true;
                 return false;
             }
         }

@@ -26,7 +26,7 @@ namespace Gordian.App.Graphics
         private static readonly UiColor BarColor = new(0x80, 0x18, 0x18, 0x80);
 
         /// <summary>Where a window's text field starts when it has no button to sit on (the search comment box), in layout px.</summary>
-        private const float SocialFieldInset = 10;
+        private const float SocialFieldInset = 10, CommentDotSize = 8;
 
         /// <summary>
         /// Draws one open menu: the frame, its buttons' label sprites (the page arrows only on a paged menu; the
@@ -177,7 +177,7 @@ namespace Gordian.App.Graphics
             }
             else if (font != null && menu.ListKind == StockUiListKind.People && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstPeopleRow)
             {
-                StockUiPeopleWindow.Draw(renderer, font, logFont, menu, placement, firstPeopleRow, definition.FindButton(2), timestamp);
+                StockUiPeopleWindow.Draw(renderer, library, font, logFont, menu, placement, firstPeopleRow, definition.FindButton(2), timestamp);
             }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
@@ -265,7 +265,17 @@ namespace Gordian.App.Graphics
                 // 96 x 14 field), or inside the frame's top left (the comment box).
                 var at = menu.SocialFieldButton > 0 ? definition.FindButton(menu.SocialFieldButton) : null;
                 float fieldX = placement.X + (at?.X ?? SocialFieldInset) * s, fieldY = placement.Y + (at?.Y ?? SocialFieldInset) * s;
-                StockUiTextFieldView.Draw(renderer, font, logFont, field, fieldX, fieldY, s, timestamp, at?.Width ?? frame.Width - 2 * SocialFieldInset);
+                float fieldWidth = at?.Width ?? frame.Width - 2 * SocialFieldInset;
+                if (menu.CommentGenre > 0)
+                {
+                    // The comment box's dot in the comment type's colour before the text (image-46: green for EXP Party).
+                    // PROVISIONAL: the colorbal ball by the type's number (1 green ... 7 purple); only type 1 is captured.
+                    float size = CommentDotSize * s;
+                    renderer.DrawTextureRect("colorbal", menu.CommentGenre % 4 * 16, menu.CommentGenre / 4 * 16, 16, 16, fieldX, fieldY + 2 * s, size, size, White);
+                    fieldX += (CommentDotSize + 4) * s;
+                    fieldWidth -= CommentDotSize + 4;
+                }
+                StockUiTextFieldView.Draw(renderer, font, logFont, field, fieldX, fieldY, s, timestamp, fieldWidth);
             }
 
             if (font != null && menu.TitleSuffix?.Invoke() is { Length: > 0 } suffix)

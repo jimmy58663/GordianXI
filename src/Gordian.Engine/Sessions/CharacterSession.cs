@@ -319,7 +319,7 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.PartyDisbandRequested = leader => ActionService.DisbandOrLeavePartyAsync(leader);
             // The rest of the Party menu, Search, Linkshell and Communication (#489, #490).
             ActionService.Menus.Social = new Gordian.Engine.Ui.StockUiSocialActions(ActionService, Party, PartyModule, ChatModule,
-                () => LocalPlayer.ServerId, () => CharacterName, () => World.CurrentZoneId);
+                () => LocalPlayer.ServerId, () => CharacterName, () => World.CurrentZoneId, () => LocalPlayer.MainJobLevel);
             // Unity membership (#65): the Unity leader (1-11) in S2C 0x061's unity_info; 0 = not in a Unity.
             ActionService.Menus.HasUnity = () => LocalPlayer.UnityFaction != 0;
             ChatModule.LinkshellMessageReceived += msg =>

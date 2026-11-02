@@ -45,11 +45,11 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiFont font, Func<ushort, ItemRecord?>? itemLookup, in StockUiItemRowStyle style,
             float x, float y, float rowHeight, float scale, ushort itemId, string name, UiColor? tint = null, int? count = null,
-            string? right = null, float rightEdge = 0)
+            string? right = null, float rightEdge = 0, UiColor? iconTint = null)
         {
             float s = scale;
             float iconX = x + style.IconX * s;
-            if (itemId != 0) StockUiMenuWindow.DrawItemIcon(renderer, itemLookup, itemId, iconX, y, style.IconSize * s);
+            if (itemId != 0) StockUiMenuWindow.DrawItemIcon(renderer, itemLookup, itemId, iconX, y, style.IconSize * s, iconTint);
             if (count is { } n)
             {
                 float ts = s * StockUiPartyWindow.TextScale;

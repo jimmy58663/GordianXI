@@ -20,13 +20,16 @@ namespace Gordian.Engine.Ui
     /// kind 1 (party languages; XiPackets <c>world/client/0x00DB</c>), C2S 0x077 GROUP_CHANGE2 kind 0 with change kinds 4
     /// SetQuartermaster, 5 SetLottery, 6 SetLevelSync and 7 DisableLevelSync (LandSandBoat
     /// <c>packets/c2s/0x077_group_change2.h</c> and <c>CParty::AssignPartyRole</c>) and C2S 0x11C PARTY_REQUEST (XiPackets
-    /// <c>world/client/0x011C</c>; LandSandBoat's handler only logs it). https://github.com/atom0s/XiPackets,
-    /// https://github.com/LandSandBoat/server.
+    /// <c>world/client/0x011C</c>; LandSandBoat's handler only logs it). The Linkshell window: C2S 0x0C4 (wear / unwear),
+    /// 0x0C3 (make a linkpearl), 0x077 with the worn slot as its kind and change kinds 2 PearlToSack / 3 SackToPearl, and
+    /// 0x071 with the slot as its kind to remove a member (LandSandBoat <c>0x077_group_change2.h</c>,
+    /// <c>0x071_group_strike.cpp</c>). https://github.com/atom0s/XiPackets, https://github.com/LandSandBoat/server.
     /// </remarks>
     public sealed class StockUiSocialActions : IStockUiSocial
     {
         private const byte PartyKindParty = 0, SetQuartermaster = 4, SetLottery = 5, SetLevelSync = 6, DisableLevelSync = 7;
         private const byte RequestAdd = 0, RequestRemove = 1;
+        private const byte PearlToSack = 2, SackToPearl = 3;
 
         private readonly PlayerActionService _actions;
         private readonly PartyState _party;
@@ -35,10 +38,12 @@ namespace Gordian.Engine.Ui
         private readonly Func<uint> _selfId;
         private readonly Func<string> _selfName;
         private readonly Func<ushort> _zone;
+        private readonly Func<byte> _mainLevel;
 
         public StockUiSocialActions(PlayerActionService actions, PartyState party, PartyPacketModule partyModule, ChatPacketModule chatModule,
-            Func<uint> selfId, Func<string> selfName, Func<ushort> zone)
+            Func<uint> selfId, Func<string> selfName, Func<ushort> zone, Func<byte>? mainLevel = null)
         {
+            _mainLevel = mainLevel ?? (() => 0);
             _chatModule = chatModule ?? throw new ArgumentNullException(nameof(chatModule));
             _actions = actions ?? throw new ArgumentNullException(nameof(actions));
             _party = party ?? throw new ArgumentNullException(nameof(party));
@@ -55,6 +60,10 @@ namespace Gordian.Engine.Ui
         private Func<int, string?>? ZoneName => _actions.Menus.ZoneName;
 
         public ushort CurrentZone => _zone();
+
+        public byte MainLevel => _mainLevel();
+
+        public string CharacterName => _selfName();
 
         public StockUiSocialState State
         {
@@ -166,8 +175,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// The linkshells, pearlsacks and linkpearls held. The extra data is LandSandBoat's <c>Exdata::Linkshell</c>
-        /// (<c>src/map/items/exdata/linkshell.h</c>, https://github.com/LandSandBoat/server): the group id (u32) at 0, then
-        /// the key, colour and flag, and the 6-bit packed name (15 bytes) at 9.
+        /// (<c>src/map/items/exdata/linkshell.h</c>, https://github.com/LandSandBoat/server): the group id (u32) at 0, the key
+        /// (u16) at 4, the colour (u16: 4 bits each of R, G, B, A from the low end) at 6, the flag at 8, and the 6-bit packed
+        /// name (15 bytes) at 9.
         /// </summary>
         public IReadOnlyList<StockUiLinkshellItem> LinkshellItems()
         {
@@ -190,17 +200,17 @@ namespace Gordian.Engine.Ui
                     {
                         if (worn[i] is { } at && at.Container == container && at.ItemIndex == item.Slot) slot = i + 1;
                     }
-                    items.Add(new StockUiLinkshellItem(name, kind, (byte)container, item.Slot, groupId, slot));
+                    items.Add(new StockUiLinkshellItem(name, kind, (byte)container, item.Slot, groupId, slot, StockUiItems.LinkshellColorOf(item.ItemId, ext)));
                 }
             }
             return items.OrderBy(i => i.WornSlot == 0 ? 3 : i.WornSlot).ToList();
         }
 
         /// <summary>
-        /// Equips a linkshell item in the first free slot or unequips a worn one (C2S 0x0C4), or makes a linkpearl from a worn
-        /// linkshell or pearlsack (C2S 0x0C3).
+        /// Wears a linkshell item in a slot or unequips a worn one (C2S 0x0C4), or makes a linkpearl from a worn linkshell or
+        /// pearlsack (C2S 0x0C3).
         /// </summary>
-        public async Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action)
+        public async Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action, int slot = 0)
         {
             var module = _actions.SocialModule;
             if (module == null) return "Linkshell is unavailable in this session.";
@@ -209,9 +219,8 @@ namespace Gordian.Engine.Ui
                 case StockUiSearchAction.ItemEquip when item.WornSlot != 0:
                     await module.SetLinkshellEquippedAsync(false, (byte)item.WornSlot, item.Index, (ContainerId)item.Container).ConfigureAwait(false);
                     return null;
-                case StockUiSearchAction.ItemEquip:
-                    int slot = !_party.HasLinkshell(1) ? 1 : !_party.HasLinkshell(2) ? 2 : 0;
-                    if (slot == 0) return "Both linkshell slots are in use. Unequip one first.";
+                case StockUiSearchAction.ItemSetSlot when slot is 1 or 2:
+                    // Set as No. 1 / No. 2 (image-31): the server swaps out a shell already worn there.
                     await module.SetLinkshellEquippedAsync(true, (byte)slot, item.Index, (ContainerId)item.Container).ConfigureAwait(false);
                     return null;
                 case StockUiSearchAction.ItemMakePearl:
@@ -221,28 +230,6 @@ namespace Gordian.Engine.Ui
                 default:
                     return null;
             }
-        }
-
-        public async Task<StockUiPeopleResult> BlacklistAsync()
-        {
-            var module = _actions.SocialModule;
-            if (module == null) return StockUiPeopleResult.Failed("Blacklist is unavailable in this session.");
-            if (!module.Blacklist.IsComplete)
-            {
-                var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                void OnChanged() { if (module.Blacklist.IsComplete) answered.TrySetResult(); }
-                module.Blacklist.Changed += OnChanged;
-                try
-                {
-                    await module.RequestBlacklistAsync().ConfigureAwait(false);
-                    await Task.WhenAny(answered.Task, Task.Delay(_actions.SocialReplyTimeout)).ConfigureAwait(false);
-                }
-                finally
-                {
-                    module.Blacklist.Changed -= OnChanged;
-                }
-            }
-            return new StockUiPeopleResult(module.Blacklist.Snapshot().Select(e => new StockUiPerson(e.Name, CharacterId: e.Id)).ToList());
         }
 
         public async Task<string?> RunAsync(StockUiSocialCommand command, StockUiPerson person = default, int argument = 0)
@@ -292,8 +279,15 @@ namespace Gordian.Engine.Ui
                     return await CommandAsync($"/target {person.Name}").ConfigureAwait(false);
                 case StockUiSocialCommand.Focus:
                     return Focus(person);
-                case StockUiSocialCommand.BlacklistRemove:
-                    return await CommandAsync($"/blacklist delete {person.Name}").ConfigureAwait(false);
+                case StockUiSocialCommand.LinkshellToSack or StockUiSocialCommand.LinkshellToPearl when argument is 1 or 2:
+                    await _partyModule.SendGroupChange2Async(person.Name, (byte)argument,
+                        command == StockUiSocialCommand.LinkshellToSack ? PearlToSack : SackToPearl).ConfigureAwait(false);
+                    return null;
+                case StockUiSocialCommand.LinkshellKick when argument is 1 or 2:
+                    await _partyModule.KickMemberAsync(0, 0, person.Name, (byte)argument).ConfigureAwait(false);
+                    return null;
+                case StockUiSocialCommand.Emote:
+                    return await CommandAsync(person.Name).ConfigureAwait(false);
                 default:
                     return null;
             }

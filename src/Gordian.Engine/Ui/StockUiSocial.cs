@@ -80,17 +80,20 @@ namespace Gordian.Engine.Ui
         /// <summary>A search's results (Search, Find Member): Confirm opens the person's options (<c>scoption</c>).</summary>
         SearchResults,
 
-        /// <summary>A linkshell's members: Confirm opens the member options (<c>link7</c> ... <c>link10</c>).</summary>
+        /// <summary>A linkshell's members (<c>link12</c>): Confirm opens the member options by rank (<c>link7</c> ... <c>link10</c>).</summary>
         LinkshellMembers,
 
-        /// <summary>The friend list: Confirm opens the person's options (<c>scoption</c>).</summary>
+        /// <summary>The friend list (<c>friend</c>): Confirm opens the person's options (<c>scoption</c>).</summary>
         Friends,
-
-        /// <summary>The blacklist: Confirm opens <c>blkmain</c> (Delete from blacklist).</summary>
-        Blacklist,
 
         /// <summary>The Linkshell window's items (<c>link5</c>): Confirm opens the item's options.</summary>
         LinkshellItems,
+
+        /// <summary>PlayOnline's messages (<c>msglist</c>): always empty, GordianXI has no PlayOnline service.</summary>
+        Messages,
+
+        /// <summary>The Emote List (<c>emote</c>): Confirm performs the emote.</summary>
+        Emotes,
     }
 
     /// <summary>The social commands a menu entry asks the session to run (<see cref="IStockUiSocial.RunAsync"/>).</summary>
@@ -150,8 +153,18 @@ namespace Gordian.Engine.Ui
         /// </summary>
         Focus,
 
-        /// <summary>Removes the person from the blacklist (C2S 0x03D delete, as <c>/blacklist delete</c>).</summary>
-        BlacklistRemove,
+        /// <summary>
+        /// A linkshell member's rank: To Sack (C2S 0x077 change kind 2 PearlToSack) and To Pearl (change kind 3 SackToPearl),
+        /// with the worn slot (1 or 2) as the 0x077 kind; LandSandBoat <c>0x077_group_change2.h</c>.
+        /// </summary>
+        LinkshellToSack,
+        LinkshellToPearl,
+
+        /// <summary>Removes a member from the linkshell worn in the slot (the argument): C2S 0x071 with the slot as its kind.</summary>
+        LinkshellKick,
+
+        /// <summary>Performs the emote (the person's name is the command, "/bow").</summary>
+        Emote,
     }
 
     /// <summary>The flags the Party menu shows (from the server's S2C 0x0B4 copy of the character's config).</summary>
@@ -195,14 +208,20 @@ namespace Gordian.Engine.Ui
         /// <summary>The linkshell items the character holds (inventory and wardrobes), worn ones first.</summary>
         IReadOnlyList<StockUiLinkshellItem> LinkshellItems();
 
-        /// <summary>Equips or unequips a linkshell item (C2S 0x0C4), or makes a linkpearl from it (C2S 0x0C3).</summary>
-        Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action);
-
-        /// <summary>The blacklist (asked for first when the client has not got it whole).</summary>
-        Task<StockUiPeopleResult> BlacklistAsync();
+        /// <summary>
+        /// Unequips a worn linkshell item or wears one in <paramref name="slot"/> (C2S 0x0C4), or makes a linkpearl from it
+        /// (C2S 0x0C3).
+        /// </summary>
+        Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action, int slot = 0);
 
         /// <summary>The zone the character is in, for the searches of this area.</summary>
         ushort CurrentZone { get; }
+
+        /// <summary>The character's main job level (Search by Level starts there).</summary>
+        byte MainLevel { get; }
+
+        /// <summary>The character's name (a linkshell member list's own row has only Tell).</summary>
+        string CharacterName { get; }
 
         /// <summary>Runs a command; returns the notice to post (null for none).</summary>
         Task<string?> RunAsync(StockUiSocialCommand command, StockUiPerson person = default, int argument = 0);
@@ -223,10 +242,10 @@ namespace Gordian.Engine.Ui
     /// <summary>
     /// The people-list windows of the English menu DAT (39542, ROM/119/51; the 2026-10-31 dump of every menu with its title
     /// ROM/165/76 and help ROM/165/75): <c>scresult</c> (16,48, 366 x 248, fifteen 356 x 16 rows from y 4, no title: the
-    /// search results), <c>levelsyn</c> (the same frame, title 149 "Level Sync", help 674), <c>friend</c> and <c>blklist</c>
-    /// (the same frame; <c>blklist</c> title 126 "Blacklist"), and <c>scoption</c> (384,48, 112 x 90: Tell 1, Request 4,
-    /// Cancel Request 5, Send Message 2, Invite 3), the options for a person in a list. The rows are client text: the name
-    /// at the left in the log font, the jobs and area at the right, as the Map window's lists draw theirs.
+    /// search results), <c>levelsyn</c> (the same frame, title 149 "Level Sync", help 674), <c>friend</c> and <c>msglist</c>
+    /// (the same frame), <c>link12</c> (16,106, ten rows: a linkshell's members), and <c>scoption</c> (384,48, 112 x 90: Tell 1, Request 4,
+    /// Cancel Request 5, Send Message 2, Invite 3), the options for a person in a list. The rows are client text, drawn as
+    /// retail's (round 1 image-26, image-28, image-44; the App's <c>StockUiPeopleWindow</c>).
     /// </summary>
     public static class StockUiPeople
     {
@@ -245,8 +264,9 @@ namespace Gordian.Engine.Ui
             StockUiPeoplePurpose.SearchResults => "Search",
             StockUiPeoplePurpose.LinkshellMembers => "Linkshell",
             StockUiPeoplePurpose.Friends => "Friend List",
-            StockUiPeoplePurpose.Blacklist => "Blacklist",
             StockUiPeoplePurpose.LinkshellItems => "Linkshell",
+            StockUiPeoplePurpose.Messages => "Messages",
+            StockUiPeoplePurpose.Emotes => "Emote List",
             _ => string.Empty,
         };
 
@@ -255,8 +275,8 @@ namespace Gordian.Engine.Ui
         {
             StockUiPeoplePurpose.LevelSync => "There are no party members.",
             StockUiPeoplePurpose.JoinRequests => "No players are currently requesting to join.",
-            StockUiPeoplePurpose.Friends => "No one on your friend list is online.",
-            StockUiPeoplePurpose.Blacklist => "Your blacklist is empty.",
+            StockUiPeoplePurpose.Friends => StockUiSearch.NoFriendsText,
+            StockUiPeoplePurpose.Messages => "There are no messages.",
             StockUiPeoplePurpose.LinkshellMembers => "No linkshell members are online.",
             _ => "No players found.",
         };

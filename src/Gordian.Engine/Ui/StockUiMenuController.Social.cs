@@ -75,11 +75,13 @@ namespace Gordian.Engine.Ui
         private StockUiOpenMenu? OpenPeopleList(StockUiPeoplePurpose purpose, IReadOnlyList<StockUiPerson> people, StockUiOpenMenu parent,
             string menuName = StockUiPeople.ResultsMenu)
         {
-            if (people.Count == 0)
+            // The friend list and the messages open empty, as retail's do ("No friends registered.", image-39; the message
+            // list's column bar, image-40); the others post why there is nothing to list.
+            bool opensEmpty = purpose is StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Messages;
+            if (people.Count == 0 && !opensEmpty)
             {
                 NoticePosted?.Invoke(StockUiPeople.EmptyNotice(purpose));
-                // The friend list and the blacklist open empty too: left / right switch between them.
-                if (purpose is not (StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Blacklist)) return null;
+                return null;
             }
             var library = _library;
             if (library == null || !library.TryGetMenu(menuName, out var definition))
@@ -99,6 +101,8 @@ namespace Gordian.Engine.Ui
                 PeopleOffset = offset,
                 HelpTitle = StockUiPeople.TitleOf(purpose),
             };
+            // The friend list's "No friends registered." (image-39), in the window while it has nobody.
+            if (purpose == StockUiPeoplePurpose.Friends && people.Count == 0) menu.EmptyText = StockUiSearch.NoFriendsText;
             menu.SelectedButtonId = 1;
             PushOpen(menu);
             Changed?.Invoke();
@@ -130,10 +134,13 @@ namespace Gordian.Engine.Ui
                     if (person.HasComment) _ = PrintCommentAsync(person);
                     break;
                 case StockUiPeoplePurpose.LinkshellMembers:
-                    lock (_sync) Push(StockUiSearch.LinkshellMemberMenu, top, Array.Empty<string>(), null, null);
+                    // The options your rank and theirs allow (image-33 to image-37); without a worn shell, Tell only.
+                    byte yours = top.LinkshellItem is { WornSlot: > 0 } shell ? shell.Rank : (byte)3;
+                    bool yourself = string.Equals(person.Name, Social?.CharacterName, StringComparison.OrdinalIgnoreCase);
+                    lock (_sync) Push(StockUiSearch.MemberMenuOf(yours, person.LinkshellRank, yourself), top, Array.Empty<string>(), null, null);
                     break;
-                case StockUiPeoplePurpose.Blacklist:
-                    lock (_sync) Push(StockUiSearch.BlacklistOptionsMenu, top, Array.Empty<string>(), null, null);
+                case StockUiPeoplePurpose.Emotes:
+                    RunSocialAndClose(StockUiSocialCommand.Emote, person);
                     break;
                 case StockUiPeoplePurpose.LevelSync:
                     RunSocialAndClose(StockUiSocialCommand.LevelSync, person);

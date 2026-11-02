@@ -25,6 +25,8 @@ namespace Gordian.Engine.Tests.Ui
             public SearchQuery? LastQuery { get; private set; }
             public (string Text, uint Type)? Comment { get; private set; }
             public ushort CurrentZone { get; set; } = 243;
+            public byte MainLevel { get; set; } = 99;
+            public string CharacterName { get; set; } = "Cybin";
 
             public IReadOnlyList<StockUiPerson> PartyMembers(bool includeSelf) =>
                 includeSelf ? new[] { new StockUiPerson("Cybin", 0x100) }.Concat(Members).ToList() : Members;
@@ -45,13 +47,10 @@ namespace Gordian.Engine.Tests.Ui
                 return Task.FromResult(SearchResult);
             }
 
-            public StockUiPeopleResult Blacklist { get; set; } = new(Array.Empty<StockUiPerson>());
             public List<StockUiLinkshellItem> Linkshells { get; } = new();
-            public List<(StockUiLinkshellItem Item, StockUiSearchAction Action)> LinkshellRuns { get; } = new();
+            public List<(StockUiLinkshellItem Item, StockUiSearchAction Action, int Slot)> LinkshellRuns { get; } = new();
             public uint? LinkshellIdAsked { get; private set; }
             public int? LinkshellSlotAsked { get; private set; }
-
-            public Task<StockUiPeopleResult> BlacklistAsync() => Task.FromResult(Blacklist);
 
             public Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId)
             {
@@ -61,9 +60,9 @@ namespace Gordian.Engine.Tests.Ui
 
             public IReadOnlyList<StockUiLinkshellItem> LinkshellItems() => Linkshells;
 
-            public Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action)
+            public Task<string?> LinkshellAsync(StockUiLinkshellItem item, StockUiSearchAction action, int slot = 0)
             {
-                lock (LinkshellRuns) LinkshellRuns.Add((item, action));
+                lock (LinkshellRuns) LinkshellRuns.Add((item, action, slot));
                 return Task.FromResult<string?>(null);
             }
 

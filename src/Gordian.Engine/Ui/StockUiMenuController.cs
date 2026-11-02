@@ -1126,6 +1126,10 @@ namespace Gordian.Engine.Ui
             {
                 RefreshPartyMenu(menu);
             }
+            else if (StockUiSearch.TitleOf(menu.Name) != null)
+            {
+                RefreshSearchMenu(menu);
+            }
             else if (menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase))
             {
                 // Chat modes: the tell partner's name after Tell's red arrow; Linkshell, Linkshell 2 and Unity greyed
@@ -1333,10 +1337,6 @@ namespace Gordian.Engine.Ui
                     else if (link >= 0 && link != button.ButtonId && top.Menu.FindButton(link) != null && IsPopulated(top, link))
                     {
                         top.SelectedButtonId = link;
-                        changed = true;
-                    }
-                    else if (horizontal && TryFlipSocialList(top))
-                    {
                         changed = true;
                     }
                     else if (horizontal && IsChatModeTell(top, button.ButtonId) && top.TellCandidates.Count > 1)

@@ -13,7 +13,11 @@ namespace Gordian.App.Graphics
     /// mission rank on its nation's colour at x 132, the name in the menu font from x 154, yellow for your party's leader, cyan
     /// for its members and white for the rest, the seeker's languages at x 247 ("E F") and the area at the right, blank for
     /// your own. A search's list starts with the "Search Results [3]  ▶more..." bar. A linkshell's members show their rank's
-    /// item icon (shell, sack, pearl) tinted with the shell's colour at the row's left.
+    /// item icon (shell, sack, pearl) tinted with the shell's colour at the row's left. The Linkshell window's items (image-30)
+    /// show the item's icon with its worn slot's digit, its kind ("Linkshell") at x 24, green while worn, and the shell's name
+    /// at x 164, under <c>link6</c> with the item's large icon and name; the friend list shows "No friends registered." in pink
+    /// while it is empty (image-39), the message list its "From To Type Date" bar (image-40), the Emote List the emotes in the
+    /// log font (image-42).
     /// </summary>
     internal static class StockUiPeopleWindow
     {
@@ -32,14 +36,43 @@ namespace Gordian.App.Graphics
 
         private static readonly UiColor HeaderTint = new(0x80, 0x70, 0x60, 0x80);
 
-        public static void Draw(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiPlacement placement,
-            UiMenuButton firstRow, UiMenuButton? secondRow, long timestamp)
+        /// <summary>The friend list's empty text: pink (image-39, about FF96C8), 35, 30 into the frame.</summary>
+        private static readonly UiColor EmptyTint = new(0x80, 0x4B, 0x64, 0x80);
+        private const float EmptyX = 35, EmptyY = 30;
+
+        /// <summary>The Linkshell window's columns (image-30, 1:1): icon at 5, kind at 24, name at 164; worn kinds green (about 70F070).</summary>
+        private const float ItemIconX = 5, ItemKindX = 24, ItemNameX = 164;
+        private static readonly UiColor WornTint = new(0x38, 0x78, 0x38, 0x80);
+
+        /// <summary><c>link6</c>'s large icon at (10, 12) and the name at x 66 (image-30).</summary>
+        private const float HeaderIconX = 10, HeaderIconY = 12, HeaderIconSize = 32, HeaderNameX = 66;
+
+        /// <summary>The emotes' text in the log font 20 px into the row (image-42).</summary>
+        private const float EmoteX = 20;
+
+        public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+            StockUiPlacement placement, UiMenuButton firstRow, UiMenuButton? secondRow, long timestamp)
         {
             var frame = menu.Menu.Frame;
             float s = placement.Scale;
             float pitch = StockUiMenuWindow.RowPitch(firstRow, secondRow);
             float first = StockUiMenuWindow.ScrolledFirstRow(menu, timestamp);
             float areaX = placement.X + firstRow.X * s, areaY = placement.Y + firstRow.Y * s;
+            DrawLinkshellHeader(renderer, library, font, menu, placement);
+            if (menu.EmptyText is { Length: > 0 } empty && menu.People.Count == 0)
+            {
+                if (logFont != null) logFont.Draw(renderer, empty, placement.X + EmptyX * s, placement.Y + EmptyY * s, s, EmptyTint);
+                else renderer.DrawText(font, empty, placement.X + EmptyX * s, placement.Y + EmptyY * s, s, EmptyTint);
+            }
+            if (menu.PeoplePurpose == StockUiPeoplePurpose.Messages)
+            {
+                // PlayOnline's message list: only its column bar (GordianXI has no PlayOnline messages).
+                StockUiMenuWindow.DrawMapRowBar(renderer, placement.X + StockUiMenuWindow.ListClipInset * s, areaY,
+                    placement.X + (frame.Width - StockUiMenuWindow.ScrollbarInset) * s, firstRow.Height * s);
+                foreach (var (text, x) in StockUiSearch.MessageColumns)
+                    renderer.DrawText(font, text, areaX + x * s, areaY + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, HeaderTint);
+                return;
+            }
             renderer.SetClip(placement.X + StockUiMenuWindow.ListClipInset * s, areaY, (frame.Width - StockUiMenuWindow.ListClipInset) * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
@@ -64,6 +97,18 @@ namespace Gordian.App.Graphics
                 int p = i - menu.PeopleOffset;
                 if (p >= menu.People.Count) continue;
                 var person = menu.People[p];
+                if (menu.PeoplePurpose == StockUiPeoplePurpose.LinkshellItems && p < menu.LinkshellItems.Count)
+                {
+                    DrawLinkshellItem(renderer, font, menu, menu.LinkshellItems[p], areaX, ry, s, fontY, i == selected);
+                    continue;
+                }
+                if (menu.PeoplePurpose == StockUiPeoplePurpose.Emotes)
+                {
+                    UiColor emoteTint = i == selected ? StockUiMenuWindow.SelectedGlyphTint : StockUiMenuWindow.White;
+                    if (logFont != null) logFont.Draw(renderer, person.Name, areaX + EmoteX * s, ry + logY, s, emoteTint);
+                    else renderer.DrawText(font, person.Name, areaX + EmoteX * s, ry + fontY, s, emoteTint);
+                    continue;
+                }
                 if (person.LinkshellRank != 0)
                 {
                     ushort item = person.LinkshellRank switch { 1 => LinkshellItemIds.Linkshell, 2 => LinkshellItemIds.Pearlsack, _ => LinkshellItemIds.Linkpearl };
@@ -99,6 +144,47 @@ namespace Gordian.App.Graphics
             }
             renderer.ClearClip();
             if (menu.CanScroll) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
+        }
+
+        /// <summary>A Linkshell window row: the item's icon in its colour with the worn slot's digit, its kind, the shell's name.</summary>
+        private static void DrawLinkshellItem(StockUiRenderer renderer, UiFont font, StockUiOpenMenu menu, StockUiLinkshellItem item, float areaX, float ry,
+            float s, float fontY, bool selected)
+        {
+            var (r, g, b) = StockUiLinkshellColors.Rgb(item.Color);
+            float iconX = areaX + ItemIconX * s;
+            StockUiMenuWindow.DrawItemIcon(renderer, menu, (ushort)item.Kind, iconX, ry, IconSize * s, StockUiNamePlates.PearlTint(r, g, b));
+            if (item.WornSlot != 0)
+            {
+                float ts = s * StockUiPartyWindow.TextScale;
+                string digit = item.WornSlot.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                renderer.DrawText(font, digit, iconX + IconSize * s - font.MeasureWidth(digit) * ts, ry + IconSize * s - font.LineHeight * ts, ts);
+            }
+            string kind = item.Kind switch { StockUiLinkshellKind.Linkshell => "Linkshell", StockUiLinkshellKind.Pearlsack => "Pearlsack", _ => "Linkpearl" };
+            UiColor? kindTint = selected ? StockUiMenuWindow.SelectedGlyphTint : item.WornSlot != 0 ? WornTint : null;
+            renderer.DrawText(font, kind, areaX + ItemKindX * s, ry + fontY, s, kindTint);
+            renderer.DrawText(font, item.Name, areaX + ItemNameX * s, ry + fontY, s, selected ? StockUiMenuWindow.SelectedGlyphTint : null);
+        }
+
+        /// <summary>
+        /// <c>link6</c> above the Linkshell window and a linkshell's member list (image-30, image-33): the item under the cursor
+        /// (or the list's item) as its large icon in the shell's colour and its name.
+        /// </summary>
+        private static void DrawLinkshellHeader(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
+        {
+            StockUiLinkshellItem? item = menu.LinkshellItem;
+            if (menu.PeoplePurpose == StockUiPeoplePurpose.LinkshellItems)
+            {
+                int index = menu.EntryIndex(menu.SelectedButtonId);
+                if (index >= 0 && index < menu.LinkshellItems.Count) item = menu.LinkshellItems[index];
+            }
+            if (item is not { } shown || !library.TryGetMenu(StockUiSearch.LinkshellHeader, out var header)) return;
+            var at = StockUiWindowPlacement.Beside(placement, menu.Menu.Frame, header.Frame);
+            float s = at.Scale;
+            renderer.DrawMenu(header, at, includeButtons: false, opaqueBody: true);
+            var (r, g, b) = StockUiLinkshellColors.Rgb(shown.Color);
+            StockUiMenuWindow.DrawItemIcon(renderer, menu, (ushort)shown.Kind, at.X + HeaderIconX * s, at.Y + HeaderIconY * s, HeaderIconSize * s,
+                StockUiNamePlates.PearlTint(r, g, b));
+            renderer.DrawText(font, shown.Name, at.X + HeaderNameX * s, at.Y + (header.Frame.Height * s - font.LineHeight * s) * 0.5f, s);
         }
     }
 

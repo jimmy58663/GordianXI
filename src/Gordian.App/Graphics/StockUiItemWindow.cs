@@ -135,8 +135,15 @@ namespace Gordian.App.Graphics
                 }
                 UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
                     : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
+                // A linkpearl, sack or shell takes its linkshell's colour (#490 round 1).
+                UiColor? iconTint = null;
+                if (row.LinkshellColor != 0)
+                {
+                    var (r, g, b) = StockUiLinkshellColors.Rgb(row.LinkshellColor);
+                    iconTint = StockUiNamePlates.PearlTint(r, g, b);
+                }
                 StockUiItemRows.Draw(renderer, font, menu.ItemLookup, StockUiItemRowStyle.ItemList, areaX, ry, firstRow.Height, s, row.ItemId, row.Name, tint,
-                    row.ShowsCount ? (int)row.Count : null);
+                    row.ShowsCount ? (int)row.Count : null, iconTint: iconTint);
             }
             renderer.ClearClip();
             if (rows.Count > visible) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, rows.Count, visible);

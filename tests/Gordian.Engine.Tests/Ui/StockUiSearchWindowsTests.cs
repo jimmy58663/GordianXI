@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Input;
 using Gordian.Engine.Ui;
@@ -23,7 +25,7 @@ namespace Gordian.Engine.Tests.Ui
                 List(StockUiSearch.JobMenu, Enumerable.Range(1, 22).ToArray()),
                 List(StockUiSearch.NationMenu, 1, 2, 3),
                 List(StockUiSearch.RaceMenu, 1, 2, 3, 4, 5),
-                List(StockUiSearch.LevelMenu, Enumerable.Range(1, 10).ToArray()),
+                List(StockUiSearch.LevelMenu, 1, 2, 3, 4),
                 List(StockUiSearch.RankMenu, Enumerable.Range(1, 10).ToArray()),
                 List(StockUiSearch.NameMenu, 1, 2, 3),
                 List(StockUiSearch.CommentTypeMenu, 1, 2, 3, 4, 5, 6, 7),
@@ -31,15 +33,24 @@ namespace Gordian.Engine.Tests.Ui
                 List(StockUiSearch.ItemCommentMenu, 1, 2, 3),
                 List(StockUiSearch.LinkshellCommentMenu, 1, 2, 3),
                 new UiMenuDefinition { Name = StockUiSearch.CommentWindow, Frame = new UiMenuFrame { X = 16, Y = 240, Width = 366, Height = 56 } },
+                List(StockUiSearch.AreaListMenu, 16, 208, UiAnchor.BottomLeft, 1, 2, 3, 4, 5),
+                List(StockUiSearch.ZoneListMenu, 16, 208, UiAnchor.BottomLeft, 1, 2, 3, 4, 5),
                 List(StockUiSearch.LinkshellItemMenu, 16, 106, UiAnchor.TopLeft, Enumerable.Range(1, 10).ToArray()),
+                List(StockUiSearch.MemberListMenu, 16, 106, UiAnchor.TopLeft, Enumerable.Range(1, 10).ToArray()),
                 List(StockUiSearch.LinkshellMenu, 1, 2, 3),
                 List(StockUiSearch.PearlsackMenu, 1, 2, 3),
                 List(StockUiSearch.LinkpearlMenu, 1, 2),
+                List(StockUiSearch.UnwornMenu, 1, 3, 2),
+                List(StockUiSearch.HolderOverPearlMenu, 1, 2, 3),
+                List(StockUiSearch.HolderOverSackMenu, 1, 2, 3),
+                List(StockUiSearch.SackMenu, 1, 2),
                 List(StockUiSearch.LinkshellMemberMenu, 1),
                 List(StockUiSearch.CommunicationMenu, 1, 2),
+                List(StockUiSearch.FriendMenu, 1, 2, 3),
                 PeopleList(StockUiSearch.FriendListMenu),
-                PeopleList(StockUiSearch.BlacklistMenu),
-                List(StockUiSearch.BlacklistOptionsMenu, 1),
+                PeopleList(StockUiSearch.MessagesMenu),
+                List(StockUiSearch.OnlineStatusMenu, 1, 2, 3),
+                List(StockUiSearch.EmoteMenu, 16, 96, UiAnchor.BottomLeft, Enumerable.Range(1, 12).ToArray()),
             }));
             var menus = new StockUiMenuController { Library = library, Social = social };
             if (notices != null) menus.NoticePosted += notices.Add;
@@ -70,7 +81,6 @@ namespace Gordian.Engine.Tests.Ui
         [InlineData(StockUiSearch.JobMenu, 13)]
         [InlineData(StockUiSearch.NationMenu, 2)]
         [InlineData(StockUiSearch.RaceMenu, 5)]
-        [InlineData(StockUiSearch.LevelMenu, 10)]
         [InlineData(StockUiSearch.RankMenu, 6)]
         public async Task Lists_SearchThisAreaWithTheirFilter(string listMenu, int button)
         {
@@ -79,7 +89,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(menus.Open(StockUiSearch.SearchMenu));
             Choose(menus, listMenu switch
             {
-                StockUiSearch.JobMenu => 3, StockUiSearch.NationMenu => 4, StockUiSearch.RaceMenu => 5, StockUiSearch.LevelMenu => 6, _ => 7,
+                StockUiSearch.JobMenu => 3, StockUiSearch.NationMenu => 4, StockUiSearch.RaceMenu => 5, _ => 7,
             });
             Assert.Equal(listMenu, menus.Top!.Name);
             Choose(menus, button);
@@ -92,12 +102,37 @@ namespace Gordian.Engine.Tests.Ui
                 case StockUiSearch.JobMenu: Assert.Equal((byte)13, query.Job); break; // ninja
                 case StockUiSearch.NationMenu: Assert.Equal((byte)1, query.Nation); break; // Bastok
                 case StockUiSearch.RaceMenu: Assert.Equal((byte)4, query.Race); break; // Galka
-                case StockUiSearch.LevelMenu: Assert.Equal(((byte)91, (byte)99), query.Level); break;
                 default: Assert.Equal(((byte)6, (byte)6), query.Rank); break;
             }
             Assert.Equal(StockUiPeople.ResultsMenu, menus.Top!.Name);
             Assert.Equal(new[] { StockUiPeople.ResultsHeader, "Ayame" }, menus.Top.Rows.Select(r => r.Text));
             Assert.Equal("Ayame", menus.Top.People.Single().Name);
+        }
+
+        [Fact]
+        public async Task Level_TypesTheRangeInItsFields_AndSearches()
+        {
+            var social = new FakeSocial { SearchResult = OnePlayer, MainLevel = 75 };
+            var menus = Controller(social);
+            menus.Open(StockUiSearch.SearchMenu);
+            Choose(menus, 6);
+            var window = menus.Top!;
+            Assert.Equal(StockUiSearch.LevelMenu, window.Name);
+            Assert.Equal((75, 75), (window.LevelMin, window.LevelMax)); // your own level
+            Assert.Equal("75", window.SideTexts[StockUiSearch.LevelMinButton].Text);
+
+            menus.Activate(); // the minimum
+            Assert.True(menus.MacroField.IsOpen);
+            menus.MacroField.HandleKey(GordianKey.Backspace, InputModifiers.None);
+            menus.MacroField.HandleKey(GordianKey.Backspace, InputModifiers.None);
+            menus.MacroField.InsertText("60");
+            menus.MacroField.Commit();
+            Assert.Equal(60, window.LevelMin);
+            Assert.Equal("60", window.SideTexts[StockUiSearch.LevelMinButton].Text);
+
+            Choose(menus, StockUiSearch.LevelBeginButton);
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.Equal(((byte)60, (byte)75), social.LastQuery!.Level);
         }
 
         [Fact]
@@ -111,11 +146,76 @@ namespace Gordian.Engine.Tests.Ui
             menus.Activate(); // the field
             Assert.True(menus.MacroField.IsOpen);
             Assert.Same(menus.MacroField, menus.Top!.SocialField);
+            // Round 1: the next tick closed the field (it was only kept open for the macro windows), so nothing could be typed.
+            Assert.True(menus.ProcessInput(new InputState(), TimeSpan.FromMilliseconds(16)));
+            Assert.True(menus.MacroField.IsOpen);
             menus.MacroField.InsertText("Aya");
             menus.MacroField.Commit();
             await Until(() => menus.Top?.ListKind == StockUiListKind.People);
             Assert.True(social.LastQuery!.AllAreas);
             Assert.Equal("Aya", social.LastQuery.Name);
+        }
+
+        [Fact]
+        public async Task Area_StartsWithTheAreaListOverTheChat()
+        {
+            var social = new FakeSocial { SearchResult = OnePlayer };
+            var menus = Controller(social);
+            menus.Open(StockUiSearch.SearchMenu);
+            Choose(menus, 1);
+            var areas = menus.Top!;
+            Assert.Equal((StockUiSearch.AreaListMenu, StockUiSearchList.Areas, StockUiSearch.AreaTitle), (areas.Name, areas.SearchList, areas.HelpTitle));
+            Assert.Equal(new[] { "Current Area", "Current Region", "All Areas" }, areas.Rows.Take(3).Select(r => r.Text));
+            Assert.Equal(new[] { "(Area)", "(Region)", "(World)" }, areas.Rows.Take(3).Select(r => r.Value));
+
+            menus.Activate(); // Current Area
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.Equal(new ushort[] { 243 }, social.LastQuery!.Areas);
+
+            menus.CloseTop();
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // Current Region: the zones of 243's region
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.Equal(ZoneRegions.ZonesIn(ZoneRegions.RegionOf(243)).Select(z => (ushort)z).Take(15), social.LastQuery!.Areas);
+
+            menus.CloseTop();
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // All Areas
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.True(social.LastQuery!.AllAreas);
+
+            menus.CloseTop();
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // the first region: its zones
+            var zones = menus.Top!;
+            Assert.Equal(StockUiSearchList.Zones, zones.SearchList);
+            int firstZone = ZoneRegions.ZonesIn(ZoneRegions.Regions[0])[0];
+            menus.Activate();
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.Equal(new[] { (ushort)firstZone }, social.LastQuery!.Areas);
+        }
+
+        [Fact]
+        public void Unity_ListsTheUnities_AndSaysTheSearchIsNotAvailable()
+        {
+            var notices = new List<string>();
+            var menus = Controller(new FakeSocial(), notices);
+            menus.Open(StockUiSearch.SearchMenu);
+            Choose(menus, 14);
+            var unity = menus.Top!;
+            Assert.Equal(StockUiSearchList.Unity, unity.SearchList);
+            Assert.Equal(new[] { "Unity", "Pieuje", "Ayame", "Invincible Shield", "Apururu" }, unity.Rows.Take(5).Select(r => r.Text));
+            Assert.Equal("(IShield)", unity.Rows[3].Value);
+            menus.Activate();
+            Assert.Equal("Search by Unity is not available yet.", notices.Single());
+        }
+
+        [Fact]
+        public void Ballista_IsGreyed()
+        {
+            var menus = Controller(new FakeSocial());
+            menus.Open(StockUiSearch.SearchMenu);
+            Assert.True(menus.Top!.IsGreyed(StockUiSearch.BallistaButton));
         }
 
         [Fact]
@@ -134,9 +234,7 @@ namespace Gordian.Engine.Tests.Ui
             Choose(menus, 15);
             await Until(() => menus.Top?.ListKind == StockUiListKind.People);
             Assert.Equal(2, social.LinkshellSlotAsked);
-            Assert.Equal(StockUiPeoplePurpose.LinkshellMembers, menus.Top!.PeoplePurpose);
-            menus.Activate();
-            Assert.Equal(StockUiSearch.LinkshellMemberMenu, menus.Top!.Name); // a member's Tell
+            Assert.Equal(StockUiPeoplePurpose.SearchResults, menus.Top!.PeoplePurpose);
         }
 
         [Theory]
@@ -160,7 +258,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task EditComment_SendsTheTextWithItsType()
+        public async Task EditComment_OpensTheBoxWithTheTypesDot_AndSendsTheText()
         {
             var notices = new List<string>();
             var social = new FakeSocial();
@@ -169,8 +267,11 @@ namespace Gordian.Engine.Tests.Ui
             Choose(menus, 12);
             Choose(menus, 1);
             Choose(menus, 1); // looking for a party
-            Assert.Equal(StockUiSearch.CommentWindow, menus.Top!.Name);
+            var box = menus.Top!;
+            Assert.Equal((StockUiSearch.CommentWindow, 1), (box.Name, box.CommentGenre));
             Assert.True(menus.MacroField.IsOpen);
+            Assert.True(menus.ProcessInput(new InputState(), TimeSpan.FromMilliseconds(16)));
+            Assert.True(menus.MacroField.IsOpen); // round 1: the box closed before anything could be typed
             menus.MacroField.InsertText("LFP WAR75");
             menus.MacroField.Commit();
             await Until(() => social.Comment != null);
@@ -194,34 +295,78 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task Linkshell_ListsItems_OptionsFitTheKind()
+        public async Task Linkshell_WornItem_LinkListAndRankedMemberOptions()
         {
-            var social = new FakeSocial { SearchResult = OnePlayer };
-            social.Linkshells.Add(new StockUiLinkshellItem("Rangers", StockUiLinkshellKind.Linkshell, 0, 5, 0x1234, 1));
-            social.Linkshells.Add(new StockUiLinkshellItem("Sentinels", StockUiLinkshellKind.Linkpearl, 0, 9, 0x99, 0));
+            var social = new FakeSocial
+            {
+                SearchResult = new StockUiPeopleResult(new[]
+                {
+                    new StockUiPerson("Cybin", LinkshellRank: 1), new StockUiPerson("Zeid", LinkshellRank: 2), new StockUiPerson("Prishe", LinkshellRank: 3),
+                }),
+            };
+            social.Linkshells.Add(new StockUiLinkshellItem("Rangers", StockUiLinkshellKind.Linkshell, 0, 5, 0x1234, 1, 0x0F0));
             var menus = Controller(social);
             menus.Open(StockUiMenuEntries.MainMenu);
             Choose(menus, 9);
             var list = menus.Top!;
             Assert.Equal(StockUiSearch.LinkshellItemMenu, list.Name);
-            Assert.Equal(new[] { "Rangers", "Sentinels" }, list.Rows.Select(r => r.Text));
-            Assert.Equal("Linkshell", list.Rows[0].Value);
+            Assert.Equal("Rangers", list.Rows.Single().Text);
 
             menus.Activate();
-            Assert.Equal(StockUiSearch.LinkshellMenu, menus.Top!.Name);
-            Assert.False(menus.Top.IsGreyed(3)); // worn: a linkpearl can be made
-            menus.Activate(); // Members
+            var options = menus.Top!;
+            Assert.Equal(StockUiSearch.LinkshellMenu, options.Name);
+            Assert.Equal(StockUiSearch.UnequipImage, options.LabelImages[StockUiSearch.UnequipButton].ImageIndex);
+            menus.Activate(); // Link List
             await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.LinkshellMembers);
+            var members = menus.Top!;
+            Assert.Equal(StockUiSearch.MemberListMenu, members.Name);
             Assert.Equal(0x1234u, social.LinkshellIdAsked);
+            Assert.All(members.People, p => Assert.Equal(0x0F0, p.LinkshellColor));
 
-            menus.CloseTop();
+            menus.Activate(); // yourself: Tell only
+            Assert.Equal(StockUiSearch.LinkshellMemberMenu, menus.Top!.Name);
             menus.CloseTop();
             menus.Move(InputAction.MenuDown);
+            menus.Activate(); // a sack holder
+            Assert.Equal(StockUiSearch.HolderOverSackMenu, menus.Top!.Name);
+            menus.CloseTop();
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // a pearl
+            Assert.Equal(StockUiSearch.HolderOverPearlMenu, menus.Top!.Name);
+            Choose(menus, 2); // To Sack
+            await Until(() => social.Runs.Count == 1);
+            Assert.Equal((StockUiSocialCommand.LinkshellToSack, "Prishe", 1), (social.Runs[0].Command, social.Runs[0].Person.Name, social.Runs[0].Argument));
+        }
+
+        [Fact]
+        public async Task Linkshell_UnwornItem_SetsASlotOrDrops()
+        {
+            var social = new FakeSocial();
+            social.Linkshells.Add(new StockUiLinkshellItem("Sentinels", StockUiLinkshellKind.Linkpearl, 0, 9, 0x99, 0));
+            var menus = Controller(social);
+            (ContainerId, byte, uint)? dropped = null;
+            menus.ItemDrop = (container, slot, count) =>
+            {
+                dropped = (container, slot, count);
+                return Task.CompletedTask;
+            };
+            menus.Open(StockUiMenuEntries.MainMenu);
+            Choose(menus, 9);
             menus.Activate();
-            Assert.Equal(StockUiSearch.LinkpearlMenu, menus.Top!.Name);
-            Choose(menus, 2); // equip
+            Assert.Equal(StockUiSearch.UnwornMenu, menus.Top!.Name);
+            Choose(menus, 3); // Set as No. 2
             await Until(() => social.LinkshellRuns.Count == 1);
-            Assert.Equal(("Sentinels", StockUiSearchAction.ItemEquip), (social.LinkshellRuns[0].Item.Name, social.LinkshellRuns[0].Action));
+            Assert.Equal((StockUiSearchAction.ItemSetSlot, 2), (social.LinkshellRuns[0].Action, social.LinkshellRuns[0].Slot));
+
+            menus.Open(StockUiMenuEntries.MainMenu);
+            Choose(menus, 9);
+            menus.Activate();
+            Choose(menus, 2); // Drop
+            Assert.Equal("Drop Sentinels?", menus.Top!.Message);
+            menus.Move(InputAction.MenuUp);
+            menus.Activate();
+            await Until(() => dropped != null);
+            Assert.Equal((ContainerId.Inventory, (byte)9, 1u), dropped!.Value);
         }
 
         [Fact]
@@ -236,49 +381,71 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task Communication_FriendList_FlipsToTheBlacklist_AndDeletes()
+        public async Task Communication_FriendList_ToListMessagesAndOnlineStatus()
         {
-            var social = new FakeSocial { SearchResult = OnePlayer, Blacklist = new StockUiPeopleResult(new[] { new StockUiPerson("Troll", CharacterId: 3) }) };
+            var social = new FakeSocial();
             var menus = Controller(social);
             menus.Open(StockUiSearch.CommunicationMenu);
             menus.Activate(); // Friend List
-            await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.Friends);
-            Assert.Equal(StockUiSearch.FriendListMenu, menus.Top!.Name);
-            Assert.True(social.LastQuery!.FriendsOnly);
+            Assert.Equal(StockUiSearch.FriendMenu, menus.Top!.Name);
 
-            menus.Move(InputAction.MenuRight);
-            await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.Blacklist);
-            Assert.Equal(StockUiSearch.BlacklistMenu, menus.Top!.Name);
-            Assert.Equal(StockUiSearch.CommunicationMenu, menus.Top.Parent!.Name);
-            menus.Activate();
-            Assert.Equal(StockUiSearch.BlacklistOptionsMenu, menus.Top!.Name);
-            menus.Activate(); // Delete
-            Assert.Equal("Remove Troll from the blacklist?", menus.Top!.Message);
-            menus.Move(InputAction.MenuUp);
+            menus.Activate(); // To List: nobody, and it says so in the window
+            await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.Friends);
+            Assert.Equal((StockUiSearch.FriendListMenu, StockUiSearch.NoFriendsText), (menus.Top!.Name, menus.Top.EmptyText));
+            Assert.True(social.LastQuery!.FriendsOnly);
+            menus.CloseTop();
+
+            Choose(menus, 2); // Messages
+            Assert.Equal((StockUiSearch.MessagesMenu, StockUiPeoplePurpose.Messages), (menus.Top!.Name, menus.Top.PeoplePurpose));
+            menus.CloseTop();
+
+            Choose(menus, 3); // Online Stat.
+            var status = menus.Top!;
+            Assert.Equal(StockUiSearch.OnlineStatusMenu, status.Name);
+            Assert.True(status.IsMarked(1));
+            Choose(menus, 2); // Away
+            Assert.True(status.IsMarked(2));
+            Assert.False(status.IsMarked(1));
+        }
+
+        [Fact]
+        public async Task EmoteList_PerformsTheEmote()
+        {
+            var social = new FakeSocial();
+            var menus = Controller(social);
+            menus.Open(StockUiSearch.CommunicationMenu);
+            Choose(menus, 2);
+            var emotes = menus.Top!;
+            Assert.Equal((StockUiSearch.EmoteMenu, "Emote List"), (emotes.Name, emotes.HelpTitle));
+            Assert.Equal("/amazed", emotes.Rows[0].Text);
+            Assert.Equal(emotes.Rows.Select(r => r.Text).OrderBy(t => t, StringComparer.Ordinal), emotes.Rows.Select(r => r.Text));
+            menus.Move(InputAction.MenuDown);
             menus.Activate();
             await Until(() => social.Runs.Count == 1);
-            Assert.Equal((StockUiSocialCommand.BlacklistRemove, "Troll"), (social.Runs[0].Command, social.Runs[0].Person.Name));
+            Assert.Equal((StockUiSocialCommand.Emote, "/angry"), (social.Runs[0].Command, social.Runs[0].Person.Name));
         }
 
         [Fact]
-        public async Task EmptyFriendList_StillOpens_ToReachTheBlacklist()
+        public void MemberOptions_FollowBothRanks()
         {
-            var notices = new List<string>();
-            var menus = Controller(new FakeSocial(), notices);
-            menus.Open(StockUiSearch.CommunicationMenu);
-            menus.Activate();
-            await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.Friends);
-            Assert.Contains("No one on your friend list is online.", notices);
-        }
-
-        [Fact]
-        public void LevelBrackets_AndRefineMenus()
-        {
-            Assert.Equal(((byte)1, (byte)10), StockUiSearch.LevelBracket(1));
-            Assert.Equal(((byte)81, (byte)90), StockUiSearch.LevelBracket(9));
-            Assert.Equal(((byte)91, (byte)99), StockUiSearch.LevelBracket(10));
+            Assert.Equal(StockUiSearch.HolderOverPearlMenu, StockUiSearch.MemberMenuOf(1, 3, false));
+            Assert.Equal(StockUiSearch.HolderOverSackMenu, StockUiSearch.MemberMenuOf(1, 2, false));
+            Assert.Equal(StockUiSearch.SackMenu, StockUiSearch.MemberMenuOf(2, 3, false));
+            Assert.Equal(StockUiSearch.SackMenu, StockUiSearch.MemberMenuOf(2, 1, false)); // image-35
+            Assert.Equal(StockUiSearch.LinkshellMemberMenu, StockUiSearch.MemberMenuOf(3, 1, false));
+            Assert.Equal(StockUiSearch.LinkshellMemberMenu, StockUiSearch.MemberMenuOf(1, 1, true));
             Assert.Equal(StockUiSearch.PartyCommentMenu, StockUiSearch.RefineMenuOf(3));
             Assert.Null(StockUiSearch.RefineMenuOf(6));
+        }
+
+        [Fact]
+        public void LinkshellColor_IsTheExtraDatasSixthWord()
+        {
+            var ext = new byte[24];
+            ext[6] = 0x3F; ext[7] = 0xF1; // R F, G 3, B 1; the alpha nibble F dropped
+            Assert.Equal(0x13F, StockUiItems.LinkshellColorOf(515, ext));
+            Assert.Equal(0, StockUiItems.LinkshellColorOf(4096, ext));
+            Assert.Equal(0, StockUiItems.LinkshellColorOf(515, null));
         }
 
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
@@ -297,7 +464,9 @@ namespace Gordian.Engine.Tests.Ui
                 StockUiSearch.SearchMenu, StockUiSearch.JobMenu, StockUiSearch.NationMenu, StockUiSearch.RaceMenu, StockUiSearch.LevelMenu,
                 StockUiSearch.RankMenu, StockUiSearch.NameMenu, StockUiSearch.CommentTypeMenu, StockUiSearch.PartyCommentMenu,
                 StockUiSearch.ItemCommentMenu, StockUiSearch.LinkshellCommentMenu, StockUiSearch.LinkshellMenu, StockUiSearch.PearlsackMenu,
-                StockUiSearch.LinkpearlMenu, StockUiSearch.LinkshellMemberMenu, StockUiSearch.CommunicationMenu, StockUiSearch.BlacklistOptionsMenu,
+                StockUiSearch.LinkpearlMenu, StockUiSearch.UnwornMenu, StockUiSearch.HolderOverPearlMenu, StockUiSearch.HolderOverSackMenu,
+                StockUiSearch.SackMenu, StockUiSearch.LinkshellMemberMenu, StockUiSearch.CommunicationMenu, StockUiSearch.FriendMenu,
+                StockUiSearch.OnlineStatusMenu,
             })
             {
                 Assert.True(library.TryGetMenu(name, out var menu), name);
@@ -307,12 +476,18 @@ namespace Gordian.Engine.Tests.Ui
                     Assert.True(StockUiMenuEntries.TryGet(name, button.ButtonId, out _), $"{name} button {button.ButtonId} has no entry");
                 }
             }
-            foreach (var (name, rows) in new[] { (StockUiSearch.FriendListMenu, 15), (StockUiSearch.BlacklistMenu, 15), (StockUiSearch.LinkshellItemMenu, 10) })
+            foreach (var (name, rows) in new[]
+            {
+                (StockUiSearch.FriendListMenu, 15), (StockUiSearch.MessagesMenu, 15), (StockUiSearch.LinkshellItemMenu, 10), (StockUiSearch.MemberListMenu, 10),
+                (StockUiSearch.EmoteMenu, 12), (StockUiSearch.AreaListMenu, 5), (StockUiSearch.ZoneListMenu, 5),
+            })
             {
                 Assert.True(library.TryGetMenu(name, out var list), name);
                 Assert.Equal(rows, list.Buttons.Count(StockUiMenuController.IsSelectable));
             }
             Assert.True(library.TryGetMenu(StockUiSearch.CommentWindow, out _));
+            Assert.True(library.TryGetMenu(StockUiSearch.LinkshellHeader, out var header));
+            Assert.Equal((16, 48, 366, 56), (header.Frame.X, header.Frame.Y, header.Frame.Width, header.Frame.Height));
         }
     }
 }
