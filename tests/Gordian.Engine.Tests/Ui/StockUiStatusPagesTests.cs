@@ -78,16 +78,85 @@ namespace Gordian.Engine.Tests.Ui
             var upgrades = new int[StockUiStatusPages.AlterEgoCategories.Count];
             upgrades[^1] = 2;
             var points = Points(jobs: jobs, upgrades: upgrades);
-            var jp = StockUiStatusPages.JobPointRows(points);
+            // Round 1 image-7: the job names only.
+            var jp = StockUiStatusPages.JobPointRows(null);
             Assert.Equal(StockUiStatusPages.JobCount, jp.Count);
-            Assert.Equal(("Warrior", "0 JP"), (jp[0].Text, jp[0].Value));
-            Assert.Equal(("Rune Fencer", "7 JP"), (jp[21].Text, jp[21].Value));
+            Assert.Equal(("Warrior", null), (jp[0].Text, jp[0].Value));
+            Assert.Equal("Rune Fencer", jp[21].Text);
+            Assert.Equal("name 44", StockUiStatusPages.JobPointRows(id => "name " + id)[21].Text);
             Assert.Equal(100, StockUiStatusPages.JobPointsOf(points, 22).CapacityPoints);
             Assert.Equal(default, StockUiStatusPages.JobPointsOf(null, 22));
 
-            var ae = StockUiStatusPages.AlterEgoRows(points);
-            Assert.Equal(11, ae.Count);
-            Assert.Equal(("Magic Skills", "Lv. 2"), (ae[10].Text, ae[10].Value));
+            // Round 1 images 8 and 9: three categories, each item "upgrades/most".
+            var groups = StockUiStatusPages.AlterEgoGroupRows(null);
+            Assert.Equal(new[] { "HP/MP", "Attributes", "Skills" }, groups.Select(r => r.Text));
+            Assert.Equal(11, StockUiStatusPages.AlterEgoGroups.Sum(g => g.Count));
+            var skills = StockUiStatusPages.AlterEgoItemRows(2, points, null);
+            Assert.Equal(("Magic Skills", "2/60"), (skills[1].Text, skills[1].Value));
+            var attributes = StockUiStatusPages.AlterEgoItemRows(1, points, null);
+            Assert.Equal(("STR", "0/60"), (attributes[0].Text, attributes[0].Value));
+            Assert.Equal(7, attributes.Count);
+        }
+
+        [Fact]
+        public void MasterLevels_OpenOnceAJobIsMastered()
+        {
+            var jobs = new StockUiJobPointTotals[24];
+            Assert.False(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: true));
+            Assert.True(StockUiStatusPages.MasterLevelsOpen(1u << 18, Points(jobs: jobs), masterBreaker: false));
+            jobs[5] = new StockUiJobPointTotals(0, 0, 2100);
+            Assert.True(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: true));
+            Assert.False(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: false));
+        }
+
+        /// <summary>Round 1's corrections to the Currencies order (2026-11-01).</summary>
+        [Fact]
+        public void CurrencyOrder_FollowsRetail()
+        {
+            int At1(Currency1Kind k) => StockUiStatusPages.Currencies1.ToList().FindIndex(r => r.Kind == (int)k);
+            int At2(Currency2Kind k) => StockUiStatusPages.Currencies2.ToList().FindIndex(r => r.Kind == (int)k);
+            Assert.True(At1(Currency1Kind.DarkCrystals) < At1(Currency1Kind.GuildPointsFishing));
+            Assert.Equal(At1(Currency1Kind.BallistaPoints) - 1, At1(Currency1Kind.DailyTally));
+            Assert.Equal(At1(Currency1Kind.MoblinMarbles) - 1, At1(Currency1Kind.MoblinPheromoneSacks));
+            Assert.Equal(At1(Currency1Kind.MoblinMarbles) + 1, At1(Currency1Kind.CaveConservationPoints));
+            Assert.Equal(new[] { 1, 2, 3 }, new[] { Currency1Kind.Deeds, Currency1Kind.CopperAmanVouchers, Currency1Kind.ReclamationMarks }
+                .Select(k => At1(k) - At1(Currency1Kind.SparksOfEminence)));
+            Assert.Equal(At1(Currency1Kind.Tokens) + 1, At1(Currency1Kind.ImperialArmyIdTags));
+            Assert.Equal(At1(Currency1Kind.TherionIchor) + 1, At1(Currency1Kind.BloodshedPlans));
+            Assert.Equal(At1(Currency1Kind.TherionIchor) + 5, At1(Currency1Kind.PrimacyPlans));
+            Assert.Equal(At1(Currency1Kind.AlliedNotes) + 1, At1(Currency1Kind.OpCredits));
+            Assert.Equal(At1(Currency1Kind.RemsTaleChapters1) - 1, At1(Currency1Kind.UnityAccolades));
+            Assert.Equal(At1(Currency1Kind.RemsTaleChapters10) + 1, At1(Currency1Kind.LoginPoints));
+
+            Assert.Equal(At2(Currency2Kind.CoalitionImprimaturs) + 1, At2(Currency2Kind.KineticUnits));
+            Assert.Equal(At2(Currency2Kind.PulchridoptWings) + 1, At2(Currency2Kind.MellidoptWings));
+            Assert.Equal(At2(Currency2Kind.MellidoptWings) + 1, At2(Currency2Kind.GhastlyStones));
+            Assert.Equal(At2(Currency2Kind.DuskorbStonesPlus2) + 1, At2(Currency2Kind.MweyaPlasmCorpuscles));
+            Assert.Equal(At2(Currency2Kind.MweyaPlasmCorpuscles) + 1, At2(Currency2Kind.EschaSilt));
+            Assert.Equal(At2(Currency2Kind.EschaSilt) + 1, At2(Currency2Kind.EschaBeads));
+            Assert.Equal(At2(Currency2Kind.DarknessSpheresSet) + 1, At2(Currency2Kind.Hallmarks));
+            Assert.Equal(At2(Currency2Kind.Hallmarks) + 2, At2(Currency2Kind.BadgesOfGallantry));
+            Assert.Equal(At2(Currency2Kind.SilverAmanVouchers) + 1, At2(Currency2Kind.MysticalCanteens));
+            Assert.Equal(At2(Currency2Kind.Gallimaufry) + 3, At2(Currency2Kind.ApollyonUnits));
+        }
+
+        /// <summary>Job Points' and Alter Ego Points' names and info lines (ROM/314/62, ROM/384/121).</summary>
+        [Fact]
+        public void RetailJobPointAndAlterEgoStrings()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            string Jp(int id) => rm.TryGetString(DMsgCategory.JobPointStrings, id, out var t) ? t : string.Empty;
+            string Ae(int id) => rm.TryGetString(DMsgCategory.AlterEgoStrings, id, out var t) ? t : string.Empty;
+            Assert.Equal("Warrior", Jp(StockUiStatusPages.JobPointNameId(1)));
+            Assert.Equal("Adjust various abilities for WAR lv. 99 or above.", Jp(StockUiStatusPages.JobPointHelpId(1)));
+            Assert.Equal("Rune Fencer", Jp(StockUiStatusPages.JobPointNameId(22)));
+            Assert.Equal("Skills", Ae(StockUiStatusPages.AlterEgoGroupNameId(2)));
+            Assert.Equal("Valid from Lv. 99 or higher.", Ae(StockUiStatusPages.AlterEgoGroupNameId(2) + 1));
+            for (int i = 0; i < StockUiStatusPages.AlterEgoCategories.Count; i++)
+                Assert.Equal(StockUiStatusPages.AlterEgoCategories[i].Name, Ae(StockUiStatusPages.AlterEgoItemNameId(i)));
+            Assert.Equal("Uses 1 alter ego point to increase the alter ego's STR by 1.", Ae(StockUiStatusPages.AlterEgoItemNameId(2) + 1));
         }
 
         [Fact]

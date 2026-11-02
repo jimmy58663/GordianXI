@@ -73,9 +73,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>The stats side, the level box and the help bar, at their authored places (top left), while the Status window is up.</summary>
         public static void DrawPanels(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiMenuController menus, float scale, uint width, uint height)
+            StockUiMenuController menus, float scale, uint width, uint height, StockUiPlacement? party = null)
         {
             var info = menus.StatusInfo?.Invoke();
+            var points = menus.StatusPoints?.Invoke();
             var open = menus.OpenMenus;
             // The Currencies, Job Points and Alter Ego Points lists (16,48) stand where the stats side and level box are (#487).
             bool list = open.Count > 0 && open[^1].IsStatusValueList;
@@ -90,9 +91,10 @@ namespace Gordian.App.Graphics
                 var f = level.Frame;
                 var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
                 renderer.DrawMenu(level, at, includeButtons: false, opaqueBody: true);
-                if (info != null) DrawLevel(renderer, font, info, at);
+                if (info != null) DrawLevel(renderer, font, info, at, ExpSectionGreyed(info, points));
             }
-            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, menus.StatusPoints?.Invoke(), scale, width, height);
+            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, points, scale, width, height, party);
+            if (open.Count > 0) StockUiStatusPagesWindow.DrawInfo(renderer, library, font, logFont, open[^1], menus, scale, width, height);
 
             string? help = null, title = null;
             if (open.Count > 0 && open[^1].StatusPage == StockUiStatusPage.Profile)
@@ -117,14 +119,23 @@ namespace Gordian.App.Graphics
             StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, title, help, scale, width, height);
         }
 
-        private static void DrawLevel(StockUiRenderer renderer, UiFont font, StockUiStatusInfo info, StockUiPlacement at)
+        /// <summary>
+        /// Whether the level box's EXP section is grey: while limit points are earned instead (Merit Points' Mode Switch) or
+        /// experience is capped one short of the next level (55,999 / 56,000), when limit points build by themselves; white
+        /// otherwise (round 1 of #487, image-5: the capture's grey is the capped state).
+        /// </summary>
+        public static bool ExpSectionGreyed(StockUiStatusInfo info, StockUiStatusPoints? points) =>
+            points is { MeritModeEnabled: true } or { ExpCappedOrLimitMode: true } || (info.ExpNext > 0 && info.ExpNow >= info.ExpNext - 1);
+
+        private static void DrawLevel(StockUiRenderer renderer, UiFont font, StockUiStatusInfo info, StockUiPlacement at, bool greyed)
         {
             float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
             var inv = CultureInfo.InvariantCulture;
+            var tint = greyed ? GreyTint : White;
             renderer.DrawText(font, string.Create(inv, $"Level {info.Level}"), at.X + LevelX * s, at.Y + LevelY * s, ts, LevelTint);
-            renderer.DrawText(font, "EXP", at.X + LabelX * s, at.Y + ExpLabelY * s, ts, GreyTint);
-            renderer.DrawText(font, "NEXT Level", at.X + LabelX * s, at.Y + NextLabelY * s, ts, GreyTint);
-            void Right(string text, float y) => renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, GreyTint);
+            renderer.DrawText(font, "EXP", at.X + LabelX * s, at.Y + ExpLabelY * s, ts, tint);
+            renderer.DrawText(font, "NEXT Level", at.X + LabelX * s, at.Y + NextLabelY * s, ts, tint);
+            void Right(string text, float y) => renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, tint);
             Right(StockUiStatus.Number(info.ExpNow), ExpValueY);
             Right(StockUiStatus.Number(info.ExpNext), NextValueY);
             int percent = info.ExpNext > 0 ? (int)((long)info.ExpNow * 100 / info.ExpNext) : 0;

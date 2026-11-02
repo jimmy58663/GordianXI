@@ -75,6 +75,17 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         MenuStrings,
         /// <summary>
+        /// The job points' jobs and categories (ROM/314/62.DAT, read 2026-11-01, #487): job n's name at 2n and its line at
+        /// 2n + 1 from 2 ("Warrior", "Adjust various abilities for WAR lv. 99 or above."), the categories after them.
+        /// </summary>
+        JobPointStrings,
+        /// <summary>
+        /// The alter ego points' categories and items (ROM/384/121.DAT, read 2026-11-01, #487): 2-7 "HP/MP", "Attributes",
+        /// "Skills" with "Valid from Lv. 99 or higher.", 16-37 the eleven S2C 0x08E items with their lines ("Uses 1 alter ego
+        /// point to increase the alter ego's STR by 1."); the rest are Japanese placeholders.
+        /// </summary>
+        AlterEgoStrings,
+        /// <summary>
         /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
         /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
         /// </summary>

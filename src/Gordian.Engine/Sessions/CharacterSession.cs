@@ -584,7 +584,8 @@ namespace Gordian.Engine.Sessions
             var upgrades = new int[categories.Count];
             for (int i = 0; i < upgrades.Length; i++) upgrades[i] = g.GetAlterEgoUpgrade(categories[i].Category);
             return new Ui.StockUiStatusPoints(g.LimitPoints, g.MeritPoints, g.MaxMeritPoints, g.CanUseMeritMode, g.MeritModeEnabled,
-                jobs, g.AlterEgoPoints, upgrades, Inventory.GetCurrency, Inventory.GetCurrency, World.PlayTimeSecondsNow, (byte)LocalPlayer.MainJob);
+                jobs, g.AlterEgoPoints, upgrades, Inventory.GetCurrency, Inventory.GetCurrency, World.PlayTimeSecondsNow, (byte)LocalPlayer.MainJob,
+                g.XpCappedOrMeritMode);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)
