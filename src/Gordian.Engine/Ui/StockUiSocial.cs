@@ -40,6 +40,15 @@ namespace Gordian.Engine.Ui
         /// <summary>The player has a search comment (<c>SearchFlags.HasComment</c>).</summary>
         public bool HasComment { get; init; }
 
+        /// <summary>
+        /// The search comment's type (C2S 0x0E0's, 0x11 ... 0x73; its high digit is the type's genre, which picks the dot
+        /// beside the name and the comment's colour, round 2 image-54); 0 for none.
+        /// </summary>
+        public uint CommentType { get; init; }
+
+        /// <summary>The line retail prints above the comment: "Gordian (Lv99 Monk / Lv49 Red Mage):" (round 2 image-54); null for none.</summary>
+        public string? CommentHeader { get; init; }
+
         /// <summary>The linkshell's colour (the 4-bit R, G, B of the item's extra data); 0 when not known.</summary>
         public ushort LinkshellColor { get; init; }
     }
@@ -286,9 +295,10 @@ namespace Gordian.Engine.Ui
         /// ("[MNK99/RDM49]Elv"), the mission rank on the nation's colour, the name, and the area at the right unless it is
         /// <paramref name="currentZone"/>; a player seeking a party also shows their languages.
         /// </summary>
-        public static StockUiPerson FromSearch(SearchEntity entity, Func<byte, string?>? jobName, Func<int, string?>? zoneName, ushort currentZone = 0)
+        public static StockUiPerson FromSearch(SearchEntity entity, Func<byte, string?>? jobName, Func<int, string?>? zoneName, ushort currentZone = 0,
+            uint linkshellId = 0)
         {
-            byte rank = entity.LinkshellRank1 != 0 ? entity.LinkshellRank1 : entity.LinkshellRank2;
+            byte rank = LinkshellRankOf(entity, linkshellId);
             bool anonymous = entity.IsAnonymous || entity.MainJob == 0;
             return new StockUiPerson(entity.Name, CharacterId: entity.CharacterId, LinkshellRank: rank)
             {
@@ -298,7 +308,52 @@ namespace Gordian.Engine.Ui
                 Area = entity.ZoneId == currentZone && currentZone != 0 ? null : zoneName?.Invoke(entity.ZoneId),
                 Languages = (entity.Flags & SearchFlags.SeekingParty) != 0 ? LanguageLetters(entity.Languages) : null,
                 HasComment = (entity.Flags & SearchFlags.HasComment) != 0,
+                CommentType = (entity.Flags & SearchFlags.HasComment) != 0 ? entity.CommentType : 0,
+                CommentHeader = CommentHeaderOf(entity.Name, anonymous, entity.MainJob, entity.MainLevel, entity.SubJob, entity.SubLevel),
             };
+        }
+
+        /// <summary>
+        /// "Gordian (Lv99 Monk / Lv49 Red Mage):", the line above a search comment in the log (round 2 image-54); the name
+        /// alone for an anonymous player (PROVISIONAL: not captured).
+        /// </summary>
+        public static string CommentHeaderOf(string name, bool anonymous, byte mainJob, byte mainLevel, byte subJob, byte subLevel)
+        {
+            if (anonymous) return name + ":";
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string jobs = "Lv" + mainLevel.ToString(inv) + " " + StockUiCheck.JobName(mainJob);
+            if (subJob != 0 && subLevel != 0) jobs += " / Lv" + subLevel.ToString(inv) + " " + StockUiCheck.JobName(subJob);
+            return name + " (" + jobs + "):";
+        }
+
+        /// <summary>
+        /// A linkshell list member's rank in the shell <paramref name="linkshellId"/>: the rank beside whichever of their two
+        /// worn shells has that id (round 2: a holder wearing their shell in slot 2 and another's pearl in slot 1 showed as a
+        /// pearl). Without an id, the first worn shell's.
+        /// </summary>
+        public static byte LinkshellRankOf(SearchEntity entity, uint linkshellId)
+        {
+            if (linkshellId != 0 && entity.LinkshellId1 == linkshellId) return entity.LinkshellRank1;
+            if (linkshellId != 0 && entity.LinkshellId2 == linkshellId) return entity.LinkshellRank2;
+            return entity.LinkshellRank1 != 0 ? entity.LinkshellRank1 : entity.LinkshellRank2;
+        }
+
+        /// <summary>The shell a linkshell list is of: the id every member wears (the one most of them share); 0 for none.</summary>
+        public static uint SharedLinkshellId(IReadOnlyList<SearchEntity> players)
+        {
+            var counts = new Dictionary<uint, int>();
+            foreach (var p in players)
+            {
+                if (p.LinkshellId1 != 0) counts[p.LinkshellId1] = counts.GetValueOrDefault(p.LinkshellId1) + 1;
+                if (p.LinkshellId2 != 0 && p.LinkshellId2 != p.LinkshellId1) counts[p.LinkshellId2] = counts.GetValueOrDefault(p.LinkshellId2) + 1;
+            }
+            uint best = 0;
+            int most = 0;
+            foreach (var (id, n) in counts)
+            {
+                if (n > most) (best, most) = (id, n);
+            }
+            return best;
         }
 
         /// <summary>"[MNK99/RDM49]Elv": the jobs in brackets (no sub job when it has no level), then the race's first three letters.</summary>

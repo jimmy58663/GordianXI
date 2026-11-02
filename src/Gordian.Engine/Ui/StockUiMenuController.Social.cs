@@ -152,13 +152,19 @@ namespace Gordian.Engine.Ui
             return true;
         }
 
-        /// <summary>Prints a player's search comment in the log ("Name: comment"), once the search server answers.</summary>
+        /// <summary>
+        /// Prints a player's search comment in the log once the search server answers, as retail does (round 2 image-54): the
+        /// header "Gordian (Lv99 Monk / Lv49 Red Mage):", then the comment indented two spaces, both in the comment type's colour.
+        /// </summary>
         private async Task PrintCommentAsync(StockUiPerson person)
         {
             if (Social is not { } social) return;
             try
             {
-                if (await social.SearchCommentAsync(person).ConfigureAwait(false) is { Length: > 0 } comment) NoticePosted?.Invoke($"{person.Name}: {comment}");
+                if (await social.SearchCommentAsync(person).ConfigureAwait(false) is not { Length: > 0 } comment) return;
+                var tint = StockUiSearch.CommentColor(StockUiSearch.CommentGenreOf(person.CommentType));
+                PostTinted(person.CommentHeader ?? person.Name + ":", tint);
+                PostTinted("  " + comment, tint);
             }
             catch (Exception ex)
             {

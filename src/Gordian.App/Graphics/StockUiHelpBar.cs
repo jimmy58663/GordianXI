@@ -79,12 +79,18 @@ namespace Gordian.App.Graphics
                 {
                     // A title too long for the box scrolls left through it, wrapping round after a gap (retail video of
                     // "Communication", #490 round 1: about 4.5 s a turn). PROVISIONAL: the speed and gap are read off that video.
+                    // Round 2 found it jittery: the clock is now read in double (a float of the seconds since boot steps by
+                    // hundredths) and the glyphs are placed at sub-pixel positions instead of snapping one by one.
                     float period = titleWidth + MarqueeGap;
-                    float seconds = Stopwatch.GetTimestamp() / (float)Stopwatch.Frequency;
-                    float offset = seconds * MarqueeSpeed % period;
+                    double seconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                    float offset = (float)(seconds * MarqueeSpeed % period);
                     renderer.SetClip(t.X + TextX * s, t.Y, room * s, titleWindow.Frame.Height * s);
-                    StockUiTextBoxes.DrawLine(renderer, font, logFont, title, t.X + (TextX - offset) * s, titleY, s);
-                    StockUiTextBoxes.DrawLine(renderer, font, logFont, title, t.X + (TextX - offset + period) * s, titleY, s);
+                    for (int copy = 0; copy < 2; copy++)
+                    {
+                        float x = t.X + (TextX - offset + copy * period) * s;
+                        if (logFont != null) logFont.Draw(renderer, title, x, titleY, s, StockUiMenuWindow.White, snap: false);
+                        else StockUiTextBoxes.DrawLine(renderer, font, logFont, title, x, titleY, s);
+                    }
                     renderer.ClearClip();
                 }
                 if (numerator is { } used && denominator is { } total)

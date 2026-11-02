@@ -294,6 +294,7 @@ namespace Gordian.Engine.Ui
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
+            menus.TintedNoticePosted += (message, tint) => Log.Add(new ChatLogLine(ChatLogChannel.Notice, message, DateTime.Now) { Tint = tint });
             menus.ErrorPosted += message => Log.Add(ChatLogChannel.Error, message);
         }
 

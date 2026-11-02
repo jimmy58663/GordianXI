@@ -458,8 +458,14 @@ namespace Gordian.Engine.Ui
         /// <summary>A client message for the log window (entries without a window, the current time).</summary>
         public event Action<string>? NoticePosted;
 
+        /// <summary>A notice drawn in a colour of its own (a search comment in its type's colour, #490).</summary>
+        public event Action<string, UiColor>? TintedNoticePosted;
+
         /// <summary>Posts a client message to the log, as the menus' own notices are (used by windows driven from outside, like the dead window).</summary>
         public void PostNotice(string message) => NoticePosted?.Invoke(message);
+
+        /// <summary>Posts a notice drawn in its own colour.</summary>
+        public void PostTinted(string message, UiColor tint) => TintedNoticePosted?.Invoke(message, tint);
 
         /// <summary>A system sound the keyboard / gamepad menu input calls for (cursor, select, close, open, page).</summary>
         public event Action<StockUiSoundCue>? SoundCue;

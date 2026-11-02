@@ -332,9 +332,17 @@ namespace Gordian.Engine.Tests.Ui
         public async Task FindMember_PrintsTheSeekersComment()
         {
             var notices = new List<string>();
-            var social = new FakeSocial { SearchResult = new StockUiPeopleResult(new[] { new StockUiPerson("Ayame", CharacterId: 0x1234) { HasComment = true } }) };
+            var social = new FakeSocial
+            {
+                SearchResult = new StockUiPeopleResult(new[]
+                {
+                    new StockUiPerson("Ayame", CharacterId: 0x1234) { HasComment = true, CommentType = 0x11, CommentHeader = "Ayame (Lv75 Samurai):" },
+                }),
+            };
             social.Comments[0x1234] = "LFP WAR75";
             var menus = Controller(new StockUiPartyContext(false, false, 0, false), social, notices);
+            var tinted = new List<(string Text, UiColor Tint)>();
+            menus.TintedNoticePosted += (text, tint) => { lock (tinted) tinted.Add((text, tint)); };
             OpenParty(menus);
             Choose(menus, StockUiParty.UngroupedFindMemberButton);
             await Until(() => menus.Top?.ListKind == StockUiListKind.People);
@@ -342,7 +350,10 @@ namespace Gordian.Engine.Tests.Ui
             menus.Move(InputAction.MenuDown);
             menus.Activate();
             Assert.Equal(StockUiPeople.OptionsMenu, menus.Top!.Name);
-            await Until(() => notices.Contains("Ayame: LFP WAR75"));
+            // Retail's two lines (round 2 image-54), both in the comment type's green.
+            await Until(() => { lock (tinted) return tinted.Count == 2; });
+            Assert.Equal(new[] { "Ayame (Lv75 Samurai):", "  LFP WAR75" }, tinted.Select(t => t.Text));
+            Assert.All(tinted, t => Assert.Equal(StockUiSearch.CommentColor(1), t.Tint));
 
             // The "Search Results" bar goes back to the Party list.
             menus.CloseTop();
@@ -516,6 +527,8 @@ namespace Gordian.Engine.Tests.Ui
             var entity = new SearchEntity("Gordian", 243, 0, 2, 5, 99, 49, 3, 3, (uint)(SearchFlags.SeekingParty | SearchFlags.HasComment), 0, 7, 0x11, 0x0A, 0, 0, 0, 0);
             var row = StockUiPeople.FromSearch(entity, null, z => z == 243 ? "Ru'Lude Gardens" : "Port Jeuno", currentZone: 243);
             Assert.Equal(("[MNK99/RDM49]Elv", (byte)3, (byte)0, "E F", true), (row.Jobs, row.MissionRank, row.Nation, row.Languages, row.HasComment));
+            Assert.Equal((0x11u, "Gordian (Lv99 Monk / Lv49 Red Mage):"), (row.CommentType, row.CommentHeader));
+            Assert.Equal(1, StockUiSearch.CommentGenreOf(row.CommentType));
             Assert.Null(row.Area); // your own area is left blank
             Assert.Equal("Port Jeuno", StockUiPeople.FromSearch(entity with { ZoneId = 246 }, null, z => "Port Jeuno", currentZone: 243).Area);
 
@@ -528,6 +541,26 @@ namespace Gordian.Engine.Tests.Ui
         {
             Assert.Equal((StockUiPartyAction.Language, 0x10), StockUiParty.ActionOf(StockUiParty.Action(StockUiPartyAction.Language, 0x10)));
             Assert.Equal((StockUiPartyAction.MemberList, 0), StockUiParty.ActionOf(StockUiParty.Action(StockUiPartyAction.MemberList)));
+        }
+
+        [Fact]
+        public void LinkshellMembers_RankComesFromTheListedShell()
+        {
+            // A holder wearing their shell (id 9) in slot 2 and another shell's pearl in slot 1 (round 2: shown as a pearl).
+            var holder = new SearchEntity("Gemini", 243, 0, 10, 3, 99, 49, 5, 1, 0, 0, 7, 0, 0, 3, 1, 4, 9);
+            var pearl = new SearchEntity("Gordian", 243, 0, 2, 5, 99, 49, 3, 3, 0, 0, 8, 0, 0, 3, 0, 9, 0);
+            Assert.Equal(9u, StockUiPeople.SharedLinkshellId(new[] { holder, pearl }));
+            Assert.Equal((byte)1, StockUiPeople.FromSearch(holder, null, null, 243, linkshellId: 9).LinkshellRank);
+            Assert.Equal((byte)3, StockUiPeople.FromSearch(holder, null, null, 243, linkshellId: 4).LinkshellRank);
+            Assert.Equal((byte)3, StockUiPeople.FromSearch(pearl, null, null, 243, linkshellId: 9).LinkshellRank);
+        }
+
+        [Fact]
+        public void SackHolder_CanKickOnlyPearls()
+        {
+            Assert.True(StockUiSearch.SackCanKick(3));
+            Assert.False(StockUiSearch.SackCanKick(2));
+            Assert.False(StockUiSearch.SackCanKick(1));
         }
     }
 }

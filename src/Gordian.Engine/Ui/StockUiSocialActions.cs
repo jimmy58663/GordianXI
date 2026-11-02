@@ -103,9 +103,9 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>A search server row, with your party's leader and members coloured as retail colours them.</summary>
-        private StockUiPerson Row(SearchEntity entity)
+        private StockUiPerson Row(SearchEntity entity, uint linkshellId = 0)
         {
-            var person = StockUiPeople.FromSearch(entity, JobName, ZoneName, _zone());
+            var person = StockUiPeople.FromSearch(entity, JobName, ZoneName, _zone(), linkshellId);
             var member = _party.Members.FirstOrDefault(m => m.PartyNumber == 0 && string.Equals(m.Name, entity.Name, StringComparison.OrdinalIgnoreCase));
             if (member == null) return person;
             return person with
@@ -153,7 +153,8 @@ namespace Gordian.Engine.Ui
             var result = await search.RefreshLinkshellListAsync(slot).ConfigureAwait(false);
             if (result == null) return StockUiPeopleResult.Failed("Linkshell: no linkshell is equipped there.");
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
-            return new StockUiPeopleResult(result.Players.Select(p => Row(p)).ToList());
+            uint shell = StockUiPeople.SharedLinkshellId(result.Players);
+            return new StockUiPeopleResult(result.Players.Select(p => Row(p, shell)).ToList());
         }
 
         public async Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId)
@@ -163,7 +164,7 @@ namespace Gordian.Engine.Ui
             if (groupId == 0) return StockUiPeopleResult.Failed("Linkshell: this linkshell's id is not known.");
             var result = await search.RefreshLinkshellListByIdAsync(groupId).ConfigureAwait(false);
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
-            return new StockUiPeopleResult(result.Players.Select(p => Row(p)).ToList());
+            return new StockUiPeopleResult(result.Players.Select(p => Row(p, groupId)).ToList());
         }
 
         /// <summary>The containers a linkshell item can be worn from: the inventory and the wardrobes.</summary>

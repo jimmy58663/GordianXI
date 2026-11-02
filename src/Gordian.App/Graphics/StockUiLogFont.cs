@@ -80,9 +80,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Draws a line whose row (16 layout pixels) starts at (<paramref name="x"/>, <paramref name="y"/>) in screen
-        /// pixels; returns the pen position after the last glyph.
+        /// pixels; returns the pen position after the last glyph. Each glyph snaps to a whole pixel unless
+        /// <paramref name="snap"/> is false (text that moves smoothly, like the help bar's scrolling title).
         /// </summary>
-        public float Draw(StockUiRenderer renderer, ReadOnlySpan<char> text, float x, float y, float scale, UiColor color)
+        public float Draw(StockUiRenderer renderer, ReadOnlySpan<char> text, float x, float y, float scale, UiColor color, bool snap = true)
         {
             const int cell = SourceCell + 2 * Pad;
             float pen = x;
@@ -91,7 +92,7 @@ namespace Gordian.App.Graphics
                 if (c != ' ' && SlotOf(c) is var i and >= 0)
                 {
                     renderer.DrawTextureRegion(CacheKey, Atlas, i % _columns * cell, i / _columns * cell, cell, cell,
-                        MathF.Round(pen - Pad * scale), MathF.Round(y - Pad * scale), cell * scale, cell * scale, color);
+                        snap ? MathF.Round(pen - Pad * scale) : pen - Pad * scale, MathF.Round(y - Pad * scale), cell * scale, cell * scale, color);
                 }
                 pen += GetAdvance(c) * scale;
             }

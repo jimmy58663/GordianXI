@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiSearch.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Engine.Ui
 {
@@ -243,6 +244,25 @@ namespace Gordian.Engine.Ui
             _ => 0x73,
         };
 
+        /// <summary>A comment type's genre (its high digit: 1 Job Levels ... 7 Miscellaneous); 0 for none.</summary>
+        public static int CommentGenreOf(uint commentType) => commentType is >= 0x10 and <= 0x7F ? (int)(commentType >> 4) : 0;
+
+        /// <summary>
+        /// The comment's text colour in the log (half scale) by genre, the colour of its dot (<c>colorbal</c> by the genre's
+        /// number). Genre 1's green is sampled from round 2 image-54 (about 23FF39); the rest are the balls' colours
+        /// brightened (PROVISIONAL: not captured).
+        /// </summary>
+        public static UiColor CommentColor(int genre) => genre switch
+        {
+            1 => new UiColor(0x11, 0x80, 0x1C, 0x80),
+            2 => new UiColor(0x80, 0x30, 0x24, 0x80),
+            3 => new UiColor(0x50, 0x6C, 0x80, 0x80),
+            4 => new UiColor(0x80, 0x80, 0x74, 0x80),
+            5 => new UiColor(0x80, 0x80, 0x28, 0x80),
+            7 => new UiColor(0x74, 0x50, 0x78, 0x80),
+            _ => new UiColor(0x80, 0x80, 0x80, 0x80),
+        };
+
         /// <summary>
         /// The window a linkshell item's options are in: <c>link13</c> while not worn (image-31), else by kind (image-32).
         /// </summary>
@@ -258,6 +278,15 @@ namespace Gordian.Engine.Ui
         /// them (image-33 to image-37): a holder can make a pearl a sack holder and back and remove either, a sack holder can
         /// remove (LandSandBoat checks the ranks again: C2S 0x071 needs a pearlsack, 0x077 change kinds 2 / 3 a linkshell).
         /// </summary>
+        /// <summary><c>link9</c>'s Kick (button 2).</summary>
+        public const int SackKickButton = 2;
+
+        /// <summary>
+        /// Whether a pearlsack holder may remove a member of this rank: only a linkpearl's (round 2: a sack's Kick is greyed
+        /// over another sack or the shell, the maintainer's retail check).
+        /// </summary>
+        public static bool SackCanKick(byte theirRank) => theirRank == 3;
+
         public static string MemberMenuOf(byte yourRank, byte theirRank, bool yourself) => yourself ? LinkshellMemberMenu : yourRank switch
         {
             1 when theirRank == 3 => HolderOverPearlMenu,

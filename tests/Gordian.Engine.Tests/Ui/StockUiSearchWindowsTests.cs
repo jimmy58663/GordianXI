@@ -339,6 +339,34 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public async Task Linkshell_SackHolder_KickGreyedOverSackOrShell()
+        {
+            var social = new FakeSocial
+            {
+                SearchResult = new StockUiPeopleResult(new[]
+                {
+                    new StockUiPerson("Cybin", LinkshellRank: 2), new StockUiPerson("Gemini", LinkshellRank: 1),
+                    new StockUiPerson("Zeid", LinkshellRank: 2), new StockUiPerson("Prishe", LinkshellRank: 3),
+                }),
+            };
+            social.Linkshells.Add(new StockUiLinkshellItem("Rangers", StockUiLinkshellKind.Pearlsack, 0, 5, 0x1234, 1, 0x0F0));
+            var menus = Controller(social);
+            menus.Open(StockUiMenuEntries.MainMenu);
+            Choose(menus, 9);
+            menus.Activate();
+            menus.Activate(); // Link List
+            await Until(() => menus.Top?.PeoplePurpose == StockUiPeoplePurpose.LinkshellMembers);
+            foreach (var (name, greyed) in new[] { ("Gemini", true), ("Zeid", true), ("Prishe", false) })
+            {
+                menus.Move(InputAction.MenuDown);
+                menus.Activate();
+                Assert.Equal(StockUiSearch.SackMenu, menus.Top!.Name);
+                Assert.Equal(greyed, menus.Top.IsGreyed(StockUiSearch.SackKickButton));
+                menus.CloseTop();
+            }
+        }
+
+        [Fact]
         public async Task Linkshell_UnwornItem_SetsASlotOrDrops()
         {
             var social = new FakeSocial();

@@ -9,10 +9,12 @@ namespace Gordian.App.Graphics
     /// <summary>
     /// The people lists' rows (#489, #490: Member List, Find Member, Level Sync, the search results, a linkshell's members, the
     /// friend list) as retail draws them in <c>scresult</c> and its sister windows (round 1 image-26, image-28, image-33,
-    /// image-44, all at about 1:1 to the 366-px frame): the jobs and race in the log font from x 21 ("[MNK99/RDM49]Elv"), the
-    /// mission rank on its nation's colour at x 132, the name in the menu font from x 154, yellow for your party's leader, cyan
-    /// for its members and white for the rest, the seeker's languages at x 247 ("E F") and the area at the right, blank for
-    /// your own. A search's list starts with the "Search Results [3]  ▶more..." bar. A linkshell's members show their rank's
+    /// image-44, all at about 1:1 to the 366-px frame): the jobs and race in the log font at 0.8 from x 21 ("[MNK99/RDM49]Elv",
+    /// round 2 image-54: 106 px for those 16 characters, 9 px tall with the brackets), the nation's 16-px flag at x 132 with the
+    /// mission rank's digit at its right edge, the search comment's dot just before the name (in the comment type's colour,
+    /// round 2), the name in the menu font from x 154, yellow for your party's leader, cyan for its members and white for the
+    /// rest, the seeker's languages at x 247 ("E F") and the area at the right, blank for your own. The cursor's row keeps its
+    /// names' colours over the red bar (image-28; round 2: the selection's orange was too close to the leader's yellow). A search's list starts with the "Search Results [3]  ▶more..." bar. A linkshell's members show their rank's
     /// item icon (shell, sack, pearl) tinted with the shell's colour at the row's left. The Linkshell window's items (image-30)
     /// show the item's icon with its worn slot's digit, its kind ("Linkshell") at x 24, green while worn, and the shell's name
     /// at x 164, under <c>link6</c> with the item's large icon and name; the friend list shows "No friends registered." in pink
@@ -21,9 +23,15 @@ namespace Gordian.App.Graphics
     /// </summary>
     internal static class StockUiPeopleWindow
     {
-        private const float JobsX = 21, RankBoxX = 132, RankBoxWidth = 10, RankBoxHeight = 13, NameX = 154, LanguagesX = 247;
+        private const float JobsX = 21, RankBoxX = 132, RankBoxWidth = 15, RankBoxHeight = 15, NameX = 154, LanguagesX = 247;
+
+        /// <summary>The jobs column's log font scale (round 2 image-54) and the width it must fit before the flag.</summary>
+        private const float JobsScale = 0.8f, JobsWidth = RankBoxX - JobsX - 2;
+
+        /// <summary>The comment dot: 6 px, its left 2 px before the name, 4 px below the row's top (image-54).</summary>
+        private const float CommentDotSize = 6, CommentDotX = NameX - 6, CommentDotY = 4;
         private const float HeaderTitleX = 9, HeaderCountX = 157, HeaderMoreX = 281;
-        private const float IconX = 3, IconSize = 16;
+        private const float IconX = 3, IconSize = 16, IconClipInset = 2;
 
         /// <summary>The names' colours (half scale): yellow leader, cyan party (round 1 image-28: about FFE070 and 90E8FF).</summary>
         private static readonly UiColor LeaderTint = new(0x80, 0x70, 0x38, 0x80), PartyTint = new(0x48, 0x74, 0x80, 0x80);
@@ -73,7 +81,12 @@ namespace Gordian.App.Graphics
                     renderer.DrawText(font, text, areaX + x * s, areaY + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, HeaderTint);
                 return;
             }
-            renderer.SetClip(placement.X + StockUiMenuWindow.ListClipInset * s, areaY, (frame.Width - StockUiMenuWindow.ListClipInset) * s, menu.VisibleRows * pitch * s);
+            // The linkshell lists' icons start 3-5 px into the frame (image-30, image-33), left of the other lists' 8-px clip
+            // (round 2: they were cut off), so those lists clip at the frame's border instead.
+            bool icons = menu.PeoplePurpose is StockUiPeoplePurpose.LinkshellItems or StockUiPeoplePurpose.LinkshellMembers
+                || (menu.People.Count > 0 && menu.People[0].LinkshellRank != 0);
+            float clipInset = icons ? IconClipInset : StockUiMenuWindow.ListClipInset;
+            renderer.SetClip(placement.X + clipInset * s, areaY, (frame.Width - clipInset) * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
             float logY = (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s;
@@ -117,8 +130,12 @@ namespace Gordian.App.Graphics
                 }
                 if (person.Jobs is { Length: > 0 } jobs)
                 {
-                    if (logFont != null) logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + logY, s, StockUiMenuWindow.White);
-                    else renderer.DrawText(font, jobs, areaX + JobsX * s, ry + fontY, s);
+                    if (logFont != null)
+                    {
+                        float js = JobsScale * Math.Min(1, JobsWidth / Math.Max(1, logFont.MeasureWidth(jobs) * JobsScale));
+                        logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + (firstRow.Height - StockUiLogFont.CellHeight * js) * 0.5f * s, s * js, StockUiMenuWindow.White);
+                    }
+                    else renderer.DrawText(font, jobs, areaX + JobsX * s, ry + fontY, s * StockUiPartyWindow.TextScale);
                 }
                 if (person.MissionRank != 0)
                 {
@@ -126,12 +143,18 @@ namespace Gordian.App.Graphics
                     float bx = areaX + RankBoxX * s, by = ry + (firstRow.Height - RankBoxHeight) * 0.5f * s;
                     renderer.DrawTextureRect(StockUiMenuWindow.SolidTexture, StockUiMenuWindow.SolidTexelX, StockUiMenuWindow.SolidTexelY, 1, 1,
                         bx, by, RankBoxWidth * s, RankBoxHeight * s, box);
+                    // The digit at the flag's right edge, its foot on the flag's (image-54: "1" and "3" over the flag's right third).
                     string digit = person.MissionRank.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     float ts = s * StockUiPartyWindow.TextScale;
-                    renderer.DrawText(font, digit, bx + (RankBoxWidth * s - font.MeasureWidth(digit) * ts) * 0.5f, by + (RankBoxHeight * s - font.LineHeight * ts), ts);
+                    renderer.DrawText(font, digit, bx + RankBoxWidth * s - font.MeasureWidth(digit) * ts, by + (RankBoxHeight * s - font.LineHeight * ts), ts);
                 }
-                UiColor? nameTint = i == selected ? StockUiMenuWindow.SelectedGlyphTint
-                    : person.Standing switch { StockUiPersonStanding.PartyLeader => LeaderTint, StockUiPersonStanding.PartyMember => PartyTint, _ => null };
+                if (person.CommentType != 0)
+                {
+                    int genre = StockUiSearch.CommentGenreOf(person.CommentType);
+                    renderer.DrawTextureRect("colorbal", genre % 4 * 16, genre / 4 * 16, 16, 16, areaX + CommentDotX * s, ry + CommentDotY * s,
+                        CommentDotSize * s, CommentDotSize * s, StockUiMenuWindow.White);
+                }
+                UiColor? nameTint = person.Standing switch { StockUiPersonStanding.PartyLeader => LeaderTint, StockUiPersonStanding.PartyMember => PartyTint, _ => null };
                 bool plain = person.Jobs == null && person.MissionRank == 0 && person.LinkshellRank == 0;
                 renderer.DrawText(font, person.Name, areaX + (plain ? JobsX : NameX) * s, ry + fontY, s, nameTint);
                 if (person.Languages is { Length: > 0 } languages) renderer.DrawText(font, languages, areaX + LanguagesX * s, ry + fontY, s, nameTint);

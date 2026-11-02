@@ -204,6 +204,8 @@ namespace Gordian.Engine.Ui
                 menu.SideTexts = texts;
             }
             else if (name == StockUiSearch.OnlineStatusMenu) menu.SetMarks(new HashSet<int> { _onlineStatus });
+            else if (name == StockUiSearch.SackMenu && menu.Parent?.SelectedPerson is { } member && !StockUiSearch.SackCanKick(member.LinkshellRank))
+                menu.SetGreyed(new HashSet<int> { StockUiSearch.SackKickButton });
         }
 
         /// <summary>The level's digits sit this far into their 24-px field (image-43).</summary>
