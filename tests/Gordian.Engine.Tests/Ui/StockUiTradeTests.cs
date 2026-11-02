@@ -9,6 +9,7 @@ using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
+using Gordian.Engine.Input;
 using Gordian.Engine.Ui;
 using Xunit;
 
@@ -334,8 +335,20 @@ namespace Gordian.Engine.Tests.Ui
             h.Inventory.SetPartnerTradeItem(2, FireCrystal, 4, ReadOnlySpan<byte>.Empty, 1);
             // Our bottom row leads down into their top row; their slots have no art of their own and no OK / Cancel.
             var ours = window.Menu.FindButton(6)!;
-            Assert.Equal(StockUiTrade.PartnerSlotBase + 5, ours.NavDown);
+            Assert.Equal(StockUiTrade.PartnerSlotBase + 1, ours.NavDown);
             Assert.Equal(StockUiTrade.PartnerSlotBase + 3, window.Menu.FindButton(StockUiTrade.CancelButton)!.NavDown);
+            // Driven: each of our bottom-row slots and Cancel go down into their top row (round 2, B2), and back up.
+            for (int slot = 5; slot <= StockUiTrade.SlotCount; slot++)
+            {
+                window.SelectedButtonId = slot;
+                h.Menus.Move(InputAction.MenuDown);
+                Assert.Equal(StockUiTrade.PartnerSlotBase + slot - 5, window.SelectedButtonId);
+                h.Menus.Move(InputAction.MenuUp);
+                Assert.Equal(slot, window.SelectedButtonId);
+            }
+            window.SelectedButtonId = StockUiTrade.CancelButton;
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(StockUiTrade.PartnerSlotBase + 3, window.SelectedButtonId);
             var theirs = window.Menu.FindButton(StockUiTrade.PartnerSlotBase + 1)!;
             Assert.Equal(6, theirs.NavUp);
             Assert.Equal(StockUiTrade.PartnerY + 22, window.Menu.Frame.Y + theirs.Y);

@@ -120,7 +120,7 @@ namespace Gordian.Engine.Ui
             var buttons = new List<UiMenuButton>(template.Buttons.Count + SlotCount);
             foreach (var b in template.Buttons)
             {
-                sbyte down = b.ButtonId is >= 5 and <= SlotCount ? (sbyte)(PartnerSlotBase + b.ButtonId - 1)
+                sbyte down = b.ButtonId is >= 5 and <= SlotCount ? (sbyte)(PartnerSlotBase + b.ButtonId - 5)
                     : b.ButtonId == CancelButton ? (sbyte)(PartnerSlotBase + 3) : b.NavDown;
                 buttons.Add(Copy(b, b.ButtonId, b.X, b.Y, b.NavUp, down, b.NavLeft, b.NavRight, b.Shapes));
             }
