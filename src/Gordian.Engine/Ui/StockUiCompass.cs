@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiCompass.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui
@@ -216,6 +217,26 @@ namespace Gordian.Engine.Ui
             int column = (int)MathF.Floor((u - GridMargin) / GridSquare), row = (int)MathF.Floor((v - GridMargin) / GridSquare);
             if (column < 0 || column >= GridSquares || row < 0 || row >= GridSquares) return null;
             return $"{(char)('A' + column)}-{row + 1}";
+        }
+
+        /// <summary>
+        /// The grid square of world point (<paramref name="x"/>, <paramref name="z"/>) in a zone, from its maps
+        /// (<see cref="ZoneMapFiles.MapsOf"/>) and where each one's image sits (<paramref name="originOf"/>). Which floor
+        /// the player is on is not known, so a zone with several maps has a square only when every map is calibrated
+        /// (<see cref="ZoneMapProjection.ScaleOf"/>) and all of them put the point in the same square; null otherwise.
+        /// </summary>
+        public static string? MapSquare(int zone, float x, float z, Func<int, int, ZoneMapOrigin?> originOf)
+        {
+            string? square = null;
+            foreach (byte map in ZoneMapFiles.MapsOf(zone))
+            {
+                if (ZoneMapProjection.ScaleOf(zone, map) is not float scale || originOf(zone, map) is not { } origin) return null;
+                var (u, v) = ZoneMapProjection.ToMap(origin, scale, x, z);
+                string? here = GridLabel(u, v);
+                if (here == null || (square != null && square != here)) return null;
+                square = here;
+            }
+            return square;
         }
 
         /// <summary>The text after the orb: the time and, when the grid square is known, the square in brackets.</summary>

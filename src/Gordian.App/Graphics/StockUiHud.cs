@@ -457,17 +457,21 @@ namespace Gordian.App.Graphics
                 StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s);
         }
 
-        /// <summary>The map grid square of a position, on the zone's calibrated map (none without one).</summary>
-        private string? CompassGrid(int zone, Vector3 position)
+        /// <summary>The map grid square of a position (<see cref="StockUiCompass.MapSquare"/>).</summary>
+        private string? CompassGrid(int zone, Vector3 position) => StockUiCompass.MapSquare(zone, position.X, position.Z, ZoneMapOrigin);
+
+        /// <summary>Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square).</summary>
+        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+
+        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map)
         {
-            for (int map = 0; map < 4; map++)
+            if (!_zoneMapOrigins.TryGetValue((zone, map), out var origin))
             {
-                if (Gordian.Core.Resources.Tables.ZoneMapProjection.ScaleOf(zone, map) is not float scale) continue;
-                if (LoadZoneMap(zone, map)?.Origin is not { } origin) return null;
-                var (u, v) = Gordian.Core.Resources.Tables.ZoneMapProjection.ToMap(origin, scale, position.X, position.Z);
-                return StockUiCompass.GridLabel(u, v);
+                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(zone, map);
+                origin = path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
+                _zoneMapOrigins[(zone, map)] = origin;
             }
-            return null;
+            return origin;
         }
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>

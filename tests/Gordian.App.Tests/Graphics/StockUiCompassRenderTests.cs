@@ -28,6 +28,19 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void FieldMaps_HaveASquare()
+        {
+            // Round 2 of #485: no square outside towns. West Ronfaure's Gachemage (-176, 382.4 in LandSandBoat's npc_list),
+            // near the gate to San d'Oria, is on the drawn land at I-5; Konschtat Highlands' centre has a square too.
+            using var screen = StockUiOffscreen.TryCreate(64, 64);
+            if (screen == null) return;
+            ZoneMapOrigin? OriginOf(int zone, int map) => ZoneMapFiles.LoadWithOrigin(screen.Resources, zone, map)?.Origin;
+            Assert.Equal("I-5", StockUiCompass.MapSquare(100, -176f, 382.4f, OriginOf));
+            Assert.NotNull(StockUiCompass.MapSquare(108, 0, 0, OriginOf));
+            Assert.Equal("J-5", StockUiCompass.MapSquare(245, 31.353f, 70.201f, OriginOf));
+        }
+
+        [Fact]
         public void RendersRingLettersDotsAndTheTimeLine()
         {
             using var screen = StockUiOffscreen.TryCreate(200, 120);

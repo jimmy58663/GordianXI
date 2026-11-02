@@ -1,6 +1,7 @@
 // tests/Gordian.Engine.Tests/Ui/StockUiCompassTests.cs
 using System;
 using System.Numerics;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 using Gordian.Engine.Ui;
 using Xunit;
@@ -111,6 +112,28 @@ namespace Gordian.Engine.Tests.Ui
         [InlineData(100f, 500f, null)]
         public void GridLabel_IsFifteenSquaresOf32(float u, float v, string? expected) =>
             Assert.Equal(expected, StockUiCompass.GridLabel(u, v));
+
+        [Fact]
+        public void MapSquare_WorksOnAFieldMap()
+        {
+            // West Ronfaure's one map, at 0.2 px per yalm with its image quad at (-312, -248) (round 2 of #485: no square
+            // outside towns). (-100, 0) is map pixel (292, 248): column I, row 8.
+            Assert.Equal("I-8", StockUiCompass.MapSquare(100, -100, 0, (_, _) => new ZoneMapOrigin(-312, -248)));
+            Assert.Null(StockUiCompass.MapSquare(100, -100, 0, (_, _) => null));
+        }
+
+        [Fact]
+        public void MapSquare_NeedsEveryFloorToAgree()
+        {
+            // Aht Urhgan Whitegate's two maps are both calibrated: one square when they agree, none when they differ.
+            Assert.Equal(2, ZoneMapFiles.MapsOf(50).Count);
+            Assert.NotNull(StockUiCompass.MapSquare(50, 0, 0, (_, _) => new ZoneMapOrigin(-272, -272)));
+            Assert.Null(StockUiCompass.MapSquare(50, 0, 0, (_, map) => new ZoneMapOrigin(map == 0 ? -272 : -100, -272)));
+            // Carpenters' Landing's third map is not calibrated, so the player may be on a floor whose square is unknown.
+            Assert.Null(StockUiCompass.MapSquare(2, 0, 0, (_, _) => new ZoneMapOrigin(-272, -216)));
+            // A zone without maps.
+            Assert.Null(StockUiCompass.MapSquare(0, 0, 0, (_, _) => new ZoneMapOrigin(-256, -256)));
+        }
 
         [Fact]
         public void Line_SitsAboveTheLog_OrTheScreensBottom()

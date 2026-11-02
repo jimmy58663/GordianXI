@@ -19,11 +19,12 @@ namespace Gordian.App.Graphics
     public static class StockUiCompassWindow
     {
         /// <summary>
-        /// The NPC and player dots' colours (half scale), from the turned capture's green NPC dot (63, 139, 94) and blue
-        /// player dot (51, 61, 93) over the ring, taken as drawn at the DAT dot's alpha (0x60, 75%). Monsters use the DAT's
-        /// own red dot (#5) as authored.
+        /// The NPC and player dots' colours (half scale). The turned capture's green NPC dot (63, 139, 94) and blue player
+        /// dot (51, 61, 93) are small and blended with the ring; taken at face value the player dot was barely visible in
+        /// game (round 2 of #485), so both are drawn opaque and brighter: a light blue (112, 160, 255) and a green
+        /// (88, 200, 120). Monsters use the DAT's own red dot (#5) as authored.
         /// </summary>
-        public static readonly UiColor NpcDotColor = new(0x20, 0x52, 0x33, 0x60), PlayerDotColor = new(0x19, 0x20, 0x35, 0x60);
+        public static readonly UiColor NpcDotColor = new(0x2C, 0x64, 0x3C, 0x80), PlayerDotColor = new(0x38, 0x50, 0x80, 0x80);
 
         /// <summary>How far below fontshp's glyph top its digits' bottom row ends (measured offscreen at full size).</summary>
         private const float DigitBottom = 10;
