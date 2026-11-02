@@ -28,6 +28,7 @@ namespace Gordian.Core.Tests.World.Collision
             Assert.Equal(4, mesh.CullingTableUnder(new Vector3(5, -12, 5)));  // above the balcony
             Assert.Equal(-1, mesh.CullingTableUnder(new Vector3(40, -3, 5))); // no table: everything draws
             Assert.Equal(-1, mesh.CullingTableUnder(new Vector3(25, -3, 5))); // no floor at all
+            Assert.Equal(-1, mesh.CullingTableUnder(new Vector3(5, -200, 5), maxDrop: 30.0f)); // floors too far below
         }
 
         [Fact]

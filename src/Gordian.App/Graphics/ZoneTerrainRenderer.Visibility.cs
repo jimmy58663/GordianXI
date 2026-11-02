@@ -16,8 +16,8 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool EnableZoneVisibility { get; set; } = true;
 
-        /// <summary>The draw-distance multiplier on the environment's and the placements' own distances (#70).</summary>
-        public float DrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultDrawDistanceMultiplier;
+        /// <summary>The camera floor's culling table hides what it does not list (default); off keeps the distance and detail rules only.</summary>
+        public bool EnableCullingTables { get; set; } = true;
 
         /// <summary>The culling table the camera's floor picked last frame; -1 for none (everything draws).</summary>
         public int CullingTable => _cullingTable;
@@ -34,6 +34,8 @@ namespace Gordian.App.Graphics
         private Vector3 _sceneryVisibilityEye;
         private Vector3 _cullingTableProbe = new(float.NaN);
         private int _visibilityCulled;
+        private float _drawDistanceMultiplier = ZoneVisibility.DefaultDrawDistanceMultiplier;
+        private float _lodDistanceScale = ZoneVisibility.DefaultLodDistanceScale;
 
         /// <summary>
         /// Works out this frame's camera floor table and global draw distance. <paramref name="eye"/> is the camera eye in
@@ -46,7 +48,9 @@ namespace Gordian.App.Graphics
             _sceneryVisibilityEye = !_sceneryTransform.IsIdentity && Matrix4x4.Invert(_sceneryTransform, out var toScenery)
                 ? Vector3.Transform(eye, toScenery)
                 : eye;
-            _globalDrawDistance = ZoneVisibility.GlobalDrawDistance(environment.DrawDistance, environment.FogEnd, DrawDistanceMultiplier);
+            _globalDrawDistance = ZoneVisibility.GlobalDrawDistance(environment.DrawDistance, environment.DrawDistanceMultiplier);
+            _drawDistanceMultiplier = environment.DrawDistanceMultiplier;
+            _lodDistanceScale = environment.LodDistanceScale;
 
             var zone = LoadedZone;
             if (zone?.CullingTables == null || zone.Collision == null)
@@ -59,7 +63,7 @@ namespace Gordian.App.Graphics
             _cullingTableProbe = _sceneryVisibilityEye;
             // Display space is (-x, -y, z) of the collision's internal space.
             var internalEye = new Vector3(-_sceneryVisibilityEye.X, -_sceneryVisibilityEye.Y, _sceneryVisibilityEye.Z);
-            _cullingTable = zone.Collision.CullingTableUnder(internalEye);
+            _cullingTable = zone.Collision.CullingTableUnder(internalEye, ZoneVisibility.CameraFloorReach);
         }
 
         /// <summary>
@@ -70,8 +74,9 @@ namespace Gordian.App.Graphics
         {
             if (submesh.Visibility.IsUnplaced) return true;
             if (!EnableZoneVisibility) return (submesh.Visibility.Slots & Gordian.Core.Resources.Models.LodSlots.High) != 0;
-            var tables = LoadedZone?.CullingTables;
-            if (ZoneVisibility.IsVisible(submesh.Visibility, sceneryFrame ? _sceneryVisibilityEye : _visibilityEye, tables, _cullingTable, _globalDrawDistance, DrawDistanceMultiplier))
+            var tables = EnableCullingTables ? LoadedZone?.CullingTables : null;
+            if (ZoneVisibility.IsVisible(submesh.Visibility, sceneryFrame ? _sceneryVisibilityEye : _visibilityEye, tables, _cullingTable, _globalDrawDistance,
+                                         _drawDistanceMultiplier, _lodDistanceScale))
                 return true;
             _visibilityCulled++;
             return false;
