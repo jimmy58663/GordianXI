@@ -143,6 +143,9 @@ namespace Gordian.App.Tests.Graphics
             menus.Move(InputAction.MenuDown); // Mode Switch
             menus.Activate();
             Assert.Equal(StockUiStatusPages.MeritModeMenu, menus.Top!.Name);
+            Assert.True(menus.Top!.IsMarked(StockUiStatusPages.MeritModeExpButton)); // the red bar under the mode in effect
+            Assert.False(menus.Top!.IsMarked(StockUiStatusPages.MeritModeLimitButton));
+            RenderOpen(screen, menus, "gpu_status_merit_mode.png");
             menus.Move(InputAction.MenuDown); // Limit Points
             menus.Activate();
             Assert.Equal((byte)1, mode);
@@ -192,7 +195,7 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(menus.Top!.IsStatusList);
         }
 
-        /// <summary>Round 1: Job Points is not listed without the job breaker; Master Levels and Alter Ego Points are greyed.</summary>
+        /// <summary>Round 2: Job Points stays listed, greyed without the job breaker; Master Levels and Alter Ego Points are greyed.</summary>
         [Fact]
         public void GatesTheEntriesByKeyItems()
         {
@@ -206,16 +209,11 @@ namespace Gordian.App.Tests.Graphics
             menus.Activate(); // Status
             var list = menus.Top!;
             Assert.True(list.IsStatusList);
-            Assert.Null(list.Menu.FindButton(StockUiStatus.JobPointsButton));
-            Assert.Equal(218 - 16, list.Menu.Frame.Height);
-            var meritRow = list.Menu.FindButton(StockUiStatus.MeritPointsButton)!;
-            var alterEgo = list.Menu.FindButton(StockUiStatus.AlterEgoButton)!;
-            Assert.Equal(meritRow.Y + 16, alterEgo.Y);
-            Assert.Equal(StockUiStatus.AlterEgoButton, meritRow.NavDown);
-            Assert.Equal(StockUiStatus.MeritPointsButton, alterEgo.NavUp);
+            Assert.NotNull(list.Menu.FindButton(StockUiStatus.JobPointsButton));
+            Assert.Equal(218, list.Menu.Frame.Height);
+            Assert.True(list.IsGreyed(StockUiStatus.JobPointsButton));
             Assert.True(list.IsGreyed(StockUiStatus.MasterLevelsButton));
             Assert.True(list.IsGreyed(StockUiStatus.AlterEgoButton));
-            Assert.NotNull(list.FrameImage);
             RenderOpen(screen, menus, "gpu_status_gated.png");
             menus.Move(InputAction.MenuDown); // Job Levels
             menus.Move(InputAction.MenuDown); // Master Levels

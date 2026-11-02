@@ -59,7 +59,7 @@ namespace Gordian.Engine.Ui
     /// (round 1), the row's help line (ROM/165/75 722-798) in the help bar. PROVISIONAL: the window.</item>
     /// <item>Play Time: no window; the total time played is written to the log in the echo colour (help 476 "Display total
     /// time spent in Vana'diel."). PROVISIONAL: the line's wording.</item>
-    /// <item>Master Levels is greyed until a job is mastered (<see cref="MasterLevelsOpen"/>).</item>
+    /// <item>Job Points is greyed without the job breaker, Master Levels until it is unlocked (account-wide, <see cref="MasterLevelsUnlocked"/>), Alter Ego Points without the cipher bracelet.</item>
     /// </list>
     /// </summary>
     public static class StockUiStatusPages
@@ -326,12 +326,16 @@ namespace Gordian.Engine.Ui
         public const int MasteredJobPointsSpent = 2100;
 
         /// <summary>
-        /// Whether Master Levels is usable: a job can earn exemplar points, that is a job is mastered. Retail greys the entry
-        /// with the three breaker key items and no mastered job (round 1, 2026-11-01). The rule used: a job's bit in S2C 0x01B
-        /// <c>job_mastery_flags</c>, or, as LandSandBoat never sets those, a job with 2,100 job points spent (S2C 0x063 type
-        /// 0x05) with the master breaker key item. PROVISIONAL: inferred, not confirmed on a character with a mastered job.
+        /// Whether the character has Master Levels unlocked, the one place the unlock is decided. It is account-wide: once
+        /// unlocked the entry opens on any job, a level 1 job included (round 2, 2026-11-01), so nothing here looks at the
+        /// current job. Retail greys the entry with the three breaker key items and no mastered job (round 1).
+        /// <para>OPEN QUESTION (#487): what retail's unlock is. It may be a quest flag (the master breaker quest, or all the
+        /// limit break quests) rather than a mastered job; the maintainer is researching it. Until then the rule used is: a
+        /// job's bit in S2C 0x01B <c>job_mastery_flags</c>, or, as LandSandBoat never sets those, a job with 2,100 job points
+        /// spent (all gifts, S2C 0x063 type 0x05; what LSB's <c>!masterjob</c> gives) with the master breaker key item.
+        /// PROVISIONAL.</para>
         /// </summary>
-        public static bool MasterLevelsOpen(uint masteryFlags, StockUiStatusPoints? points, bool masterBreaker)
+        public static bool MasterLevelsUnlocked(uint masteryFlags, StockUiStatusPoints? points, bool masterBreaker)
         {
             if ((masteryFlags & ~1u) != 0) return true;
             if (!masterBreaker || points == null) return false;

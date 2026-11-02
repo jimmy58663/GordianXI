@@ -102,11 +102,11 @@ namespace Gordian.Engine.Tests.Ui
         public void MasterLevels_OpenOnceAJobIsMastered()
         {
             var jobs = new StockUiJobPointTotals[24];
-            Assert.False(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: true));
-            Assert.True(StockUiStatusPages.MasterLevelsOpen(1u << 18, Points(jobs: jobs), masterBreaker: false));
+            Assert.False(StockUiStatusPages.MasterLevelsUnlocked(0, Points(jobs: jobs), masterBreaker: true));
+            Assert.True(StockUiStatusPages.MasterLevelsUnlocked(1u << 18, Points(jobs: jobs), masterBreaker: false));
             jobs[5] = new StockUiJobPointTotals(0, 0, 2100);
-            Assert.True(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: true));
-            Assert.False(StockUiStatusPages.MasterLevelsOpen(0, Points(jobs: jobs), masterBreaker: false));
+            Assert.True(StockUiStatusPages.MasterLevelsUnlocked(0, Points(jobs: jobs), masterBreaker: true));
+            Assert.False(StockUiStatusPages.MasterLevelsUnlocked(0, Points(jobs: jobs), masterBreaker: false));
         }
 
         /// <summary>Round 1's corrections to the Currencies order (2026-11-01).</summary>

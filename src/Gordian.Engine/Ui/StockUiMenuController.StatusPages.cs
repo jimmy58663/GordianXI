@@ -79,90 +79,20 @@ namespace Gordian.Engine.Ui
         private const float AlterEgoValueRight = 252;
 
         /// <summary>
-        /// The Status list (<c>statcom2</c>) as the character has it: without Job Points unless the job breaker key item is
-        /// held (round 1: retail hides the entry; the entries under it move up a row, the frame a row shorter), with Master
-        /// Levels greyed until a job is mastered and Alter Ego Points greyed without the cipher bracelet (their kind-4 labels).
+        /// The Status list's (<c>statcom2</c>) greyed entries, their kind-4 labels: Job Points without the job breaker key
+        /// item (round 2: retail keeps the row, greyed), Master Levels until it is unlocked
+        /// (<see cref="StockUiStatusPages.MasterLevelsUnlocked"/>), Alter Ego Points without the cipher bracelet.
         /// </summary>
-        private UiMenuDefinition StatusListDefinition(UiMenuDefinition definition, out UiImage? frameImage, out HashSet<int>? greyed)
+        private HashSet<int>? StatusListGreyed()
         {
-            frameImage = null;
             var held = KeyItemHeld;
-            greyed = new HashSet<int>();
+            var greyed = new HashSet<int>();
+            if (held?.Invoke(StockUiStatusPages.JobBreakerKeyItem) != true) greyed.Add(StockUiStatus.JobPointsButton);
             uint mastery = StatusInfo?.Invoke()?.JobMasteryFlags ?? 0;
-            if (!StockUiStatusPages.MasterLevelsOpen(mastery, StatusPoints?.Invoke(), held?.Invoke(StockUiStatusPages.MasterBreakerKeyItem) == true))
+            if (!StockUiStatusPages.MasterLevelsUnlocked(mastery, StatusPoints?.Invoke(), held?.Invoke(StockUiStatusPages.MasterBreakerKeyItem) == true))
                 greyed.Add(StockUiStatus.MasterLevelsButton);
             if (held?.Invoke(StockUiStatusPages.CipherBraceletKeyItem) != true) greyed.Add(StockUiStatus.AlterEgoButton);
-            if (greyed.Count == 0) greyed = null;
-            if (held?.Invoke(StockUiStatusPages.JobBreakerKeyItem) == true || definition.FindButton(StockUiStatus.JobPointsButton) is not { } hidden)
-                return definition;
-
-            const int pitch = 16;
-            var buttons = new List<UiMenuButton>(definition.Buttons.Count - 1);
-            foreach (var b in definition.Buttons)
-            {
-                if (b.ButtonId == hidden.ButtonId) continue;
-                bool below = b.Y > hidden.Y;
-                sbyte up = b.NavUp == hidden.ButtonId ? hidden.NavUp : b.NavUp, down = b.NavDown == hidden.ButtonId ? hidden.NavDown : b.NavDown;
-                buttons.Add(new UiMenuButton
-                {
-                    X = b.X, Y = (short)(below ? b.Y - pitch : b.Y), CursorOffsetX = b.CursorOffsetX, CursorOffsetY = b.CursorOffsetY,
-                    Width = b.Width, Height = b.Height, SelectRectOffsetX = b.SelectRectOffsetX, SelectRectOffsetY = b.SelectRectOffsetY,
-                    ButtonId = b.ButtonId, Shapes = b.Shapes, HelpTextId = b.HelpTextId, TitleTextId = b.TitleTextId,
-                    NavUp = up, NavDown = down, NavLeft = b.NavLeft, NavRight = b.NavRight,
-                });
-            }
-            var f = definition.Frame;
-            short height = (short)(f.Height - pitch);
-            foreach (var shape in f.Shapes)
-            {
-                if (shape.Kind == 0 && _library is { } library && library.TryGetImage(shape, out var image))
-                {
-                    frameImage = WithoutLastRow(image, f.Height, height, pitch);
-                    break;
-                }
-            }
-            return new UiMenuDefinition
-            {
-                DatId = definition.DatId, Category = definition.Category, Name = definition.Name, MenuType = definition.MenuType,
-                Frame = new UiMenuFrame
-                {
-                    X = f.X, Y = f.Y, CursorOffsetX = f.CursorOffsetX, CursorOffsetY = f.CursorOffsetY, Width = f.Width, Height = height,
-                    DrawOffsetX = f.DrawOffsetX, DrawOffsetY = f.DrawOffsetY, Anchor = f.Anchor, Shapes = f.Shapes,
-                    HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
-                },
-                Buttons = buttons,
-            };
-        }
-
-        /// <summary>
-        /// <c>comwin</c> #12 (the Status list's frame: a background as tall as the frame and a capsule pair per row) a row
-        /// shorter: the background cut to the new height and the lowest capsule pair left out.
-        /// </summary>
-        private static UiImage WithoutLastRow(UiImage image, int oldHeight, int newHeight, int pitch)
-        {
-            var parts = new List<UiSpritePart>(image.Parts.Count);
-            foreach (var part in image.Parts)
-            {
-                int top = part.TopLeft.Y, bottom = part.BottomLeft.Y;
-                if (top <= 0 && bottom >= oldHeight)
-                {
-                    parts.Add(new UiSpritePart
-                    {
-                        TopLeft = part.TopLeft, TopRight = part.TopRight,
-                        BottomLeft = new UiPoint(part.BottomLeft.X, (short)newHeight), BottomRight = new UiPoint(part.BottomRight.X, (short)newHeight),
-                        SourceX = part.SourceX, SourceY = part.SourceY, SourceWidth = part.SourceWidth,
-                        SourceHeight = (ushort)Math.Max(1, part.SourceHeight * newHeight / Math.Max(1, bottom - top)),
-                        Flags = part.Flags, TextureAttributes = part.TextureAttributes, TextureName = part.TextureName,
-                        ColorTopLeft = part.ColorTopLeft, ColorTopRight = part.ColorTopRight,
-                        ColorBottomLeft = part.ColorBottomLeft, ColorBottomRight = part.ColorBottomRight,
-                    });
-                }
-                else if (bottom <= newHeight)
-                {
-                    parts.Add(part);
-                }
-            }
-            return new UiImage { Parts = parts };
+            return greyed.Count > 0 ? greyed : null;
         }
 
         /// <summary>
@@ -342,5 +272,14 @@ namespace Gordian.Engine.Ui
             }
             Changed?.Invoke();
         }
+
+        /// <summary>
+        /// The Mode Switch window's (<c>merit2</c>) mode in effect, underlined with the config pages' red bar (round 2):
+        /// Limit Points while 0x063's merit-mode flag is set, EXP otherwise.
+        /// </summary>
+        private HashSet<int> MeritModeMarks() => new()
+        {
+            StatusPoints?.Invoke() is { MeritModeEnabled: true } ? StockUiStatusPages.MeritModeLimitButton : StockUiStatusPages.MeritModeExpButton,
+        };
     }
 }

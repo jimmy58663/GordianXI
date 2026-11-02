@@ -924,16 +924,15 @@ namespace Gordian.Engine.Ui
                 return null;
             }
 
-            UiImage? frameImage = null;
-            HashSet<int>? greyed = null;
-            // The Status list as the character has it: Job Points shown only with the job breaker (#487).
-            if (menuName.Equals(StockUiStatus.CommandMenu, StringComparison.OrdinalIgnoreCase)) definition = StatusListDefinition(definition, out frameImage, out greyed);
-            var menu = new StockUiOpenMenu(definition, parent, pageRing, message) { Prompt = prompt, FrameImage = frameImage };
+            // The Status list as the character has it: entries greyed without their key items (#487).
+            var greyed = menuName.Equals(StockUiStatus.CommandMenu, StringComparison.OrdinalIgnoreCase) ? StatusListGreyed() : null;
+            var menu = new StockUiOpenMenu(definition, parent, pageRing, message) { Prompt = prompt };
             menu.SelectedButtonId = _lastSelection.TryGetValue(menuName, out int last) && definition.FindButton(last) != null
                 ? last
                 : FirstSelectable(definition);
             Refresh(menu);
             if (greyed != null) menu.SetGreyed(greyed);
+            if (menuName.Equals(StockUiStatusPages.MeritModeMenu, StringComparison.OrdinalIgnoreCase)) menu.SetMarks(MeritModeMarks());
             if (menu.VisibleRows > 0 && _lastPage.TryGetValue(menuName, out int first))
             {
                 menu.FirstRow = Math.Clamp(first, 0, Math.Max(0, menu.Rows.Count - menu.VisibleRows));
