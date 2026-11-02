@@ -81,12 +81,29 @@ namespace Gordian.Engine.Ui
             foreach (var member in _party.Members.Where(m => m.PartyNumber == 0).OrderBy(m => m.MemberNumber))
             {
                 if (!includeSelf && member.ServerId == self) continue;
-                string detail = StockUiPeople.Detail((byte)member.MainJob, member.MainJobLevel, (byte)member.SubJob, member.SubJobLevel,
-                    member.ZoneId != 0 ? ZoneName?.Invoke(member.ZoneId) : null, JobName);
-                people.Add(new StockUiPerson(member.Name, member.ServerId, member.IsInOtherZone(_zone()) ? (ushort)0 : member.TargetIndex,
-                    Detail: detail.Length > 0 ? detail : null));
+                bool elsewhere = member.IsInOtherZone(_zone());
+                people.Add(new StockUiPerson(member.Name, member.ServerId, elsewhere ? (ushort)0 : member.TargetIndex)
+                {
+                    // The party state has no race or rank: the search server's party list has them (MemberListAsync).
+                    Jobs = member.MainJob == 0 ? null : StockUiPeople.JobsColumn((byte)member.MainJob, member.MainJobLevel, (byte)member.SubJob, member.SubJobLevel, 0, JobName),
+                    Area = elsewhere ? ZoneName?.Invoke(member.ZoneId) : null,
+                    Standing = member.IsLeader ? StockUiPersonStanding.PartyLeader : StockUiPersonStanding.PartyMember,
+                });
             }
             return people;
+        }
+
+        /// <summary>A search server row, with your party's leader and members coloured as retail colours them.</summary>
+        private StockUiPerson Row(SearchEntity entity)
+        {
+            var person = StockUiPeople.FromSearch(entity, JobName, ZoneName, _zone());
+            var member = _party.Members.FirstOrDefault(m => m.PartyNumber == 0 && string.Equals(m.Name, entity.Name, StringComparison.OrdinalIgnoreCase));
+            if (member == null) return person;
+            return person with
+            {
+                ServerId = member.ServerId,
+                Standing = member.IsLeader ? StockUiPersonStanding.PartyLeader : StockUiPersonStanding.PartyMember,
+            };
         }
 
         public IReadOnlyList<StockUiPerson> JoinRequests() =>
@@ -100,7 +117,7 @@ namespace Gordian.Engine.Ui
                 try
                 {
                     if (await search.RefreshPartyListAsync().ConfigureAwait(false) is { Players.Count: > 0 } list)
-                        return new StockUiPeopleResult(list.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
+                        return new StockUiPeopleResult(list.Players.Select(p => Row(p)).ToList());
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -117,7 +134,7 @@ namespace Gordian.Engine.Ui
             if (search is not { IsConfigured: true }) return StockUiPeopleResult.Failed("Search is unavailable: the search server address is not known yet.");
             var result = await search.SearchAsync(query).ConfigureAwait(false);
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
-            return new StockUiPeopleResult(result.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
+            return new StockUiPeopleResult(result.Players.Select(p => Row(p)).ToList());
         }
 
         public async Task<StockUiPeopleResult> LinkshellMembersAsync(int slot)
@@ -127,7 +144,7 @@ namespace Gordian.Engine.Ui
             var result = await search.RefreshLinkshellListAsync(slot).ConfigureAwait(false);
             if (result == null) return StockUiPeopleResult.Failed("Linkshell: no linkshell is equipped there.");
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
-            return new StockUiPeopleResult(result.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
+            return new StockUiPeopleResult(result.Players.Select(p => Row(p)).ToList());
         }
 
         public async Task<StockUiPeopleResult> LinkshellMembersByIdAsync(uint groupId)
@@ -137,7 +154,7 @@ namespace Gordian.Engine.Ui
             if (groupId == 0) return StockUiPeopleResult.Failed("Linkshell: this linkshell's id is not known.");
             var result = await search.RefreshLinkshellListByIdAsync(groupId).ConfigureAwait(false);
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
-            return new StockUiPeopleResult(result.Players.Select(p => StockUiPeople.FromSearch(p, JobName, ZoneName)).ToList());
+            return new StockUiPeopleResult(result.Players.Select(p => Row(p)).ToList());
         }
 
         /// <summary>The containers a linkshell item can be worn from: the inventory and the wardrobes.</summary>
@@ -273,6 +290,8 @@ namespace Gordian.Engine.Ui
                     return command == StockUiSocialCommand.RequestJoin ? $"You request to join {person.Name}'s party." : $"You withdraw your request to join {person.Name}'s party.";
                 case StockUiSocialCommand.Target:
                     return await CommandAsync($"/target {person.Name}").ConfigureAwait(false);
+                case StockUiSocialCommand.Focus:
+                    return Focus(person);
                 case StockUiSocialCommand.BlacklistRemove:
                     return await CommandAsync($"/blacklist delete {person.Name}").ConfigureAwait(false);
                 default:
@@ -284,6 +303,43 @@ namespace Gordian.Engine.Ui
         {
             await _chatModule.SetSearchMessageAsync(text, (SearchMessageType)commentType).ConfigureAwait(false);
             return null;
+        }
+
+        public string? PickPartyMember(string title, StockUiSocialCommand command, bool includeSelf)
+        {
+            var allowed = ActionTargetFlags.Party | (includeSelf ? ActionTargetFlags.Self : ActionTargetFlags.None);
+            var result = _actions.BeginSubTarget(title, allowed, async entity =>
+            {
+                var person = new StockUiPerson(entity.Name, entity.ServerId, entity.TargetIndex);
+                if (await RunAsync(command, person).ConfigureAwait(false) is { Length: > 0 } notice) _actions.Menus.PostNotice(notice);
+                return PlayerActionResult.Ok(string.Empty);
+            }, resumeMenus: true);
+            return result.Kind is PlayerActionResultKind.Warning or PlayerActionResultKind.Error ? result.Message : null;
+        }
+
+        public async Task<string?> SearchCommentAsync(StockUiPerson person)
+        {
+            if (Search is not { IsConfigured: true } search || person.CharacterId == 0) return null;
+            return await search.GetCommentAsync(person.CharacterId).ConfigureAwait(false);
+        }
+
+        /// <summary>The party member focus targeting is on (round 1: Party &gt; Focus); 0 when off.</summary>
+        public uint FocusTargetId { get; private set; }
+
+        /// <summary>
+        /// Focus on a member turns focus targeting on for them, and on the same member again off; the log lines are retail's
+        /// (round 1 image-29). <b>Provisional:</b> what focus targeting does beyond the message is not captured, so it is
+        /// only kept (<see cref="FocusTargetId"/>).
+        /// </summary>
+        private string Focus(StockUiPerson person)
+        {
+            if (FocusTargetId == person.ServerId)
+            {
+                FocusTargetId = 0;
+                return "Focus targeting is disabled.";
+            }
+            FocusTargetId = person.ServerId;
+            return $"Focus targeting is enabled. ({person.Name})";
         }
 
         private async Task<string?> SetFlagAsync(PlayerConfigFlags flag, bool on, string onNotice, string offNotice)

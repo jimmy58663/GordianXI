@@ -1,11 +1,24 @@
 // src/Gordian.Engine/Ui/StockUiMenuController.Party.cs
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Search;
+using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Engine.Ui
 {
+    public sealed partial class StockUiOpenMenu
+    {
+        internal static readonly IReadOnlyDictionary<int, UiShapeReference> NoLabelImages = new Dictionary<int, UiShapeReference>();
+
+        /// <summary>
+        /// Labels drawn instead of a button's own, keyed by ButtonId: the Party lists' "Play Solo", "Stop Request" and
+        /// "Lvl. Sync Off" while those flags are on (<see cref="StockUiParty.LabelImages"/>).
+        /// </summary>
+        public IReadOnlyDictionary<int, UiShapeReference> LabelImages { get; internal set; } = NoLabelImages;
+    }
+
     public sealed partial class StockUiMenuController
     {
         /// <summary>The character's party state for the main menu's Party entry (<see cref="StockUiParty"/>); unset = not in a party.</summary>
@@ -24,11 +37,34 @@ namespace Gordian.Engine.Ui
         public const string DisbandPartyPrompt = "Disband party?", LeavePartyPrompt = "Leave party?";
 
         /// <summary>The prompt before Alliance &gt; Dissolve. <b>Provisional:</b> retail's wording is not captured.</summary>
-        public const string DissolveAlliancePrompt = "Dissolve alliance?", RemoveLevelSyncPrompt = "Remove level sync?";
+        public const string DissolveAlliancePrompt = "Dissolve alliance?";
 
         private StockUiPartyContext CurrentParty => PartyContext?.Invoke() ?? default;
 
-        private StockUiSocialState SocialState => Social?.State ?? default;
+        // The flags just toggled, until the server's S2C 0x0B4 copy of the config agrees: the label flips at once.
+        private bool? _seekOverride, _autogroupOverride, _recruitOverride;
+
+        private StockUiSocialState SocialState
+        {
+            get
+            {
+                var state = Social?.State ?? default;
+                return state with
+                {
+                    SeekingParty = Settle(ref _seekOverride, state.SeekingParty),
+                    Autogroup = Settle(ref _autogroupOverride, state.Autogroup),
+                    Recruiting = Settle(ref _recruitOverride, state.Recruiting),
+                };
+            }
+        }
+
+        /// <summary>The flag as last toggled, or the server's once it agrees (which drops the override).</summary>
+        private static bool Settle(ref bool? pending, bool server)
+        {
+            if (pending is not { } wanted) return server;
+            if (wanted == server) pending = null;
+            return wanted;
+        }
 
         /// <summary>Opens the Party list for the character's state beside the main menu. Call under the lock.</summary>
         private void OpenPartyMenu(StockUiOpenMenu from)
@@ -43,7 +79,9 @@ namespace Gordian.Engine.Ui
         private void RefreshPartyMenu(StockUiOpenMenu menu)
         {
             menu.SetGreyed(StockUiParty.GreyedButtons(menu.Name, CurrentParty));
-            menu.SetMarks(StockUiParty.MarkedButtons(menu.Name, SocialState, _settings.GetValue(StockUiSettingKey.PartyInviteAlarm)));
+            var state = SocialState;
+            menu.SetMarks(StockUiParty.MarkedButtons(menu.Name, state, _settings.GetValue(StockUiSettingKey.PartyInviteAlarm)));
+            menu.LabelImages = (IReadOnlyDictionary<int, UiShapeReference>?)StockUiParty.LabelImages(menu.Name, state) ?? StockUiOpenMenu.NoLabelImages;
         }
 
         private async Task ConfirmPartyDisbandAsync(bool leader)
@@ -72,7 +110,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke($"{entry.Label} is not available in this session.");
                 return;
             }
-            var state = social.State;
+            var state = SocialState;
             switch (action)
             {
                 case StockUiPartyAction.MemberList:
@@ -85,30 +123,38 @@ namespace Gordian.Engine.Ui
                     else query.AllAreas = true;
                     _ = OpenPeopleAsync(StockUiPeoplePurpose.SearchResults, social.SearchAsync(query), from);
                     break;
+                // The flags toggle in place: the list stays open and the entry's label turns to "Play Solo" / "Stop Request"
+                // and back (round 1, 2026-11-01).
                 case StockUiPartyAction.SeekParty:
-                    RunSocialAndClose(StockUiSocialCommand.SetSeekParty, default, state.SeekingParty ? 0 : 1);
+                    _seekOverride = !state.SeekingParty;
+                    ToggleFlag(StockUiSocialCommand.SetSeekParty, !state.SeekingParty, from);
                     break;
                 case StockUiPartyAction.Autogroup:
-                    RunSocialAndClose(StockUiSocialCommand.SetAutogroup, default, state.Autogroup ? 0 : 1);
+                    _autogroupOverride = !state.Autogroup;
+                    ToggleFlag(StockUiSocialCommand.SetAutogroup, !state.Autogroup, from);
                     break;
                 case StockUiPartyAction.Request:
-                    RunSocialAndClose(StockUiSocialCommand.SetRecruit, default, state.Recruiting ? 0 : 1);
+                    _recruitOverride = !state.Recruiting;
+                    ToggleFlag(StockUiSocialCommand.SetRecruit, !state.Recruiting, from);
                     break;
                 case StockUiPartyAction.ViewRequest:
                     lock (_sync) OpenPeopleList(StockUiPeoplePurpose.JoinRequests, social.JoinRequests(), from);
                     break;
+                // Chg. Leader, Rmv. Member, Focus and the representative pick the member with the sub-target cursor on the
+                // party window, and act without asking (round 1, 2026-11-01).
                 case StockUiPartyAction.ChangeLeader:
-                    lock (_sync) OpenPeopleList(StockUiPeoplePurpose.ChangeLeader, social.PartyMembers(false), from);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.PassLeader, includeSelf: false);
                     break;
                 case StockUiPartyAction.RemoveMember:
-                    lock (_sync) OpenPeopleList(StockUiPeoplePurpose.RemoveMember, social.PartyMembers(false), from);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.Kick, includeSelf: false);
                     break;
                 case StockUiPartyAction.Focus:
-                    lock (_sync) OpenPeopleList(StockUiPeoplePurpose.Focus, social.PartyMembers(false), from);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.Focus, includeSelf: false);
                     break;
                 case StockUiPartyAction.LevelSync:
-                    if (state.LevelSynced) _ = ConfirmSocialAsync(RemoveLevelSyncPrompt, StockUiSocialCommand.DisableLevelSync, default);
-                    else lock (_sync) OpenPeopleList(StockUiPeoplePurpose.LevelSync, social.PartyMembers(false), from, StockUiPeople.LevelSyncMenu);
+                    // While a sync is on the entry reads "Lvl. Sync Off" and ends it (round 1 image-27).
+                    if (state.LevelSynced) RunSocialAndClose(StockUiSocialCommand.DisableLevelSync, default);
+                    else _ = OpenPeopleAsync(StockUiPeoplePurpose.LevelSync, social.MemberListAsync(), from, StockUiPeople.LevelSyncMenu);
                     break;
                 case StockUiPartyAction.ShowDistribution:
                     NoticePosted?.Invoke(state.QuartermasterName is { Length: > 0 } name
@@ -119,7 +165,7 @@ namespace Gordian.Engine.Ui
                     RunSocialAndClose(StockUiSocialCommand.SetLottery, default);
                     break;
                 case StockUiPartyAction.Quartermaster:
-                    lock (_sync) OpenPeopleList(StockUiPeoplePurpose.Quartermaster, social.PartyMembers(true), from);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.SetQuartermaster, includeSelf: true);
                     break;
                 case StockUiPartyAction.AllianceForm:
                     RunSocialAndClose(StockUiSocialCommand.AllianceInviteTarget, default);
@@ -145,7 +191,24 @@ namespace Gordian.Engine.Ui
             }
         }
 
-        /// <summary>Runs a social command, closing the menus first (the flags change the Party list's variant).</summary>
+        /// <summary>Sends a Party flag and redraws the open list with its label flipped.</summary>
+        private void ToggleFlag(StockUiSocialCommand command, bool on, StockUiOpenMenu list)
+        {
+            _ = RunSocialAsync(command, default, on ? 1 : 0);
+            lock (_sync) Refresh(list);
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The sub-target cursor on the party window's members (<see cref="IStockUiSocial.PickPartyMember"/>); the menus step
+        /// aside while it is up and come back after.
+        /// </summary>
+        private void PickPartyMember(string title, StockUiSocialCommand command, bool includeSelf)
+        {
+            if (Social?.PickPartyMember(title, command, includeSelf) is { Length: > 0 } notice) NoticePosted?.Invoke(notice);
+        }
+
+        /// <summary>Runs a social command, closing the menus first.</summary>
         private void RunSocialAndClose(StockUiSocialCommand command, StockUiPerson person, int argument = 0)
         {
             CloseAll();

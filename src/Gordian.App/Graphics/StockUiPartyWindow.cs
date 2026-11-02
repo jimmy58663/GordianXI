@@ -14,7 +14,16 @@ namespace Gordian.App.Graphics
     /// <param name="ZoneName">Set for a member in another zone: the text in parentheses ("(SSandOria)") drawn in place of the HP/MP numbers and gauges.</param>
     /// <param name="StatusIds">Status effect ids in icon order, for the opt-in party status icons (null = none known).</param>
     public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader,
-        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null);
+        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null,
+        PartyRowLevelSync LevelSync = PartyRowLevelSync.None);
+
+    /// <summary>A party row's Level Sync ball: none, a synced member (green) or the member the party is synced to (red).</summary>
+    public enum PartyRowLevelSync
+    {
+        None,
+        Synced,
+        Target,
+    }
 
     /// <summary>
     /// Draws the party window rows (name, HP/MP numbers and gauges, leader marker) inside a "ptw0".."ptw6" frame.
@@ -84,6 +93,9 @@ namespace Gordian.App.Graphics
         // yellow at (16, 16).
         private const string BallTexture = "colorbal";
         private const float BallCell = 16, WhiteBallX = 0, YellowBallX = 16, BallY = 16;
+
+        // The same texture's green (16, 0) and red (32, 0) balls: Level Sync's marks at a row's right (round 1 image-27).
+        private const float GreenBallX = 16, RedBallX = 32, SyncBallY = 0;
 
         /// <summary>Screen size of a ball cell so the ball shows 8 pixels across (retail ~6; 8 by request).</summary>
         private const float BallSize = 8 * BallCell / 14;
@@ -181,6 +193,7 @@ namespace Gordian.App.Graphics
                 DrawGauge(renderer, rx + 48 * s, ry + 15 * s, MiddleWidth, withKnob: false, MpGaugeColor, row.MpPercent, s);
 
                 DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                DrawLevelSyncBall(renderer, row, placement.X + menu.Frame.Width * s, ry, s);
 
                 renderer.DrawText(font, FitName(font, row.Name), rx, ry, textScale);
                 DrawRightAligned(renderer, font, row.Hp.ToString(CultureInfo.InvariantCulture), rx + 87 * s, ry, textScale, HpNumberColor(row.HpPercent));
@@ -270,6 +283,20 @@ namespace Gordian.App.Graphics
                 x += SecondBallOffset * s;
             }
             renderer.DrawTextureRect(BallTexture, YellowBallX, BallY, BallCell, BallCell, x, y, size, size, Neutral);
+        }
+
+        /// <summary>
+        /// Level Sync's ball on the window's right edge, level with the leader balls: red beside the member the party is synced
+        /// to, green beside the others (round 1 image-27: one of each beside a party of two during a sync; LandSandBoat flags
+        /// only the sync target, <c>PARTY_SYNC</c> in S2C 0x0DD). <b>Provisional:</b> the colours' meaning and the place are read
+        /// from one small capture.
+        /// </summary>
+        private static void DrawLevelSyncBall(StockUiRenderer renderer, PartyRowVitals row, float frameRight, float rowY, float s)
+        {
+            if (row.LevelSync == PartyRowLevelSync.None) return;
+            float size = BallSize * s;
+            renderer.DrawTextureRect(BallTexture, row.LevelSync == PartyRowLevelSync.Target ? RedBallX : GreenBallX, SyncBallY, BallCell, BallCell,
+                frameRight - 1 * s - size / 2, rowY + 12 * s - size / 2, size, size, Neutral);
         }
 
         /// <summary>

@@ -314,7 +314,7 @@ namespace Gordian.Engine.Sessions
                 var members = Party.Members;
                 uint self = LocalPlayer.ServerId;
                 return new Gordian.Engine.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeaderOf(self), members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0),
-                    ActionService.ConfigModule?.State.IsSet(PlayerConfigFlags.Invite) == true);
+                    ActionService.ConfigModule?.State.IsSet(PlayerConfigFlags.Invite) == true, members.Any(m => m.ServerId == self && m.IsAllianceLeader));
             };
             ActionService.Menus.PartyDisbandRequested = leader => ActionService.DisbandOrLeavePartyAsync(leader);
             // The rest of the Party menu, Search, Linkshell and Communication (#489, #490).

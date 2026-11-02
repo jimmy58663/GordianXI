@@ -12,6 +12,12 @@ namespace Gordian.Engine.Ui
         /// <summary>A people list's players, parallel to <see cref="Rows"/> (<see cref="StockUiPeople"/>).</summary>
         public IReadOnlyList<StockUiPerson> People { get; internal set; } = Array.Empty<StockUiPerson>();
 
+        /// <summary>
+        /// Rows before the first person: 1 for a search's list, whose first row is the "Search Results [N]" bar (round 1
+        /// image-26 and image-44; Confirm on it goes back to the menu beneath), else 0.
+        /// </summary>
+        public int PeopleOffset { get; init; }
+
         /// <summary>What a people list is for; <see cref="StockUiPeoplePurpose.None"/> for other menus.</summary>
         public StockUiPeoplePurpose PeoplePurpose { get; init; }
 
@@ -26,7 +32,7 @@ namespace Gordian.Engine.Ui
         {
             get
             {
-                int index = EntryIndex(SelectedButtonId);
+                int index = EntryIndex(SelectedButtonId) - PeopleOffset;
                 return ListKind == StockUiListKind.People && index >= 0 && index < People.Count ? People[index] : null;
             }
         }
@@ -81,13 +87,16 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke($"{StockUiPeople.TitleOf(purpose)} is not available in this session.");
                 return null;
             }
-            var rows = new List<StockUiListRow>(people.Count);
+            var rows = new List<StockUiListRow>(people.Count + 1);
+            int offset = purpose == StockUiPeoplePurpose.SearchResults ? 1 : 0;
+            if (offset > 0) rows.Add(new StockUiListRow(1, StockUiPeople.ResultsHeader, false, Value: "[" + people.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]"));
             foreach (var person in people) rows.Add(new StockUiListRow(rows.Count + 1, person.Name, false, Value: person.Detail));
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, VisibleRowsOf(definition), StockUiListKind.People)
             {
                 People = people,
                 Rows = rows,
                 PeoplePurpose = purpose,
+                PeopleOffset = offset,
                 HelpTitle = StockUiPeople.TitleOf(purpose),
             };
             menu.SelectedButtonId = 1;
@@ -105,12 +114,20 @@ namespace Gordian.Engine.Ui
                 lock (_sync) OpenLinkshellOptions(top);
                 return true;
             }
+            if (top.PeopleOffset > 0 && top.EntryIndex(top.SelectedButtonId) < top.PeopleOffset)
+            {
+                // The "Search Results" bar: back to the menu the search came from.
+                CloseMenu(top);
+                return true;
+            }
             if (top.SelectedPerson is not { } person) return true;
             switch (top.PeoplePurpose)
             {
                 case StockUiPeoplePurpose.MemberList or StockUiPeoplePurpose.SearchResults or StockUiPeoplePurpose.Friends:
-                    // The options read the person from the list beneath them.
+                    // The options read the person from the list beneath them. A player with a search comment has it printed
+                    // in the log (round 1: Find Member shows the seeker's comment).
                     lock (_sync) Push(StockUiPeople.OptionsMenu, top, Array.Empty<string>(), null, null);
+                    if (person.HasComment) _ = PrintCommentAsync(person);
                     break;
                 case StockUiPeoplePurpose.LinkshellMembers:
                     lock (_sync) Push(StockUiSearch.LinkshellMemberMenu, top, Array.Empty<string>(), null, null);
@@ -118,26 +135,28 @@ namespace Gordian.Engine.Ui
                 case StockUiPeoplePurpose.Blacklist:
                     lock (_sync) Push(StockUiSearch.BlacklistOptionsMenu, top, Array.Empty<string>(), null, null);
                     break;
-                case StockUiPeoplePurpose.ChangeLeader:
-                    _ = ConfirmSocialAsync($"Pass leadership to {person.Name}?", StockUiSocialCommand.PassLeader, person);
-                    break;
-                case StockUiPeoplePurpose.RemoveMember:
-                    _ = ConfirmSocialAsync($"Remove {person.Name} from the party?", StockUiSocialCommand.Kick, person);
-                    break;
                 case StockUiPeoplePurpose.LevelSync:
-                    _ = ConfirmSocialAsync($"Synchronize levels to {person.Name}?", StockUiSocialCommand.LevelSync, person);
+                    RunSocialAndClose(StockUiSocialCommand.LevelSync, person);
                     break;
                 case StockUiPeoplePurpose.JoinRequests:
                     _ = ConfirmSocialAsync($"Invite {person.Name}?", StockUiSocialCommand.Invite, person);
                     break;
-                case StockUiPeoplePurpose.Quartermaster:
-                    RunSocialAndClose(StockUiSocialCommand.SetQuartermaster, person);
-                    break;
-                case StockUiPeoplePurpose.Focus:
-                    RunSocialAndClose(StockUiSocialCommand.Target, person);
-                    break;
             }
             return true;
+        }
+
+        /// <summary>Prints a player's search comment in the log ("Name: comment"), once the search server answers.</summary>
+        private async Task PrintCommentAsync(StockUiPerson person)
+        {
+            if (Social is not { } social) return;
+            try
+            {
+                if (await social.SearchCommentAsync(person).ConfigureAwait(false) is { Length: > 0 } comment) NoticePosted?.Invoke($"{person.Name}: {comment}");
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("UI", $"Search comment of {person.Name} failed: {ex.Message}");
+            }
         }
 
         /// <summary>An option for the person under a people list's cursor (<c>scoption</c>): Tell, Request, Cancel Request, Invite.</summary>

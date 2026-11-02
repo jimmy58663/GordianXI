@@ -61,6 +61,12 @@ namespace Gordian.Engine.Ui
         Gm = 118,
         Bazaar = 124,
         AutoParty = 125,
+
+        /// <summary>
+        /// The yellow and green double arrow of Level Sync (round 1 image-27, over every synced member; fontshp #136, found by
+        /// drawing the group's images, 2026-11-01).
+        /// </summary>
+        LevelSync = 136,
         NewPlayer = 129,
         Mentor = 130,
         SeekingMasterParty = 140,
@@ -173,13 +179,16 @@ namespace Gordian.Engine.Ui
         /// The one icon shown left of the name. XiPackets says only that the linkshell pearl gives way to every other
         /// icon; the order among the rest is provisional: GM, link dead, PlayOnline, away, the seeking icons, bazaar,
         /// new player, mentor, trial, linkshell. GM level 4-7 shows the GM icon unless hidden, 3 the PlayOnline icon and
-        /// 1-2 the trial arrow (XiPackets 0x000D GmLevel).
+        /// 1-2 the trial arrow (XiPackets 0x000D GmLevel). <paramref name="levelSynced"/> is the Level Sync name flag of
+        /// S2C 0x067 mode 2 (<c>NameFlags</c> bit 2, LandSandBoat <c>char_sync.cpp</c> "0x04 - Level Sync"); its place in the
+        /// order (after link dead) is PROVISIONAL.
         /// </summary>
-        public static NamePlateIcon Icon(NamePlateFlags flags, byte gmLevel)
+        public static NamePlateIcon Icon(NamePlateFlags flags, byte gmLevel, bool levelSynced = false)
         {
             bool gmShown = (flags & NamePlateFlags.GmIconHidden) == 0;
             if (gmShown && gmLevel >= 4) return NamePlateIcon.Gm;
             if ((flags & NamePlateFlags.LinkDead) != 0) return NamePlateIcon.LinkDead;
+            if (levelSynced) return NamePlateIcon.LevelSync;
             if ((flags & NamePlateFlags.PlayOnline) != 0 || (gmShown && gmLevel == 3)) return NamePlateIcon.PlayOnline;
             if ((flags & NamePlateFlags.Away) != 0) return NamePlateIcon.Away;
             if ((flags & NamePlateFlags.SeekingMasterParty) != 0) return NamePlateIcon.SeekingMasterParty;

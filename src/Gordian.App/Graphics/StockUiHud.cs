@@ -1312,6 +1312,14 @@ namespace Gordian.App.Graphics
                 }
                 rows.Add(ToRow(m, session.World.CurrentZoneId, resources));
             }
+            // Level Sync (#489): the member the party is synced to, and the rest.
+            bool synced = false;
+            for (int i = 0; i < rows.Count; i++) synced |= groups.Own[i].IsLevelSynced;
+            if (synced)
+            {
+                for (int i = 0; i < rows.Count; i++)
+                    rows[i] = rows[i] with { LevelSync = groups.Own[i].IsLevelSynced ? PartyRowLevelSync.Target : PartyRowLevelSync.Synced };
+            }
             return rows;
         }
 

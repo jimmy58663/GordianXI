@@ -14,10 +14,46 @@ namespace Gordian.Engine.Ui
     /// <param name="ServerId">The character's server id when known (party members, nearby players); 0 otherwise.</param>
     /// <param name="TargetIndex">The target index in this zone; 0 when the player is elsewhere or unknown.</param>
     /// <param name="CharacterId">The search server's character id (the low 20 bits); 0 when the list did not come from it.</param>
-    /// <param name="Detail">Text drawn at the row's right: jobs and levels, then the area ("WAR75/NIN37 Jeuno"); null for none.</param>
-    /// <param name="Rank">A linkshell member's rank (1 holder, 2 pearlsack, 3 pearl); 0 elsewhere.</param>
+    /// <param name="Detail">Text drawn at the row's right when the row has no <see cref="Jobs"/> (a linkshell item's slot); null for none.</param>
+    /// <param name="LinkshellRank">A linkshell member's rank (1 holder, 2 pearlsack, 3 pearl); 0 elsewhere.</param>
     public readonly record struct StockUiPerson(string Name, uint ServerId = 0, ushort TargetIndex = 0, uint CharacterId = 0,
-        string? Detail = null, byte Rank = 0);
+        string? Detail = null, byte LinkshellRank = 0)
+    {
+        /// <summary>The left column of a retail people row: the jobs and the race, "[MNK99/RDM49]Elv"; null for none (anonymous).</summary>
+        public string? Jobs { get; init; }
+
+        /// <summary>The mission rank drawn on the nation's colour; 0 for none (anonymous, or not from the search server).</summary>
+        public byte MissionRank { get; init; }
+
+        /// <summary>The home nation (0 San d'Oria, 1 Bastok, 2 Windurst) behind <see cref="MissionRank"/>.</summary>
+        public byte Nation { get; init; }
+
+        /// <summary>The area at the row's right; null when the player is in yours (retail leaves it blank, round 1 image-26).</summary>
+        public string? Area { get; init; }
+
+        /// <summary>The languages of a player seeking a party, as letters ("E F"); null for none.</summary>
+        public string? Languages { get; init; }
+
+        /// <summary>Whether the player is in your party, or leads it: the name's colour.</summary>
+        public StockUiPersonStanding Standing { get; init; }
+
+        /// <summary>The player has a search comment (<c>SearchFlags.HasComment</c>).</summary>
+        public bool HasComment { get; init; }
+
+        /// <summary>The linkshell's colour (the 4-bit R, G, B of the item's extra data); 0 when not known.</summary>
+        public ushort LinkshellColor { get; init; }
+    }
+
+    /// <summary>
+    /// A people row's name colour: yellow for your party's leader, cyan for its members, white for everyone else (round 1
+    /// image-26, image-28, image-33 and image-44).
+    /// </summary>
+    public enum StockUiPersonStanding
+    {
+        Other,
+        PartyMember,
+        PartyLeader,
+    }
 
     /// <summary>A people list's answer: the players, or why there are none.</summary>
     /// <param name="People">The players, in the order the server gave them.</param>
@@ -35,20 +71,8 @@ namespace Gordian.Engine.Ui
         /// <summary>The Party menu's Member List: Confirm opens the person's options (<c>scoption</c>).</summary>
         MemberList,
 
-        /// <summary>Chg. Leader: Confirm asks, then passes leadership (as <c>/pcmd leader</c>).</summary>
-        ChangeLeader,
-
-        /// <summary>Rmv. Member: Confirm asks, then removes the member (as <c>/pcmd kick</c>).</summary>
-        RemoveMember,
-
-        /// <summary>Level Sync (<c>levelsyn</c>): Confirm asks, then synchronizes the party's levels to the member (C2S 0x077).</summary>
+        /// <summary>Level Sync (<c>levelsyn</c>): Confirm synchronizes the party's levels to the member (C2S 0x077).</summary>
         LevelSync,
-
-        /// <summary>Distribution &gt; the representative: Confirm makes the member collect all treasure (C2S 0x077).</summary>
-        Quartermaster,
-
-        /// <summary>Focus: Confirm targets the member.</summary>
-        Focus,
 
         /// <summary>View Request: the players asking to join; Confirm asks, then invites the player.</summary>
         JoinRequests,
@@ -120,6 +144,12 @@ namespace Gordian.Engine.Ui
         /// <summary>Targets the person (a party member in this zone).</summary>
         Target,
 
+        /// <summary>
+        /// Focus-targets the party member, or turns focus targeting off when the member already has it ("Focus targeting is
+        /// enabled. (Name)" / "Focus targeting is disabled.", round 1 image-29).
+        /// </summary>
+        Focus,
+
         /// <summary>Removes the person from the blacklist (C2S 0x03D delete, as <c>/blacklist delete</c>).</summary>
         BlacklistRemove,
     }
@@ -179,6 +209,15 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Sets the search comment (C2S 0x0E0) with its comment type.</summary>
         Task<string?> SetSearchCommentAsync(string text, uint commentType);
+
+        /// <summary>
+        /// Opens the sub-target cursor on the party window's members (yourself too when <paramref name="includeSelf"/>) and runs
+        /// <paramref name="command"/> on the one picked; returns a notice when it cannot start (nobody to pick).
+        /// </summary>
+        string? PickPartyMember(string title, StockUiSocialCommand command, bool includeSelf);
+
+        /// <summary>A player's search comment from the search server; null when they have none or it does not answer.</summary>
+        Task<string?> SearchCommentAsync(StockUiPerson person);
     }
 
     /// <summary>
@@ -192,17 +231,16 @@ namespace Gordian.Engine.Ui
     public static class StockUiPeople
     {
         public const string ResultsMenu = "scresult", LevelSyncMenu = "levelsyn", OptionsMenu = "scoption";
+
+        /// <summary>The first row of a search's list (round 1 image-26 and image-44).</summary>
+        public const string ResultsHeader = "Search Results";
         public const int TellButton = 1, MessageButton = 2, InviteButton = 3, RequestButton = 4, CancelRequestButton = 5;
 
         /// <summary>The help bar's title over a people list.</summary>
         public static string TitleOf(StockUiPeoplePurpose purpose) => purpose switch
         {
-            StockUiPeoplePurpose.MemberList => "Member List",
-            StockUiPeoplePurpose.ChangeLeader => "Chg. Leader",
-            StockUiPeoplePurpose.RemoveMember => "Rmv. Member",
+            StockUiPeoplePurpose.MemberList => "Party",
             StockUiPeoplePurpose.LevelSync => "Level Sync",
-            StockUiPeoplePurpose.Quartermaster => "Distribution",
-            StockUiPeoplePurpose.Focus => "Focus",
             StockUiPeoplePurpose.JoinRequests => "View Request",
             StockUiPeoplePurpose.SearchResults => "Search",
             StockUiPeoplePurpose.LinkshellMembers => "Linkshell",
@@ -215,8 +253,7 @@ namespace Gordian.Engine.Ui
         /// <summary>The notice when a list has nobody in it.</summary>
         public static string EmptyNotice(StockUiPeoplePurpose purpose) => purpose switch
         {
-            StockUiPeoplePurpose.ChangeLeader or StockUiPeoplePurpose.RemoveMember or StockUiPeoplePurpose.LevelSync
-                or StockUiPeoplePurpose.Focus => "There are no other party members.",
+            StockUiPeoplePurpose.LevelSync => "There are no party members.",
             StockUiPeoplePurpose.JoinRequests => "No players are currently requesting to join.",
             StockUiPeoplePurpose.Friends => "No one on your friend list is online.",
             StockUiPeoplePurpose.Blacklist => "Your blacklist is empty.",
@@ -224,26 +261,63 @@ namespace Gordian.Engine.Ui
             _ => "No players found.",
         };
 
-        /// <summary>A search entry's row: its name, and its jobs and area at the right ("WAR75/NIN37 Port Jeuno").</summary>
-        public static StockUiPerson FromSearch(SearchEntity entity, Func<byte, string?>? jobName, Func<int, string?>? zoneName)
+        /// <summary>
+        /// A search entry's row as retail draws it (round 1 image-26, image-28, image-44): the jobs and race at the left
+        /// ("[MNK99/RDM49]Elv"), the mission rank on the nation's colour, the name, and the area at the right unless it is
+        /// <paramref name="currentZone"/>; a player seeking a party also shows their languages.
+        /// </summary>
+        public static StockUiPerson FromSearch(SearchEntity entity, Func<byte, string?>? jobName, Func<int, string?>? zoneName, ushort currentZone = 0)
         {
-            string detail = Detail(entity.IsAnonymous ? (byte)0 : entity.MainJob, entity.MainLevel, entity.SubJob, entity.SubLevel,
-                zoneName?.Invoke(entity.ZoneId), jobName);
             byte rank = entity.LinkshellRank1 != 0 ? entity.LinkshellRank1 : entity.LinkshellRank2;
-            return new StockUiPerson(entity.Name, CharacterId: entity.CharacterId, Detail: detail.Length > 0 ? detail : null, Rank: rank);
+            bool anonymous = entity.IsAnonymous || entity.MainJob == 0;
+            return new StockUiPerson(entity.Name, CharacterId: entity.CharacterId, LinkshellRank: rank)
+            {
+                Jobs = anonymous ? null : JobsColumn(entity.MainJob, entity.MainLevel, entity.SubJob, entity.SubLevel, entity.Race, jobName),
+                MissionRank = anonymous ? (byte)0 : entity.Rank,
+                Nation = entity.Nation,
+                Area = entity.ZoneId == currentZone && currentZone != 0 ? null : zoneName?.Invoke(entity.ZoneId),
+                Languages = (entity.Flags & SearchFlags.SeekingParty) != 0 ? LanguageLetters(entity.Languages) : null,
+                HasComment = (entity.Flags & SearchFlags.HasComment) != 0,
+            };
         }
 
-        /// <summary>"WAR75/NIN37 Area": the jobs (no sub job when it has no level), then the area; empty for none.</summary>
-        public static string Detail(byte mainJob, byte mainLevel, byte subJob, byte subLevel, string? area, Func<byte, string?>? jobName)
+        /// <summary>"[MNK99/RDM49]Elv": the jobs in brackets (no sub job when it has no level), then the race's first three letters.</summary>
+        public static string JobsColumn(byte mainJob, byte mainLevel, byte subJob, byte subLevel, byte race, Func<byte, string?>? jobName)
         {
-            string jobs = string.Empty;
-            if (mainJob != 0)
-            {
-                string main = (jobName?.Invoke(mainJob) ?? StockUiCheck.JobAbbreviation(mainJob)) + mainLevel;
-                jobs = subJob != 0 && subLevel != 0 ? main + "/" + (jobName?.Invoke(subJob) ?? StockUiCheck.JobAbbreviation(subJob)) + subLevel : main;
-            }
-            if (string.IsNullOrEmpty(area)) return jobs;
-            return jobs.Length > 0 ? jobs + " " + area : area;
+            string main = (jobName?.Invoke(mainJob) ?? StockUiCheck.JobAbbreviation(mainJob)) + mainLevel.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string jobs = subJob != 0 && subLevel != 0
+                ? main + "/" + (jobName?.Invoke(subJob) ?? StockUiCheck.JobAbbreviation(subJob)) + subLevel.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : main;
+            return "[" + jobs + "]" + RaceAbbreviation(race);
+        }
+
+        /// <summary>
+        /// The race's three letters (round 1 image-28: "Tar", "Elv"); the search server's race is the character's model race
+        /// (LandSandBoat 1-2 Hume, 3-4 Elvaan, 5-6 Tarutaru, 7 Mithra, 8 Galka).
+        /// </summary>
+        public static string RaceAbbreviation(byte race) => race switch
+        {
+            1 or 2 => "Hum",
+            3 or 4 => "Elv",
+            5 or 6 => "Tar",
+            7 => "Mit",
+            8 => "Gal",
+            _ => string.Empty,
+        };
+
+        /// <summary>
+        /// A seeker's languages as letters, "E F" (round 1 image-26). The bits are C2S 0x0DB's (<see cref="StockUiParty.LanguageBits"/>).
+        /// <b>Provisional:</b> the letters and their order beyond "E F" are not captured.
+        /// </summary>
+        public static string? LanguageLetters(ushort languages)
+        {
+            var letters = new List<string>(5);
+            if ((languages & 0x01) != 0) letters.Add("J");
+            if ((languages & 0x02) != 0) letters.Add("E");
+            if ((languages & 0x08) != 0) letters.Add("F");
+            if ((languages & 0x04) != 0) letters.Add("G");
+            if ((languages & 0x10) != 0) letters.Add("O");
+            return letters.Count > 0 ? string.Join(' ', letters) : null;
         }
     }
 }

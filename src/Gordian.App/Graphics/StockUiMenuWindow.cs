@@ -67,7 +67,9 @@ namespace Gordian.App.Graphics
                 // linkshell or Unity); elsewhere (Synthesis, Party, Gamepad) its meaning is still unknown, so it is not drawn.
                 bool isSelected = button.ButtonId == menu.SelectedButtonId;
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
-                if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
+                // A label the controller swaps in (the Party lists' "Play Solo" while seeking, #489) stands for the button's own.
+                if ((menu.LabelImages.TryGetValue(button.ButtonId, out var swapped) && library.TryGetImage(swapped, out var label))
+                    || TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out label))
                 {
                     // (The Equipment window keeps its slot labels under the icons: retail shows "Main" through a dagger's icon.)
                     if (menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
@@ -172,6 +174,10 @@ namespace Gordian.App.Graphics
             else if (font != null && (menu.IsKeyItemWindow || menu.IsEquipSetWindow))
             {
                 StockUiKeyItemWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
+            else if (font != null && menu.ListKind == StockUiListKind.People && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstPeopleRow)
+            {
+                StockUiPeopleWindow.Draw(renderer, font, logFont, menu, placement, firstPeopleRow, definition.FindButton(2), timestamp);
             }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
@@ -696,6 +702,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>Slider fill: rows 1-6 of the "gauge" strip, tinted light blue (retail: (194, 194, 255) at the middle).</summary>
         private const string SliderTexture = "gauge";
+
+        /// <summary>A pale solid texel of the "gauge" texture (about 220 per channel) for client-drawn boxes, as the row bar uses.</summary>
+        internal const string SolidTexture = SliderTexture;
+        internal const float SolidTexelX = 30, SolidTexelY = 12;
         private const float SliderFillSourceX = 0, SliderFillSourceY = 1, SliderFillSourceWidth = 64, SliderFillSourceHeight = 6;
         private const float SliderFillTop = 1, SliderFillHeight = 12;
         private static readonly UiColor SliderFillTint = new(0x68, 0x60, 0x84, 0x80);
@@ -720,7 +730,8 @@ namespace Gordian.App.Graphics
         /// title band's bottom to the window's bottom, the translucent gauge strip; the thumb is pale pink-white
         /// (255, 221, 228), as long as the visible share of the list and placed at the first entry's share.
         /// </summary>
-        private const float ScrollbarWidth = 6, ScrollbarInset = 4;
+        private const float ScrollbarWidth = 6;
+        internal const float ScrollbarInset = 4;
         private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
         private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
@@ -762,7 +773,8 @@ namespace Gordian.App.Graphics
         private const float AssignRowTextInset = 4, AssignValueRightPad = 18;
 
         /// <summary>The Change Map lists' text 23 px into the row and their "[4]" ending 44 px short of the frame's right edge (round 1 image-6).</summary>
-        private const float MapRowTextInset = 23, MapValueRightPad = 44;
+        private const float MapRowTextInset = 23;
+        internal const float MapValueRightPad = 44;
 
         /// <summary>
         /// The Change Map lists' selected-row bar, top to bottom: retail round 2 image-25 shows a red bar under the
@@ -776,7 +788,7 @@ namespace Gordian.App.Graphics
         ];
 
         /// <summary>Draws <see cref="MapRowBarShades"/> as horizontal strips filling the row from <paramref name="left"/> to <paramref name="right"/>.</summary>
-        private static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
+        internal static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
         {
             float strip = height / MapRowBarShades.Length;
             for (int k = 0; k < MapRowBarShades.Length; k++)
@@ -815,7 +827,7 @@ namespace Gordian.App.Graphics
             if (logFont != null) logFont.Draw(renderer, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, sample.Color);
             else renderer.DrawText(font, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height * s - font.LineHeight * s) * 0.5f, s, sample.Color);
         }
-        private const float ListClipInset = 8;
+        internal const float ListClipInset = 8;
 
         private const string DefaultCursorGroup = "anc_s";
 

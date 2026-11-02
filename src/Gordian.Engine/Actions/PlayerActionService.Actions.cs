@@ -583,5 +583,28 @@ namespace Gordian.Engine.Actions
             }
             return candidates;
         }
+
+        /// <summary>
+        /// For a cursor that may only land on your party (the Party menu's Chg. Leader, Rmv. Member, Focus and Distribution,
+        /// #489): the next member in the party window's order (<paramref name="step"/> &gt; 0 down, else up), wrapping; 0 when
+        /// the cursor takes other entities too, or no other member is here to move to. Members in another zone have no
+        /// entity and are skipped.
+        /// </summary>
+        public uint StepPartySubTarget(int step)
+        {
+            var selection = _subTarget;
+            if (selection == null || (selection.Allowed & ~(ActionTargetFlags.Self | ActionTargetFlags.Party)) != 0) return 0;
+            var members = _partyModule.State.Members;
+            int ownParty = members.FirstOrDefault(m => m.ServerId == _localPlayer.ServerId)?.PartyNumber ?? 0;
+            var order = new List<uint>();
+            foreach (var member in members.Where(m => m.PartyNumber == ownParty).OrderBy(m => m.MemberNumber))
+            {
+                if (_world.TryGetByServerId(member.ServerId, out var entity) && entity != null && AcceptsTarget(selection.Allowed, entity)) order.Add(member.ServerId);
+            }
+            if (order.Count == 0) return 0;
+            int index = order.IndexOf(selection.Current.ServerId);
+            if (index < 0) return order[step >= 0 ? 0 : order.Count - 1];
+            return order[((index + Math.Sign(step)) % order.Count + order.Count) % order.Count];
+        }
     }
 }

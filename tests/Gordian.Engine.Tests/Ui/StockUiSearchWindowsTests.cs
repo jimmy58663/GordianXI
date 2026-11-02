@@ -96,8 +96,8 @@ namespace Gordian.Engine.Tests.Ui
                 default: Assert.Equal(((byte)6, (byte)6), query.Rank); break;
             }
             Assert.Equal(StockUiPeople.ResultsMenu, menus.Top!.Name);
-            Assert.Equal("Ayame", menus.Top.Rows.Single().Text);
-            Assert.Equal("SAM75/WAR37 Port Bastok", menus.Top.Rows.Single().Value);
+            Assert.Equal(new[] { StockUiPeople.ResultsHeader, "Ayame" }, menus.Top.Rows.Select(r => r.Text));
+            Assert.Equal("Ayame", menus.Top.People.Single().Name);
         }
 
         [Fact]

@@ -78,6 +78,19 @@ namespace Gordian.Engine.Tests.Ui
                 Comment = (text, commentType);
                 return Task.FromResult<string?>(null);
             }
+
+            public List<(string Title, StockUiSocialCommand Command, bool IncludeSelf)> Picks { get; } = new();
+
+            public string? PickPartyMember(string title, StockUiSocialCommand command, bool includeSelf)
+            {
+                Picks.Add((title, command, includeSelf));
+                return null;
+            }
+
+            public Dictionary<uint, string> Comments { get; } = new();
+
+            public Task<string?> SearchCommentAsync(StockUiPerson person) =>
+                Task.FromResult(Comments.TryGetValue(person.CharacterId, out var comment) ? comment : null);
         }
 
         internal static UiMenuDefinition List(string name, params int[] buttonIds) => List(name, 384, 48, UiAnchor.TopRight, buttonIds);
@@ -159,35 +172,52 @@ namespace Gordian.Engine.Tests.Ui
         private static readonly StockUiPartyContext Leader = new(true, true, 2, false);
 
         [Fact]
-        public async Task SeekParty_TogglesThePartyFlag_AndTheFlaggedListIsPrty6()
+        public async Task SeekParty_TogglesInPlace_AndTheLabelReadsPlaySolo()
         {
             var social = new FakeSocial();
             var menus = Controller(new StockUiPartyContext(false, false, 0, false), social);
-            OpenParty(menus);
+            var party = OpenParty(menus);
+            Assert.Equal(StockUiParty.NotInPartyMenu, party.Name);
+            Assert.Empty(party.LabelImages);
             Choose(menus, StockUiParty.SeekPartyButton);
             await Until(() => social.Runs.Count == 1);
             Assert.Equal((StockUiSocialCommand.SetSeekParty, 1), (social.Runs[0].Command, social.Runs[0].Argument));
-            Assert.False(menus.IsOpen);
+            Assert.Same(party, menus.Top); // the list stays open
+            Assert.Equal(StockUiParty.PlaySoloImage, party.LabelImages[StockUiParty.SeekPartyButton].ImageIndex);
 
-            social.State = social.State with { SeekingParty = true };
-            menus = Controller(new StockUiPartyContext(false, false, 0, false, SeekingParty: true), social);
-            Assert.Equal(StockUiParty.SeekingMenu, OpenParty(menus).Name);
-            Choose(menus, StockUiParty.SeekingOffButton);
+            // Before the server's copy of the flags arrives, the next toggle turns it back off.
+            menus.Activate();
             await Until(() => social.Runs.Count == 2);
             Assert.Equal((StockUiSocialCommand.SetSeekParty, 0), (social.Runs[1].Command, social.Runs[1].Argument));
+            Assert.False(party.LabelImages.ContainsKey(StockUiParty.SeekPartyButton));
+
+            // Seeking, the list is still prty1, with Languages and Alarm Type.
+            social.State = social.State with { SeekingParty = true };
+            menus = Controller(new StockUiPartyContext(false, false, 0, false, SeekingParty: true), social);
+            party = OpenParty(menus);
+            Assert.Equal(StockUiParty.NotInPartyMenu, party.Name);
+            Assert.Equal(StockUiParty.PlaySoloImage, party.LabelImages[StockUiParty.SeekPartyButton].ImageIndex);
         }
 
         [Theory]
-        [InlineData(StockUiParty.AutogroupButton, StockUiSocialCommand.SetAutogroup)]
-        [InlineData(StockUiParty.UngroupedRequestButton, StockUiSocialCommand.SetRecruit)]
-        public async Task AutogroupAndRequest_ToggleTheirFlags(int button, StockUiSocialCommand command)
+        [InlineData(StockUiParty.AutogroupButton, StockUiSocialCommand.SetAutogroup, StockUiParty.AutogroupSoloImage)]
+        [InlineData(StockUiParty.UngroupedRequestButton, StockUiSocialCommand.SetRecruit, StockUiParty.StopRequestImage)]
+        public async Task AutogroupAndRequest_ToggleTheirOwnFlagAndLabel(int button, StockUiSocialCommand command, int onImage)
         {
-            var social = new FakeSocial { State = new StockUiSocialState(false, true, true, 0) };
+            var social = new FakeSocial();
             var menus = Controller(new StockUiPartyContext(false, false, 0, false), social);
-            OpenParty(menus);
+            var party = OpenParty(menus);
             Choose(menus, button);
             await Until(() => social.Runs.Count == 1);
-            Assert.Equal((command, 0), (social.Runs[0].Command, social.Runs[0].Argument)); // on -> off
+            Assert.Equal((command, 1), (social.Runs[0].Command, social.Runs[0].Argument));
+            Assert.Same(party, menus.Top);
+            Assert.Equal(new[] { button }, party.LabelImages.Keys); // only that entry changes
+            Assert.Equal(onImage, party.LabelImages[button].ImageIndex);
+
+            social.State = new StockUiSocialState(false, true, true, 0); // the server agrees; on -> off next
+            menus.Activate();
+            await Until(() => social.Runs.Count == 2);
+            Assert.Equal((command, 0), (social.Runs[1].Command, social.Runs[1].Argument));
         }
 
         [Fact]
@@ -206,9 +236,9 @@ namespace Gordian.Engine.Tests.Ui
 
             var list = menus.Top!;
             Assert.Equal(StockUiPeople.ResultsMenu, list.Name);
-            Assert.Equal("Member List", list.HelpTitle);
+            Assert.Equal("Party", list.HelpTitle);
+            Assert.Equal(0, list.PeopleOffset); // no "Search Results" bar
             Assert.Equal(new[] { "Cybin", "Zeid" }, list.Rows.Select(r => r.Text));
-            Assert.Equal("DRK75/SAM37 Port Jeuno", list.Rows[1].Value);
             menus.Move(InputAction.MenuDown);
             menus.Move(InputAction.MenuDown); // only populated rows take the cursor (the list wraps)
             Assert.Equal(1, list.SelectedButtonId);
@@ -230,6 +260,9 @@ namespace Gordian.Engine.Tests.Ui
             OpenParty(menus);
             Choose(menus, StockUiParty.LeaderFindMemberButton);
             await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            Assert.Equal(new[] { StockUiPeople.ResultsHeader, "Ayame" }, menus.Top!.Rows.Select(r => r.Text));
+            Assert.Equal("[1]", menus.Top.Rows[0].Value);
+            menus.Move(InputAction.MenuDown);
             menus.Activate();
             Choose(menus, StockUiPeople.InviteButton);
             await Until(() => social.Runs.Count == 1);
@@ -252,45 +285,72 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Theory]
-        [InlineData(StockUiParty.ChangeLeaderButton, "Pass leadership to Zeid?", StockUiSocialCommand.PassLeader)]
-        [InlineData(StockUiParty.RemoveMemberButton, "Remove Zeid from the party?", StockUiSocialCommand.Kick)]
-        [InlineData(StockUiParty.LevelSyncButton, "Synchronize levels to Zeid?", StockUiSocialCommand.LevelSync)]
-        public async Task LeaderLists_AskThenRunForTheMember(int button, string question, StockUiSocialCommand command)
+        [InlineData(StockUiParty.ChangeLeaderButton, StockUiSocialCommand.PassLeader, false)]
+        [InlineData(StockUiParty.RemoveMemberButton, StockUiSocialCommand.Kick, false)]
+        [InlineData(StockUiParty.LeaderFocusButton, StockUiSocialCommand.Focus, false)]
+        public void LeaderPicks_UseTheSubTargetCursor_WithoutAsking(int button, StockUiSocialCommand command, bool includeSelf)
+        {
+            var social = new FakeSocial();
+            var menus = Controller(Leader, social);
+            var party = OpenParty(menus);
+            Choose(menus, button);
+            Assert.Equal(command, social.Picks.Single().Command);
+            Assert.Equal(includeSelf, social.Picks.Single().IncludeSelf);
+            Assert.Same(party, menus.Top); // no list, no prompt
+        }
+
+        [Fact]
+        public async Task LevelSync_ListsTheParty_AndSyncsWithoutAsking()
         {
             var social = new FakeSocial();
             social.Members.Add(new StockUiPerson("Zeid", 0x200));
             var menus = Controller(Leader, social);
             OpenParty(menus);
-            Choose(menus, button);
+            Choose(menus, StockUiParty.LevelSyncButton);
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
             var list = menus.Top!;
-            Assert.Equal(StockUiListKind.People, list.ListKind);
-            Assert.Equal(button == StockUiParty.LevelSyncButton ? StockUiPeople.LevelSyncMenu : StockUiPeople.ResultsMenu, list.Name);
-            Assert.Equal(new[] { "Zeid" }, list.Rows.Select(r => r.Text)); // not the character
-
-            menus.Activate();
-            Assert.True(menus.Top!.IsPrompt);
-            Assert.Equal(question, menus.Top.Message);
-            menus.Move(InputAction.MenuUp); // Yes
+            Assert.Equal(StockUiPeople.LevelSyncMenu, list.Name);
+            Assert.Equal(new[] { "Cybin", "Zeid" }, list.Rows.Select(r => r.Text)); // the leader may sync to themself
+            menus.Move(InputAction.MenuDown);
             menus.Activate();
             await Until(() => social.Runs.Count == 1);
-            Assert.Equal(command, social.Runs[0].Command);
-            Assert.Equal("Zeid", social.Runs[0].Person.Name);
+            Assert.Equal((StockUiSocialCommand.LevelSync, "Zeid"), (social.Runs[0].Command, social.Runs[0].Person.Name));
         }
 
         [Fact]
-        public async Task LevelSync_UnderSync_AsksToRemoveIt()
+        public async Task LevelSync_UnderSync_ReadsLvlSyncOff_AndEndsIt()
         {
             var social = new FakeSocial { State = new StockUiSocialState(false, false, false, 0, LevelSynced: true) };
-            social.Members.Add(new StockUiPerson("Zeid", 0x200));
             var menus = Controller(Leader, social);
-            OpenParty(menus);
+            var party = OpenParty(menus);
+            Assert.Equal(StockUiParty.LevelSyncOffImage, party.LabelImages[StockUiParty.LevelSyncButton].ImageIndex);
             Choose(menus, StockUiParty.LevelSyncButton);
-            await Until(() => menus.Top?.IsPrompt == true);
-            Assert.Equal(StockUiMenuController.RemoveLevelSyncPrompt, menus.Top!.Message);
-            menus.Move(InputAction.MenuUp);
-            menus.Activate();
             await Until(() => social.Runs.Count == 1);
             Assert.Equal(StockUiSocialCommand.DisableLevelSync, social.Runs[0].Command);
+        }
+
+        [Fact]
+        public async Task FindMember_PrintsTheSeekersComment()
+        {
+            var notices = new List<string>();
+            var social = new FakeSocial { SearchResult = new StockUiPeopleResult(new[] { new StockUiPerson("Ayame", CharacterId: 0x1234) { HasComment = true } }) };
+            social.Comments[0x1234] = "LFP WAR75";
+            var menus = Controller(new StockUiPartyContext(false, false, 0, false), social, notices);
+            OpenParty(menus);
+            Choose(menus, StockUiParty.UngroupedFindMemberButton);
+            await Until(() => menus.Top?.ListKind == StockUiListKind.People);
+            var list = menus.Top!;
+            menus.Move(InputAction.MenuDown);
+            menus.Activate();
+            Assert.Equal(StockUiPeople.OptionsMenu, menus.Top!.Name);
+            await Until(() => notices.Contains("Ayame: LFP WAR75"));
+
+            // The "Search Results" bar goes back to the Party list.
+            menus.CloseTop();
+            menus.Move(InputAction.MenuUp);
+            Assert.Same(list, menus.Top);
+            menus.Activate();
+            Assert.Equal(StockUiParty.NotInPartyMenu, menus.Top!.Name);
         }
 
         [Fact]
@@ -366,11 +426,8 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(StockUiParty.DistributionMenu, menus.Top!.Name);
             Assert.True(menus.Top.IsMarked(StockUiParty.LotteryButton));
             Choose(menus, StockUiParty.QuartermasterButton);
-            Assert.Equal(new[] { "Cybin", "Zeid" }, menus.Top!.Rows.Select(r => r.Text)); // the leader may collect too
-            menus.Move(InputAction.MenuDown);
-            menus.Activate();
-            await Until(() => social.Runs.Count == 1);
-            Assert.Equal((StockUiSocialCommand.SetQuartermaster, "Zeid"), (social.Runs[0].Command, social.Runs[0].Person.Name));
+            Assert.Equal((StockUiSocialCommand.SetQuartermaster, true), (social.Picks.Single().Command, social.Picks.Single().IncludeSelf)); // the leader may collect too
+            await Task.CompletedTask;
 
             var notices = new List<string>();
             social.State = social.State with { QuartermasterName = "Zeid" };
@@ -378,6 +435,16 @@ namespace Gordian.Engine.Tests.Ui
             OpenParty(menus);
             Choose(menus, StockUiParty.MemberDistributionButton);
             Assert.Equal("Treasure distribution: Zeid collects all treasure.", notices.Single());
+        }
+
+        [Fact]
+        public void Alliance_OnlyTheAllianceLeaderFormsOrDissolves()
+        {
+            var menus = Controller(new StockUiPartyContext(true, true, 2, true, IsAllianceLeader: false), new FakeSocial());
+            OpenParty(menus);
+            Choose(menus, StockUiParty.AllianceButton);
+            Assert.True(menus.Top!.IsGreyed(StockUiParty.AllianceFormButton));
+            Assert.True(menus.Top.IsGreyed(StockUiParty.AllianceDissolveButton));
         }
 
         [Fact]
@@ -393,7 +460,7 @@ namespace Gordian.Engine.Tests.Ui
             await Until(() => social.Runs.Count == 1);
             Assert.Equal(StockUiSocialCommand.AllianceInviteTarget, social.Runs[0].Command);
 
-            menus = Controller(new StockUiPartyContext(true, true, 2, true), social);
+            menus = Controller(new StockUiPartyContext(true, true, 2, true, IsAllianceLeader: true), social);
             OpenParty(menus);
             Choose(menus, StockUiParty.AllianceButton);
             Assert.False(menus.Top!.IsGreyed(StockUiParty.AllianceDissolveButton));
@@ -440,12 +507,21 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void Detail_JoinsJobsAndArea()
+        public void SearchRows_TakeRetailsColumns()
         {
-            Assert.Equal("WAR75/NIN37 Port Jeuno", StockUiPeople.Detail(1, 75, 13, 37, "Port Jeuno", null));
-            Assert.Equal("WAR75", StockUiPeople.Detail(1, 75, 13, 0, null, null));
-            Assert.Equal("Port Jeuno", StockUiPeople.Detail(0, 0, 0, 0, "Port Jeuno", null)); // anonymous
-            Assert.Equal(string.Empty, StockUiPeople.Detail(0, 0, 0, 0, null, null));
+            Assert.Equal("[MNK99/RDM49]Elv", StockUiPeople.JobsColumn(2, 99, 5, 49, 3, null));
+            Assert.Equal("[WAR75]Gal", StockUiPeople.JobsColumn(1, 75, 13, 0, 8, null));
+            Assert.Equal("E F", StockUiPeople.LanguageLetters(0x02 | 0x08));
+            Assert.Null(StockUiPeople.LanguageLetters(0));
+
+            var entity = new SearchEntity("Gordian", 243, 0, 2, 5, 99, 49, 3, 3, (uint)(SearchFlags.SeekingParty | SearchFlags.HasComment), 0, 7, 0x11, 0x0A, 0, 0, 0, 0);
+            var row = StockUiPeople.FromSearch(entity, null, z => z == 243 ? "Ru'Lude Gardens" : "Port Jeuno", currentZone: 243);
+            Assert.Equal(("[MNK99/RDM49]Elv", (byte)3, (byte)0, "E F", true), (row.Jobs, row.MissionRank, row.Nation, row.Languages, row.HasComment));
+            Assert.Null(row.Area); // your own area is left blank
+            Assert.Equal("Port Jeuno", StockUiPeople.FromSearch(entity with { ZoneId = 246 }, null, z => "Port Jeuno", currentZone: 243).Area);
+
+            var anonymous = StockUiPeople.FromSearch(entity with { Flags1 = (uint)SearchFlags.Anonymous }, null, null, 243);
+            Assert.Equal((null, (byte)0), (anonymous.Jobs, anonymous.MissionRank));
         }
 
         [Fact]

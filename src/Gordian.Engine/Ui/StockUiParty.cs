@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiParty.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Engine.Ui
 {
@@ -12,8 +13,10 @@ namespace Gordian.Engine.Ui
     /// <param name="IsLeader">The character leads the party.</param>
     /// <param name="OtherMembers">How many members besides the character (Trusts included).</param>
     /// <param name="InAlliance">The party belongs to an alliance.</param>
-    /// <param name="SeekingParty">The party flag is on (seeking a party): the ungrouped list is <c>prty6</c>.</param>
-    public readonly record struct StockUiPartyContext(bool InParty, bool IsLeader, int OtherMembers, bool InAlliance, bool SeekingParty = false);
+    /// <param name="SeekingParty">The party flag is on (seeking a party).</param>
+    /// <param name="IsAllianceLeader">The character leads the alliance.</param>
+    public readonly record struct StockUiPartyContext(bool InParty, bool IsLeader, int OtherMembers, bool InAlliance, bool SeekingParty = false,
+        bool IsAllianceLeader = false);
 
     /// <summary>
     /// The main menu's Party entry (#397, #24). The English menu DAT carries three Party lists in the top right corner,
@@ -97,9 +100,51 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public static readonly IReadOnlyList<(int Button, int Bit)> LanguageBits = new[] { (1, 0x02), (2, 0x08), (3, 0x04), (4, 0x01), (5, 0x10) };
 
-        /// <summary>The Party menu that fits the character's state.</summary>
+        /// <summary>
+        /// The Party menu that fits the character's state. Not in a party it is always <c>prty1</c>: retail keeps the list open
+        /// when Seek Party is chosen and only that entry's label turns to "Play Solo", with Languages and Alarm Type still there
+        /// (the maintainer's round 1 check, 2026-11-01), which <c>prty6</c> (no Alarm Type) does not fit.
+        /// </summary>
         public static string MenuFor(StockUiPartyContext party) =>
-            !party.InParty ? (party.SeekingParty ? SeekingMenu : NotInPartyMenu) : party.IsLeader ? LeaderMenu : MemberMenu;
+            !party.InParty ? NotInPartyMenu : party.IsLeader ? LeaderMenu : MemberMenu;
+
+        /// <summary>
+        /// The label images ("menu windowps") the Party lists swap in for a flag that is on: "Play Solo" over Seek Party
+        /// (#257, <c>prty6</c>'s first button) and over Autogroup (#484, <c>prty6</c>'s Autogroup), "Stop Request" over Request
+        /// (#780, beside Request #778 in the DAT) and "Lvl. Sync Off" over Level Sync (#613, beside #611). Found by drawing the
+        /// group's images (the 2026-11-01 dump); round 1 image-27 shows "Lvl. Sync Off" in the leader's list during a sync.
+        /// <b>Provisional:</b> "Stop Request" is not captured.
+        /// </summary>
+        public const int PlaySoloImage = 257, AutogroupSoloImage = 484, StopRequestImage = 780, LevelSyncOffImage = 613;
+
+        /// <summary>The label group of the Party lists' buttons.</summary>
+        public const string LabelGroup = "menu    windowps";
+
+        /// <summary>The labels a Party list swaps for the flags that are on (<see cref="PlaySoloImage"/> ...); null for none.</summary>
+        public static Dictionary<int, UiShapeReference>? LabelImages(string menuName, StockUiSocialState state)
+        {
+            var labels = new Dictionary<int, UiShapeReference>();
+            void Swap(bool on, int button, int image)
+            {
+                if (on) labels[button] = new UiShapeReference(0, (ushort)image, LabelGroup);
+            }
+            if (Is(menuName, NotInPartyMenu))
+            {
+                Swap(state.SeekingParty, SeekPartyButton, PlaySoloImage);
+                Swap(state.Autogroup, AutogroupButton, AutogroupSoloImage);
+                Swap(state.Recruiting, UngroupedRequestButton, StopRequestImage);
+            }
+            else if (Is(menuName, MemberMenu))
+            {
+                Swap(state.Recruiting, MemberRequestButton, StopRequestImage);
+            }
+            else if (Is(menuName, LeaderMenu))
+            {
+                Swap(state.Recruiting, LeaderRequestButton, StopRequestImage);
+                Swap(state.LevelSynced, LevelSyncButton, LevelSyncOffImage);
+            }
+            return labels.Count > 0 ? labels : null;
+        }
 
         /// <summary>
         /// The help bar's title for a Party menu (null for any other menu): "Party" for the ungrouped and member lists and
@@ -145,8 +190,11 @@ namespace Gordian.Engine.Ui
         {
             if (Is(menuName, AllianceMenu))
             {
-                // Dissolve while there is no alliance (PROVISIONAL: both buttons have greyed alternates; when retail uses them is not captured).
-                return party.InAlliance ? null : new HashSet<int> { AllianceDissolveButton };
+                // Only the alliance leader dissolves the alliance or brings in another party (LandSandBoat's C2S 0x070 and
+                // 0x06E kind 5 check isAllianceLeader; round 1: a party leader's Dissolve took them out of the alliance and
+                // their party). PROVISIONAL: when retail uses the greyed alternates is not captured.
+                if (!party.InAlliance) return new HashSet<int> { AllianceDissolveButton };
+                return party.IsAllianceLeader ? null : new HashSet<int> { AllianceFormButton, AllianceDissolveButton };
             }
             if (!Is(menuName, LeaderMenu)) return null;
             var greyed = new HashSet<int>();
