@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiMenuController.QuestLog.cs
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Input;
@@ -89,6 +90,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Region Info's Conquest windows for where the character is now (S2C 0x05E).</summary>
         public Func<StockUiConquestView?>? ConquestView { get; set; }
+
+        /// <summary>Asks the server for the conquest figures (C2S 0x05A) as the Conquest map opens; its 0x05E refreshes the page.</summary>
+        public Func<Task>? ConquestRequested { get; set; }
 
         /// <summary>The open map the movement input pans: the Map window or a Region Info map.</summary>
         public StockUiOpenMenu? PannedMap
@@ -337,6 +341,7 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public StockUiOpenMenu? OpenConquest(StockUiOpenMenu? parent)
         {
+            if (ConquestRequested is { } request) _ = request();
             var view = ConquestView?.Invoke();
             if (view == null)
             {
@@ -355,6 +360,8 @@ namespace Gordian.Engine.Ui
             {
                 page.ConquestView = view;
                 page.MapZoom = StockUiConquest.MapZoom;
+                // Retail opens on the character's region (round 2 of #488, image-49), kept inside the map's edges.
+                if (StockUiConquest.CenterOf(view.Region) is { } center) page.SetMapCenter(center.U, center.V);
                 PushOpen(page);
             }
             Changed?.Invoke();

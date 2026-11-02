@@ -142,7 +142,11 @@ namespace Gordian.Engine.Tests.Ui
             var rows = StockUiQuestLog.MissionRows(catalog, state, StockUiQuestLogBook.MissionsSandoria);
             Assert.Equal(new[] { ("Smash the Orcish Scouts", StockUiQuestLogStatus.Completed), ("Bat Hunt", StockUiQuestLogStatus.Completed), ("Save the Children", StockUiQuestLogStatus.Current) },
                 rows.Select(r => (r.Entry.Name, r.Status)));
+            // Another nation: its missions done, none in progress (round 2 of #488).
             Assert.Empty(StockUiQuestLog.MissionRows(catalog, state, StockUiQuestLogBook.MissionsBastok));
+            state.MissionComplete[2] = 0b1;
+            Assert.Equal(new[] { ("The Zeruhn Report", StockUiQuestLogStatus.Completed) },
+                StockUiQuestLog.MissionRows(catalog, state, StockUiQuestLogBook.MissionsBastok).Select(r => (r.Entry.Name, r.Status)));
         }
 
         [Fact]
@@ -157,9 +161,19 @@ namespace Gordian.Engine.Tests.Ui
                 (StockUiQuestLogLineKind.Heading, StockUiQuestLog.CompletedHeading), (StockUiQuestLogLineKind.Entry, "Smash the Orcish Scouts"),
                 (StockUiQuestLogLineKind.Entry, "Bat Hunt"),
             }, sandoria.Select(l => (l.Kind, l.Text)));
-            // Another nation: the note under Current (retail, round 1).
-            Assert.Equal(new[] { StockUiQuestLog.CurrentHeading, StockUiQuestLog.NotAllowedText, StockUiQuestLog.CompletedHeading },
+            // Another nation: the note under Current (retail, round 1), and its Completed list or the empty text (round 2).
+            Assert.Equal(new[] { StockUiQuestLog.CurrentHeading, StockUiQuestLog.NotAllowedText, StockUiQuestLog.CompletedHeading, StockUiQuestLog.NoCompletedMissionsText },
                 StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsBastok, false).Select(l => l.Text));
+            state.MissionComplete[2] = 0b1;
+            Assert.Equal(new[] { StockUiQuestLog.CurrentHeading, StockUiQuestLog.NotAllowedText, StockUiQuestLog.CompletedHeading, "The Zeruhn Report" },
+                StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsBastok, false).Select(l => l.Text));
+            // A storyline not started: both sections say so (retail image-48).
+            var none = StockUiQuestLog.PageLines(catalog, new StockUiQuestLogState(), StockUiQuestLogBook.MissionsCop, false);
+            Assert.Equal(new[]
+            {
+                (StockUiQuestLogLineKind.Heading, StockUiQuestLog.CurrentHeading), (StockUiQuestLogLineKind.Note, StockUiQuestLog.NoCurrentMissionsText),
+                (StockUiQuestLogLineKind.Heading, StockUiQuestLog.CompletedHeading), (StockUiQuestLogLineKind.Note, StockUiQuestLog.NoCompletedMissionsText),
+            }, none.Select(l => (l.Kind, l.Text)));
             Assert.Equal(StockUiQuestLogLineKind.Note, StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsBastok, false)[1].Kind);
             // A quest page: the quests alone, or the empty text.
             Assert.Equal(new[] { "A Sentry's Peril" }, StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.QuestsSandoria, false).Select(l => l.Text));
@@ -339,7 +353,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { "Current:", "Welcome t'Norg", "Completed:", "The New Frontier", "The Outlands" }, zilart.Rows.Select(r => r.Text));
             h.State = new StockUiQuestLogState { Zilart = 0xFFFF, TalesBeginning = 1 };
             h.Menus.RefreshQuestLog();
-            Assert.Equal(new[] { "Current:", "To Commence RotZ", "Completed:" }, zilart.Rows.Select(r => r.Text));
+            Assert.Equal(new[] { "Current:", "To Commence RotZ", "Completed:", "No completed missions." }, zilart.Rows.Select(r => r.Text));
 
             // Add-ons starts on A Crystalline Prophecy.
             h.Menus.CloseTop();
@@ -357,6 +371,27 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void ConquestMarkers_RegionsEverywhere_ZonesOfTheCharactersRegion()
+        {
+            string? Region(int id) => id switch { 3 => "Jeuno", 10 => "Kolshushu", 14 => "Qufim", _ => $"R{id}" };
+            string? Zone(int id) => id switch { 4 => "Bibiki Bay", 213 => "Onzozo Lbrth.", 126 => "Qufim Isl.", _ => $"Z{id}" };
+            // In Bibiki Bay (Kolshushu): every placed region, Jeuno as a city, and Kolshushu's seven zones (retail image-49).
+            var markers = StockUiConquest.Markers(10, 4, Region, Zone);
+            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.Region, Label: "Kolshushu", X: 376, Y: 262, Side: StockUiMapLabelSide.Above });
+            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.City, Label: "Jeuno", Region: 3 });
+            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.CurrentZone, Label: "Bibiki Bay" });
+            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.Zone, Label: "Onzozo Lbrth.", Side: StockUiMapLabelSide.Left });
+            Assert.Equal(7, markers.Count(m => m.Kind is StockUiConquestMarkerKind.Zone or StockUiConquestMarkerKind.CurrentZone));
+            Assert.DoesNotContain(markers, m => m.Label == "Qufim Isl.");
+            // In a city: the regions alone; a region without a name is left out.
+            Assert.DoesNotContain(StockUiConquest.Markers(3, 243, Region, Zone), m => m.Kind is StockUiConquestMarkerKind.Zone or StockUiConquestMarkerKind.CurrentZone);
+            Assert.Empty(StockUiConquest.Markers(10, 4, null, null));
+            // Regions not seen in a capture yet have no point to open on.
+            Assert.Null(StockUiConquest.CenterOf(0));
+            Assert.Equal((313 / 512f, 163 / 512f), StockUiConquest.CenterOf(14));
+        }
+
+        [Fact]
         public void RegionInfo_ConquestShowsTheRegionsPage_OrTheBalanceOutsideOne()
         {
             var h = new Harness();
@@ -369,6 +404,8 @@ namespace Gordian.Engine.Tests.Ui
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(140), 1500);
             progression.UpdateConquest(new S2C_0x05E_Conquest(payload));
             h.Conquest = StockUiConquest.Build(progression, 4, "Ronfaure");
+            int requests = 0;
+            h.Menus.ConquestRequested = () => { requests++; return System.Threading.Tasks.Task.CompletedTask; };
 
             Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenu));
             var region = h.Choose(11);
@@ -376,13 +413,17 @@ namespace Gordian.Engine.Tests.Ui
             var page = h.Choose(StockUiConquest.ConquestButton);
             Assert.Equal(StockUiQuestLogView.Conquest, page.QuestLogView);
             Assert.Equal(StockUiConquest.ControlWindow, page.Name);
+            // Opening asks for the figures (C2S 0x05A; round 2: a session without a 0x05E drew an empty Balance of Power).
+            Assert.Equal(1, requests);
             // The conquest map behind, panned by the movement input but never zoomed.
             Assert.Equal(Gordian.Core.Resources.Tables.RegionMap.Conquest, page.RegionMap);
             Assert.Same(page, h.Menus.PannedMap);
             Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
+            // It opens on the character's region (retail image-49): Ronfaure's marker.
+            Assert.Equal((176 / 512f, 182 / 512f), (page.MapCenterX, page.MapCenterY));
             h.Menus.MoveMapView(0.5f, 0, 1f, 2f);
             Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
-            Assert.True(page.MapCenterX > 0.5f);
+            Assert.True(page.MapCenterX > 176 / 512f);
             var view = page.ConquestView!;
             Assert.Equal(StockUiConquest.BeastmenRegionFallback, view.Control);
             Assert.Equal(3, view.NextTally);
@@ -395,7 +436,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Conquest = StockUiConquest.Build(progression, 0, "San d'Oria");
             var balance = h.Choose(StockUiConquest.ConquestButton);
             Assert.Equal(StockUiConquest.BalanceWindow, balance.Name);
-            Assert.Equal(new[] { "1st: San d'Oria", "2nd: Windurst", "3rd: Bastok" }, balance.ConquestView!.Balance);
+            Assert.Equal(new[] { "1. San d'Oria", "2. Windurst", "3. Bastok" }, balance.ConquestView!.Balance);
             Assert.Equal(StockUiConquest.NeutralAreaFallback, balance.ConquestView.Control);
 
             // Besieged and the rest are not done yet.

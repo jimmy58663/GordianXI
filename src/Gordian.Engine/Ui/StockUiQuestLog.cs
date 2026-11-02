@@ -256,6 +256,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The home nation's missions only (XiPackets <c>world/server/0x0056</c>, <c>Nation</c>).</summary>
         public const string NotAllowedText = "Not allowed under current allegiance.";
 
+        /// <summary>
+        /// An empty Current or Completed section (retail image-48, round 2 of #488; in no string table of the install, so
+        /// written here as "Not allowed" is).
+        /// </summary>
+        public const string NoCurrentMissionsText = "No current missions.", NoCompletedMissionsText = "No completed missions.";
+
         /// <summary>The Missions window's pages in order: the groups' storylines, the groups as <c>missionm</c> lists them.</summary>
         public static readonly IReadOnlyList<StockUiQuestLogBook> MissionPages = new[]
         {
@@ -386,7 +392,8 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// A page's lines: a quest area's quests (current or completed), or a storyline's "Current:" and the mission in progress
-        /// (another nation's: <see cref="NotAllowedText"/>), then "Completed:" and the missions done with the chapters reached.
+        /// (another nation's: <see cref="NotAllowedText"/>), then "Completed:" and the missions done with the chapters reached
+        /// (another nation's too); an empty section says so (<see cref="NoCurrentMissionsText"/>, <see cref="NoCompletedMissionsText"/>).
         /// <paramref name="emptyQuests"/> is the empty quest page's text.
         /// </summary>
         public static List<StockUiQuestLogLine> PageLines(StockUiQuestLogCatalog catalog, StockUiQuestLogState state, StockUiQuestLogBook book, bool completed,
@@ -401,20 +408,24 @@ namespace Gordian.Engine.Ui
             }
             var rows = MissionRows(catalog, state, book);
             lines.Add(StockUiQuestLogLine.Heading(CurrentHeading));
+            int before = lines.Count;
             if (!IsAllowed(state, book)) lines.Add(StockUiQuestLogLine.Note(NotAllowedText));
             foreach (var row in rows)
             {
                 if (row.Status == StockUiQuestLogStatus.Current) lines.Add(StockUiQuestLogLine.Of(row));
             }
+            if (lines.Count == before) lines.Add(StockUiQuestLogLine.Note(NoCurrentMissionsText));
             lines.Add(StockUiQuestLogLine.Heading(CompletedHeading));
+            before = lines.Count;
             foreach (var row in rows)
             {
                 if (row.Status != StockUiQuestLogStatus.Current) lines.Add(StockUiQuestLogLine.Of(row));
             }
+            if (lines.Count == before) lines.Add(StockUiQuestLogLine.Note(NoCompletedMissionsText));
             return lines;
         }
 
-        /// <summary>Whether a storyline is one the character may view: every one but another nation's.</summary>
+        /// <summary>Whether a storyline is one the character may view: every one but another nation's, whose mission in progress is not shown.</summary>
         public static bool IsAllowed(StockUiQuestLogState state, StockUiQuestLogBook book) => book switch
         {
             StockUiQuestLogBook.MissionsSandoria => state.Nation == 0,
@@ -446,12 +457,11 @@ namespace Gordian.Engine.Ui
         /// (the nations, Zilart, Aht Urhgan, Wings of the Goddess, Assault, Campaign) mark each mission done by its bit and
         /// name the current one by id; the numbered storylines (Promathia, the add-on scenarios, Adoulin, Rhapsodies, the
         /// Voracious Resurgence) count every mission below the current number as done, and a chapter heading up to it as
-        /// reached. A storyline set aside with Tales' Beginning shows its "To Begin ..." row alone. Empty for another nation.
+        /// reached. A storyline set aside with Tales' Beginning shows its "To Begin ..." row alone. Another nation's: its missions done, none in progress.
         /// </summary>
         public static List<StockUiQuestLogRow> MissionRows(StockUiQuestLogCatalog catalog, StockUiQuestLogState state, StockUiQuestLogBook book)
         {
             var rows = new List<StockUiQuestLogRow>();
-            if (!IsAllowed(state, book)) return rows;
             var entries = catalog.Entries(book);
             uint tales = TalesFlag(book);
             if (tales != 0 && (state.TalesBeginning & tales) != 0)
@@ -523,7 +533,8 @@ namespace Gordian.Engine.Ui
             {
                 case StockUiQuestLogBook.MissionsSandoria or StockUiQuestLogBook.MissionsBastok or StockUiQuestLogBook.MissionsWindurst:
                     word = (book - StockUiQuestLogBook.MissionsSandoria) * 2;
-                    current = state.NationMission & 0xFFFF;
+                    // Another nation's missions done are listed; the one in progress is the home nation's only.
+                    if (IsAllowed(state, book)) current = state.NationMission & 0xFFFF;
                     break;
                 case StockUiQuestLogBook.MissionsZilart:
                     word = 6;

@@ -30,18 +30,20 @@ namespace Gordian.App.Tests.Graphics
             var progression = new ProgressionState();
             byte[] conquest = new byte[176];
             conquest[0] = 1 | (2 << 2) | (3 << 4);
-            conquest[22 + 3] = 1;                          // Ronfaure: San d'Oria
+            conquest[22 + 6 * 4 + 3] = 1;                  // Kolshushu: San d'Oria
             conquest[130] = 55; conquest[131] = 20; conquest[132] = 15; conquest[144] = 10;
             conquest[136] = 4;
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(conquest.AsSpan(140), 23456);
             progression.UpdateConquest(new S2C_0x05E_Conquest(conquest));
-            int region = 4;
+            int region = 10, zone = 4;                     // Bibiki Bay, Kolshushu (retail image-49)
             var menus = new StockUiMenuController
             {
                 Library = screen.Library,
                 QuestLogCatalog = () => catalog,
                 QuestLogState = () => state,
-                ConquestView = () => StockUiConquest.Build(progression, region, "Ronfaure"),
+                ConquestView = () => StockUiConquest.Build(progression, region, "Kolshushu", null, zone,
+                    id => screen.Resources.TryGetString(DMsgCategory.RegionNames, id, out var r) ? r : null,
+                    id => screen.Resources.TryGetString(DMsgCategory.ZoneNamesShort, id, out var z) ? z : null),
                 MenuHelpText = id => screen.Resources.TryGetString(DMsgCategory.MenuHelp, id, out var t) ? t : null,
                 MenuMessageText = id => screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var t) ? t : null,
             };
@@ -89,7 +91,8 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(screen.HasLightPixel(quests, px + 55, px + 300, py + 65 + 9), "no quest name on the second row");
             menus.CloseAll();
 
-            // Region Info > Conquest in Ronfaure: the conquest map, the region's window and the points in the target's place.
+            // Region Info > Conquest in Bibiki Bay: the conquest map on Kolshushu with its regions and Kolshushu's zones labelled,
+            // the region's window and the points in the target's place (retail image-49).
             var page = menus.OpenConquest(null);
             Assert.NotNull(page);
             var map = RegionMapFiles.Load(screen.Resources, RegionMap.Conquest);
@@ -102,7 +105,7 @@ namespace Gordian.App.Tests.Graphics
                 var placement = Placement();
                 return screen.Render(r =>
                 {
-                    StockUiRegionMapWindow.Draw(r, page!, map, screen.Width, screen.Height);
+                    StockUiRegionMapWindow.Draw(r, page!, map, screen.Width, screen.Height, screen.Library, screen.LogFont);
                     StockUiMenuWindow.Draw(r, screen.Library, screen.Font, menus.Top!, placement, 0, logFont: screen.LogFont, screen: layout);
                     StockUiQuestLogWindow.DrawConquestPoints(r, screen.Library, screen.Font, screen.LogFont, page!.ConquestView!, target, tf.Width, tf.Height);
                 }, name);
@@ -110,11 +113,15 @@ namespace Gordian.App.Tests.Graphics
             at = Placement();
             byte[] control = Conquest("gpu_conquest_region.png");
             Assert.True(screen.HasLightPixel(control, (int)at.X + 12, (int)at.X + 100, (int)at.Y + 20 + 8), "no regional control");
-            var parchment = screen.Pixel(control, (int)screen.Width / 2, (int)screen.Height / 2);
+            var (mx, my, mw, mh) = StockUiMapWindow.Placement(page!, map!.Width, map.Height, screen.Width, screen.Height);
+            var parchment = screen.Pixel(control, (int)(mx + 330 / 512f * mw), (int)(my + 330 / 512f * mh));
             Assert.True(parchment.R > 40 && parchment.R > parchment.B, $"no conquest map: {parchment}");
+            Assert.Contains(page!.ConquestView!.Markers, m => m.Label == "Onzozo Lbrth.");
+            int kx = (int)(mx + 376 / 512f * mw), ky = (int)(my + 262 / 512f * mh);
+            Assert.True(screen.HasLightPixel(control, kx - 30, kx + 30, ky - 14), "no Kolshushu label");
             Assert.True(screen.HasLightPixel(control, (int)target.X + 10, (int)target.X + 100, (int)(target.Y + (tf.Height - 40) + 20 + 6)), "no conquest points");
             menus.CloseAll();
-            region = 0;
+            region = 3; zone = 243;                         // Ru'Lude Gardens: the Balance of Power
             page = menus.OpenConquest(null);
             Conquest("gpu_conquest_balance.png");
         }

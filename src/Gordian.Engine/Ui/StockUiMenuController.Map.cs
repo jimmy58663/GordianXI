@@ -95,6 +95,12 @@ namespace Gordian.Engine.Ui
             MapCenterY += dy;
         }
 
+        internal void SetMapCenter(float x, float y)
+        {
+            MapCenterX = x;
+            MapCenterY = y;
+        }
+
         internal void ResetMapView()
         {
             MapZoom = 1f;
@@ -125,6 +131,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>A region's name by its client number (ROM/165/78); set by the HUD.</summary>
         public Func<int, string?>? RegionName { get; set; }
+
+        /// <summary>A zone's short name by zone id (ROM/165/83, "Onzozo Lbrth."): the conquest map's labels; set by the HUD.</summary>
+        public Func<int, string?>? ZoneShortName { get; set; }
 
         /// <summary>The open Map window, if any.</summary>
         public StockUiOpenMenu? MapWindow => _open.LastOrDefault(m => m.IsMapWindow);

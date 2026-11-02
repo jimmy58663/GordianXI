@@ -179,6 +179,8 @@ namespace Gordian.App.Graphics
                 // The Map window's Change Map lists (#23): zone names (ROM/165/84) and region names (ROM/165/78).
                 menus.ZoneName = i => strings.TryGetString(DMsgCategory.ZoneNames, i, out var zone) ? zone : null;
                 menus.RegionName = i => strings.TryGetString(DMsgCategory.RegionNames, i, out var region) ? region : null;
+                // The conquest map's zone labels (#488): the short zone names (ROM/165/83, "Onzozo Lbrth.").
+                menus.ZoneShortName = i => strings.TryGetString(DMsgCategory.ZoneNamesShort, i, out var zone) ? zone : null;
             }
             if (session.ActionService.MountName == null && _resources is { } mountStrings)
             {
@@ -389,7 +391,7 @@ namespace Gordian.App.Graphics
             if (menus.PannedMap is { RegionMap: { } regionMap } page)
             {
                 // A Region Info page's map (#488): under the HUD's windows like the Map window's.
-                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height);
+                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height, library, _logFont, Layout.Scale);
                 return;
             }
             if (menus.MapWindow is not { } map) return;

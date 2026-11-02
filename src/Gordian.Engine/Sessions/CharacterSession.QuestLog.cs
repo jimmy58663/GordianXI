@@ -16,11 +16,13 @@ namespace Gordian.Engine.Sessions
             menus.QuestLogState = () => StockUiQuestLogState.From(Progression);
             menus.ConquestView = () =>
             {
-                int region = ZoneRegions.RegionOf(World.CurrentZoneId);
+                int zone = World.CurrentZoneId;
+                int region = ZoneRegions.RegionOf(zone);
                 string name = region >= 0 ? menus.RegionName?.Invoke(region) ?? string.Empty : string.Empty;
-                return StockUiConquest.Build(Progression, region, name, menus.MenuMessageText);
+                return StockUiConquest.Build(Progression, region, name, menus.MenuMessageText, zone, menus.RegionName, menus.ZoneShortName);
             };
             Progression.MissionsUpdated += menus.RefreshQuestLog;
+            menus.ConquestRequested = () => ProgressionModule.SendReqConquestAsync();
             Progression.ConquestUpdated += menus.RefreshConquest;
         }
     }
