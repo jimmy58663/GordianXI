@@ -70,6 +70,17 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(fogEnd, env.FogEnd, 3);
         }
 
+        [Theory]
+        [InlineData(false, 3.0f, 679.5f, 906.0f)] // Valkurm mist: stretched out to the 906-yalm cut
+        [InlineData(true, 3.0f, 0.0f, 148.5f)]    // indoors the authored fog stays
+        public void ApplyKeyframe_NeverClosesTheOutdoorFogBeforeTheDrawDistance(bool indoors, float multiplier, float fogStart, float fogEnd)
+        {
+            var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = multiplier };
+            env.ApplyKeyframe(new EnvironmentKeyframe { Indoors = indoors, TerrainFogStart = 0.0f, TerrainFogEnd = 148.5f, DrawDistance = 302.0f });
+            Assert.Equal(fogStart, env.FogStart, 1);
+            Assert.Equal(fogEnd, env.FogEnd, 3);
+        }
+
         [Fact]
         public void IsVisible_HonoursTheCameraFloorsTable()
         {

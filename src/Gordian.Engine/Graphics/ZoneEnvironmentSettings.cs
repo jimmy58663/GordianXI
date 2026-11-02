@@ -200,6 +200,17 @@ namespace Gordian.Engine.Graphics
             {
                 FogStart *= DrawDistanceMultiplier;
                 FogEnd *= DrawDistanceMultiplier;
+
+                // The fog never closes before the draw-distance cut: retail draws terrain out to the cut with only
+                // light haze even in mist, where the authored fog end (Valkurm 148.5) is under the draw distance
+                // (302). Stretching both ends keeps the start/end ratio (round 2, 2026-10-31, image-52 vs image-53).
+                float global = ZoneVisibility.GlobalDrawDistance(keyframe.DrawDistance, DrawDistanceMultiplier);
+                if (hasFog && FogEnd < global)
+                {
+                    float stretch = global / FogEnd;
+                    FogStart *= stretch;
+                    FogEnd = global;
+                }
             }
 
             DrawDistance = keyframe.DrawDistance;
