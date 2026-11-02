@@ -28,6 +28,7 @@ namespace Gordian.App.Tests.Graphics
                 Inventory = inventory,
                 ItemLookup = id => screen.Resources.TryGetItem(id, out var record) ? record : null,
                 TradeTargetOf = id => new StockUiTradeTarget(id ?? 0, 0x405, "Cybin", StockUiTradeTargetKind.Player),
+                TradeOwnName = () => "Gemini",
             };
             inventory.TradeResultReceived += menus.OnTradeResult;
             inventory.TradeChanged += menus.OnTradeChanged;
@@ -38,7 +39,7 @@ namespace Gordian.App.Tests.Graphics
             inventory.SetTradeStatus(TradeResultKind.Make, 0x01020304, 0x405);
             var window = menus.TradeWindow;
             Assert.NotNull(window);
-            window!.SelectedButtonId = 2;
+            window!.SelectedButtonId = StockUiTrade.PartnerSlotBase; // the partner's first slot: its crystal is described
 
             var frame = window.Menu.Frame;
             var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
@@ -57,7 +58,15 @@ namespace Gordian.App.Tests.Graphics
             var partnerIcon = screen.Pixel(pixels, gx + 7 + 16, py + 22 + 16);
             var partnerEmpty = screen.Pixel(pixels, gx + 41 + 16, py + 56 + 16);
             Assert.True(Math.Abs(partnerIcon.R - partnerEmpty.R) + Math.Abs(partnerIcon.G - partnerEmpty.G) + Math.Abs(partnerIcon.B - partnerEmpty.B) > 30, "no icon in the partner's slot 1");
-            Assert.True(screen.HasLightPixel(pixels, gx + 8, gx + 60, py + 11), "no partner name");
+            // Our name in our band (white: we have not pressed OK), theirs in orange (they have, round 1 image-24).
+            Assert.True(screen.HasLightPixel(pixels, gx + 8, gx + 60, gy + 11), "no own name");
+            bool orange = false;
+            for (int x = gx + 8; x < gx + 60 && !orange; x++)
+            {
+                var p = screen.Pixel(pixels, x, py + 11);
+                orange = p.R > 150 && p.R > p.B + 60;
+            }
+            Assert.True(orange, "no orange partner name");
             Assert.True(window.PartnerAccepted);
         }
     }

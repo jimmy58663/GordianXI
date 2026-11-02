@@ -285,7 +285,9 @@ namespace Gordian.App.Graphics
 
             var selected = menu.SelectedButton;
             // The check window's View Wares takes the plain arrow, not the grid's slot box (retail screenshot, 2026-10-07).
-            string? cursorGroup = menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton ? DefaultCursorGroup : null;
+            // So does the trade window's gil field (round 1 of the 2026-10-31 test, image-25).
+            string? cursorGroup = (menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton) || (menu.IsTradeWindow && selected?.ButtonId == StockUiTrade.GilButton)
+                ? DefaultCursorGroup : null;
             if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp, cursorGroup);
         }
 

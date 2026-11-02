@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui
@@ -45,9 +46,11 @@ namespace Gordian.Engine.Ui
     /// The packet flow is LandSandBoat's (map/packets/c2s/0x032_trade_req.cpp, 0x033_trade_res.cpp, 0x034_trade_list.cpp,
     /// 0x036_item_transfer.cpp, map/items/transactions/player_trade.cpp): gil is trade slot 0 (item 0xFFFF, inventory slot
     /// 0), items slots 1-8; the target accepts a request with C2S 0x033 Start, never a second 0x032.
-    /// PROVISIONAL (no retail capture of a trade yet): where the partner's offer is drawn (here a second <c>trade</c> frame
-    /// under ours), the partner's name in its top band, that Trade on the requester accepts a request (no prompt), that
-    /// Cancel asks "Cancel trade transaction?", the error message chosen for each S2C 0x022 error kind.
+    /// Round 1 of the 2026-10-31 test (a retail client as the partner, image-24 / image-25): each side's name in its window's
+    /// top band, orange once that side pressed OK; the partner's window has no OK / Cancel; the cursor reaches the partner's
+    /// slots; the gil field takes the arrow cursor; Trade with a request waiting opens that trade whatever is targeted.
+    /// PROVISIONAL: the partner window's place (a second <c>trade</c> frame under ours), whether retail asks "Cancel trade
+    /// transaction?" before cancelling, the lines of the S2C 0x022 error kinds.
     /// </summary>
     public static class StockUiTrade
     {
@@ -90,11 +93,76 @@ namespace Gordian.Engine.Ui
         /// <summary>The prompt before cancelling a trade (ROM/165/77 #45).</summary>
         public const string CancelQuestion = "Cancel trade transaction?";
 
-        /// <summary>The line when the partner cancels (MsgStd 107's first sentence, <see cref="StandardMessages"/>).</summary>
-        public const string CanceledMessage = "Trade canceled.";
-
         /// <summary>A request stays pending this long on the server (LandSandBoat: a new invite to the target is refused within 60 s).</summary>
         public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// The client's buttons over the partner's slots (21-24 over 25-28, partner slot 1-8): the cursor goes down into them
+        /// to describe the partner's items (round 1, 2026-10-31); they do nothing on Confirm. The partner's window has no OK
+        /// or Cancel (they are not ours to press).
+        /// </summary>
+        public const int PartnerSlotBase = 21;
+
+        /// <summary>Whether a button is one of the partner's slots; <paramref name="index"/> is its slot (0-7).</summary>
+        public static bool IsPartnerSlot(int buttonId, out int index)
+        {
+            index = buttonId - PartnerSlotBase;
+            return index >= 0 && index < SlotCount;
+        }
+
+        /// <summary>
+        /// The player trade window's definition with the partner's slots added under ours (<see cref="PartnerSlotBase"/>): our
+        /// bottom row and Cancel lead down into them, their top row leads back up.
+        /// </summary>
+        public static UiMenuDefinition WithPartnerSlots(UiMenuDefinition template)
+        {
+            int dy = PartnerY - template.Frame.Y;
+            var buttons = new List<UiMenuButton>(template.Buttons.Count + SlotCount);
+            foreach (var b in template.Buttons)
+            {
+                sbyte down = b.ButtonId is >= 5 and <= SlotCount ? (sbyte)(PartnerSlotBase + b.ButtonId - 1)
+                    : b.ButtonId == CancelButton ? (sbyte)(PartnerSlotBase + 3) : b.NavDown;
+                buttons.Add(Copy(b, b.ButtonId, b.X, b.Y, b.NavUp, down, b.NavLeft, b.NavRight, b.Shapes));
+            }
+            foreach (var slot in template.Buttons)
+            {
+                if (slot.ButtonId < 1 || slot.ButtonId > SlotCount) continue;
+                int i = slot.ButtonId - 1, row = i / 4, col = i % 4, id = PartnerSlotBase + i;
+                sbyte up = (sbyte)(row == 0 ? slot.ButtonId + 4 : id - 4);
+                sbyte down = (sbyte)(row == 0 ? id + 4 : id);
+                sbyte left = (sbyte)(col == 0 ? id : id - 1), right = (sbyte)(col == 3 ? id : id + 1);
+                buttons.Add(Copy(slot, (short)id, slot.X, (short)(slot.Y + dy), up, down, left, right, Array.Empty<UiShapeReference>()));
+            }
+            return new UiMenuDefinition
+            {
+                DatId = template.DatId,
+                Category = template.Category,
+                Name = template.Name,
+                MenuType = template.MenuType,
+                Frame = template.Frame,
+                Buttons = buttons,
+            };
+        }
+
+        private static UiMenuButton Copy(UiMenuButton b, short id, short x, short y, sbyte up, sbyte down, sbyte left, sbyte right, IReadOnlyList<UiShapeReference> shapes) => new()
+        {
+            ButtonId = id,
+            X = x,
+            Y = y,
+            Width = b.Width,
+            Height = b.Height,
+            CursorOffsetX = b.CursorOffsetX,
+            CursorOffsetY = b.CursorOffsetY,
+            SelectRectOffsetX = b.SelectRectOffsetX,
+            SelectRectOffsetY = b.SelectRectOffsetY,
+            NavUp = up,
+            NavDown = down,
+            NavLeft = left,
+            NavRight = right,
+            Shapes = shapes,
+            HelpTextId = b.HelpTextId,
+            TitleTextId = b.TitleTextId,
+        };
 
         /// <summary>
         /// The English text of a trade system message, for when the table is not loaded (tests): <paramref name="name"/> is
@@ -116,14 +184,17 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// The system message an S2C 0x022 result prints, or -1 for none: End "Trade complete.", ErrNoSearchYou "You cannot
         /// trade with that target.", ErrNowReq "You have already sent a trade request to ...", the other errors "You cannot
-        /// trade with ... at this time." PROVISIONAL: which error kind retail maps to which line is not captured.
+        /// trade with ... at this time.", and so does the partner's Cancel: the retail client printed "You cannot trade with
+        /// Gordian at this time." when GordianXI cancelled a trade with it (round 1, 2026-10-31; LandSandBoat forwards a
+        /// C2S 0x033 Cancel to the partner as S2C 0x022 Cancel, <c>PlayerTradeTransaction::abort</c>). PROVISIONAL: the
+        /// lines for the error kinds are not captured.
         /// </summary>
         public static int ResultMessage(TradeResultKind kind) => kind switch
         {
             TradeResultKind.End => TradeComplete,
             TradeResultKind.ErrNoSearchYou => CannotTradeTarget,
             TradeResultKind.ErrNowReq => AlreadyRequested,
-            TradeResultKind.ErrEtc or TradeResultKind.ErrYouTrade or TradeResultKind.ErrLogout => CannotTradeNow,
+            TradeResultKind.Cancel or TradeResultKind.ErrEtc or TradeResultKind.ErrYouTrade or TradeResultKind.ErrLogout => CannotTradeNow,
             _ => -1,
         };
 

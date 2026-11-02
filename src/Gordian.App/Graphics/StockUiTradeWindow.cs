@@ -26,15 +26,26 @@ namespace Gordian.App.Graphics
             var definition = menu.Menu;
             var frame = definition.Frame;
             DrawOffer(renderer, library, font, menu, definition, placement, menu.TradeSlots, menu.TradeGil, menu.TradeAccepted);
+            DrawOk(renderer, library, definition, placement, menu.TradeAccepted);
 
             if (!menu.IsNpcTrade)
             {
-                // The partner's offer: the same frame under ours, not taking the cursor.
+                DrawName(renderer, font, menu.TradeOwnName, placement, menu.TradeAccepted);
+                // The partner's offer: the same frame under ours with its slots only (their OK / Cancel are not ours to press,
+                // round 1); the cursor reaches the slots through the client's buttons 21-28.
                 var at = StockUiWindowPlacement.Beside(placement, frame, frame.X, StockUiTrade.PartnerY);
-                renderer.DrawMenu(definition, at, opaqueBody: true);
+                renderer.DrawMenu(definition, at, includeButtons: false, opaqueBody: true);
+                foreach (var button in definition.Buttons)
+                {
+                    if (button.ButtonId < 1 || button.ButtonId > StockUiTrade.SlotCount) continue;
+                    foreach (var shape in button.Shapes)
+                    {
+                        if (shape.Kind == 0 && library.TryGetImage(shape, out var image))
+                            renderer.DrawImage(image, at.X + button.X * at.Scale, at.Y + button.Y * at.Scale, at.Scale);
+                    }
+                }
                 DrawOffer(renderer, library, font, menu, definition, at, menu.PartnerSlots, menu.PartnerGil, menu.PartnerAccepted);
-                float ts = at.Scale * StockUiPartyWindow.TextScale;
-                renderer.DrawText(font, menu.TradePartner.Name, at.X + NameX * at.Scale, at.Y + NameY * at.Scale, ts);
+                DrawName(renderer, font, menu.TradePartner.Name, at, menu.PartnerAccepted);
             }
 
             bool listOpen = menu.IsListOpen;
@@ -66,20 +77,31 @@ namespace Gordian.App.Graphics
 
             if (gil > 0)
             {
-                string text = gil.ToString("N0", CultureInfo.InvariantCulture);
+                // "1,000 G" right-aligned before the coin (retail, round 1 image-25).
+                string text = StockUiShop.FormatPrice(gil);
                 renderer.DrawText(font, text, placement.X + GilFieldRight * s - font.MeasureWidth(text) * s,
                     placement.Y + GilFieldY * s + (GilFieldHeight * s - font.LineHeight * s) * 0.5f, s);
             }
+        }
 
-            // OK pressed: the button's kind-3 alternate (keytops3 #54, the lit OK) over it.
-            if (accepted && definition.FindButton(StockUiTrade.OkButton) is { } ok)
+        /// <summary>Our OK once pressed: the button's kind-3 alternate (keytops3 #54, the lit OK) over it.</summary>
+        private static void DrawOk(StockUiRenderer renderer, UiResourceLibrary library, UiMenuDefinition definition, StockUiPlacement placement, bool accepted)
+        {
+            if (!accepted || definition.FindButton(StockUiTrade.OkButton) is not { } ok) return;
+            foreach (var shape in ok.Shapes)
             {
-                foreach (var shape in ok.Shapes)
-                {
-                    if (shape.Kind == 3 && library.TryGetImage(shape, out var image))
-                        renderer.DrawImage(image, placement.X + ok.X * s, placement.Y + ok.Y * s, s);
-                }
+                if (shape.Kind == 3 && library.TryGetImage(shape, out var image))
+                    renderer.DrawImage(image, placement.X + ok.X * placement.Scale, placement.Y + ok.Y * placement.Scale, placement.Scale);
             }
+        }
+
+        /// <summary>A side's name in its window's top band; orange (the menus' selected tint) once that side pressed OK (round 1, image-24).</summary>
+        private static void DrawName(StockUiRenderer renderer, UiFont font, string name, StockUiPlacement placement, bool accepted)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            float ts = placement.Scale * StockUiPartyWindow.TextScale;
+            renderer.DrawText(font, name, placement.X + NameX * placement.Scale, placement.Y + NameY * placement.Scale, ts,
+                accepted ? StockUiMenuWindow.SelectedGlyphTint : null);
         }
     }
 }

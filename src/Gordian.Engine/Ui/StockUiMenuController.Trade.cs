@@ -37,9 +37,14 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether the partner pressed OK (S2C 0x022 Make) since the trade last changed.</summary>
         public bool PartnerAccepted { get; internal set; }
 
-        /// <summary>The item in our slot under the cursor (0 when empty or on OK / Cancel / the gil).</summary>
+        /// <summary>Our own name, drawn in our window's top band.</summary>
+        public string TradeOwnName { get; init; } = string.Empty;
+
+        /// <summary>The item in our slot, or the partner's, under the cursor (0 when empty or on OK / Cancel / the gil).</summary>
         public ushort TradeGridItem =>
-            SelectedButtonId is >= 1 and <= StockUiTrade.SlotCount && TradeSlots[SelectedButtonId - 1] is { } s ? s.ItemId : (ushort)0;
+            SelectedButtonId is >= 1 and <= StockUiTrade.SlotCount && TradeSlots[SelectedButtonId - 1] is { } s ? s.ItemId
+            : StockUiTrade.IsPartnerSlot(SelectedButtonId, out int i) && PartnerSlots[i] is { } p ? p.ItemId
+            : (ushort)0;
     }
 
     public sealed partial class StockUiMenuController
@@ -58,6 +63,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Sends C2S 0x036 to an NPC (server id, index, the inventory slots and counts, the gil first).</summary>
         public Func<uint, ushort, (byte Slot, uint Count)[], Task>? NpcTrade { get; set; }
+
+        /// <summary>The character's own name (shown on our side of the trade window).</summary>
+        public Func<string>? TradeOwnName { get; set; }
 
         /// <summary>A system message of the client's table (ROM/27/76) with a player's name as string 0; null when not loaded.</summary>
         public Func<int, string, string?>? SystemMessageText { get; set; }
@@ -85,6 +93,14 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private void RunTradeCommand(StockUiOpenMenu from)
         {
+            // A request waiting for us: Trade opens it whatever is targeted (round 1, 2026-10-31).
+            if (TradeWindow == null && Inventory is { TradeRequesterServerId: > 0 } inventory)
+            {
+                uint requester = inventory.TradeRequesterServerId;
+                var asker = TradeTargetOf?.Invoke(requester) ?? new StockUiTradeTarget(requester, inventory.TradeRequesterIndex, string.Empty, StockUiTradeTargetKind.Player);
+                _ = RequestTradeAsync(asker with { ServerId = requester });
+                return;
+            }
             uint? serverId = from.IsCommandMenu && CommandMenuTarget is { } context ? context.TargetServerId : null;
             var target = TradeTargetOf?.Invoke(serverId);
             switch (target?.Kind ?? StockUiTradeTargetKind.None)
@@ -132,6 +148,7 @@ namespace Gordian.Engine.Ui
                 if (!await PromptYesNoAsync(StockUiTrade.CancelQuestion, defaultYes: false).ConfigureAwait(false)) return;
                 _tradeRequestedTo = 0;
                 inventory?.ClearTradeRequest();
+                GordianLog.Info("TRADE", "Withdrawing the pending trade request (C2S 0x033 Cancel).");
                 await SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0)).ConfigureAwait(false);
             }
             CloseAll();
@@ -172,8 +189,7 @@ namespace Gordian.Engine.Ui
             string name = window?.TradePartner.Name is { Length: > 0 } open ? open : TradeTargetOf?.Invoke(serverId)?.Name ?? string.Empty;
             if (window != null && !window.IsNpcTrade) CloseMenu(window);
             int message = StockUiTrade.ResultMessage(kind);
-            if (kind == TradeResultKind.Cancel && window != null) NoticePosted?.Invoke(StockUiTrade.CanceledMessage);
-            else if (kind == TradeResultKind.End) NoticePosted?.Invoke(TradeText(message, name));
+            if (kind == TradeResultKind.End) NoticePosted?.Invoke(TradeText(message, name));
             else if (message >= 0) ErrorPosted?.Invoke(TradeText(message, name));
         }
 
@@ -198,11 +214,12 @@ namespace Gordian.Engine.Ui
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(npc ? StockUiTrade.NpcMenu : StockUiTrade.Menu, out var definition)) return null;
-            var window = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null)
+            var window = new StockUiOpenMenu(npc ? definition : StockUiTrade.WithPartnerSlots(definition), parent, Array.Empty<string>(), null)
             {
                 IsTradeWindow = true,
                 IsNpcTrade = npc,
                 TradePartner = partner,
+                TradeOwnName = TradeOwnName?.Invoke() ?? string.Empty,
                 Inventory = Inventory,
                 ItemLookup = ItemLookup,
                 ItemOwner = this,
@@ -375,6 +392,7 @@ namespace Gordian.Engine.Ui
             if (!await PromptYesNoAsync(StockUiTrade.CancelQuestion, defaultYes: false).ConfigureAwait(false)) return;
             if (Array.IndexOf(_open, window) < 0) return;
             CloseMenu(window);
+            GordianLog.Info("TRADE", $"Cancelling the trade with {window.TradePartner.Name} (C2S 0x033 Cancel).");
             await SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0)).ConfigureAwait(false);
         }
 

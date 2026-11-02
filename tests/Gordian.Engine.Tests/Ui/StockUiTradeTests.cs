@@ -253,12 +253,12 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void IncomingRequest_PostsTheLine_AndTradeOnTheRequesterAccepts()
+        public void IncomingRequest_PostsTheLine_AndTradeAcceptsItWhateverIsTargeted()
         {
             var h = new Harness();
             h.Inventory.ReceiveTradeRequest(PartnerId, PartnerIndex);
             Assert.Equal("Cybin wishes to trade with you.", h.Notices.Last());
-            h.MainMenuTrade(h.Known[PartnerId]);
+            h.MainMenuTrade(null); // no target needed (round 1)
             Assert.Equal(new[] { "0x033 Start 0" }, h.Sent);
         }
 
@@ -325,6 +325,30 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void Cursor_GoesDownIntoThePartnersSlots_ToDescribeTheirItems()
+        {
+            var h = new Harness();
+            h.Menus.TradeOwnName = () => "Gemini";
+            var window = h.Open();
+            Assert.Equal("Gemini", window.TradeOwnName);
+            h.Inventory.SetPartnerTradeItem(2, FireCrystal, 4, ReadOnlySpan<byte>.Empty, 1);
+            // Our bottom row leads down into their top row; their slots have no art of their own and no OK / Cancel.
+            var ours = window.Menu.FindButton(6)!;
+            Assert.Equal(StockUiTrade.PartnerSlotBase + 5, ours.NavDown);
+            Assert.Equal(StockUiTrade.PartnerSlotBase + 3, window.Menu.FindButton(StockUiTrade.CancelButton)!.NavDown);
+            var theirs = window.Menu.FindButton(StockUiTrade.PartnerSlotBase + 1)!;
+            Assert.Equal(6, theirs.NavUp);
+            Assert.Equal(StockUiTrade.PartnerY + 22, window.Menu.Frame.Y + theirs.Y);
+            Assert.Empty(theirs.Shapes);
+            Assert.Null(window.Menu.FindButton(StockUiTrade.PartnerSlotBase + StockUiTrade.SlotCount));
+            window.SelectedButtonId = StockUiTrade.PartnerSlotBase + 1;
+            Assert.Equal(FireCrystal, window.DescribedItem);
+            h.Menus.Activate(); // their slots do nothing on Confirm
+            Assert.Same(window, h.Menus.Top);
+            Assert.Empty(h.Sent);
+        }
+
+        [Fact]
         public void Ok_SendsMakeWithTheTradeCounter_AndAChangeWithdrawsBothOks()
         {
             var h = new Harness();
@@ -356,7 +380,8 @@ namespace Gordian.Engine.Tests.Ui
             h.Open();
             h.Inventory.SetTradeStatus(TradeResultKind.Cancel, PartnerId, PartnerIndex);
             Assert.Null(h.Menus.TradeWindow);
-            Assert.Equal(StockUiTrade.CanceledMessage, h.Notices.Last());
+            // The partner's Cancel prints what the retail client printed for ours (round 1, 2026-10-31).
+            Assert.Equal("You cannot trade with Cybin at this time.", h.Errors.Last());
 
             h.MainMenuTrade(h.Known[PartnerId]);
             h.Inventory.SetTradeStatus(TradeResultKind.ErrYouTrade, PartnerId, PartnerIndex);

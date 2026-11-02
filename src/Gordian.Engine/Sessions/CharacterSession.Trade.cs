@@ -30,6 +30,7 @@ namespace Gordian.Engine.Sessions
                 };
                 return new StockUiTradeTarget(entity.ServerId, entity.TargetIndex, entity.Name, kind);
             };
+            menus.TradeOwnName = () => CharacterName;
             menus.TradeRequest = (serverId, index) => InventoryModule.RequestTradeAsync(serverId, index);
             menus.TradeRespond = (kind, counter) => InventoryModule.RespondTradeAsync(kind, counter);
             menus.TradeOffer = (count, itemId, slot, tradeIndex) => InventoryModule.SetTradeItemAsync(count, itemId, slot, tradeIndex);
