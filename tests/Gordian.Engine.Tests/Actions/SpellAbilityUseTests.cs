@@ -25,6 +25,7 @@ namespace Gordian.Engine.Tests.Actions
 
         private readonly WorldState _world = new();
         private readonly LocalPlayerState _localPlayer = new() { ServerId = SelfId };
+        private readonly PartyState _party = new();
         private readonly CombatState _combat = new();
         private readonly List<byte[]> _sent = new();
         private readonly List<string> _notices = new();
@@ -40,7 +41,7 @@ namespace Gordian.Engine.Tests.Actions
             var profile = new SessionProfile();
             _service = new PlayerActionService(profile, _world, _localPlayer,
                 new CombatPacketModule(_combat, _localPlayer, Capture), new ChatPacketModule(Capture),
-                new PartyPacketModule(new PartyState(), Capture), new EntityPacketModule(_world, _localPlayer, Capture),
+                new PartyPacketModule(_party, Capture), new EntityPacketModule(_world, _localPlayer, Capture),
                 new LifecyclePacketModule(profile, Capture), Capture)
             {
                 Catalog = TestCatalog.Build(),
@@ -622,6 +623,24 @@ namespace Gordian.Engine.Tests.Actions
             var result = await _service.ConfirmSubTargetAsync();
             Assert.Equal("used", result.Message);
             Assert.Equal(SelfId, picked!.ServerId);
+        }
+
+        [Fact]
+        public async Task PartySubTarget_StepsThroughEveryMember_InOtherZonesToo()
+        {
+            // Round 2 (#489): Chg. Leader, Rmv. Member, Focus and Distribution reach yourself and a member in another zone.
+            _party.UpsertMember(new PartyMember { ServerId = SelfId, TargetIndex = SelfIndex, Name = "Gemini", MemberNumber = 0 });
+            _party.UpsertMember(new PartyMember { ServerId = 0x01050505, Name = "Gordian", MemberNumber = 1, ZoneId = 250 });
+            WorldEntity? picked = null;
+            _service.BeginSubTarget("Rmv. Member", ActionTargetFlags.Self | ActionTargetFlags.Party,
+                entity => { picked = entity; return Task.FromResult(PlayerActionResult.Ok("")); }, resumeMenus: true);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            uint next = _service.StepPartySubTarget(1);
+            Assert.Equal(0x01050505u, next);
+            Assert.True(_service.MoveSubTarget(next));
+            Assert.Equal(SelfId, _service.StepPartySubTarget(1)); // wraps back to yourself
+            await _service.ConfirmSubTargetAsync();
+            Assert.Equal(("Gordian", 0x01050505u), (picked!.Name, picked.ServerId));
         }
 
         /// <summary>The retail Magic and Abilities windows (ROM/119/51). Skipped without the game install.</summary>

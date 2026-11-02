@@ -483,7 +483,13 @@ namespace Gordian.Engine.Actions
         public bool MoveSubTarget(uint serverId)
         {
             var selection = _subTarget;
-            if (selection == null || serverId == 0 || !_world.TryGetByServerId(serverId, out var entity) || entity == null) return false;
+            if (selection == null || serverId == 0) return false;
+            if (!_world.TryGetByServerId(serverId, out var entity) || entity == null)
+            {
+                // A party-only cursor also reaches members in another zone (round 2), who have no entity here.
+                if (!IsPartyOnly(selection.Allowed) || OwnPartyMembers().FirstOrDefault(m => m.ServerId == serverId) is not { } member) return false;
+                entity = PartyMemberEntity(member);
+            }
             if (!AcceptsTarget(selection.Allowed, entity) || entity.ServerId == selection.Current.ServerId) return false;
             selection.Current = entity;
             SubTargetChanged?.Invoke();
@@ -587,24 +593,38 @@ namespace Gordian.Engine.Actions
         /// <summary>
         /// For a cursor that may only land on your party (the Party menu's Chg. Leader, Rmv. Member, Focus and Distribution,
         /// #489): the next member in the party window's order (<paramref name="step"/> &gt; 0 down, else up), wrapping; 0 when
-        /// the cursor takes other entities too, or no other member is here to move to. Members in another zone have no
-        /// entity and are skipped.
+        /// the cursor takes other entities too, or no other member is there to move to. Members in another zone count too
+        /// (round 2: the party window's rows are all pickable): <see cref="MoveSubTarget"/> stands in an entity for them.
         /// </summary>
         public uint StepPartySubTarget(int step)
         {
             var selection = _subTarget;
-            if (selection == null || (selection.Allowed & ~(ActionTargetFlags.Self | ActionTargetFlags.Party)) != 0) return 0;
-            var members = _partyModule.State.Members;
-            int ownParty = members.FirstOrDefault(m => m.ServerId == _localPlayer.ServerId)?.PartyNumber ?? 0;
+            if (selection == null || !IsPartyOnly(selection.Allowed)) return 0;
             var order = new List<uint>();
-            foreach (var member in members.Where(m => m.PartyNumber == ownParty).OrderBy(m => m.MemberNumber))
+            foreach (var member in OwnPartyMembers())
             {
-                if (_world.TryGetByServerId(member.ServerId, out var entity) && entity != null && AcceptsTarget(selection.Allowed, entity)) order.Add(member.ServerId);
+                if (member.ServerId != 0 && AcceptsTarget(selection.Allowed, PartyMemberEntity(member))) order.Add(member.ServerId);
             }
             if (order.Count == 0) return 0;
             int index = order.IndexOf(selection.Current.ServerId);
             if (index < 0) return order[step >= 0 ? 0 : order.Count - 1];
             return order[((index + Math.Sign(step)) % order.Count + order.Count) % order.Count];
         }
+
+        private static bool IsPartyOnly(ActionTargetFlags allowed) => (allowed & ~(ActionTargetFlags.Self | ActionTargetFlags.Party)) == 0;
+
+        /// <summary>Your party's members (not the alliance's other parties) in the party window's order.</summary>
+        private IEnumerable<PartyMember> OwnPartyMembers()
+        {
+            var members = _partyModule.State.Members;
+            int ownParty = members.FirstOrDefault(m => m.ServerId == _localPlayer.ServerId)?.PartyNumber ?? 0;
+            return members.Where(m => m.PartyNumber == ownParty).OrderBy(m => m.MemberNumber);
+        }
+
+        /// <summary>A party member's entity, or one standing in for a member in another zone (name and ids only, not in the world).</summary>
+        private WorldEntity PartyMemberEntity(PartyMember member) =>
+            _world.TryGetByServerId(member.ServerId, out var entity) && entity != null
+                ? entity
+                : new WorldEntity(member.ServerId, member.TargetIndex, EntityType.Player) { Name = member.Name };
     }
 }

@@ -143,13 +143,13 @@ namespace Gordian.Engine.Ui
                 // Chg. Leader, Rmv. Member, Focus and the representative pick the member with the sub-target cursor on the
                 // party window, and act without asking (round 1, 2026-11-01).
                 case StockUiPartyAction.ChangeLeader:
-                    PickPartyMember(entry.Label, StockUiSocialCommand.PassLeader, includeSelf: false);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.PassLeader, includeSelf: true);
                     break;
                 case StockUiPartyAction.RemoveMember:
-                    PickPartyMember(entry.Label, StockUiSocialCommand.Kick, includeSelf: false);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.Kick, includeSelf: true);
                     break;
                 case StockUiPartyAction.Focus:
-                    PickPartyMember(entry.Label, StockUiSocialCommand.Focus, includeSelf: false);
+                    PickPartyMember(entry.Label, StockUiSocialCommand.Focus, includeSelf: true);
                     break;
                 case StockUiPartyAction.LevelSync:
                     // While a sync is on the entry reads "Lvl. Sync Off" and ends it (round 1 image-27).

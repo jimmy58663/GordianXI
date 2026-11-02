@@ -284,9 +284,9 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Theory]
-        [InlineData(StockUiParty.ChangeLeaderButton, StockUiSocialCommand.PassLeader, false)]
-        [InlineData(StockUiParty.RemoveMemberButton, StockUiSocialCommand.Kick, false)]
-        [InlineData(StockUiParty.LeaderFocusButton, StockUiSocialCommand.Focus, false)]
+        [InlineData(StockUiParty.ChangeLeaderButton, StockUiSocialCommand.PassLeader, true)]
+        [InlineData(StockUiParty.RemoveMemberButton, StockUiSocialCommand.Kick, true)]
+        [InlineData(StockUiParty.LeaderFocusButton, StockUiSocialCommand.Focus, true)]
         public void LeaderPicks_UseTheSubTargetCursor_WithoutAsking(int button, StockUiSocialCommand command, bool includeSelf)
         {
             var social = new FakeSocial();

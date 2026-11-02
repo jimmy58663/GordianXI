@@ -304,6 +304,9 @@ namespace Gordian.Engine.Ui
             var allowed = ActionTargetFlags.Party | (includeSelf ? ActionTargetFlags.Self : ActionTargetFlags.None);
             var result = _actions.BeginSubTarget(title, allowed, async entity =>
             {
+                // Chg. Leader and Rmv. Member on yourself do nothing (round 2).
+                if (entity.ServerId == _actions.LocalPlayer.ServerId && command is StockUiSocialCommand.PassLeader or StockUiSocialCommand.Kick)
+                    return PlayerActionResult.Ok(string.Empty);
                 var person = new StockUiPerson(entity.Name, entity.ServerId, entity.TargetIndex);
                 if (await RunAsync(command, person).ConfigureAwait(false) is { Length: > 0 } notice) _actions.Menus.PostNotice(notice);
                 return PlayerActionResult.Ok(string.Empty);

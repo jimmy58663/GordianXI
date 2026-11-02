@@ -15,14 +15,17 @@ namespace Gordian.App.Graphics
     /// <param name="StatusIds">Status effect ids in icon order, for the opt-in party status icons (null = none known).</param>
     public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader,
         bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null,
-        PartyRowLevelSync LevelSync = PartyRowLevelSync.None);
+        PartyRowMark Mark = PartyRowMark.None);
 
-    /// <summary>A party row's Level Sync ball: none, a synced member (green) or the member the party is synced to (red).</summary>
-    public enum PartyRowLevelSync
+    /// <summary>
+    /// A party row's ball at the window's right edge: none, the party's quartermaster (green: the member treasure goes to
+    /// while distribution is not Lottery) or the member the party's levels are synced to (red).
+    /// </summary>
+    public enum PartyRowMark
     {
         None,
-        Synced,
-        Target,
+        Quartermaster,
+        LevelSyncTarget,
     }
 
     /// <summary>
@@ -94,7 +97,7 @@ namespace Gordian.App.Graphics
         private const string BallTexture = "colorbal";
         private const float BallCell = 16, WhiteBallX = 0, YellowBallX = 16, BallY = 16;
 
-        // The same texture's green (16, 0) and red (32, 0) balls: Level Sync's marks at a row's right (round 1 image-27).
+        // The same texture's green (16, 0) and red (32, 0) balls: the quartermaster's and the Level Sync target's marks at a row's right (round 1 image-27, round 2).
         private const float GreenBallX = 16, RedBallX = 32, SyncBallY = 0;
 
         /// <summary>Screen size of a ball cell so the ball shows 8 pixels across (retail ~6; 8 by request).</summary>
@@ -193,7 +196,7 @@ namespace Gordian.App.Graphics
                 DrawGauge(renderer, rx + 48 * s, ry + 15 * s, MiddleWidth, withKnob: false, MpGaugeColor, row.MpPercent, s);
 
                 DrawLeaderBalls(renderer, row, placement.X, ry, s);
-                DrawLevelSyncBall(renderer, row, placement.X + menu.Frame.Width * s, ry, s);
+                DrawMarkBall(renderer, row, placement.X + menu.Frame.Width * s, ry, s);
 
                 renderer.DrawText(font, FitName(font, row.Name), rx, ry, textScale);
                 DrawRightAligned(renderer, font, row.Hp.ToString(CultureInfo.InvariantCulture), rx + 87 * s, ry, textScale, HpNumberColor(row.HpPercent));
@@ -286,16 +289,16 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// Level Sync's ball on the window's right edge, level with the leader balls: red beside the member the party is synced
-        /// to, green beside the others (round 1 image-27: one of each beside a party of two during a sync; LandSandBoat flags
-        /// only the sync target, <c>PARTY_SYNC</c> in S2C 0x0DD). <b>Provisional:</b> the colours' meaning and the place are read
-        /// from one small capture.
+        /// A row's ball on the window's right edge, level with the leader balls: red beside the member the party is synced to
+        /// (LandSandBoat's <c>PARTY_SYNC</c> in S2C 0x0DD), green beside the quartermaster (PartyRFlg; none under Lottery). Round 1
+        /// image-27 showed one of each; round 2 (the maintainer's retail check) found the green one is the quartermaster, not the
+        /// other synced members. <b>Provisional:</b> a member who is both shows the red one only.
         /// </summary>
-        private static void DrawLevelSyncBall(StockUiRenderer renderer, PartyRowVitals row, float frameRight, float rowY, float s)
+        private static void DrawMarkBall(StockUiRenderer renderer, PartyRowVitals row, float frameRight, float rowY, float s)
         {
-            if (row.LevelSync == PartyRowLevelSync.None) return;
+            if (row.Mark == PartyRowMark.None) return;
             float size = BallSize * s;
-            renderer.DrawTextureRect(BallTexture, row.LevelSync == PartyRowLevelSync.Target ? RedBallX : GreenBallX, SyncBallY, BallCell, BallCell,
+            renderer.DrawTextureRect(BallTexture, row.Mark == PartyRowMark.LevelSyncTarget ? RedBallX : GreenBallX, SyncBallY, BallCell, BallCell,
                 frameRight - 1 * s - size / 2, rowY + 12 * s - size / 2, size, size, Neutral);
         }
 

@@ -1312,13 +1312,12 @@ namespace Gordian.App.Graphics
                 }
                 rows.Add(ToRow(m, session.World.CurrentZoneId, resources));
             }
-            // Level Sync (#489): the member the party is synced to, and the rest.
-            bool synced = false;
-            for (int i = 0; i < rows.Count; i++) synced |= groups.Own[i].IsLevelSynced;
-            if (synced)
+            // The balls at the right (#489): the member the party is synced to (red), the quartermaster (green).
+            for (int i = 0; i < rows.Count; i++)
             {
-                for (int i = 0; i < rows.Count; i++)
-                    rows[i] = rows[i] with { LevelSync = groups.Own[i].IsLevelSynced ? PartyRowLevelSync.Target : PartyRowLevelSync.Synced };
+                var m = groups.Own[i];
+                var mark = m.IsLevelSynced ? PartyRowMark.LevelSyncTarget : m.IsQuartermaster ? PartyRowMark.Quartermaster : PartyRowMark.None;
+                if (mark != PartyRowMark.None) rows[i] = rows[i] with { Mark = mark };
             }
             return rows;
         }
