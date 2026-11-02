@@ -148,7 +148,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Pans and zooms the open Map window: <paramref name="dx"/> / <paramref name="dy"/> are the pan input times the
+        /// Pans and zooms the open Map window (pans a Region Info map, <see cref="PannedMap"/>): <paramref name="dx"/> / <paramref name="dy"/> are the pan input times the
         /// tick's seconds (right and down positive), <paramref name="zoom"/> the zoom input times the seconds (in positive),
         /// <paramref name="wheel"/> the mouse wheel's notches (up zooms in).
         /// </summary>
@@ -157,9 +157,10 @@ namespace Gordian.Engine.Ui
             if (dx == 0 && dy == 0 && zoom == 0 && wheel == 0) return;
             lock (_sync)
             {
-                if (MapWindow is not { } map) return;
+                if (PannedMap is not { } map) return;
+                // A Region Info map keeps its zoom (round 1 of #488: retail pans it but cannot zoom).
                 float factor = MathF.Pow(StockUiMap.ZoomPerSecond, zoom) * MathF.Pow(StockUiMap.WheelZoomStep, wheel);
-                map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);
+                if (map.IsMapWindow) map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);
                 float speed = StockUiMap.PanPerSecond / map.MapZoom;
                 map.PanMap(dx * speed, dy * speed);
             }

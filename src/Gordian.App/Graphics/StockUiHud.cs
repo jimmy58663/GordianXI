@@ -385,7 +385,14 @@ namespace Gordian.App.Graphics
         private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var menus = session.ActionService.Menus;
-            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || menus.MapWindow is not { } map) return;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus) return;
+            if (menus.PannedMap is { RegionMap: { } regionMap } page)
+            {
+                // A Region Info page's map (#488): under the HUD's windows like the Map window's.
+                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height);
+                return;
+            }
+            if (menus.MapWindow is not { } map) return;
             var loaded = LoadZoneMap(map.MapZone, map.MapNumber);
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
             StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin);
@@ -405,6 +412,20 @@ namespace Gordian.App.Graphics
             }
             return map;
         }
+        /// <summary>The region maps Region Info has loaded.</summary>
+        private readonly Dictionary<Gordian.Core.Resources.Tables.RegionMap, Gordian.Core.Resources.Graphics.DecodedTexture?> _regionMaps = new();
+
+        private Gordian.Core.Resources.Graphics.DecodedTexture? LoadRegionMap(Gordian.Core.Resources.Tables.RegionMap regionMap)
+        {
+            if (!_regionMaps.TryGetValue(regionMap, out var texture))
+            {
+                texture = _resources != null ? Gordian.Core.Resources.Tables.RegionMapFiles.Load(_resources, regionMap) : null;
+                if (texture == null) GordianLog.Warning("UI", $"Region map {regionMap} could not be loaded.");
+                _regionMaps[regionMap] = texture;
+            }
+            return texture;
+        }
+
         private readonly StockUiEventMapWindow _eventMap = new();
 
         /// <summary>The event map (#168): an event's map tutorial, or the map behind a home point list at the option under the cursor.</summary>
@@ -808,6 +829,12 @@ namespace Gordian.App.Graphics
             if (!moved && party is { Hidden: false } p)
             {
                 placement = placement with { Y = Math.Max(0, p.Y - (menu.Frame.Height + 2) * placement.Scale) };
+            }
+            if (font != null && session.ActionService.Menus.PannedMap is { ConquestView: { } conquest })
+            {
+                // The Conquest map puts its Conquest Points in the target window's place (#488, round 1).
+                StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
+                return;
             }
             if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);
             if (target == null || font == null)

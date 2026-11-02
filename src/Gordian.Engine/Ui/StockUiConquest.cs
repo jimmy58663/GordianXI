@@ -70,6 +70,13 @@ namespace Gordian.Engine.Ui
         /// <summary>Text rows inside the frames (layout px from each frame's top-left), under the baked-in headings.</summary>
         public const float ValueX = 10, ControlY = 22, TallyY = 53, InfluenceY = 84, InfluencePitch = 28, BalanceY = 22, BalancePitch = 15, PointsY = 20;
 
+        /// <summary>
+        /// The conquest map's size: this many times the size at which it covers the screen. PROVISIONAL: measured on the
+        /// Besieged map (round 1 of #488, image-13: Al Zahbi's compass rose about 11 screen px per map px at 2555 wide,
+        /// where covering is 5).
+        /// </summary>
+        public const float MapZoom = 2.2f;
+
         /// <summary>The values' size against the log font's: the frames are 112 px wide (PROVISIONAL).</summary>
         public const float ValueScale = 0.75f;
 

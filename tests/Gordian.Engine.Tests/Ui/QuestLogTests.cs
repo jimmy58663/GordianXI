@@ -143,8 +143,28 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { ("Smash the Orcish Scouts", StockUiQuestLogStatus.Completed), ("Bat Hunt", StockUiQuestLogStatus.Completed), ("Save the Children", StockUiQuestLogStatus.Current) },
                 rows.Select(r => (r.Entry.Name, r.Status)));
             Assert.Empty(StockUiQuestLog.MissionRows(catalog, state, StockUiQuestLogBook.MissionsBastok));
-            Assert.Equal(StockUiQuestLog.NotAllowedText, StockUiQuestLog.EmptyMissionText(state, StockUiQuestLogBook.MissionsBastok));
-            Assert.Equal(StockUiQuestLog.NoMissionsText, StockUiQuestLog.EmptyMissionText(state, StockUiQuestLogBook.MissionsSandoria));
+        }
+
+        [Fact]
+        public void PageLines_CurrentThenCompleted_OtherNationsNotAllowed_EmptyQuestsSaySo()
+        {
+            var catalog = Catalog();
+            var state = State();
+            var sandoria = StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsSandoria, false);
+            Assert.Equal(new[]
+            {
+                (StockUiQuestLogLineKind.Heading, StockUiQuestLog.CurrentHeading), (StockUiQuestLogLineKind.Entry, "Save the Children"),
+                (StockUiQuestLogLineKind.Heading, StockUiQuestLog.CompletedHeading), (StockUiQuestLogLineKind.Entry, "Smash the Orcish Scouts"),
+                (StockUiQuestLogLineKind.Entry, "Bat Hunt"),
+            }, sandoria.Select(l => (l.Kind, l.Text)));
+            // Another nation: the note under Current (retail, round 1).
+            Assert.Equal(new[] { StockUiQuestLog.CurrentHeading, StockUiQuestLog.NotAllowedText, StockUiQuestLog.CompletedHeading },
+                StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsBastok, false).Select(l => l.Text));
+            Assert.Equal(StockUiQuestLogLineKind.Note, StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.MissionsBastok, false)[1].Kind);
+            // A quest page: the quests alone, or the empty text.
+            Assert.Equal(new[] { "A Sentry's Peril" }, StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.QuestsSandoria, false).Select(l => l.Text));
+            var empty = StockUiQuestLog.PageLines(catalog, state, StockUiQuestLogBook.QuestsBastok, false, "No current quests.");
+            Assert.Equal((StockUiQuestLogLineKind.Note, "No current quests."), (empty.Single().Kind, empty.Single().Text));
         }
 
         [Fact]
@@ -171,6 +191,11 @@ namespace Gordian.Engine.Tests.Ui
                 ("Below the Arks", StockUiQuestLogStatus.Current, 1),
             }, rows.Select(r => (r.Entry.Name, r.Status, r.Entry.Depth)));
             Assert.Empty(StockUiQuestLog.MissionRows(Catalog(), new StockUiQuestLogState(), StockUiQuestLogBook.MissionsCop));
+            // At the chapter's own number its first mission is in progress: under Current and, as the chapter, Completed (image-11).
+            var lines = StockUiQuestLog.PageLines(Catalog(), new StockUiQuestLogState { Promathia = 101 }, StockUiQuestLogBook.MissionsCop, false);
+            Assert.Equal(new[] { "Current:", "Ancient Flames Beckon", "Completed:", "Ancient Flames Beckon" }, lines.Select(l => l.Text));
+            Assert.Equal(StockUiQuestLogStatus.Current, lines[1].Row!.Value.Status);
+            Assert.Equal(StockUiQuestLogStatus.Heading, lines[3].Row!.Value.Status);
         }
 
         [Fact]
@@ -232,86 +257,93 @@ namespace Gordian.Engine.Tests.Ui
         #region Windows
 
         [Fact]
-        public void Quests_AreasThenCurrentOrCompletedThenTheSummary()
+        public void Quests_CurrentOrCompleted_ThenPagesThroughTheAreas_ThenTheSummary()
         {
             var h = new Harness();
             Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenuPage2));
-            var areas = h.Choose(2);
-            Assert.Equal(StockUiQuestLogView.Areas, areas.QuestLogView);
-            Assert.Equal(11, areas.Rows.Count);
-            Assert.Equal("San d'Oria", areas.Rows[0].Text);
-            Assert.Equal("Coalition", areas.Rows[^1].Text);
-            Assert.Equal(StockUiQuestLog.PickerRows, areas.VisibleRows);
-            Assert.True(areas.CanScroll);
-            Assert.Equal((39, 40 + 25), (areas.Menu.FindButton(2)!.X, areas.Menu.FindButton(2)!.Y));
-
-            var kind = h.Choose(1);
+            var kind = h.Choose(2);
             Assert.Equal(StockUiQuestLogView.QuestKind, kind.QuestLogView);
-            Assert.Equal(new[] { "Current Quests", "Completed Quests" }, kind.Rows.Select(r => r.Text));
+            Assert.Equal(StockUiQuestLog.QuestKindMenu, kind.Name);
+            Assert.Equal(new[] { "Current", "Completed" }, kind.Rows.Select(r => r.Text));
 
             var completed = h.Choose(2);
-            Assert.Equal(StockUiQuestLogView.List, completed.QuestLogView);
+            Assert.Equal(StockUiQuestLogView.Pages, completed.QuestLogView);
+            Assert.Equal(StockUiQuestLog.AreaMenu, completed.Name);
             Assert.Equal("San d'Oria: Completed Quests", completed.QuestLogHeading);
             Assert.Equal(new[] { "Waters of the Cheval", "Eco-Warrior" }, completed.Rows.Select(r => r.Text));
+            Assert.Equal(1, completed.SelectedButtonId);
             Assert.Equal("Quests", completed.QuestLogTitle);
+            Assert.Equal((39, 40 + 25), (completed.Menu.FindButton(2)!.X, completed.Menu.FindButton(2)!.Y));
 
             var page = h.Choose(1);
             Assert.Equal(StockUiQuestLogView.Description, page.QuestLogView);
+            Assert.Equal(StockUiQuestLog.QuestListMenu, page.Name);
             Assert.Equal("Waters of the Cheval", page.QuestLogShown!.Value.Entry.Name);
             Assert.Empty(page.Menu.Buttons);
 
-            // Bastok has no quests: "No current quests." (ROM/165/72 #99).
+            // Right: Bastok has none ("No completed quests.", ROM/165/72 #100), so nothing takes the cursor; left wraps to Coalition.
             h.Menus.CloseTop();
-            h.Menus.CloseTop();
-            h.Menus.CloseTop();
-            areas.SelectedButtonId = 2;
-            h.Menus.Activate();
-            var empty = h.Choose(1);
-            Assert.Empty(empty.Rows);
-            Assert.Equal(StockUiQuestLog.NoCurrentQuestsFallback, empty.EmptyText);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal("Bastok: Completed Quests", completed.QuestLogHeading);
+            Assert.Equal(StockUiQuestLog.NoCompletedQuestsFallback, completed.Rows.Single().Text);
+            Assert.Equal(0, completed.SelectedButtonId);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
+            Assert.Equal("Coalition: Completed Assignments", completed.QuestLogHeading);
         }
 
         [Fact]
-        public void Missions_NationsPickTheStoryline_TheListOpensOnTheMissionInProgress()
+        public void Missions_EveryGroupOpensThePagingWindow_OnItsStoryline()
         {
             var h = new Harness();
             Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenuPage2));
             var groups = h.Choose(1);
             Assert.Equal(StockUiQuestLog.GroupMenu, groups.Name);
 
-            var nations = h.Choose(1);
-            Assert.Equal(StockUiQuestLogView.Storylines, nations.QuestLogView);
-            Assert.Equal(new[] { "San d'Oria", "Bastok", "Windurst" }, nations.Rows.Select(r => r.Text));
-            Assert.Equal(1, nations.SelectedButtonId); // the home nation, San d'Oria
-            Assert.Equal(3, nations.Menu.Buttons.Count);
+            // Nations: the home nation's page, the cursor on the mission in progress under "Current:".
+            var pages = h.Choose(1);
+            Assert.Equal(StockUiQuestLogView.Pages, pages.QuestLogView);
+            Assert.Equal(StockUiQuestLog.StorylineMenu, pages.Name);
+            Assert.Equal("San d'Oria", pages.QuestLogHeading);
+            Assert.Equal(new[] { "Current:", "Save the Children", "Completed:", "Smash the Orcish Scouts", "Bat Hunt" }, pages.Rows.Select(r => r.Text));
+            Assert.True(pages.Rows[1].Marked);
+            Assert.Equal(2, pages.SelectedButtonId);
 
-            var list = h.Choose(1);
-            Assert.Equal(StockUiQuestLog.MissionListMenu, list.Name);
-            Assert.Equal(3, list.Rows.Count);
-            Assert.True(list.Rows[2].Marked);   // the mission in progress
-            Assert.Equal(3, list.SelectedButtonId);
-            Assert.Equal("San d'Oria", list.QuestLogHeading);
-            Assert.Equal((12, 4 + 16), (list.Menu.FindButton(2)!.X, list.Menu.FindButton(2)!.Y));
+            // Down steps over "Completed:"; up from the mission in progress wraps to the last mission.
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
+            Assert.Equal(4, pages.SelectedButtonId);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuUp);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuUp);
+            Assert.Equal(5, pages.SelectedButtonId);
 
-            var orders = h.Choose(3);
+            // Confirm: the orders.
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuDown);
+            var orders = h.Choose(pages.SelectedButtonId);
             Assert.Equal("Mission Orders: Rescue them.", orders.QuestLogShown!.Value.Entry.Description);
+            h.Menus.CloseTop();
 
-            // Another nation: "Not allowed under current allegiance."
-            h.Menus.CloseTop();
-            h.Menus.CloseTop();
-            nations.SelectedButtonId = 2;
-            h.Menus.Activate();
-            Assert.Equal(StockUiQuestLog.NotAllowedText, h.Menus.Top!.EmptyText);
+            // Right: Bastok, "Not allowed under current allegiance." under Current and no cursor.
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal("Bastok", pages.QuestLogHeading);
+            Assert.Equal(StockUiQuestLog.NotAllowedText, pages.Rows[1].Text);
+            Assert.Equal(0, pages.SelectedButtonId);
+            // Left past San d'Oria wraps to the last storyline.
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
+            Assert.Equal("The Voracious Resurgence", pages.QuestLogHeading);
 
-            // Zilart opens its one storyline at once; the list follows a new 0x056.
-            h.Menus.CloseTop();
+            // Zilart starts on Rise of the Zilart; the page follows a new 0x056.
             h.Menus.CloseTop();
             var zilart = h.Choose(2);
-            Assert.Equal(StockUiQuestLogView.List, zilart.QuestLogView);
-            Assert.Equal(3, zilart.Rows.Count);
+            Assert.Equal("Rise of the Zilart", zilart.QuestLogHeading);
+            Assert.Equal(new[] { "Current:", "Welcome t'Norg", "Completed:", "The New Frontier", "The Outlands" }, zilart.Rows.Select(r => r.Text));
             h.State = new StockUiQuestLogState { Zilart = 0xFFFF, TalesBeginning = 1 };
             h.Menus.RefreshQuestLog();
-            Assert.Equal(new[] { "To Commence RotZ" }, zilart.Rows.Select(r => r.Text));
+            Assert.Equal(new[] { "Current:", "To Commence RotZ", "Completed:" }, zilart.Rows.Select(r => r.Text));
+
+            // Add-ons starts on A Crystalline Prophecy.
+            h.Menus.CloseTop();
+            Assert.Equal("A Crystalline Prophecy", h.Choose(6).QuestLogHeading);
         }
 
         [Fact]
@@ -344,6 +376,13 @@ namespace Gordian.Engine.Tests.Ui
             var page = h.Choose(StockUiConquest.ConquestButton);
             Assert.Equal(StockUiQuestLogView.Conquest, page.QuestLogView);
             Assert.Equal(StockUiConquest.ControlWindow, page.Name);
+            // The conquest map behind, panned by the movement input but never zoomed.
+            Assert.Equal(Gordian.Core.Resources.Tables.RegionMap.Conquest, page.RegionMap);
+            Assert.Same(page, h.Menus.PannedMap);
+            Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
+            h.Menus.MoveMapView(0.5f, 0, 1f, 2f);
+            Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
+            Assert.True(page.MapCenterX > 0.5f);
             var view = page.ConquestView!;
             Assert.Equal(StockUiConquest.BeastmenRegionFallback, view.Control);
             Assert.Equal(3, view.NextTally);
@@ -433,14 +472,17 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal((39, 40, 100), (areas.FindButton(1)!.X, areas.FindButton(1)!.Y, areas.Frame.TitleTextId));
             Assert.True(library.TryGetMenu(StockUiQuestLog.QuestKindMenu, out var kind));
             Assert.Equal((39, 31 + 37), (kind.FindButton(2)!.X, kind.FindButton(2)!.Y));
+            foreach (string name in new[] { StockUiQuestLog.StorylineMenu, StockUiQuestLog.AreaMenu })
+            {
+                // The paging windows' red arrows (frames#25 / #26).
+                Assert.True(library.TryGetMenu(name, out var paging));
+                Assert.Equal((9, 343), (paging.FindButton(StockUiQuestLog.PreviousPageButton)!.X, paging.FindButton(StockUiQuestLog.NextPageButton)!.X));
+            }
             foreach (string name in new[] { StockUiQuestLog.MissionListMenu, StockUiQuestLog.QuestListMenu })
             {
                 Assert.True(library.TryGetMenu(name, out var list));
-                Assert.Equal(StockUiQuestLog.ListRows, list.Buttons.Count);
-                Assert.Equal((0, 4 + 16 * 14, 356, 16), (list.FindButton(15)!.X, list.FindButton(15)!.Y, list.FindButton(15)!.Width, list.FindButton(15)!.Height));
+                Assert.Equal((16, 48, 366, 248), (list.Frame.X, list.Frame.Y, list.Frame.Width, list.Frame.Height));
             }
-            Assert.True(library.TryGetGroup("quest", out var band));
-            Assert.NotEmpty(band.Images);
 
             // Region Info and the Conquest page's frames.
             Assert.True(library.TryGetMenu(StockUiConquest.RegionMenu, out var region));
@@ -473,10 +515,9 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(menus.Open(StockUiMenuEntries.MainMenuPage2));
             menus.Top!.SelectedButtonId = 2;
             menus.Activate();
+            Assert.Equal(StockUiQuestLog.QuestKindMenu, menus.Top!.Name);
+            menus.Activate();
             Assert.Equal(StockUiQuestLog.AreaMenu, menus.Top!.Name);
-            menus.Activate();
-            menus.Activate();
-            Assert.Equal(StockUiQuestLog.QuestListMenu, menus.Top!.Name);
             Assert.Equal("A Sentry's Peril", menus.Top!.Rows[0].Text);
         }
 

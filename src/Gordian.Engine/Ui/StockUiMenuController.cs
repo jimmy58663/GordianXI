@@ -1273,7 +1273,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();
@@ -1459,6 +1459,7 @@ namespace Gordian.Engine.Ui
         private static bool IsPopulated(StockUiOpenMenu menu, int buttonId)
         {
             if (menu.IsTreasureList) return buttonId >= 1 && buttonId <= menu.TreasureRows.Count;
+            if (menu.QuestLogView == StockUiQuestLogView.Pages) return menu.IsQuestLogEntry(menu.EntryIndex(buttonId));
             if (menu.VisibleRows == 0) return true;
             int index = menu.EntryIndex(buttonId);
             return index >= 0 && index < menu.Rows.Count;
@@ -2054,7 +2055,7 @@ namespace Gordian.Engine.Ui
                     break;
 
                 case StockUiMenuCommand.Quests:
-                    OpenQuestAreas(from);
+                    OpenQuests(from);
                     break;
 
                 case StockUiMenuCommand.RegionConquest:
@@ -2554,7 +2555,7 @@ namespace Gordian.Engine.Ui
                     edit = SliderValueAt(_sliderMenu, _sliderPlacement, _sliderButton, x);
                 }
                 over = TryHit(x, y, out var menu, out var button, out _);
-                if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button)
+                if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button) && !IsQuestLogArrow(menu!, button)
                     && !menu!.IsQuantity && menu.SelectedButtonId != button.ButtonId)
                 {
                     menu.SelectedButtonId = button.ButtonId;
@@ -2602,6 +2603,11 @@ namespace Gordian.Engine.Ui
                     if (IsPageArrow(menu, button))
                     {
                         changed |= FlipPage(menu, button.X < 0 ? -1 : 1);
+                    }
+                    else if (IsQuestLogArrow(menu, button))
+                    {
+                        TurnQuestLogPage(menu, button.ButtonId == StockUiQuestLog.NextPageButton ? 1 : -1);
+                        changed = true;
                     }
                     else if (menu.IsQuantity && button.ButtonId != StockUiShop.QuantityField)
                     {
@@ -2744,7 +2750,7 @@ namespace Gordian.Engine.Ui
         /// paged menu's page arrows (drawn outside the frame only on paged menus).
         /// </summary>
         private static bool IsClickable(StockUiOpenMenu menu, UiMenuButton button) =>
-            IsPageArrow(menu, button) || (menu.IsQuantity && !IsOutsideFrame(menu, button))
+            IsPageArrow(menu, button) || IsQuestLogArrow(menu, button) || (menu.IsQuantity && !IsOutsideFrame(menu, button))
             || (IsSelectable(button) && IsPopulated(menu, button.ButtonId) && !IsOutsideFrame(menu, button));
 
         private static bool IsOutsideFrame(StockUiOpenMenu menu, UiMenuButton button) =>

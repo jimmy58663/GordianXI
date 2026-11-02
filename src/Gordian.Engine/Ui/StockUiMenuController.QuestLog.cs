@@ -1,7 +1,9 @@
 // src/Gordian.Engine/Ui/StockUiMenuController.QuestLog.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
+using Gordian.Engine.Input;
 
 namespace Gordian.Engine.Ui
 {
@@ -10,22 +12,16 @@ namespace Gordian.Engine.Ui
     {
         None,
 
-        /// <summary>A Missions group's storylines (<c>miss00</c>).</summary>
-        Storylines,
+        /// <summary>The paging window (<c>miss00</c> / <c>quest01</c>): one storyline's or quest area's page.</summary>
+        Pages,
 
-        /// <summary>The Quests window's areas (<c>quest01</c>).</summary>
-        Areas,
-
-        /// <summary>An area's Current / Completed choice (<c>quest00</c>).</summary>
+        /// <summary>The Quests window's Current / Completed choice (<c>quest00</c>).</summary>
         QuestKind,
 
-        /// <summary>A storyline's missions (<c>missiton</c>) or an area's quests (<c>quset</c>).</summary>
-        List,
-
-        /// <summary>A mission's orders or a quest's summary, in the list's window.</summary>
+        /// <summary>A mission's orders or a quest's summary (<c>missiton</c> / <c>quset</c>).</summary>
         Description,
 
-        /// <summary>Region Info's Conquest page (<see cref="StockUiConquestView"/>).</summary>
+        /// <summary>Region Info's Conquest map (<see cref="StockUiConquestView"/>).</summary>
         Conquest,
     }
 
@@ -35,42 +31,48 @@ namespace Gordian.Engine.Ui
 
         public bool IsQuestLogWindow => QuestLogView != StockUiQuestLogView.None;
 
-        /// <summary>A picker, list or description of the quest log; the Conquest page is apart.</summary>
-        public bool IsQuestLogList => QuestLogView is StockUiQuestLogView.Storylines or StockUiQuestLogView.Areas or StockUiQuestLogView.List;
-
         /// <summary>Whether this belongs to the Quests window (else the Missions window).</summary>
         public bool IsQuestsWindow { get; init; }
 
-        /// <summary>The books a Storylines or Areas picker lists, parallel to <see cref="Rows"/>.</summary>
+        /// <summary>The paging window's pages: the storylines or the quest areas.</summary>
         public IReadOnlyList<StockUiQuestLogBook> QuestLogBooks { get; init; } = Array.Empty<StockUiQuestLogBook>();
 
-        /// <summary>The book a Current / Completed choice, a list or a description is for.</summary>
-        public StockUiQuestLogBook? QuestLogBook { get; init; }
+        /// <summary>The index into <see cref="QuestLogBooks"/> of the page shown.</summary>
+        public int QuestLogPage { get; internal set; }
 
-        /// <summary>Whether a quest list (and its description) shows the completed quests.</summary>
+        /// <summary>The book a page or a description is for.</summary>
+        public StockUiQuestLogBook? QuestLogBook { get; internal set; }
+
+        /// <summary>Whether the Quests window's pages (and their descriptions) show the completed quests.</summary>
         public bool QuestLogCompleted { get; init; }
 
-        /// <summary>A list's rows, parallel to <see cref="Rows"/>.</summary>
-        public IReadOnlyList<StockUiQuestLogRow> QuestLogRows { get; internal set; } = Array.Empty<StockUiQuestLogRow>();
+        /// <summary>A page's lines, parallel to <see cref="Rows"/>.</summary>
+        public IReadOnlyList<StockUiQuestLogLine> QuestLogLines { get; internal set; } = Array.Empty<StockUiQuestLogLine>();
 
         /// <summary>The quest or mission a description shows.</summary>
         public StockUiQuestLogRow? QuestLogShown { get; init; }
 
-        /// <summary>The help bar's line: the group, area or list title ("San d'Oria: Current Quests").</summary>
-        public string? QuestLogHeading { get; init; }
+        /// <summary>The page's title between the arrows and the help bar's line ("Chains of Promathia", "San d'Oria: Current Quests").</summary>
+        public string? QuestLogHeading { get; internal set; }
 
-        /// <summary>The Conquest page's contents, rebuilt when S2C 0x05E changes.</summary>
+        /// <summary>The Conquest map's windows, rebuilt when S2C 0x05E changes.</summary>
         public StockUiConquestView? ConquestView { get; internal set; }
 
-        /// <summary>The row under a list's cursor, if any.</summary>
+        /// <summary>The region map a Region Info page draws behind it, panned like the Map window.</summary>
+        public RegionMap? RegionMap { get; init; }
+
+        /// <summary>The quest or mission under a page's cursor, if any.</summary>
         public StockUiQuestLogRow? SelectedQuestLogRow
         {
             get
             {
                 int index = EntryIndex(SelectedButtonId);
-                return QuestLogView == StockUiQuestLogView.List && index >= 0 && index < QuestLogRows.Count ? QuestLogRows[index] : null;
+                return QuestLogView == StockUiQuestLogView.Pages && index >= 0 && index < QuestLogLines.Count ? QuestLogLines[index].Row : null;
             }
         }
+
+        /// <summary>Whether line <paramref name="index"/> of a page is a quest or mission the cursor can rest on.</summary>
+        internal bool IsQuestLogEntry(int index) => index >= 0 && index < QuestLogLines.Count && QuestLogLines[index].IsEntry;
 
         /// <summary>The window title the help bar shows: "Missions", "Quests" or "Region Info".</summary>
         public string QuestLogTitle => QuestLogView == StockUiQuestLogView.Conquest ? StockUiConquest.Title
@@ -85,8 +87,22 @@ namespace Gordian.Engine.Ui
         /// <summary>The quest log as S2C 0x056 left it (a fresh copy each call).</summary>
         public Func<StockUiQuestLogState?>? QuestLogState { get; set; }
 
-        /// <summary>Region Info's Conquest page for where the character is now (S2C 0x05E).</summary>
+        /// <summary>Region Info's Conquest windows for where the character is now (S2C 0x05E).</summary>
         public Func<StockUiConquestView?>? ConquestView { get; set; }
+
+        /// <summary>The open map the movement input pans: the Map window or a Region Info map.</summary>
+        public StockUiOpenMenu? PannedMap
+        {
+            get
+            {
+                var open = _open;
+                for (int i = open.Length - 1; i >= 0; i--)
+                {
+                    if (open[i].IsMapWindow || open[i].RegionMap != null) return open[i];
+                }
+                return null;
+            }
+        }
 
         private bool TryGetQuestLog(out StockUiQuestLogCatalog catalog, out StockUiQuestLogState state)
         {
@@ -99,13 +115,14 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// A quest log window over <paramref name="name"/>'s frame with <paramref name="rows"/> client-drawn rows at x, y +
-        /// pitch n (w x h), the end rows linked to themselves so up / down past them scroll; no rows for a description page.
+        /// pitch n (w x h), the end rows linked to themselves (the page's own moves step past them), and the DAT's buttons
+        /// <paramref name="keep"/> as authored (the paging window's arrows); no rows for a description or a Conquest window.
         /// </summary>
-        private UiMenuDefinition? QuestLogDefinition(string name, int rows, int x, int y, int pitch, int width, int height)
+        private UiMenuDefinition? QuestLogDefinition(string name, int rows, int x, int y, int pitch, int width, int height, params int[] keep)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(name, out var window)) return null;
-            var buttons = new List<UiMenuButton>(rows);
+            var buttons = new List<UiMenuButton>(rows + keep.Length);
             for (int i = 1; i <= rows; i++)
             {
                 buttons.Add(new UiMenuButton
@@ -120,6 +137,10 @@ namespace Gordian.Engine.Ui
                     NavLeft = (sbyte)i,
                     NavRight = (sbyte)i,
                 });
+            }
+            foreach (int id in keep)
+            {
+                if (window.FindButton(id) is { } authored) buttons.Add(authored);
             }
             var frame = window.Frame;
             return new UiMenuDefinition
@@ -139,153 +160,133 @@ namespace Gordian.Engine.Ui
             };
         }
 
-        private UiMenuDefinition? PickerDefinition(string name, int rows) => QuestLogDefinition(name, Math.Min(rows, StockUiQuestLog.PickerRows),
-            StockUiQuestLog.PickerRowX, StockUiQuestLog.PickerRowY, StockUiQuestLog.PickerRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight);
-
-        private UiMenuDefinition? ListDefinition(string name, int rows) => QuestLogDefinition(name, Math.Min(rows, StockUiQuestLog.ListRows),
-            StockUiQuestLog.ListRowX, StockUiQuestLog.ListRowY, StockUiQuestLog.ListRowPitch, StockUiQuestLog.ListRowWidth, StockUiQuestLog.ListRowHeight);
-
-        private StockUiOpenMenu Show(StockUiOpenMenu menu, IReadOnlyList<string> texts, int selected = 0)
-        {
-            var rows = new List<StockUiListRow>(texts.Count);
-            foreach (string text in texts) rows.Add(new StockUiListRow(rows.Count + 1, text, false));
-            lock (_sync)
-            {
-                menu.Rows = rows;
-                ScrollTo(menu, selected);
-                PushOpen(menu);
-            }
-            Changed?.Invoke();
-            return menu;
-        }
-
-        /// <summary>Puts entry <paramref name="index"/> under the cursor, scrolling it into view.</summary>
+        /// <summary>Puts line <paramref name="index"/> under the cursor (none for -1), scrolling it into view with the heading above it.</summary>
         private static void ScrollTo(StockUiOpenMenu menu, int index)
         {
-            int count = menu.Rows.Count;
-            if (count == 0)
+            int count = menu.Rows.Count, visible = menu.VisibleRows;
+            int maxFirst = Math.Max(0, count - visible);
+            if (index < 0 || count == 0)
             {
+                menu.FirstRow = 0;
+                menu.ScrollFrom = 0;
                 menu.SelectedButtonId = 0;
                 return;
             }
             index = Math.Clamp(index, 0, count - 1);
-            int maxFirst = Math.Max(0, count - menu.VisibleRows);
-            if (index < menu.FirstRow || index >= menu.FirstRow + menu.VisibleRows) menu.FirstRow = Math.Clamp(index - menu.VisibleRows + 1, 0, maxFirst);
-            menu.FirstRow = Math.Min(menu.FirstRow, maxFirst);
+            int first = menu.FirstRow;
+            if (index < first) first = index > 0 && !menu.IsQuestLogEntry(index - 1) ? index - 1 : index;
+            else if (index >= first + visible) first = index - visible + 1;
+            menu.FirstRow = Math.Clamp(first, 0, maxFirst);
             menu.ScrollFrom = menu.FirstRow;
             menu.SelectedButtonId = index - menu.FirstRow + 1;
         }
 
-        /// <summary>A Missions group (<c>missionm</c> button <paramref name="group"/>): its one storyline, or a picker of them.</summary>
+        /// <summary>A Missions group (<c>missionm</c> button <paramref name="group"/>): the paging window on its first storyline.</summary>
         public StockUiOpenMenu? OpenMissionGroup(int group, StockUiOpenMenu? parent)
         {
-            if (!StockUiQuestLog.Groups.TryGetValue(group, out var books) || !TryGetQuestLog(out var catalog, out var state)) return null;
-            if (books.Count == 1) return OpenQuestLogList(books[0], completed: false, parent, catalog, state);
-            var definition = PickerDefinition(StockUiQuestLog.StorylineMenu, books.Count);
-            if (definition == null) return null;
-            var names = new List<string>(books.Count);
-            foreach (var book in books) names.Add(StockUiQuestLog.NameOf(book));
-            var picker = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, definition.Buttons.Count)
-            {
-                QuestLogView = StockUiQuestLogView.Storylines,
-                QuestLogBooks = books,
-                ItemOwner = this,
-            };
-            // The home nation's row first under the cursor (PROVISIONAL).
-            int selected = books[0] == StockUiQuestLogBook.MissionsSandoria ? Math.Clamp(state.Nation, 0, 2) : 0;
-            return Show(picker, names, selected);
+            if (!StockUiQuestLog.Groups.ContainsKey(group) || !TryGetQuestLog(out var catalog, out var state)) return null;
+            var books = StockUiQuestLog.MissionPages;
+            int page = Math.Max(0, IndexOf(books, StockUiQuestLog.FirstPageOf(group, state)));
+            return OpenPages(StockUiQuestLog.StorylineMenu, books, page, quests: false, completed: false, parent, catalog, state);
         }
 
-        /// <summary>Opens the Quests window (#488): the areas.</summary>
-        public StockUiOpenMenu? OpenQuestAreas(StockUiOpenMenu? parent)
+        /// <summary>Opens the Quests window (#488): the Current / Completed choice.</summary>
+        public StockUiOpenMenu? OpenQuests(StockUiOpenMenu? parent)
         {
             if (!TryGetQuestLog(out _, out _)) return null;
-            var areas = StockUiQuestLog.Areas;
-            var definition = PickerDefinition(StockUiQuestLog.AreaMenu, areas.Count);
-            if (definition == null) return null;
-            var names = new List<string>(areas.Count);
-            foreach (var area in areas) names.Add(StockUiQuestLog.NameOf(area));
-            var picker = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, definition.Buttons.Count)
-            {
-                QuestLogView = StockUiQuestLogView.Areas,
-                IsQuestsWindow = true,
-                QuestLogBooks = areas,
-                ItemOwner = this,
-            };
-            return Show(picker, names);
-        }
-
-        private StockUiOpenMenu? OpenQuestKind(StockUiOpenMenu areas, StockUiQuestLogBook area)
-        {
             var definition = QuestLogDefinition(StockUiQuestLog.QuestKindMenu, 2, StockUiQuestLog.KindRowX, StockUiQuestLog.KindRowY,
                 StockUiQuestLog.KindRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight);
             if (definition == null) return null;
-            var kind = new StockUiOpenMenu(definition, areas, Array.Empty<string>(), null, 2)
+            var kind = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, 2)
             {
                 QuestLogView = StockUiQuestLogView.QuestKind,
                 IsQuestsWindow = true,
-                QuestLogBook = area,
-                QuestLogHeading = StockUiQuestLog.NameOf(area),
-                ItemOwner = this,
-            };
-            return Show(kind, new[] { StockUiQuestLog.QuestKindLabel(area, false), StockUiQuestLog.QuestKindLabel(area, true) });
-        }
-
-        private StockUiOpenMenu? OpenQuestLogList(StockUiQuestLogBook book, bool completed, StockUiOpenMenu? parent, StockUiQuestLogCatalog catalog, StockUiQuestLogState state)
-        {
-            bool quests = StockUiQuestLog.IsQuestArea(book);
-            var rows = quests ? StockUiQuestLog.QuestRows(catalog, state, book, completed) : StockUiQuestLog.MissionRows(catalog, state, book);
-            var definition = ListDefinition(quests ? StockUiQuestLog.QuestListMenu : StockUiQuestLog.MissionListMenu, Math.Max(1, rows.Count));
-            if (definition == null) return null;
-            var list = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, definition.Buttons.Count)
-            {
-                QuestLogView = StockUiQuestLogView.List,
-                IsQuestsWindow = quests,
-                QuestLogBook = book,
-                QuestLogCompleted = completed,
-                QuestLogHeading = quests ? StockUiQuestLog.QuestListTitle(book, completed) : StockUiQuestLog.NameOf(book),
                 ItemOwner = this,
             };
             lock (_sync)
             {
-                FillQuestLogRows(list, rows, state);
-                // A mission list opens on the mission in progress, else its last row.
-                int current = rows.FindLastIndex(r => r.Status == StockUiQuestLogStatus.Current);
-                ScrollTo(list, quests ? 0 : current >= 0 ? current : rows.Count - 1);
-                PushOpen(list);
+                kind.Rows = new List<StockUiListRow> { new(1, StockUiQuestLog.CurrentKind, false), new(2, StockUiQuestLog.CompletedKind, false) };
+                kind.SelectedButtonId = 1;
+                PushOpen(kind);
             }
             Changed?.Invoke();
-            return list;
+            return kind;
         }
 
-        private void FillQuestLogRows(StockUiOpenMenu list, IReadOnlyList<StockUiQuestLogRow> rows, StockUiQuestLogState state)
+        private static int IndexOf(IReadOnlyList<StockUiQuestLogBook> books, StockUiQuestLogBook book)
         {
-            var listRows = new List<StockUiListRow>(rows.Count);
-            // The mission in progress is marked; a quest list's rows are all alike.
-            foreach (var row in rows) listRows.Add(new StockUiListRow(listRows.Count + 1, row.Entry.Name, !list.IsQuestsWindow && row.Status == StockUiQuestLogStatus.Current));
-            list.QuestLogRows = rows;
-            list.Rows = listRows;
-            if (rows.Count > 0) list.EmptyText = null;
-            else if (list.IsQuestsWindow)
+            for (int i = 0; i < books.Count; i++)
             {
-                list.EmptyText = list.QuestLogCompleted
-                    ? MenuText(StockUiQuestLog.NoCompletedQuestsText, StockUiQuestLog.NoCompletedQuestsFallback)
-                    : MenuText(StockUiQuestLog.NoCurrentQuestsText, StockUiQuestLog.NoCurrentQuestsFallback);
+                if (books[i] == book) return i;
             }
-            else if (list.QuestLogBook is { } book) list.EmptyText = StockUiQuestLog.EmptyMissionText(state, book);
+            return -1;
         }
 
-        private void OpenQuestLogDescription(StockUiOpenMenu list, StockUiQuestLogRow row)
+        /// <summary>The paging window (<c>miss00</c> / <c>quest01</c>) on page <paramref name="page"/> of <paramref name="books"/>.</summary>
+        private StockUiOpenMenu? OpenPages(string name, IReadOnlyList<StockUiQuestLogBook> books, int page, bool quests, bool completed, StockUiOpenMenu? parent,
+            StockUiQuestLogCatalog catalog, StockUiQuestLogState state)
         {
-            var definition = QuestLogDefinition(list.Menu.Name, 0, 0, 0, 0, 0, 0);
+            var definition = QuestLogDefinition(name, StockUiQuestLog.PickerRows, StockUiQuestLog.PickerRowX, StockUiQuestLog.PickerRowY,
+                StockUiQuestLog.PickerRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight,
+                StockUiQuestLog.PreviousPageButton, StockUiQuestLog.NextPageButton);
+            if (definition == null) return null;
+            var pages = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, StockUiQuestLog.PickerRows)
+            {
+                QuestLogView = StockUiQuestLogView.Pages,
+                IsQuestsWindow = quests,
+                QuestLogBooks = books,
+                QuestLogCompleted = completed,
+                ItemOwner = this,
+            };
+            lock (_sync)
+            {
+                ShowPage(pages, page, catalog, state, keep: null);
+                PushOpen(pages);
+            }
+            Changed?.Invoke();
+            return pages;
+        }
+
+        /// <summary>
+        /// Fills a paging window with page <paramref name="page"/> (wrapping): the cursor on the entry with id
+        /// <paramref name="keep"/> if it is still there, else on the mission in progress, else on the first entry, else nowhere.
+        /// Call under the lock.
+        /// </summary>
+        private void ShowPage(StockUiOpenMenu pages, int page, StockUiQuestLogCatalog catalog, StockUiQuestLogState state, int? keep)
+        {
+            var books = pages.QuestLogBooks;
+            page = ((page % books.Count) + books.Count) % books.Count;
+            var book = books[page];
+            string emptyQuests = pages.QuestLogCompleted
+                ? MenuText(StockUiQuestLog.NoCompletedQuestsText, StockUiQuestLog.NoCompletedQuestsFallback)
+                : MenuText(StockUiQuestLog.NoCurrentQuestsText, StockUiQuestLog.NoCurrentQuestsFallback);
+            var lines = StockUiQuestLog.PageLines(catalog, state, book, pages.QuestLogCompleted, emptyQuests);
+            var rows = new List<StockUiListRow>(lines.Count);
+            // The mission in progress is marked; a quest page's rows are all alike.
+            foreach (var line in lines) rows.Add(new StockUiListRow(rows.Count + 1, line.Text, line.Row?.Status == StockUiQuestLogStatus.Current));
+            pages.QuestLogPage = page;
+            pages.QuestLogBook = book;
+            pages.QuestLogHeading = StockUiQuestLog.PageTitle(book, pages.QuestLogCompleted);
+            pages.QuestLogLines = lines;
+            pages.Rows = rows;
+            int index = keep is { } id ? lines.FindIndex(l => l.Row is { } r && r.Entry.Id == id && r.Status != StockUiQuestLogStatus.Heading) : -1;
+            if (index < 0) index = lines.FindIndex(l => l.Row?.Status == StockUiQuestLogStatus.Current);
+            if (index < 0) index = lines.FindIndex(l => l.IsEntry);
+            pages.FirstRow = 0;
+            ScrollTo(pages, index);
+        }
+
+        private void OpenQuestLogDescription(StockUiOpenMenu pages, StockUiQuestLogRow row)
+        {
+            var definition = QuestLogDefinition(pages.IsQuestsWindow ? StockUiQuestLog.QuestListMenu : StockUiQuestLog.MissionListMenu, 0, 0, 0, 0, 0, 0);
             if (definition == null) return;
-            var page = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null)
+            var page = new StockUiOpenMenu(definition, pages, Array.Empty<string>(), null)
             {
                 QuestLogView = StockUiQuestLogView.Description,
-                IsQuestsWindow = list.IsQuestsWindow,
-                QuestLogBook = list.QuestLogBook,
-                QuestLogCompleted = list.QuestLogCompleted,
-                QuestLogHeading = list.QuestLogHeading,
+                IsQuestsWindow = pages.IsQuestsWindow,
+                QuestLogBook = pages.QuestLogBook,
+                QuestLogCompleted = pages.QuestLogCompleted,
+                QuestLogHeading = pages.QuestLogHeading,
                 QuestLogShown = row,
                 ItemOwner = this,
             };
@@ -293,7 +294,47 @@ namespace Gordian.Engine.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Region Info's Conquest page: <c>conquer1</c> in a conquest region, <c>conq6sta</c> elsewhere (<see cref="StockUiConquestView"/>).</summary>
+        /// <summary>
+        /// Up and down on a page step over its headings and notes to the next quest or mission (wrapping); left and right
+        /// turn the page (wrapping). Call under the lock.
+        /// </summary>
+        private bool TryMoveQuestLog(InputAction direction)
+        {
+            if (Top is not { QuestLogView: StockUiQuestLogView.Pages } top) return false;
+            if (direction is InputAction.MenuLeft or InputAction.MenuRight)
+            {
+                TurnQuestLogPage(top, direction == InputAction.MenuRight ? 1 : -1);
+                return true;
+            }
+            if (direction is not (InputAction.MenuUp or InputAction.MenuDown)) return false;
+            int count = top.QuestLogLines.Count, step = direction == InputAction.MenuDown ? 1 : -1;
+            int from = top.EntryIndex(top.SelectedButtonId);
+            if (!top.IsQuestLogEntry(from)) from = step > 0 ? -1 : count;
+            for (int i = 1; i <= count; i++)
+            {
+                int index = ((from + step * i) % count + count) % count;
+                if (!top.IsQuestLogEntry(index)) continue;
+                if (index != from) ScrollTo(top, index);
+                break;
+            }
+            return true;
+        }
+
+        /// <summary>A paging window's red arrow: the pointer turns the page with it (the cursor never rests on it).</summary>
+        private static bool IsQuestLogArrow(StockUiOpenMenu menu, UiMenuButton button) =>
+            menu.QuestLogView == StockUiQuestLogView.Pages && button.ButtonId is StockUiQuestLog.PreviousPageButton or StockUiQuestLog.NextPageButton;
+
+        /// <summary>Shows the next or previous page of a paging window. Call under the lock.</summary>
+        private void TurnQuestLogPage(StockUiOpenMenu pages, int step)
+        {
+            if (QuestLogCatalog?.Invoke() is not { } catalog || QuestLogState?.Invoke() is not { } state) return;
+            ShowPage(pages, pages.QuestLogPage + step, catalog, state, keep: null);
+        }
+
+        /// <summary>
+        /// Region Info's Conquest map: the conquest map behind (<see cref="RegionMap.Conquest"/>), <c>conquer1</c> in a
+        /// conquest region or <c>conq6sta</c> elsewhere (<see cref="StockUiConquestView"/>).
+        /// </summary>
         public StockUiOpenMenu? OpenConquest(StockUiOpenMenu? parent)
         {
             var view = ConquestView?.Invoke();
@@ -307,11 +348,13 @@ namespace Gordian.Engine.Ui
             var page = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null)
             {
                 QuestLogView = StockUiQuestLogView.Conquest,
+                RegionMap = Core.Resources.Tables.RegionMap.Conquest,
                 ItemOwner = this,
             };
             lock (_sync)
             {
                 page.ConquestView = view;
+                page.MapZoom = StockUiConquest.MapZoom;
                 PushOpen(page);
             }
             Changed?.Invoke();
@@ -319,32 +362,27 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm in a quest log window: a storyline opens its missions, an area its Current / Completed choice, a choice its
-        /// quests, a quest or mission its description.
+        /// Confirm in a quest log window: Current or Completed opens the quest pages, a quest or mission its description.
         /// </summary>
         private bool TryActivateQuestLog(StockUiOpenMenu top, UiMenuButton button)
         {
             if (!top.IsQuestLogWindow) return false;
-            int index = top.EntryIndex(top.SelectedButtonId);
             switch (top.QuestLogView)
             {
-                case StockUiQuestLogView.Storylines when index >= 0 && index < top.QuestLogBooks.Count:
-                    if (TryGetQuestLog(out var catalog, out var state)) OpenQuestLogList(top.QuestLogBooks[index], false, top, catalog, state);
+                case StockUiQuestLogView.QuestKind:
+                    if (TryGetQuestLog(out var catalog, out var state))
+                    {
+                        OpenPages(StockUiQuestLog.AreaMenu, StockUiQuestLog.Areas, 0, quests: true, completed: button.ButtonId == 2, top, catalog, state);
+                    }
                     break;
-                case StockUiQuestLogView.Areas when index >= 0 && index < top.QuestLogBooks.Count:
-                    OpenQuestKind(top, top.QuestLogBooks[index]);
-                    break;
-                case StockUiQuestLogView.QuestKind when top.QuestLogBook is { } area:
-                    if (TryGetQuestLog(out var questCatalog, out var questState)) OpenQuestLogList(area, button.ButtonId == 2, top, questCatalog, questState);
-                    break;
-                case StockUiQuestLogView.List when top.SelectedQuestLogRow is { } row:
+                case StockUiQuestLogView.Pages when top.SelectedQuestLogRow is { } row:
                     OpenQuestLogDescription(top, row);
                     break;
             }
             return true;
         }
 
-        /// <summary>S2C 0x056 changed the quest log: the open lists take fresh rows, keeping the cursor on its entry.</summary>
+        /// <summary>S2C 0x056 changed the quest log: the open pages take fresh lines, keeping the cursor on its entry.</summary>
         public void RefreshQuestLog()
         {
             if (QuestLogCatalog?.Invoke() is not { } catalog || QuestLogState?.Invoke() is not { } state) return;
@@ -353,20 +391,15 @@ namespace Gordian.Engine.Ui
             {
                 foreach (var menu in _open)
                 {
-                    if (menu.QuestLogView != StockUiQuestLogView.List || menu.QuestLogBook is not { } book) continue;
-                    int? id = menu.SelectedQuestLogRow?.Entry.Id;
-                    var rows = StockUiQuestLog.IsQuestArea(book) ? StockUiQuestLog.QuestRows(catalog, state, book, menu.QuestLogCompleted)
-                        : StockUiQuestLog.MissionRows(catalog, state, book);
-                    FillQuestLogRows(menu, rows, state);
-                    int index = id is { } keep ? rows.FindIndex(r => r.Entry.Id == keep) : -1;
-                    ScrollTo(menu, index >= 0 ? index : menu.EntryIndex(menu.SelectedButtonId));
+                    if (menu.QuestLogView != StockUiQuestLogView.Pages) continue;
+                    ShowPage(menu, menu.QuestLogPage, catalog, state, menu.SelectedQuestLogRow?.Entry.Id);
                     changed = true;
                 }
             }
             if (changed) Changed?.Invoke();
         }
 
-        /// <summary>S2C 0x05E changed: an open Conquest page shows the new figures.</summary>
+        /// <summary>S2C 0x05E changed: an open Conquest map shows the new figures.</summary>
         public void RefreshConquest()
         {
             if (ConquestView?.Invoke() is not { } view) return;

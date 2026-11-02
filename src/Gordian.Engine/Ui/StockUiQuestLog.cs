@@ -35,6 +35,21 @@ namespace Gordian.Engine.Ui
     /// <summary>One row of a quest or mission list.</summary>
     public readonly record struct StockUiQuestLogRow(StockUiQuestLogEntry Entry, StockUiQuestLogStatus Status);
 
+    /// <summary>What a paging window's line is: a heading ("Current:"), a quest or mission the cursor can rest on, or a note.</summary>
+    public enum StockUiQuestLogLineKind { Heading, Entry, Note }
+
+    /// <summary>One line of a Missions or Quests page.</summary>
+    public readonly record struct StockUiQuestLogLine(StockUiQuestLogLineKind Kind, string Text, StockUiQuestLogRow? Row)
+    {
+        public static StockUiQuestLogLine Heading(string text) => new(StockUiQuestLogLineKind.Heading, text, null);
+
+        public static StockUiQuestLogLine Note(string text) => new(StockUiQuestLogLineKind.Note, text, null);
+
+        public static StockUiQuestLogLine Of(StockUiQuestLogRow row) => new(StockUiQuestLogLineKind.Entry, row.Entry.Name, row);
+
+        public bool IsEntry => Kind == StockUiQuestLogLineKind.Entry;
+    }
+
     /// <summary>
     /// The quest and mission name tables (#488), read once per book: the English <c>d_msg</c> tables of file ids 55706-55742
     /// (<see cref="StockUiQuestLog.TableOf"/>), each record an id, a name and a description. They replace the older mission
@@ -184,27 +199,29 @@ namespace Gordian.Engine.Ui
 
     /// <summary>
     /// The Missions and Quests windows (#488; main menu page 2 > Missions / Quests), laid out on the English menu DAT's
-    /// windows (ROM/119/51, read with <c>GORDIAN_UI_DUMP_MENUS=missionm,miss00,missiton,quest00,quest01,quset</c>):
+    /// windows (ROM/119/51, read with <c>GORDIAN_UI_DUMP_MENUS=missionm,miss00,missiton,quest00,quest01,quset</c>) as the
+    /// maintainer's retail screenshots show them (round 1 of #488, 2026-11-01: image-11, image-12):
     /// <list type="bullet">
     /// <item>Missions: <c>missionm</c> (384,48, 112 x 122, title 85 "Missions", help 468 "View list of current missions.")
-    /// lists the groups as label sprites: Nations, Zilart, Promathia, Aht Urhgan, Altana, Adoulin, Add-ons. A group of
-    /// several storylines opens <c>miss00</c> (16,48, 366 x 248) with them in its eight 320 x 18 rows (x 39, y 40 + 25 n),
-    /// named by the window title table (ROM/165/76): San d'Oria, Bastok, Windurst (21-23); Treasures of Aht Urhgan (135),
-    /// Assault (134); Wings of the Goddess (144), Campaign (143); A Crystalline Prophecy (152), A Moogle Kupo d'Etat (153),
-    /// A Shantotto Ascension (154), Rhapsodies of Vana'diel (183), The Voracious Resurgence (188). Zilart, Promathia and
-    /// Adoulin open their one storyline at once.</item>
-    /// <item>A storyline's missions fill <c>missiton</c> (16,48, 366 x 248), fifteen 356 x 16 rows (x 0, y 4 + 16 n): the
-    /// missions done and the one in progress, in the table's order. A nation other than the home nation says "Not allowed
-    /// under current allegiance." (XiPackets). Confirm shows the mission's orders in the same window.</item>
-    /// <item>Quests: <c>quest01</c> (16,48, 366 x 248; rows as <c>miss00</c>'s) lists the eleven areas; an area opens
-    /// <c>quest00</c>'s first two rows (x 39, y 31 + 37 n): Current Quests, Completed Quests; either opens <c>quset</c> (as
-    /// <c>missiton</c>) with the area's quests, the help bar naming the list ("San d'Oria: Current Quests", titles 25-36,
-    /// 136-137, 145-146, 156-157, 160-161, 163-164). An empty list says "No current quests." / "No completed quests."
-    /// (ROM/165/72 #99, #100). Confirm shows the quest's Client and Summary.</item>
+    /// lists the groups as label sprites: Nations, Zilart, Promathia, Aht Urhgan, Altana, Adoulin, Add-ons. Every group opens
+    /// the one paging window, <c>miss00</c> (16,48, 366 x 248), on its first storyline (Nations on the home nation's);
+    /// left and right page through every storyline (<see cref="MissionPages"/>), the storyline's name between the window's
+    /// red arrows (buttons 9 and 10, frames#25 / #26), named by the window title table (ROM/165/76): San d'Oria, Bastok,
+    /// Windurst (21-23), Treasures of Aht Urhgan (135), Assault (134), Wings of the Goddess (144), Campaign (143), A
+    /// Crystalline Prophecy (152), A Moogle Kupo d'Etat (153), A Shantotto Ascension (154), Rhapsodies of Vana'diel (183),
+    /// The Voracious Resurgence (188). The eight 320 x 18 rows (x 39, y 40 + 25 n) hold "Current:", the mission in progress,
+    /// "Completed:" and the missions done (a chapter reached among them), the cursor only on the missions and opening on the
+    /// one in progress (image-11). A nation other than the home nation says "Not allowed under current allegiance."
+    /// (XiPackets; retail shows it under Current, round 1). Confirm shows the mission's orders in <c>missiton</c>.</item>
+    /// <item>Quests: <c>quest00</c> (16,48, 366 x 248) offers Current and Completed (its rows 1-2, x 39, y 31 + 37 n;
+    /// image-12); either opens <c>quest01</c>, the same paging window as Missions, over the eleven areas, each page titled
+    /// "San d'Oria: Current Quests" (titles 25-36, 136-137, 145-146, 156-157, 160-161, 163-164) and listing the area's quests.
+    /// An empty page says "No current quests." / "No completed quests." (ROM/165/72 #99, #100). Confirm shows the quest's
+    /// Client and Summary in <c>quset</c>.</item>
     /// </list>
-    /// PROVISIONAL: no retail capture of these windows yet. Which DAT window each step uses, the group contents (the
-    /// add-on scenarios with Rhapsodies and the Voracious Resurgence under Add-ons), the row text places and colours, the
-    /// current mission's colour, the Current / Completed choice and the empty texts for missions are our reading.
+    /// PROVISIONAL: the page order and its wrap at the ends, the Quests window opening on San d'Oria, the text places, the
+    /// colours, the completed missions in the table's order and the empty mission page are our reading. Not done: the
+    /// Records of Eminence and Vana'Bout part of <c>quest00</c> (rows 3-5).
     /// </summary>
     public static class StockUiQuestLog
     {
@@ -219,14 +236,17 @@ namespace Gordian.Engine.Ui
         /// <summary><c>miss00</c> / <c>quest01</c>: eight rows at x 39, y 40 + 25 n, 320 x 18.</summary>
         public const int PickerRows = 8, PickerRowX = 39, PickerRowY = 40, PickerRowPitch = 25, PickerRowWidth = 320, PickerRowHeight = 18;
 
+        /// <summary>The paging window's red arrows (<c>miss00</c> / <c>quest01</c> buttons 9 and 10).</summary>
+        public const int PreviousPageButton = 9, NextPageButton = 10;
+
+        /// <summary>A mission page's headings (retail image-11).</summary>
+        public const string CurrentHeading = "Current:", CompletedHeading = "Completed:";
+
         /// <summary><c>quest00</c>: rows at x 39, y 31 + 37 n, 320 x 18; the first two used (Current, Completed).</summary>
         public const int KindRowX = 39, KindRowY = 31, KindRowPitch = 37;
 
-        /// <summary>
-        /// <c>missiton</c> / <c>quset</c>: fifteen rows at y 4 + 16 n, 16 tall. The DAT's rows start at x 0 (356 wide), which
-        /// puts the pointer outside the window; ours start 12 px in (PROVISIONAL).
-        /// </summary>
-        public const int ListRows = 15, ListRowX = 12, ListRowY = 4, ListRowPitch = 16, ListRowWidth = 344, ListRowHeight = 16;
+        /// <summary><c>quest00</c>'s rows (retail image-12).</summary>
+        public const string CurrentKind = "Current", CompletedKind = "Completed";
 
         /// <summary>The menu message table's (ROM/165/72) quest texts.</summary>
         public const int NoCurrentQuestsText = 99, NoCompletedQuestsText = 100;
@@ -236,10 +256,16 @@ namespace Gordian.Engine.Ui
         /// <summary>The home nation's missions only (XiPackets <c>world/server/0x0056</c>, <c>Nation</c>).</summary>
         public const string NotAllowedText = "Not allowed under current allegiance.";
 
-        /// <summary>A storyline with nothing reached (PROVISIONAL: no retail text found in the menu tables).</summary>
-        public const string NoMissionsText = "No missions.";
+        /// <summary>The Missions window's pages in order: the groups' storylines, the groups as <c>missionm</c> lists them.</summary>
+        public static readonly IReadOnlyList<StockUiQuestLogBook> MissionPages = new[]
+        {
+            StockUiQuestLogBook.MissionsSandoria, StockUiQuestLogBook.MissionsBastok, StockUiQuestLogBook.MissionsWindurst, StockUiQuestLogBook.MissionsZilart,
+            StockUiQuestLogBook.MissionsCop, StockUiQuestLogBook.MissionsToau, StockUiQuestLogBook.MissionsAssault, StockUiQuestLogBook.MissionsWotg,
+            StockUiQuestLogBook.MissionsCampaign, StockUiQuestLogBook.MissionsSoa, StockUiQuestLogBook.MissionsAcp, StockUiQuestLogBook.MissionsAmk,
+            StockUiQuestLogBook.MissionsAsa, StockUiQuestLogBook.MissionsRov, StockUiQuestLogBook.MissionsTvr,
+        };
 
-        /// <summary>The Missions window's groups: the <c>missionm</c> buttons 1-7 and what each lists.</summary>
+        /// <summary>The Missions window's groups: the <c>missionm</c> buttons 1-7 and the storylines each holds.</summary>
         public static readonly IReadOnlyDictionary<int, IReadOnlyList<StockUiQuestLogBook>> Groups = new Dictionary<int, IReadOnlyList<StockUiQuestLogBook>>
         {
             [1] = new[] { StockUiQuestLogBook.MissionsSandoria, StockUiQuestLogBook.MissionsBastok, StockUiQuestLogBook.MissionsWindurst },
@@ -331,11 +357,6 @@ namespace Gordian.Engine.Ui
             ? completed ? "Coalition: Completed Assignments" : "Coalition: Current Assignments"
             : NameOf(area) + (completed ? ": Completed Quests" : ": Current Quests");
 
-        /// <summary>The Current / Completed choice's rows (PROVISIONAL wording).</summary>
-        public static string QuestKindLabel(StockUiQuestLogBook area, bool completed) => area == StockUiQuestLogBook.QuestsCoalition
-            ? completed ? "Completed Assignments" : "Current Assignments"
-            : completed ? "Completed Quests" : "Current Quests";
-
         /// <summary>
         /// An area's current (offered, not yet complete) or completed quests in the table's order. The Aht Urhgan block holds
         /// quests in its first 128 bits only (<see cref="StockUiQuestLogState"/>).
@@ -353,6 +374,44 @@ namespace Gordian.Engine.Ui
                 if (completed ? done : offered && !done) rows.Add(new StockUiQuestLogRow(entry, completed ? StockUiQuestLogStatus.Completed : StockUiQuestLogStatus.Current));
             }
             return rows;
+        }
+
+        /// <summary>The page a group opens on: its first storyline, the home nation's for Nations.</summary>
+        public static StockUiQuestLogBook FirstPageOf(int group, StockUiQuestLogState state) =>
+            group == 1 ? StockUiQuestLogBook.MissionsSandoria + Math.Clamp(state.Nation, 0, 2)
+            : Groups.TryGetValue(group, out var books) ? books[0] : StockUiQuestLogBook.MissionsSandoria;
+
+        /// <summary>A page's title between the arrows: the storyline, or the quest list ("San d'Oria: Current Quests").</summary>
+        public static string PageTitle(StockUiQuestLogBook book, bool completed) => IsQuestArea(book) ? QuestListTitle(book, completed) : NameOf(book);
+
+        /// <summary>
+        /// A page's lines: a quest area's quests (current or completed), or a storyline's "Current:" and the mission in progress
+        /// (another nation's: <see cref="NotAllowedText"/>), then "Completed:" and the missions done with the chapters reached.
+        /// <paramref name="emptyQuests"/> is the empty quest page's text.
+        /// </summary>
+        public static List<StockUiQuestLogLine> PageLines(StockUiQuestLogCatalog catalog, StockUiQuestLogState state, StockUiQuestLogBook book, bool completed,
+            string? emptyQuests = null)
+        {
+            var lines = new List<StockUiQuestLogLine>();
+            if (IsQuestArea(book))
+            {
+                foreach (var row in QuestRows(catalog, state, book, completed)) lines.Add(StockUiQuestLogLine.Of(row));
+                if (lines.Count == 0) lines.Add(StockUiQuestLogLine.Note(emptyQuests ?? (completed ? NoCompletedQuestsFallback : NoCurrentQuestsFallback)));
+                return lines;
+            }
+            var rows = MissionRows(catalog, state, book);
+            lines.Add(StockUiQuestLogLine.Heading(CurrentHeading));
+            if (!IsAllowed(state, book)) lines.Add(StockUiQuestLogLine.Note(NotAllowedText));
+            foreach (var row in rows)
+            {
+                if (row.Status == StockUiQuestLogStatus.Current) lines.Add(StockUiQuestLogLine.Of(row));
+            }
+            lines.Add(StockUiQuestLogLine.Heading(CompletedHeading));
+            foreach (var row in rows)
+            {
+                if (row.Status != StockUiQuestLogStatus.Current) lines.Add(StockUiQuestLogLine.Of(row));
+            }
+            return lines;
         }
 
         /// <summary>Whether a storyline is one the character may view: every one but another nation's.</summary>
@@ -432,7 +491,12 @@ namespace Gordian.Engine.Ui
             {
                 if (entry.Id >= StoryDone) continue;
                 if (entry.Depth == 0 && entry.Id <= value && entries.Count > 0 && IsHeading(entries, entry))
+                {
+                    // A chapter is also its first mission: at its number it is reached and in progress (retail image-11:
+                    // Promathia's "Ancient Flames Beckon" under Current and Completed).
                     rows.Add(new StockUiQuestLogRow(entry, StockUiQuestLogStatus.Heading));
+                    if (entry.Id == value && !noneActive) rows.Add(new StockUiQuestLogRow(entry, StockUiQuestLogStatus.Current));
+                }
                 else if (entry.Id < value) rows.Add(new StockUiQuestLogRow(entry, StockUiQuestLogStatus.Completed));
                 else if (entry.Id == value) rows.Add(new StockUiQuestLogRow(entry, noneActive ? StockUiQuestLogStatus.Completed : StockUiQuestLogStatus.Current));
             }
@@ -489,9 +553,5 @@ namespace Gordian.Engine.Ui
             if (current == 0xFFFF) current = uint.MaxValue;
             return true;
         }
-
-        /// <summary>The entry text an empty mission list shows: another nation's, or one with nothing reached.</summary>
-        public static string EmptyMissionText(StockUiQuestLogState state, StockUiQuestLogBook book) =>
-            IsAllowed(state, book) ? NoMissionsText : NotAllowedText;
     }
 }
