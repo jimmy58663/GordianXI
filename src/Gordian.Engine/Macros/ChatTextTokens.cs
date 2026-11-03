@@ -89,6 +89,12 @@ namespace Gordian.Engine.Macros
         /// <summary>"n%", as <c>&lt;hpp&gt;</c> and the other percentages show it.</summary>
         public static string Percent(int value) => string.Create(CultureInfo.InvariantCulture, $"{value}%");
 
+        /// <summary>
+        /// <c>&lt;pos&gt;</c>: a map grid square in brackets, "(F-8)" (#387; the issue's retail form, and how the compass line
+        /// writes the square: "11:25 (J-5)").
+        /// </summary>
+        public static string MapPosition(string square) => "(" + square + ")";
+
         /// <summary>A job and level: "WAR75"; empty for no job.</summary>
         public static string JobLevel(string? abbreviation, int level) =>
             string.IsNullOrEmpty(abbreviation) || level <= 0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $"{abbreviation}{level}");

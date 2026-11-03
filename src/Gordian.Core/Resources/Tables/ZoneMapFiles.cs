@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.World.Collision;
 
 namespace Gordian.Core.Resources.Tables
 {
@@ -16,8 +18,9 @@ namespace Gordian.Core.Resources.Tables
     /// ROM/17, 18, 169, 242, 254, 258, 267, 282-286, 292, 293, 302, 307, 311, 316, 318, 333, 337 and 342. **Beyond xi-tools:** the name pattern, the
     /// folders past 286 and that the expansion folders re-ship 21 base maps (ROM/282-285 copies of ROM/17-18 files; the later
     /// copy is listed, unverified which one retail reads). <c>m_000_00</c> placeholders and the <c>eventmap</c> files of
-    /// ROM/303-311 are left out, and so are a zone's "Dummy Map" / "NO MAP" placeholders when it has real maps. Which map is the player's floor, and the world-to-map scale and offset the position marker
-    /// and the <c>&lt;pos&gt;</c> placeholder need, are not in these files.
+    /// ROM/303-311 are left out, and so are a zone's "Dummy Map" / "NO MAP" placeholders when it has real maps. Which map is
+    /// the player's floor is not in these files but in the zone's collision (<see cref="FloorOf(int, ZoneCollisionMesh?, Vector3)"/>,
+    /// #481); the world-to-map scale is <see cref="ZoneMapProjection"/>'s.
     /// </summary>
     public static class ZoneMapFiles
     {
@@ -196,6 +199,21 @@ namespace Gordian.Core.Resources.Tables
             }
             return maps[0];
         }
+
+        /// <summary>
+        /// The map to show for a zone's floor <paramref name="collisionFloor"/> (<see cref="CollisionTriangle.MapFloor"/>, #481):
+        /// that map when the zone has it, else the zone's first map (a single-map zone's floors name none), or -1 for a
+        /// zone without maps.
+        /// </summary>
+        public static int FloorOf(int zoneId, int collisionFloor) => Resolve(zoneId, collisionFloor);
+
+        /// <summary>
+        /// The map of the floor a character stands on (#481): the map the collision floor under <paramref name="position"/>
+        /// (internal space) names (<see cref="ZoneCollisionMesh.MapFloorUnder"/>), else the zone's first map; -1 for a zone
+        /// without maps.
+        /// </summary>
+        public static int FloorOf(int zoneId, ZoneCollisionMesh? collision, Vector3 position) =>
+            FloorOf(zoneId, MapsOf(zoneId).Count > 1 && collision != null ? collision.MapFloorUnder(position) : 0);
 
         /// <summary>The first texture section of a map DAT.</summary>
         public static DecodedTexture? Decode(byte[] dat, string source)

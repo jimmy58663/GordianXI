@@ -46,7 +46,7 @@ namespace Gordian.App.Graphics
         /// <summary>The pins' size and the label's left edge right of the pin's centre, layout px; the label is centred on the pin.</summary>
         private const float PinSize = 16, LabelX = 8, LabelScale = 0.75f;
 
-        private const string HomePointPin = "maphp", EventPin = "marker";
+        private const string HomePointPin = "maphp", SurvivalGuidePin = "mapsg", EventPin = "marker";
         private const int HomePointPinSize = 32, EventPinCell = 16;
 
         /// <summary>
@@ -137,6 +137,12 @@ namespace Gordian.App.Graphics
             if (pin == EventMapPin.HomePoint)
             {
                 renderer.DrawTextureRectRotated(HomePointPin, 0, 0, HomePointPinSize, HomePointPinSize, x, y, HomePointSize * s, HomePointTurn, Neutral);
+            }
+            else if (pin == EventMapPin.SurvivalGuide)
+            {
+                // The open book stands upright in its 32 x 32 cell (#479); drawn at the crystal's cell size (PROVISIONAL:
+                // retail's size not measured).
+                renderer.DrawTextureRectRotated(SurvivalGuidePin, 0, 0, HomePointPinSize, HomePointPinSize, x, y, HomePointSize * s, 0, Neutral);
             }
             else
             {

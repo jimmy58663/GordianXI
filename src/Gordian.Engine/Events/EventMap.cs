@@ -8,13 +8,17 @@ namespace Gordian.Engine.Events
     /// <summary>
     /// The map data an event gives a query option (opcode 0xD4 sub-cases 1 / 3 / 4 / 5, XiEvents OpCodes/0x00D4).
     /// Sub 1: <see cref="First"/> a travel point kind and <see cref="Second"/> its number (the home point lists send kind 0
-    /// and the home point's global number, <see cref="HomePoints"/>; kinds 2 and 3 are other travel networks, *inference*
-    /// from their use sites). Sub 3: <see cref="First"/> alone. Subs 4 / 5: <see cref="First"/> and three values.
+    /// and the home point's global number, <see cref="HomePoints"/>; the survival guide lists kind 2 and the guide's number,
+    /// <see cref="SurvivalGuides"/> (#479, read from the guide event's 0xD4 sub 1, whose kind operand is a reference holding
+    /// 2); kind 3 is another travel network, *inference* from its use sites). Sub 3: <see cref="First"/> alone. Subs 4 / 5: <see cref="First"/> and three values.
     /// </summary>
     public readonly record struct EventQueryMapEntry(int Sub, int First, int Second, int Value1, int Value2, int Value3)
     {
         /// <summary>Sub 1's travel point kind of the home points.</summary>
         public const int HomePointKind = 0;
+
+        /// <summary>Sub 1's travel point kind of the survival guides (#479).</summary>
+        public const int SurvivalGuideKind = SurvivalGuides.TravelKind;
     }
 
     /// <summary>A marker an event put on its map (opcode 0x8B): world x / z in yalms and the name beside it.</summary>
@@ -28,6 +32,9 @@ namespace Gordian.Engine.Events
 
         /// <summary>A home point (<c>maphp</c>), labelled "Home Point".</summary>
         HomePoint,
+
+        /// <summary>A survival guide (<c>mapsg</c>, an open book), labelled "Survival Guide" (#479).</summary>
+        SurvivalGuide,
     }
 
     /// <summary>
@@ -114,7 +121,15 @@ namespace Gordian.Engine.Events
                 if (QueryEntries.TryGetValue(option, out var entry) && entry is { Sub: 1, First: EventQueryMapEntry.HomePointKind }
                     && HomePoints.TryGet(entry.Second, out int zone, out _, out float x, out float z))
                 {
-                    return new EventMapFocus(zone, -1, x, z, new[] { new EventMapMarker(entry.Second, x, z, HomePointLabel) }, EventMapPin.HomePoint);
+                    // The point's own floor (#481): Castle Zvahl Keep's home point is on its map 4.
+                    return new EventMapFocus(zone, HomePoints.MapOf(entry.Second), x, z,
+                        new[] { new EventMapMarker(entry.Second, x, z, HomePointLabel) }, EventMapPin.HomePoint);
+                }
+                if (QueryEntries.TryGetValue(option, out entry) && entry is { Sub: 1, First: EventQueryMapEntry.SurvivalGuideKind }
+                    && SurvivalGuides.TryGet(entry.Second, out zone, out x, out _, out z))
+                {
+                    return new EventMapFocus(zone, SurvivalGuides.MapOf(entry.Second), x, z,
+                        new[] { new EventMapMarker(entry.Second, x, z, SurvivalGuideLabel) }, EventMapPin.SurvivalGuide);
                 }
                 if (!IsOpen) return null;
             }
@@ -126,5 +141,8 @@ namespace Gordian.Engine.Events
 
         /// <summary>The home point marker's label (retail capture, #168).</summary>
         public const string HomePointLabel = "Home Point";
+
+        /// <summary>The survival guide marker's label (#479). PROVISIONAL: not seen in a capture; worded as the home point's.</summary>
+        public const string SurvivalGuideLabel = "Survival Guide";
     }
 }

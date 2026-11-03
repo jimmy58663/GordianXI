@@ -2,6 +2,7 @@
 using System.IO;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Events;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Tables;
 using Xunit;
 
@@ -41,7 +42,9 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(100, 0)); // West Ronfaure: a field (round 2 of #485)
             Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(26, 1)); // Tavnazian Safehold's town map...
             Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(26, 3)); // ...and its 0.2 map
-            Assert.Null(ZoneMapProjection.ScaleOf(9, 1)); // Pso'Xja: too few spawn points on the floor to fit it
+            Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(9, 1)); // Pso'Xja: fitted on its floors' collision (#481)
+            Assert.Equal(0.4f, ZoneMapProjection.ScaleOf(162, 4)); // Castle Zvahl Keep's floor 4 (#481)
+            Assert.Null(ZoneMapProjection.ScaleOf(9, 16)); // the floor fit was not decisive
             Assert.Null(ZoneMapProjection.ScaleOf(230, 1));
         }
 
@@ -129,8 +132,112 @@ namespace Gordian.Core.Tests.Resources
                 Assert.Equal(Read(0x172E, i), number);
                 Assert.Equal(Read(0x1C2E, i), (int)System.MathF.Round(x * 1000));
                 Assert.Equal(Read(0x1D2E, i), (int)System.MathF.Round(z * 1000));
+                Assert.True(HomePoints.TryGet(i, out _, out _, out _, out float y, out _));
+                Assert.Equal(Read(0x1E2E, i), (int)System.MathF.Round(y * 1000));
             }
             Assert.Equal(0, Read(0x152E, HomePoints.Count)); // the table ends there
+        }
+
+        /// <summary>
+        /// #479: every survival guide NPC runs one script (zone 2's actor 0x0100217D) with per-number tables 0xD0 bytes apart:
+        /// zone at 0x13BF, x at 0x17CF, z at 0x189F, y at 0x196F; its query map entries are 0xD4 sub 1 with kind 2.
+        /// </summary>
+        [Fact]
+        public void SurvivalGuides_MatchTheRetailGuideEventsTables()
+        {
+            var resources = OpenGame();
+            if (resources == null) return;
+            var script = ZoneEventScript.Parse(resources.LoadDatBytesByFileId(ZoneEventScript.GetFileId(2))!)!;
+            EventBlock? block = null;
+            foreach (var b in script.Blocks) if (b.ActorId == 0x0100217D) block = b;
+            Assert.NotNull(block);
+            Assert.True(block!.TryGetEvent(8500, out _, out _));
+
+            int Read(int table, int i)
+            {
+                int key = block!.Code[table + 2 * i] | block.Code[table + 2 * i + 1] << 8;
+                Assert.True((key & 0x8000) != 0);
+                return (int)block.References[key & 0x7FFF];
+            }
+
+            for (int i = 0; i < SurvivalGuides.Count; i++)
+            {
+                Assert.True(SurvivalGuides.TryGet(i, out int zone, out float x, out float y, out float z));
+                Assert.Equal(Read(0x13BF, i), zone);
+                Assert.Equal(Read(0x17CF, i), (int)System.MathF.Round(x * 1000));
+                Assert.Equal(Read(0x189F, i), (int)System.MathF.Round(z * 1000));
+                Assert.Equal(Read(0x196F, i), (int)System.MathF.Round(y * 1000));
+            }
+            Assert.Equal(0, Read(0x13BF, SurvivalGuides.Count)); // the table ends there
+            Assert.Equal(98, SurvivalGuides.Count);
+        }
+
+        [Fact]
+        public void SurvivalGuide_StandsWhereRetailDrawsTheBook()
+        {
+            // Retail round 1 image-5 of #168: the book just above Northern San d'Oria's home point #1.
+            var resources = OpenGame();
+            if (resources == null) return;
+            var origin = ReadOrigin(resources, 231)!.Value;
+            float scale = ZoneMapProjection.ScaleOf(231, 0)!.Value;
+            var guide = Assert.Single(SurvivalGuides.InZone(231));
+            HomePoints.TryGet(3, out _, out _, out float hx, out float hz);
+            var (gu, gv) = ZoneMapProjection.ToMap(origin, scale, guide.X, guide.Z);
+            var (hu, hv) = ZoneMapProjection.ToMap(origin, scale, hx, hz);
+            Assert.InRange(gu - hu, -6, 6); // straight above
+            Assert.InRange(hv - gv, 4, 12); // 7 map px up
+        }
+
+        /// <summary>
+        /// #481: a collision transform's +0xA4 word names the zone map of its floor (bits 3-5, then bits 26-27 as 8 and 16).
+        /// </summary>
+        [Fact]
+        public void MapFloorOf_ReadsTheFloorBits()
+        {
+            Assert.Equal(4, ZoneCollisionDecoder.MapFloorOf(0x20));
+            Assert.Equal(4, ZoneCollisionDecoder.MapFloorOf(0x21));
+            Assert.Equal(1, ZoneCollisionDecoder.MapFloorOf(0x0A));
+            Assert.Equal(0, ZoneCollisionDecoder.MapFloorOf(0x06));
+            Assert.Equal(14, ZoneCollisionDecoder.MapFloorOf(0x4000036));
+            Assert.Equal(16, ZoneCollisionDecoder.MapFloorOf(0x8000006));
+            Assert.Equal(17, ZoneCollisionDecoder.MapFloorOf(0x800000E));
+        }
+
+        /// <summary>
+        /// #481 against the install: every floor a multi-floor zone's collision names is one of its map files, and the
+        /// home point and survival guide floors the tables keep are what the collision says at their x, y and z.
+        /// </summary>
+        [Fact]
+        public void Floors_AreTheZonesMaps_AndTheTravelPointsFloorsMatchTheCollision()
+        {
+            var resources = OpenGame();
+            if (resources == null) return;
+            foreach (int zone in new[] { 9, 34, 162, 167, 205 })
+            {
+                var collision = resources.TryLoadZoneCollision(zone)!;
+                var floors = new System.Collections.Generic.HashSet<int>();
+                foreach (var t in collision.Triangles) if (t.MapFloor != 0) floors.Add(t.MapFloor);
+                Assert.NotEmpty(floors);
+                foreach (int floor in floors) Assert.Contains((byte)floor, ZoneMapFiles.MapsOf(zone));
+            }
+            // Castle Zvahl Keep's home point stands on floor 4.
+            Assert.Equal(4, resources.TryLoadZoneCollision(162)!.MapFloorUnder(new System.Numerics.Vector3(-554, -70, 66)));
+
+            for (int i = 0; i < HomePoints.Count; i++)
+            {
+                HomePoints.TryGet(i, out int zone, out _, out float x, out float y, out float z);
+                if (ZoneMapFiles.MapsOf(zone).Count < 2) continue;
+                var collision = resources.TryLoadZoneCollision(zone);
+                Assert.Equal(ZoneMapFiles.FloorOf(zone, collision, new System.Numerics.Vector3(x, y, z)), HomePoints.MapOf(i));
+            }
+            for (int i = 0; i < SurvivalGuides.Count; i++)
+            {
+                SurvivalGuides.TryGet(i, out int zone, out float x, out float y, out float z);
+                if (ZoneMapFiles.MapsOf(zone).Count < 2) continue;
+                var collision = resources.TryLoadZoneCollision(zone);
+                Assert.Equal(ZoneMapFiles.FloorOf(zone, collision, new System.Numerics.Vector3(x, y, z)), SurvivalGuides.MapOf(i));
+            }
+            Assert.Equal(4, HomePoints.MapOf(58));
         }
     }
 }

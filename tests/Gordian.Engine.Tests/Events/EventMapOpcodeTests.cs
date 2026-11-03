@@ -95,6 +95,25 @@ namespace Gordian.Engine.Tests.Events
         }
 
         [Fact]
+        public void TheQueryMap_OpensOnThePointsFloor_AndShowsSurvivalGuides()
+        {
+            // #481: Castle Zvahl Keep's home point (global 58) is on the zone's map 4, not its first floor.
+            var state = EventMapState.Closed
+                .WithQueryEntry(0, new EventQueryMapEntry(1, EventQueryMapEntry.HomePointKind, 58, 0, 0, 0))
+                .WithQueryEntry(1, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, 0, 0, 0, 0))
+                .WithQueryMap();
+            var homePoint = state.Focus(0)!;
+            Assert.Equal((162, 4), (homePoint.Zone, homePoint.MapNumber));
+            // #479: kind 2 is the survival guides: Northern San d'Oria's guide, with the book and its label.
+            var guide = state.Focus(1)!;
+            Assert.Equal((231, 0), (guide.Zone, guide.MapNumber));
+            Assert.Equal(-174f, guide.X!.Value, 3);
+            Assert.Equal(80f, guide.Z!.Value, 3);
+            Assert.Equal(EventMapPin.SurvivalGuide, guide.Pin);
+            Assert.Equal(EventMapState.SurvivalGuideLabel, Assert.Single(guide.Markers).Name);
+        }
+
+        [Fact]
         public void TheEventMap_CentresOnTheLastMarker_UntilItCloses()
         {
             var state = EventMapState.Closed.Open(230, 0);

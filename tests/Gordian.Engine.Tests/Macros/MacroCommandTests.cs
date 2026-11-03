@@ -121,6 +121,12 @@ namespace Gordian.Engine.Tests.Macros
             Assert.Equal("<foo> <st> done", _service.ExpandChatTokens("<foo> <st> done <wait 2>"));
             // No pet: <pethpp> stays.
             Assert.Equal("<pethpp>", _service.ExpandChatTokens("<pethpp>"));
+            // <pos> (#387): the map grid square in brackets; as typed off a calibrated map.
+            Assert.Equal("At <pos>", _service.ExpandChatTokens("At <pos>"));
+            _service.MapSquare = () => "F-8";
+            Assert.Equal("At (F-8)", _service.ExpandChatTokens("At <pos>"));
+            _service.MapSquare = () => null;
+            Assert.Equal("At <pos>", _service.ExpandChatTokens("At <pos>"));
             _service.PetSnapshot = () => new LocalPet(1, 2, 3, 75, 40, 1500, 0, "Carbuncle");
             Assert.Equal("75% 40% 1500", _service.ExpandChatTokens("<pethpp> <petmpp> <pettp>"));
         }
