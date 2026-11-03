@@ -294,6 +294,7 @@ namespace Gordian.Engine.Ui
                 }
             };
             menus.NoticePosted += message => Log.Add(ChatLogChannel.Notice, message);
+            menus.EchoPosted += message => Log.Add(ChatLogChannel.Echo, message);
             menus.ErrorPosted += message => Log.Add(ChatLogChannel.Error, message);
         }
 

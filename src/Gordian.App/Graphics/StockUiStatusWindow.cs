@@ -73,48 +73,69 @@ namespace Gordian.App.Graphics
 
         /// <summary>The stats side, the level box and the help bar, at their authored places (top left), while the Status window is up.</summary>
         public static void DrawPanels(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
-            StockUiMenuController menus, float scale, uint width, uint height)
+            StockUiMenuController menus, float scale, uint width, uint height, StockUiPlacement? party = null)
         {
             var info = menus.StatusInfo?.Invoke();
-            if (library.TryGetMenu(StockUiStatus.WindowMenu, out var window))
+            var points = menus.StatusPoints?.Invoke();
+            var open = menus.OpenMenus;
+            // The Currencies, Job Points and Alter Ego Points lists (16,48) stand where the stats side and level box are (#487).
+            bool list = open.Count > 0 && open[^1].IsStatusValueList;
+            string? box = StockUiStatusPagesWindow.BoxOf(open);
+            if (!list && library.TryGetMenu(StockUiStatus.WindowMenu, out var window))
             {
                 var f = window.Frame;
                 StockUiItemWindow.DrawStatsSide(renderer, font, window, StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height), info?.Stats);
             }
-            if (library.TryGetMenu(StockUiStatus.LevelMenu, out var level))
+            if (!list && !StockUiStatusPagesWindow.ReplacesLevelBox(box) && library.TryGetMenu(StockUiStatus.LevelMenu, out var level))
             {
                 var f = level.Frame;
                 var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
                 renderer.DrawMenu(level, at, includeButtons: false, opaqueBody: true);
-                if (info != null) DrawLevel(renderer, font, info, at);
+                if (info != null) DrawLevel(renderer, font, info, at, ExpSectionGreyed(info, points));
             }
+            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, points, scale, width, height, party);
+            if (open.Count > 0) StockUiStatusPagesWindow.DrawInfo(renderer, library, font, logFont, open[^1], menus, scale, width, height);
 
-            var open = menus.OpenMenus;
-            string? help = null;
+            string? help = null, title = null;
             if (open.Count > 0 && open[^1].StatusPage == StockUiStatusPage.Profile)
             {
                 help = info is { Title.Length: > 0 } ? "Title: " + info.Title : null;
+            }
+            else if (list)
+            {
+                var top = open[^1];
+                help = top.SelectedStatusRowHelp is >= 0 and var id ? menus.MenuHelpText?.Invoke(id) : null;
+                title = StockUiStatusPagesWindow.TitleOf(top);
             }
             else
             {
                 for (int i = open.Count - 1; i >= 0; i--)
                 {
-                    if (!open[i].IsStatusList) continue;
+                    if (!StockUiStatusPagesWindow.ShowsHelp(open[i])) continue;
                     if (open[i].SelectedButton is { HelpTextId: >= 0 } button) help = menus.MenuHelpText?.Invoke(button.HelpTextId);
                     break;
                 }
             }
-            StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, null, help, scale, width, height);
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, title, help, scale, width, height);
         }
 
-        private static void DrawLevel(StockUiRenderer renderer, UiFont font, StockUiStatusInfo info, StockUiPlacement at)
+        /// <summary>
+        /// Whether the level box's EXP section is grey: while limit points are earned instead (Merit Points' Mode Switch) or
+        /// experience is capped one short of the next level (55,999 / 56,000), when limit points build by themselves; white
+        /// otherwise (round 1 of #487, image-5: the capture's grey is the capped state).
+        /// </summary>
+        public static bool ExpSectionGreyed(StockUiStatusInfo info, StockUiStatusPoints? points) =>
+            points is { MeritModeEnabled: true } or { ExpCappedOrLimitMode: true } || (info.ExpNext > 0 && info.ExpNow >= info.ExpNext - 1);
+
+        private static void DrawLevel(StockUiRenderer renderer, UiFont font, StockUiStatusInfo info, StockUiPlacement at, bool greyed)
         {
             float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
             var inv = CultureInfo.InvariantCulture;
+            var tint = greyed ? GreyTint : White;
             renderer.DrawText(font, string.Create(inv, $"Level {info.Level}"), at.X + LevelX * s, at.Y + LevelY * s, ts, LevelTint);
-            renderer.DrawText(font, "EXP", at.X + LabelX * s, at.Y + ExpLabelY * s, ts, GreyTint);
-            renderer.DrawText(font, "NEXT Level", at.X + LabelX * s, at.Y + NextLabelY * s, ts, GreyTint);
-            void Right(string text, float y) => renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, GreyTint);
+            renderer.DrawText(font, "EXP", at.X + LabelX * s, at.Y + ExpLabelY * s, ts, tint);
+            renderer.DrawText(font, "NEXT Level", at.X + LabelX * s, at.Y + NextLabelY * s, ts, tint);
+            void Right(string text, float y) => renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, tint);
             Right(StockUiStatus.Number(info.ExpNow), ExpValueY);
             Right(StockUiStatus.Number(info.ExpNext), NextValueY);
             int percent = info.ExpNext > 0 ? (int)((long)info.ExpNow * 100 / info.ExpNext) : 0;
@@ -132,7 +153,11 @@ namespace Gordian.App.Graphics
                     DrawProfile(renderer, library, font, logFont, info, placement);
                     break;
                 case StockUiStatusPage.JobLevels:
-                    DrawJobLevels(renderer, font, logFont, menu, info, placement);
+                    DrawJobLevels(renderer, font, logFont, info, placement,
+                        job => (job < info.JobLevels.Count ? info.JobLevels[job] : 0).ToString(CultureInfo.InvariantCulture));
+                    break;
+                case StockUiStatusPage.MasterLevels:
+                    DrawJobLevels(renderer, font, logFont, info, placement, job => StockUiStatusPages.MasterLevelText(info, job));
                     break;
                 case StockUiStatusPage.CombatSkills:
                     DrawSkills(renderer, font, logFont, info.CombatSkills, placement);
@@ -171,11 +196,11 @@ namespace Gordian.App.Graphics
 
         private const float TextHalfHeight = 6;
 
-        private static void DrawJobLevels(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiStatusInfo info,
-            StockUiPlacement p)
+        /// <summary>Job Levels and Master Levels (#487, the same 22 rows in <c>masterle</c>): each job's name and its level as <paramref name="levelText"/> writes it.</summary>
+        private static void DrawJobLevels(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiStatusInfo info,
+            StockUiPlacement p, Func<byte, string> levelText)
         {
             float s = p.Scale;
-            var inv = CultureInfo.InvariantCulture;
             for (int button = 1; button <= StockUiStatus.JobRowsPerColumn * 2; button++)
             {
                 byte job = StockUiStatus.JobOfRow(button);
@@ -185,8 +210,7 @@ namespace Gordian.App.Graphics
                 var tint = job == info.MainJob ? MainJobRowTint : job == info.SubJob ? SubJobRowTint : White;
                 float y = RowTextY(p, row);
                 Name(renderer, font, StockUiCheck.JobName(job), p.X + (column + TextInset) * s, y, (JobLevelRight - TextInset - LevelRoom + 8) * s, s, tint);
-                int level = job < info.JobLevels.Count ? info.JobLevels[job] : 0;
-                RightText(renderer, font, logFont, level.ToString(inv), p.X + (column + JobLevelRight) * s, y, s, tint);
+                RightText(renderer, font, logFont, levelText(job), p.X + (column + JobLevelRight) * s, y, s, tint);
             }
         }
 
