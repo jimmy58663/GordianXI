@@ -65,6 +65,9 @@ namespace Gordian.App.Graphics
         /// <summary>Whether the view is zoning (fading out or black): the interface and name plates are not drawn.</summary>
         public bool InterfaceHidden { get; set; }
 
+        /// <summary>Where the camera looks, in degrees clockwise from north: the compass turns with it (#485).</summary>
+        public float CameraBearing { get; set; }
+
         private long _loadingIndicatorSince;
 
         /// <summary>The stock elements hidden at run time this frame (<see cref="StockUiVisibilityState"/>, #29).</summary>
@@ -296,6 +299,7 @@ namespace Gordian.App.Graphics
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
+                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, width, height);
             }
             if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
@@ -420,6 +424,60 @@ namespace Gordian.App.Graphics
             if (LoadZoneMap(focus.Zone, mapNumber) is not { } loaded) return;
             string zoneName = _resources.TryGetString(DMsgCategory.ZoneNames, focus.Zone, out var name) ? name : string.Empty;
             _eventMap.Draw(renderer, library, font, _logFont, focus, mapNumber, loaded.Texture, loaded.Origin, zoneName, Layout.Scale, width, height);
+        }
+
+        private readonly List<StockUiCompassDot> _compassDots = new();
+
+        /// <summary>
+        /// The compass above the log (#485): hidden while a window sits in its place (the target command menu and the like).
+        /// </summary>
+        private void DrawCompass(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            if (_font is not { } font) return;
+            float s = Layout.Scale;
+            float lineBottom = StockUiCompass.LineBottom(_window1Top, height, s);
+            var bounds = StockUiCompass.Bounds(lineBottom, s);
+            foreach (var p in _menuPlacements)
+            {
+                var f = p.Menu.Menu.Frame;
+                if (StockUiCompass.Overlaps(bounds, p.X, p.Y, f.Width * p.Scale, f.Height * p.Scale)) return;
+            }
+
+            var world = session.World;
+            _compassDots.Clear();
+            string? grid = null;
+            if (world.TryGetByServerId(session.LocalPlayer.ServerId, out var me) && me != null)
+            {
+                foreach (var entity in world.GetEntitiesInRadius(me.Position, StockUiCompass.RangeYalms))
+                {
+                    if (ReferenceEquals(entity, me) || !entity.IsSpawned || !entity.IsDrawn) continue;
+                    var offset = entity.Position - me.Position;
+                    if (StockUiCompass.DotOffset(offset.X, offset.Z, CameraBearing) is { } at)
+                        _compassDots.Add(new StockUiCompassDot(at, StockUiCompass.Classify(entity.Type)));
+                }
+                grid = CompassGrid(world.CurrentZoneId, me.Position);
+            }
+            var now = DateTime.UtcNow;
+            var (hour, minute) = StockUiCompass.TimeOfDay(world.Clock, now);
+            StockUiCompassWindow.Draw(renderer, library, font, CameraBearing, world.Clock.GetDayOfWeekIndex(now),
+                StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s);
+        }
+
+        /// <summary>The map grid square of a position (<see cref="StockUiCompass.MapSquare"/>).</summary>
+        private string? CompassGrid(int zone, Vector3 position) => StockUiCompass.MapSquare(zone, position.X, position.Z, ZoneMapOrigin);
+
+        /// <summary>Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square).</summary>
+        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+
+        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map)
+        {
+            if (!_zoneMapOrigins.TryGetValue((zone, map), out var origin))
+            {
+                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(zone, map);
+                origin = path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
+                _zoneMapOrigins[(zone, map)] = origin;
+            }
+            return origin;
         }
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>

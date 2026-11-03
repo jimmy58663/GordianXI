@@ -215,6 +215,99 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
+        public void ParseZonePlacements_ReadsTheVisibilityFields()
+        {
+            int stride = ZoneDefDecoder.StrideModern;
+            int tables = 0x20 + 2 * stride;
+            byte[] payload = new byte[tables + 0x20];
+            // Two culling tables: T0 lists record 1, T1 lists records 0 and 1.
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x14, 4), (uint)tables);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables, 4), 2);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables + 4, 4), 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables + 8, 4), 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables + 12, 4), 2);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables + 16, 4), 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(tables + 20, 4), 1);
+            for (int i = 0; i < 2; i++)
+            {
+                int b = 0x20 + i * stride;
+                Encoding.ASCII.GetBytes(i == 0 ? "kanban01" : "block03").CopyTo(payload.AsSpan(b, i == 0 ? 8 : 7));
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x38, 4), 10.0f);
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x3C, 4), 100.0f);
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(b + 0x40, 4), i == 0 ? 60.0f : 1000.0f);
+                payload[b + 0x46] = (byte)(i == 0 ? 0x01 : 0x00);
+                payload[b + 0x47] = 0x01;
+            }
+            // Record 1 is part of the floor whose table is T1 (the count word at tables + 12).
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x20 + stride + 0x48, 4), (uint)(tables + 12));
+
+            var placements = ZoneDefDecoder.ParseZonePlacements(payload, 2);
+
+            Assert.Equal(2, placements.Count);
+            Assert.Equal((0, true, 60.0f, -1), (placements[0].RecordIndex, placements[0].HasOwnDrawDistance, placements[0].DrawDistance, placements[0].CullingTable));
+            Assert.Equal((1, false, 1, 10.0f, 100.0f), (placements[1].RecordIndex, placements[1].HasOwnDrawDistance, placements[1].CullingTable,
+                                                         placements[1].LodNear, placements[1].LodMid));
+        }
+
+        [Fact]
+        public void ZoneCullingTables_ListRecordsByTableAndResolveTablePointers()
+        {
+            byte[] payload = new byte[0x60];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x14, 4), 0x30);
+            uint[] words = { 2, 2, 3, 70, 1, 70 };
+            for (int i = 0; i < words.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x30 + i * 4, 4), words[i]);
+
+            var tables = ZoneCullingTables.Parse(payload);
+
+            Assert.NotNull(tables);
+            Assert.Equal(2, tables.Count);
+            Assert.Equal(new[] { 2, 1 }, tables.Sizes);
+            Assert.True(tables.IsListed(0, 3));
+            Assert.True(tables.IsListed(0, 70));
+            Assert.False(tables.IsListed(0, 4));
+            Assert.True(tables.IsListed(1, 70));
+            Assert.False(tables.IsListed(1, 3));
+            Assert.False(tables.IsListed(2, 3));
+            Assert.Equal(0, tables.TableAt(0x34));
+            Assert.Equal(1, tables.TableAt(0x40));
+            Assert.Equal(-1, tables.TableAt(0));
+            Assert.Equal(-1, tables.TableAt(0x38));
+        }
+
+        [Fact]
+        public void ZoneCullingTables_RejectsMissingOrOverrunningTables()
+        {
+            Assert.Null(ZoneCullingTables.Parse(new byte[0x40]));
+            byte[] payload = new byte[0x40];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x14, 4), 0x30);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x30, 4), 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0x34, 4), 500); // more entries than the payload holds
+            Assert.Null(ZoneCullingTables.Parse(payload));
+        }
+
+        [Fact]
+        public void ResolveLodTemplates_FillsMissingSlotsLikeTheClient()
+        {
+            List<MeshGroup> T(string name) => new() { new MeshGroup { Name = name } };
+            var all = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tree_h"] = T("tree_h"), ["tree_m"] = T("tree_m"), ["tree_l"] = T("tree_l"),
+                ["palm_h"] = T("palm_h"), ["palm_m"] = T("palm_m"),
+                ["rock_h"] = T("rock_h"), ["rock_l"] = T("rock_l"),
+                ["wall_m"] = T("wall_m"),
+                ["house"] = T("house"),
+            };
+            string Describe(string id) => string.Join(" ", ZoneDefDecoder.ResolveLodTemplates(id, all).Select(v => $"{v.Template[0].Name}={v.Slots}"));
+
+            Assert.Equal("tree_h=High tree_m=Mid tree_l=Low", Describe("tree_m"));
+            Assert.Equal("palm_h=High palm_m=Mid, Low", Describe("palm_h"));
+            Assert.Equal("rock_h=High, Mid rock_l=Low", Describe("rock_l"));
+            Assert.Equal("wall_m=All", Describe("wall_m"));
+            Assert.Equal("house=All", Describe("house"));
+            Assert.Empty(ZoneDefDecoder.ResolveLodTemplates("missing_h", all));
+        }
+
+        [Fact]
         public void ParsePointLightTable_ReadsGeneratorIdsUpToTheCollisionBlock()
         {
             const int tableOffset = 0x40;

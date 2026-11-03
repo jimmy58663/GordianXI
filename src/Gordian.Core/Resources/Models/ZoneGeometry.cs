@@ -49,9 +49,54 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         public int SubAreaLink { get; set; }
 
+        /// <summary>
+        /// How the placement this submesh belongs to is culled (#70): its culling-table record, origin, own draw distance
+        /// and level-of-detail slots. <see cref="PlacementVisibility.Always"/> for anything not placed by the ZoneDef.
+        /// </summary>
+        public PlacementVisibility Visibility { get; set; } = PlacementVisibility.Always;
+
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"SubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";
+    }
+
+    /// <summary>
+    /// The level-of-detail slots a placed submesh draws in (xi-tools docs/zone/lod-draw-distance.md "InitializeMeshLOD").
+    /// </summary>
+    [Flags]
+    public enum LodSlots : byte
+    {
+        None = 0,
+        High = 1,
+        Mid = 2,
+        Low = 4,
+        All = High | Mid | Low
+    }
+
+    /// <summary>
+    /// How one placed submesh is culled (#70), from its ZoneDef record: the record index the culling tables list, the
+    /// placement origin the distances are measured to (display space), its own draw distance (0 = the environment's),
+    /// the level-of-detail slots it serves and the slot thresholds.
+    /// </summary>
+    /// <param name="Record">ZoneDef record index; -1 for geometry no culling table can hide.</param>
+    /// <param name="Origin">The placement's position in display space (-x, -y, z).</param>
+    /// <param name="OwnDrawDistance">Record +0x40 when record +0x46 bit 0 is set, else 0 (the global draw distance applies).</param>
+    /// <param name="Slots">The detail slots this submesh's variant fills.</param>
+    /// <param name="LodNear">Record +0x38.</param>
+    /// <param name="LodMid">Record +0x3C.</param>
+    public readonly record struct PlacementVisibility(
+        int Record,
+        Vector3 Origin,
+        float OwnDrawDistance,
+        LodSlots Slots,
+        float LodNear,
+        float LodMid)
+    {
+        /// <summary>Never culled by table, distance or detail level (frustum culling still applies).</summary>
+        public static readonly PlacementVisibility Always = new(-1, Vector3.Zero, 0.0f, LodSlots.All, 0.0f, 0.0f) { IsUnplaced = true };
+
+        /// <summary>True for geometry that is not a ZoneDef placement: no distance or detail selection applies to it.</summary>
+        public bool IsUnplaced { get; init; }
     }
 
     /// <summary>
@@ -67,6 +112,15 @@ namespace Gordian.Core.Resources.Models
     /// (inferred from retail captures, #428 round 1; see docs/rendering/lighting.md).</param>
     /// <param name="InteriorLightsOnly">Record +0x46 bit 1: the placement takes point lights only in a building interior's
     /// DAT, never in a zone's (inferred from retail captures, #428 round 3; see docs/rendering/lighting.md).</param>
+    /// <param name="RecordIndex">The record's index in the ZoneDef, the index the culling tables list; -1 when unknown.</param>
+    /// <param name="LodNear">Record +0x38: within this distance (yalms, camera eye to placement origin) the high-detail
+    /// <c>_h</c> variant draws.</param>
+    /// <param name="LodMid">Record +0x3C: within this distance the mid-detail <c>_m</c> variant draws, beyond it <c>_l</c>.</param>
+    /// <param name="HasOwnDrawDistance">Record +0x46 bit 0: the placement is culled at its own <see cref="DrawDistance"/>
+    /// instead of the environment's (the "LoD-enabled" mode of xi-tools docs/zone/lod-draw-distance.md; the bit is
+    /// *inferred* from the data, #70).</param>
+    /// <param name="CullingTable">Record +0x48 resolved to a <see cref="Graphics.ZoneCullingTables"/> index (the table of
+    /// the floor this placement is part of); -1 for none.</param>
     public readonly record struct ZonePlacement(
         string MeshId,
         Vector3 Position,
@@ -78,7 +132,12 @@ namespace Gordian.Core.Resources.Models
         string BlockId = "",
         int FileIdLink = 0,
         bool NoPointLights = false,
-        bool InteriorLightsOnly = false
+        bool InteriorLightsOnly = false,
+        int RecordIndex = -1,
+        float LodNear = 0.0f,
+        float LodMid = 0.0f,
+        bool HasOwnDrawDistance = false,
+        int CullingTable = -1
     )
     {
         /// <summary>
@@ -210,6 +269,12 @@ namespace Gordian.Core.Resources.Models
         /// (<see cref="Vessel"/> with scenery routes) it is the vessel's collision: the player walks the deck.
         /// </summary>
         public World.Collision.ZoneCollisionMesh? Collision { get; set; }
+
+        /// <summary>
+        /// The ZoneDef culling tables (#70): the collision floor under the camera picks one, and only the placements it
+        /// lists draw. Null when the zone has none (everything draws).
+        /// </summary>
+        public Graphics.ZoneCullingTables? CullingTables { get; set; }
 
         /// <summary>
         /// The vessel of a ship zone or of a zone whose DAT carries one (the second ZoneDef, under a <c>ship</c>
