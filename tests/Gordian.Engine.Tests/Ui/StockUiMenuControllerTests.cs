@@ -711,6 +711,7 @@ namespace Gordian.Engine.Tests.Ui
             {
                 StockUiMenuEntries.MainMenu, StockUiMenuEntries.MainMenuPage2, StockUiMenuEntries.ConfigMenu, StockUiMenuEntries.WindowsMenu,
                 StockUiConfigPages.ChatFiltersPage, StockUiMenuEntries.ChatModeMenu,
+                StockUiStatus.CommandMenu, StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritModeMenu, StockUiStatusPages.UnityMenu,
                 StockUiConfigPages.FontColorCategoryMenu, StockUiConfigPages.FontColorListMenu,
                 StockUiConfigPages.LogWindowMenu, StockUiConfigPages.LogCategoryMenu, StockUiConfigPages.LogListMenu,
                 StockUiConfigPages.EffectsPage, StockUiDeathMenu.MenuName,

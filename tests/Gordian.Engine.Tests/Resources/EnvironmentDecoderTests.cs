@@ -185,7 +185,8 @@ namespace Gordian.Engine.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_PushesZeroFogStartToDistantHorizon()
         {
-            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
+            // Multiplier 1: the authored fog distances, which the draw-distance multiplier scales outdoors (#70).
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings { DrawDistanceMultiplier = 1.0f };
 
             // Retail DAT keyframe with FogStart = 0, FogEnd = 302
             var keyframe = new EnvironmentKeyframe
@@ -267,7 +268,7 @@ namespace Gordian.Engine.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_CalibratesLinearFogForClearOutdoorKeyframes()
         {
-            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
+            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings { DrawDistanceMultiplier = 1.0f };
             var indoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Outdoor keyframe with low authored FogStart

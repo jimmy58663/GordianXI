@@ -30,6 +30,8 @@ namespace Gordian.Core.World.Collision
     /// <param name="Normal">Unit normal on the solid/walkable side; a floor's normal has negative Y.</param>
     /// <param name="IsWall">The triangle's wall material bit (both walls and floors block movement).</param>
     /// <param name="CameraTransparent">The camera and line of sight pass through this triangle.</param>
+    /// <param name="CullingTable">The ZoneDef culling table its collision transform names at +0xA8 (the table a camera
+    /// over this floor draws with, #70); -1 for none.</param>
     public readonly record struct CollisionTriangle(
         Vector3 A,
         Vector3 B,
@@ -37,7 +39,8 @@ namespace Gordian.Core.World.Collision
         Vector3 Normal,
         bool IsWall,
         CollisionTerrain Terrain,
-        bool CameraTransparent);
+        bool CameraTransparent,
+        int CullingTable = -1);
 
     /// <summary>
     /// A ground hit below a query point.
@@ -164,7 +167,11 @@ namespace Gordian.Core.World.Collision
             {
                 if (!InsideAnyFootprint(triangle, interiors)) triangles.Add(triangle);
             }
-            foreach (var interior in interiors) triangles.AddRange(interior._triangles);
+            // An interior's culling tables are its own DAT's, not the zone's: its floors pick none.
+            foreach (var interior in interiors)
+            {
+                foreach (var triangle in interior._triangles) triangles.Add(triangle with { CullingTable = -1 });
+            }
             return new ZoneCollisionMesh(triangles)
             {
                 MovingPlatforms = zone.MovingPlatforms,
@@ -625,6 +632,14 @@ namespace Gordian.Core.World.Collision
             }
             return bestDistance < float.MaxValue;
         }
+
+        /// <summary>
+        /// The culling table a camera at <paramref name="eye"/> (internal space) draws with (#70): the one named by the
+        /// highest floor at or below the eye, at most <paramref name="maxDrop"/> under it; -1 when there is no floor there
+        /// or it names none (then every placement draws). Rule referenced from xi-tools (docs/zone/format.md "Visibility").
+        /// </summary>
+        public int CullingTableUnder(Vector3 eye, float maxDrop = 1000.0f) =>
+            TryGetGround(eye, 0.0f, maxDrop, out GroundHit hit) ? _triangles[hit.TriangleIndex].CullingTable : -1;
 
         /// <summary>
         /// Height of the triangle's plane at (x, z) when that point lies inside the triangle's XZ projection.

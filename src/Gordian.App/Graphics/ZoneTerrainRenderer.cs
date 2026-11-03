@@ -356,6 +356,9 @@ namespace Gordian.App.Graphics
             /// <summary>The building interior this placement is the closed exterior of (#68): hidden while it is shown.</summary>
             public int SubAreaLink { get; init; }
 
+            /// <summary>How its placement is culled by table, distance and detail level (#70).</summary>
+            public PlacementVisibility Visibility { get; init; } = PlacementVisibility.Always;
+
             /// <summary>The leaf's part index in its door's routines.</summary>
             public int DoorPart { get; init; }
 
@@ -834,6 +837,7 @@ namespace Gordian.App.Graphics
             _subEnvironmentActorLights.Clear();
             _effectEnvironments.Clear();
             _viewerFloorProbe = new Vector3(float.NaN);
+            ResetZoneVisibility();
             var envWaterUv = zone?.EnvironmentData?.WaterUVScroll;
             _waterScrollVelocity = (envWaterUv.HasValue && envWaterUv.Value != Vector2.Zero)
                 ? envWaterUv.Value
@@ -1169,7 +1173,8 @@ namespace Gordian.App.Graphics
                 IsWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName),
                 UVScroll = group.UVScroll,
                 EnvironmentId = group.EnvironmentId,
-                SubAreaLink = group.SubAreaLink
+                SubAreaLink = group.SubAreaLink,
+                Visibility = group.Visibility
             };
         }
 
@@ -1297,6 +1302,7 @@ namespace Gordian.App.Graphics
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
+            UpdateZoneVisibility(camera.Position, environment);
 
             // 2. Select submesh list (loaded zone or fallback scene)
             var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
@@ -1440,6 +1446,7 @@ namespace Gordian.App.Graphics
                 var pass = submesh.Pass;
                 if (pass.IsDeferred()) continue;
                 if (submesh.SubAreaLink != 0 && IsInteriorShown(submesh.SubAreaLink)) continue;
+                if (!PassesZoneVisibility(submesh)) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
@@ -1551,6 +1558,7 @@ namespace Gordian.App.Graphics
                 var submesh = activeSubmeshes[i];
                 if (!submesh.Pass.IsDeferred()) continue;
                 if (submesh.SubAreaLink != 0 && IsInteriorShown(submesh.SubAreaLink)) continue;
+                if (!PassesZoneVisibility(submesh)) continue;
 
                 // Frustum Culling
                 if (!frustum.IntersectsBox(submesh.MinBounds, submesh.MaxBounds))
@@ -1748,6 +1756,7 @@ namespace Gordian.App.Graphics
             DrawCalls = draws;
             CulledMeshes = culled;
             VisibleMeshes = visible;
+            VisibilityCulledMeshes = _visibilityCulled;
         }
 
         private static GraphicsPipelineDescription WithBackFaceCulling(GraphicsPipelineDescription description)
@@ -2857,6 +2866,7 @@ namespace Gordian.App.Graphics
 
                 // Internal +Y is down; display space is (-X, -Y, Z).
                 var shift = new Vector3(0.0f, -offset, 0.0f);
+                if (!PassesZoneVisibility(submesh)) continue;
                 if (!frustum.IntersectsBox(submesh.MinBounds + shift, submesh.MaxBounds + shift))
                 {
                     culled++;
@@ -2902,6 +2912,7 @@ namespace Gordian.App.Graphics
                     : DisplayFlip * DoorAnimator.LeafTransform(submesh.DoorPlacement, pose) * DisplayFlip;
                 // A vessel's doors stay in the passengers' frame (#403 round 2); the scenery's move with it.
                 bool vesselDoor = LoadedZone?.Vessel?.DoorLeaves.ContainsKey(submesh.DoorId) == true;
+                if (!PassesZoneVisibility(submesh, sceneryFrame: !vesselDoor)) continue;
                 TransformBounds(submesh.MinBounds, submesh.MaxBounds, world, out var min, out var max);
                 if (!(vesselDoor ? _cameraFrustum ?? frustum : frustum).IntersectsBox(min, max))
                 {

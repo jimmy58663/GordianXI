@@ -1291,6 +1291,8 @@ namespace Gordian.App.Graphics
 
             // The orbital camera stays in front of its zone's walls (it pulls in rather than clipping outside).
             camera.Collision = (session?.World ?? world)?.Collision;
+            // The far clip is the zone environment's draw distance, as the client's (#70).
+            camera.FarClip = ZoneVisibility.GlobalDrawDistance(Environment.DrawDistance, Environment.DrawDistanceMultiplier);
 
             if (session?.Events.Presentation is { } presentation && presentation.TryGetCamera(out var shot))
             {
@@ -1728,6 +1730,8 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
+            // The camera works in display space (-x, -y, z): world east is -X there (#485's compass turns with the view).
+            StockUi.CameraBearing = Gordian.Engine.Ui.StockUiCompass.BearingOf(-Camera.Forward.X, Camera.Forward.Z);
             StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors, subCursor);
         }
 

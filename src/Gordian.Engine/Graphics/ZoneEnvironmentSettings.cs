@@ -105,6 +105,18 @@ namespace Gordian.Engine.Graphics
         public float DrawDistance { get; set; } = 300.0f;
 
         /// <summary>
+        /// The client's draw-distance multiplier (#70): scales the global draw distance, placements' own distances and,
+        /// outdoors, the fog distances <see cref="ApplyKeyframe"/> sets. The one value a draw-distance setting (#195)
+        /// changes; see <see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>.
+        /// </summary>
+        public float DrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultDrawDistanceMultiplier;
+
+        /// <summary>
+        /// Scale on the placements' detail thresholds (#70); see <see cref="ZoneVisibility.DefaultLodDistanceScale"/>.
+        /// </summary>
+        public float LodDistanceScale { get; set; } = ZoneVisibility.DefaultLodDistanceScale;
+
+        /// <summary>
         /// Radial spokes for sky dome geometry.
         /// </summary>
         public ushort Spokes { get; set; } = 16;
@@ -180,6 +192,26 @@ namespace Gordian.Engine.Graphics
                 FogStart = keyframe.TerrainFogStart;
             }
             FogEnd = keyframe.TerrainFogEnd;
+            // Outdoors the fog moves out with the draw distance (#70): the client takes both from the same environment
+            // field (xi-tools docs/zone/lod-draw-distance.md "Fog and draw distance coupling"), and retail draws far
+            // mountains and islands textured where the authored fog end alone fogs them into silhouettes (round 1,
+            // 2026-10-31, image-17 / image-19 / image-20).
+            if (!keyframe.Indoors)
+            {
+                FogStart *= DrawDistanceMultiplier;
+                FogEnd *= DrawDistanceMultiplier;
+
+                // The fog never closes before the draw-distance cut: retail draws terrain out to the cut with only
+                // light haze even in mist, where the authored fog end (Valkurm 148.5) is under the draw distance
+                // (302). Stretching both ends keeps the start/end ratio (round 2, 2026-10-31, image-52 vs image-53).
+                float global = ZoneVisibility.GlobalDrawDistance(keyframe.DrawDistance, DrawDistanceMultiplier);
+                if (hasFog && FogEnd < global)
+                {
+                    float stretch = global / FogEnd;
+                    FogStart *= stretch;
+                    FogEnd = global;
+                }
+            }
 
             DrawDistance = keyframe.DrawDistance;
             Spokes = keyframe.Spokes;
