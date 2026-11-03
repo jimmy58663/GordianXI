@@ -99,5 +99,40 @@ namespace Gordian.Core.Tests.Resources
                 Assert.All(layer.MeshGroups, g => Assert.Contains("umna", g.TextureName, StringComparison.Ordinal));
             }
         }
+
+        [Fact]
+        public void FindInScope_TakesTheGeneratorsOwnDirectoryThenItsParents()
+        {
+            var sections = new Dictionary<string, List<MeshGroup>>(StringComparer.OrdinalIgnoreCase);
+            var passage = Mesh("san_zone01_m", 3715);
+            var overlay = Mesh("san_gate_inl", 407);
+            ZoneMeshTemplates.AddSection(sections, ZoneMeshTemplates.DirectoryKey("f_ro/mode", "san_"), "san_", passage);
+            ZoneMeshTemplates.AddSection(sections, ZoneMeshTemplates.DirectoryKey("f_ro/mode/ligh/g_li", "san_"), "san_", overlay);
+
+            Assert.Same(overlay, ZoneMeshTemplates.FindInScope(sections, "f_ro/mode/ligh/g_li", "san_"));
+            Assert.Same(passage, ZoneMeshTemplates.FindInScope(sections, "f_ro/mode/ligh", "san_"));
+            Assert.Same(passage, ZoneMeshTemplates.FindInScope(sections, "f_ro/mode/effe", "san_"));
+            Assert.Null(ZoneMeshTemplates.FindInScope(sections, "f_ro", "san_"));
+            Assert.Null(ZoneMeshTemplates.FindInScope(sections, null, "san_"));
+        }
+
+        [Fact]
+        public void WestRonfaure_GateLightGenerators_DrawTheGateOverlays()
+        {
+            string gameDir = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!Directory.Exists(gameDir)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(gameDir);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(100, out var zone, out _)) return;
+
+            // gin1 / gin2 link san2 / san_, ids the file also gives to the emblem and the zone-line passage in f_ro/mode;
+            // their own directory holds the gates' light overlays (#494).
+            var expected = new Dictionary<string, string> { ["gin1"] = "san_gate1_inl", ["gin2"] = "san_gate_inl" };
+            foreach (var (generator, mesh) in expected)
+            {
+                var layer = Assert.Single(zone.EffectLayers, l => l.GeneratorId == generator);
+                Assert.All(layer.MeshGroups, g => Assert.Equal(mesh, g.Name));
+            }
+        }
     }
 }

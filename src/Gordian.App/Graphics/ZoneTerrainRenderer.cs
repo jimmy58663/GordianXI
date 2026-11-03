@@ -190,8 +190,26 @@ namespace Gordian.App.Graphics
         /// effect, the transform from the zone-effect display frame to the world (the actor's placement and joint).
         /// <paramref name="OnModel"/> marks an effect a model or worn gear carries (<see cref="AddActorInstanceDraws"/>), whose
         /// generator z offset is drawn as a depth push behind the wearer (<see cref="WeatherSkyLayer.DepthOffset"/>, #8).
+        /// <paramref name="Surface"/> marks a zone layer drawn as a static mesh (no emitter): a river or sea surface, a cave
+        /// mouth's fog gradient, a lamp's light overlay (<see cref="EffectDrawOrder"/>).
         /// </summary>
-        private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false);
+        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false);
+        /// <summary>
+        /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
+        /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
+        /// one large mesh sorted by its base position, which says nothing about where its pixels lie: Phanauet Channel's
+        /// river <c>cors</c> spans about 310 x 360 yalms around the barge, its base at the barge's centre, so a summoned
+        /// spirit hovering past the centre sorted before it and the river painted over it, the spirit's particles writing no
+        /// depth to stop it (#458). Drawing the surfaces first, like the blended water submeshes of Pass 3, keeps anything
+        /// above the water in front of it (*inference*; how the client orders its effect lists is not known).
+        /// </summary>
+        internal static int EffectDrawOrder(EffectDraw a, EffectDraw b)
+        {
+            if (a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite) return a.Mesh.Layer.DepthWrite ? -1 : 1;
+            if (a.Surface != b.Surface) return a.Surface ? -1 : 1;
+            return b.Distance.CompareTo(a.Distance);
+        }
+
         private Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private ScenePostProcess? _postProcess;
 
@@ -1643,7 +1661,7 @@ namespace Gordian.App.Graphics
                         sortDistance = Vector3.Distance(camera.Position, Vector3.Transform(effectMesh.BasePosition, _sceneryTransform));
                     }
                     var effectEmitter = _emitters.GetValueOrDefault(effectMesh.Layer);
-                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null));
+                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null, Surface: effectEmitter == null));
                 }
                 AddActorEffectDraws(camera);
                 AddWeaponEffectDraws(camera);
@@ -1652,14 +1670,11 @@ namespace Gordian.App.Graphics
                 AddActionEffectDraws(camera);
                 AddFootEffectDraws(camera);
                 AddInteriorEffectDraws(camera);
-                _effectDrawList.Sort((a, b) =>
-                    a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
-                        ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
-                        : b.Distance.CompareTo(a.Distance));
+                _effectDrawList.Sort(EffectDrawOrder);
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _, emitter, anchor, onModel) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor, onModel, _) in _effectDrawList)
                 {
                     var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)

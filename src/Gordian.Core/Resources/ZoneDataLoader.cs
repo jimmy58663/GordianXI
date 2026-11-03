@@ -637,6 +637,7 @@ namespace Gordian.Core.Resources
                                 ZoneMeshTemplates.AddSection(zoneMeshSections, $"{currentWeather}/{header.DatId}", header.DatId, submeshes);
                             }
                             ZoneMeshTemplates.AddSection(zoneMeshSections, header.DatId, header.DatId, submeshes);
+                            ZoneMeshTemplates.AddSection(zoneMeshSections, ZoneMeshTemplates.DirectoryKey(DirectoryPath(dirStack), header.DatId), header.DatId, submeshes);
 
                             if (ZoneDefDecoder.IsSkyMesh(primaryName) || ZoneDefDecoder.IsSkyMesh(header.DatId))
                             {
@@ -1682,7 +1683,8 @@ namespace Gordian.Core.Resources
                 if (effectMeshes == null)
                 {
                     isParticleMesh = false;
-                    if (!string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
+                    effectMeshes = ZoneMeshTemplates.FindInScope(zoneMeshSections, generatorPaths.GetValueOrDefault(gen), linkId);
+                    if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                     if (effectMeshes == null) zoneMeshSections.TryGetValue(linkId, out effectMeshes);
                 }
                 if (effectMeshes == null || effectMeshes.Count == 0) return null;
