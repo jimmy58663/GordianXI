@@ -169,7 +169,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("TRADE", $"Trade request received from Entity ServerId={p.UniqueNo}, ActIndex={p.ActIndex}");
-            _inventoryState.StartTrade(p.UniqueNo, p.ActIndex);
+            _inventoryState.ReceiveTradeRequest(p.UniqueNo, p.ActIndex);
         }
 
         private void HandleItemTradeRes(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -178,7 +178,7 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("TRADE", $"Trade status result: Kind={p.Kind}");
-            _inventoryState.SetTradeStatus(p.Kind);
+            _inventoryState.SetTradeStatus(p.Kind, p.UniqueNo, p.ActIndex);
         }
 
         private void HandleItemTradeList(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -186,7 +186,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x023_ItemTradeList(payload);
             if (!p.IsValid) return;
 
-            _inventoryState.SetPartnerTradeItem(p.TradeIndex, p.ItemId, p.Count, p.ExtData);
+            _inventoryState.SetPartnerTradeItem(p.TradeIndex, p.ItemId, p.Count, p.ExtData, p.TradeCounter);
         }
 
         private void HandleItemTradeMyList(PacketHeader header, ReadOnlySpan<byte> payload)

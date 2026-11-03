@@ -110,6 +110,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The dead window's "Back to Home Point" (<see cref="StockUiDeathMenu"/>).</summary>
         HomePoint,
 
+        /// <summary>Trade with the target (#486): asks a player to trade, or opens the hand-over window on an NPC.</summary>
+        Trade,
+
         /// <summary>The command menu's Treasure: opens the Treasure Pool window (<see cref="StockUiTreasurePool"/>).</summary>
         TreasurePool,
 
@@ -233,7 +236,7 @@ namespace Gordian.Engine.Ui
             [(MainMenu, 10)] = new("Synthesis", Opens: StockUiSynthesis.Menu),
             [(MainMenu, 5)] = new("Abilities", Opens: StockUiActionMenu.AbilityMenu),
             [(MainMenu, 6)] = new("Party", Command: StockUiMenuCommand.PartyMenu),
-            [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.Trade),
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 11)] = new("Region Info", Command: StockUiMenuCommand.NotAvailable),
