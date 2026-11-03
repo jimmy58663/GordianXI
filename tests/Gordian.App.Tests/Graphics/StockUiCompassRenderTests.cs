@@ -79,6 +79,26 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(light, "time text");
         }
 
+        [Fact]
+        public void ItemInfoWindowOnTheLog_CoversTheCompass()
+        {
+            // #506: the item info window over the log's top edge is no menu placement, yet hides the compass.
+            using var screen = StockUiOffscreen.TryCreate(640, 480);
+            if (screen == null) return;
+            const float logTop = 400;
+            int coverFrom = 0;
+            screen.Render(r =>
+            {
+                coverFrom = r.DrawnWindows.Count;
+                float h = StockUiItemInfoWindow.HeightOf(screen.Library, null, 1);
+                StockUiItemInfoWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, null, 0, null,
+                    new StockUiPlacement(16, logTop - h, 1, false), 0);
+            });
+            Assert.True(screen.Renderer.DrawnWindows.Count > coverFrom);
+            Assert.True(StockUiCompass.IsCovered(StockUiCompass.Bounds(StockUiCompass.LineBottom(logTop, 480, 1), 1),
+                screen.Renderer.DrawnWindows, coverFrom));
+        }
+
         private static bool HasReddishPixel(StockUiOffscreen screen, byte[] shot, int x0, int x1, int y0, int y1)
         {
             for (int y = y0; y <= y1; y++)

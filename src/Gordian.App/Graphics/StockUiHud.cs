@@ -296,6 +296,8 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
+                // Every window drawn from here on (menus, the item info window and other boxes they draw) hides the compass (#506).
+                int coverFrom = renderer.DrawnWindows.Count;
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -307,7 +309,7 @@ namespace Gordian.App.Graphics
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
-                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, width, height);
+                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, coverFrom, width, height);
             }
             if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
@@ -462,19 +464,16 @@ namespace Gordian.App.Graphics
         private readonly List<StockUiCompassDot> _compassDots = new();
 
         /// <summary>
-        /// The compass above the log (#485): hidden while a window sits in its place (the target command menu and the like).
+        /// The compass above the log (#485): hidden while a window sits in its place (the target command menu and the like),
+        /// any window drawn after the log, from <paramref name="coverFrom"/> in <see cref="StockUiRenderer.DrawnWindows"/>: a
+        /// menu placement or a box a window draws beside it, such as the item info window (#506).
         /// </summary>
-        private void DrawCompass(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        private void DrawCompass(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, int coverFrom, uint width, uint height)
         {
             if (_font is not { } font) return;
             float s = Layout.Scale;
             float lineBottom = StockUiCompass.LineBottom(_window1Top, height, s);
-            var bounds = StockUiCompass.Bounds(lineBottom, s);
-            foreach (var p in _menuPlacements)
-            {
-                var f = p.Menu.Menu.Frame;
-                if (StockUiCompass.Overlaps(bounds, p.X, p.Y, f.Width * p.Scale, f.Height * p.Scale)) return;
-            }
+            if (StockUiCompass.IsCovered(StockUiCompass.Bounds(lineBottom, s), renderer.DrawnWindows, coverFrom)) return;
 
             var world = session.World;
             _compassDots.Clear();

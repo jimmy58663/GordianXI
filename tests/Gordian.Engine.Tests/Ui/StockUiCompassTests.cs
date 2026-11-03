@@ -1,4 +1,5 @@
 // tests/Gordian.Engine.Tests/Ui/StockUiCompassTests.cs
+using System.Collections.Generic;
 using System;
 using System.Numerics;
 using Gordian.Core.Resources.Tables;
@@ -152,6 +153,22 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(StockUiCompass.Overlaps(bounds, 16, 1200, 112, 58));
             // The main menu at the top right does not.
             Assert.False(StockUiCompass.Overlaps(bounds, 2000, 48, 112, 300));
+        }
+
+        [Fact]
+        public void IsCovered_ChecksOnlyTheWindowsDrawnAfterTheLog()
+        {
+            var bounds = StockUiCompass.Bounds(1253f, 1);
+            var windows = new List<(float X, float Y, float Width, float Height)>
+            {
+                (16, 1258, 366, 160),   // the log, drawn first, under the compass's line
+                (2000, 48, 112, 300),   // the main menu, top right
+            };
+            Assert.False(StockUiCompass.IsCovered(bounds, windows, 0));
+            // The item info window on the log's top edge (#506).
+            windows.Add((16, 1258 - 56, 366, 56));
+            Assert.True(StockUiCompass.IsCovered(bounds, windows, 1));
+            Assert.False(StockUiCompass.IsCovered(bounds, windows, 3));
         }
 
         [Fact]

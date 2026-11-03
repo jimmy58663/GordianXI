@@ -221,6 +221,14 @@ void main()
             _commandList = factory.CreateCommandList();
         }
 
+        private readonly List<(float X, float Y, float Width, float Height)> _drawnWindows = new();
+
+        /// <summary>
+        /// The screen rectangle of every window <see cref="DrawMenu"/> has drawn this frame, in drawing order: the HUD's
+        /// compass hides under any window drawn after the log, a menu placement or not (the item info window, #506).
+        /// </summary>
+        public IReadOnlyList<(float X, float Y, float Width, float Height)> DrawnWindows => _drawnWindows;
+
         /// <summary>
         /// Starts a frame's UI. Textures come from the given library (the GPU cache is dropped when it changes).
         /// </summary>
@@ -233,6 +241,7 @@ void main()
             }
             _vertices.Clear();
             _batches.Clear();
+            _drawnWindows.Clear();
             Depth = null;
             TexelInset = 0;
             Opacity = 1f;
@@ -516,6 +525,7 @@ void main()
             }
             float borderWidth = frameWidth ?? menu.Frame.Width;
             float borderHeight = frameHeight ?? menu.Frame.Height;
+            _drawnWindows.Add((placement.X, placement.Y, borderWidth * placement.Scale, borderHeight * placement.Scale));
             // A client-built frame image (a composed command menu) stands in for the frame's kind-0 references.
             if (frameImage != null)
             {
