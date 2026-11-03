@@ -149,6 +149,7 @@ Both in the zone dialog table format (`ZoneDialogTable`) and read by `ClientMess
 
 | File id | Path | Contents | Decoder | Source |
 |---|---|---|---|---|
+| 39542 | `ROM/119/51` | Compass (#485): element group `compass`, referenced by no menu: #0 the ring (256 x 256 around its centre from one 32 x 32 quarter texture `compass`, mirror flags 0-3), #1 E, #2 W, #3 S, #4 N (red; texture `news`, 16 x 16), #5 a 6 x 6 red dot (`marker` at 48,21); the day orb is a `colorbal` ball (16 x 16 cells: blue, green, red, light blue / white, yellow, dark, violet) | `StockUiCompass`, `StockUiCompassWindow` | menu dump 2026-10-31, the maintainer's captures; **Beyond xi-tools:** what the group is and how retail lays it out |
 | 39542 | `ROM/119/51` | English menu DAT: 0x30 menus, 0x31 element groups, 0x20 textures (fonts, `moji` log font); the zoning "Downloading data ..." sprite is element group `keytops3` images 165-169, referenced by no menu ([#350](https://github.com/jimmy58663/GordianXI/issues/350), **Beyond xi-tools:** its `docs/dats.md` lists loading screen textures as unknown) | `UiResourceLibrary` | xi-tools `docs/ui/export.md`, `list.md`; [stock-ui.md](../ui/stock-ui.md#data-layer-chunk-1) |
 | 1 | `ROM/0/1` | Base (Japanese) menu DAT; also carries fonts the English one omits | `UiResourceLibrary` | xi-tools |
 | 14-21 | `ROM/0/14`-`21` (`win0`) | Window skins 1-8: frame textures that override the menu DATs | `UiResourceLibrary` | xi-tools |
