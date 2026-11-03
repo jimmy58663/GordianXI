@@ -20,9 +20,19 @@ namespace Gordian.App.Tests.Graphics
     /// the preview model, and a prompt. Writes lobby_*.png when GORDIAN_UI_DUMP is set. Skipped off Windows or without
     /// the game install.
     /// </summary>
+    [Collection(LobbyRenderCollection.Name)]
     public class LobbyRenderTests
     {
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+
+        /// <summary>
+        /// How long a lobby request or the fade may take before a test gives up: far beyond what they need, so only a hang
+        /// fails (#484: fixed sleeps and 2-second polls failed under a loaded full run).
+        /// </summary>
+        private static readonly TimeSpan Patience = TimeSpan.FromSeconds(20);
+
+        /// <summary>Waits until <paramref name="condition"/> holds or <see cref="Patience"/> runs out; returns whether it held.</summary>
+        internal static bool WaitUntil(Func<bool> condition) => SpinWait.SpinUntil(condition, Patience);
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateWindowExW(int dwExStyle, string lpClassName, string lpWindowName, int dwStyle, int x, int y,
@@ -148,7 +158,7 @@ namespace Gordian.App.Tests.Graphics
                     var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
                     if (!string.IsNullOrEmpty(dumpDir)) StockUiRendererTests.SavePng(Path.Combine(dumpDir, name), pixels, (int)width, (int)height);
                 }
-                void WaitIdle() { for (int i = 0; i < 200 && lobby.IsBusy; i++) Thread.Sleep(10); }
+                void WaitIdle() => Assert.True(WaitUntil(() => !lobby.IsBusy), "the lobby request did not finish");
 
                 lobby.HandleInput(LobbyInput.Down);
                 lobby.HandleInput(LobbyInput.Confirm); // Create Character
@@ -237,11 +247,14 @@ namespace Gordian.App.Tests.Graphics
                 // The lobby drops keys while a request runs: wait for the character list before choosing the character
                 // (under a full test run's load the second key used to arrive while the list was still loading).
                 lobby.HandleInput(LobbyInput.Confirm);
-                for (int i = 0; i < 500 && (lobby.IsBusy || lobby.Screen != LobbyScreen.CharacterList); i++) Thread.Sleep(10);
+                Assert.True(WaitUntil(() => !lobby.IsBusy && lobby.Screen == LobbyScreen.CharacterList), "character list");
                 lobby.HandleInput(LobbyInput.Confirm);
-                for (int i = 0; i < 500 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
-                Assert.Equal(LobbyScreen.Entering, lobby.Screen);
-                Thread.Sleep((int)(Gordian.Engine.Ui.ZoneLoadingScreen.FadeOutSeconds * 1000) + 100);
+                Assert.True(WaitUntil(() => lobby.Screen == LobbyScreen.Entering), "entering");
+                // The fade runs on the wall clock from EnteredTimestamp: wait until its time is over rather than sleeping a
+                // fixed time (#484), then render.
+                double fade = Gordian.Engine.Ui.ZoneLoadingScreen.FadeOutSeconds;
+                Assert.True(WaitUntil(() => (System.Diagnostics.Stopwatch.GetTimestamp() - lobby.EnteredTimestamp)
+                    / (double)System.Diagnostics.Stopwatch.Frequency > fade + 0.05), "fade time");
                 frames.Render(lobby, preview, null, rm, framebuffer, width, height, 1 / 60f);
                 var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
                 int lit = 0;
