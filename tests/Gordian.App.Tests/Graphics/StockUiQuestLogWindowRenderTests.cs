@@ -134,5 +134,55 @@ namespace Gordian.App.Tests.Graphics
             page = menus.OpenConquest(null);
             Conquest("gpu_conquest_balance.png");
         }
+
+        /// <summary>
+        /// #492: Region Info's Besieged, Campaign and Colonization pages on the retail DAT panels and region maps: Besieged's
+        /// orders, Campaign's "Now obtaining information from server." without S2C 0x071, Colonization's coalition ranks and
+        /// Bayld in Western Adoulin (GORDIAN_UI_DUMP writes the frames).
+        /// </summary>
+        [Fact]
+        public void RendersTheBesiegedCampaignAndColonizationPages()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var progression = new ProgressionState();
+            byte[] conquest = new byte[176];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(conquest.AsSpan(156), 1u << 2); // Intercept enemy forces
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(conquest.AsSpan(160), 1u | 3u << 11); // Mamool Ja advancing, level 3
+            progression.UpdateConquest(new S2C_0x05E_Conquest(conquest));
+            byte[] colonization = new byte[56];
+            colonization[0] = S2C_0x071_Influence.ColonizationMode;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(colonization.AsSpan(12), 0x111111u);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(colonization.AsSpan(52), 2500);
+            progression.UpdateInfluence(new S2C_0x071_Influence(colonization));
+            var menus = new StockUiMenuController
+            {
+                Library = screen.Library,
+                MenuMessageText = id => screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var t) ? t : null,
+            };
+            menus.RegionInfoView = map => StockUiRegionInfo.Build(map, progression, 256, menus.MenuMessageText);
+            var layout = new StockUiScreen(screen.Width, screen.Height, null);
+            byte[] Page(RegionMap map, string name)
+            {
+                menus.CloseAll();
+                var page = menus.OpenRegionInfo(map, null);
+                Assert.NotNull(page);
+                var texture = RegionMapFiles.Load(screen.Resources, map);
+                var frame = page!.Menu.Frame;
+                var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
+                return screen.Render(r =>
+                {
+                    StockUiRegionMapWindow.Draw(r, page, texture, screen.Width, screen.Height, screen.Library, screen.LogFont);
+                    StockUiMenuWindow.Draw(r, screen.Library, screen.Font, page, placement, 0, logFont: screen.LogFont, screen: layout);
+                }, name);
+            }
+            var at = StockUiLayout.Place(Gordian.Core.Resources.Ui.UiAnchor.TopRight, 384, 48, 112, 206, 1, screen.Width, screen.Height);
+            byte[] besieged = Page(RegionMap.Besieged, "gpu_region_besieged.png");
+            Assert.True(screen.HasLightPixel(besieged, (int)at.X + 10, (int)at.X + 100, (int)at.Y + 22 + 6), "no Al Zahbi orders");
+            Assert.Equal("Campaign", menus.OpenRegionInfo(RegionMap.Campaign, null)!.QuestLogTitle);
+            Page(RegionMap.Campaign, "gpu_region_campaign.png");
+            byte[] colony = Page(RegionMap.Colonization, "gpu_region_colonization.png");
+            Assert.True(screen.HasLightPixel(colony, (int)at.X + 90, (int)at.X + 106, (int)at.Y + 21 + 6), "no Pioneers rank");
+        }
     }
 }

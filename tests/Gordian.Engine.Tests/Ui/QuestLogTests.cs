@@ -79,6 +79,11 @@ namespace Gordian.Engine.Tests.Ui
             Window(StockUiConquest.RegionMenu, 384, 48, 4, 112, 74),
             Window(StockUiConquest.ControlWindow, 384, 48, 0, 112, 206),
             Window(StockUiConquest.BalanceWindow, 384, 48, 0, 112, 72),
+            Window(StockUiRegionInfo.BesiegedWindow, 384, 48, 0, 112, 206),
+            Window(StockUiRegionInfo.CampaignWindow, 384, 48, 0, 112, 88),
+            Window(StockUiRegionInfo.RanksWindow, 384, 48, 0, 112, 120),
+            Window(StockUiRegionInfo.RateWindow, 384, 48, 0, 112, 56),
+            Window(StockUiRegionInfo.BayldWindow, 384, 256, 0, 112, 40),
         });
 
         private sealed class Harness
@@ -501,10 +506,49 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { "1. San d'Oria", "2. Windurst", "3. Bastok" }, balance.ConquestView!.Balance);
             Assert.Equal(StockUiConquest.NeutralAreaFallback, balance.ConquestView.Control);
 
-            // Besieged and the rest are not done yet.
+            // Besieged, Campaign and Colonization (#492): each its region map, panned, and its panels.
             h.Menus.CloseTop();
-            h.Choose(StockUiConquest.BesiegedButton);
-            Assert.Contains(h.Notices, n => n.StartsWith("Besieged", System.StringComparison.Ordinal));
+            var influence = new ProgressionState();
+            h.Menus.RegionInfoView = map => StockUiRegionInfo.Build(map, influence, 256, null); // Western Adoulin
+            var besieged = h.Choose(StockUiConquest.BesiegedButton);
+            Assert.Equal((StockUiRegionInfo.BesiegedWindow, (Gordian.Core.Resources.Tables.RegionMap?)Gordian.Core.Resources.Tables.RegionMap.Besieged, "Besieged"),
+                (besieged.Name, besieged.RegionMap, besieged.QuestLogTitle));
+            Assert.Same(besieged, h.Menus.PannedMap);
+            h.Menus.CloseTop();
+            var campaign = h.Choose(StockUiConquest.CampaignButton);
+            Assert.Equal(StockUiRegionInfo.ObtainingFallback, campaign.RegionInfoView!.HelpLine); // LandSandBoat sends no Campaign
+            h.Menus.CloseTop();
+            var colonization = h.Choose(StockUiConquest.ColonizationButton);
+            Assert.Equal(StockUiRegionInfo.RanksWindow, colonization.Name);
+            byte[] colonyPacket = new byte[56];
+            colonyPacket[0] = S2C_0x071_Influence.ColonizationMode;
+            colonyPacket[12] = 0x21; // Pioneers 1, Peacekeepers 2
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(colonyPacket.AsSpan(52), 12345);
+            influence.UpdateInfluence(new S2C_0x071_Influence(colonyPacket));
+            h.Menus.RefreshRegionInfo();
+            var colonyView = colonization.RegionInfoView!;
+            Assert.Null(colonyView.HelpLine);
+            Assert.Equal(new[] { "1", "2", "0", "0", "0", "0" }, colonyView.Panels[0].Texts.Select(t => t.Text));
+            Assert.Equal("12,345", Assert.Single(colonyView.Panels[1].Texts).Text);
+        }
+
+        [Fact]
+        public void RegionInfo_BesiegedOrders_AndColonizationInUlbuka()
+        {
+            var besieged = StockUiRegionInfo.Besieged(1, new[] { new BesiegedStronghold(2, 50, 3, false, 0, 0), default, default });
+            var texts = besieged.Panels[0].Texts;
+            Assert.Equal(("Intercept enemy", "forces"), (texts[0].Text, texts[1].Text)); // wrapped to the panel
+            Assert.Equal(("Mamool Ja", "Attacking Lv.3"), (texts[2].Text, texts[3].Text));
+            Assert.True(besieged.PanelsSwapSides);
+
+            // In Ceizak Battlegrounds the page shows that zone's rate and bivouacs, with Bayld under it.
+            var colonization = new ColonizationInfo(new byte[6],
+                new[] { default, new ColonizationZone(40, 1, 3), default, default, default, default, default, default }, 7);
+            var view = StockUiRegionInfo.Colonization(colonization, 261, "obtaining");
+            Assert.Equal(StockUiRegionInfo.RateWindow, view.Panels[0].Window);
+            Assert.Equal(new[] { "40%", "1/3" }, view.Panels[0].Texts.Select(t => t.Text));
+            Assert.Equal(0.4f, Assert.Single(view.Panels[0].Bars).Fill, 3);
+            Assert.Equal(StockUiRegionInfo.BayldWindow, view.Panels[1].Window);
         }
 
         [Fact]

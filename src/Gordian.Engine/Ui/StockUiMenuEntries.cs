@@ -191,6 +191,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Region Info's Conquest: the conquest page for the current region (<see cref="StockUiConquest"/>, #488).</summary>
         RegionConquest,
 
+        /// <summary>Region Info's Besieged, Campaign or Colonization map (#492); the argument is the <c>RegionMap</c>.</summary>
+        RegionMapPage,
+
         /// <summary>
         /// A Party menu entry that runs through the party commands (#489, <see cref="StockUiParty"/>); the Argument is a
         /// <see cref="StockUiPartyAction"/>, with the value it sets in its upper bits (<see cref="StockUiParty.Action"/>).
@@ -286,9 +289,9 @@ namespace Gordian.Engine.Ui
             [(StockUiQuestLog.GroupMenu, 7)] = new("Adoulin", Command: StockUiMenuCommand.MissionGroup, Argument: 7),
             [(StockUiQuestLog.GroupMenu, 6)] = new("Add-ons", Command: StockUiMenuCommand.MissionGroup, Argument: 6),
             [(StockUiConquest.RegionMenu, StockUiConquest.ConquestButton)] = new("Conquest", Command: StockUiMenuCommand.RegionConquest),
-            [(StockUiConquest.RegionMenu, StockUiConquest.BesiegedButton)] = new("Besieged", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiConquest.RegionMenu, StockUiConquest.CampaignButton)] = new("Campaign", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiConquest.RegionMenu, StockUiConquest.ColonizationButton)] = new("Colonization", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiConquest.RegionMenu, StockUiConquest.BesiegedButton)] = new("Besieged", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Besieged),
+            [(StockUiConquest.RegionMenu, StockUiConquest.CampaignButton)] = new("Campaign", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Campaign),
+            [(StockUiConquest.RegionMenu, StockUiConquest.ColonizationButton)] = new("Colonization", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Colonization),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
             // View House (#23): mogcont's storages.
