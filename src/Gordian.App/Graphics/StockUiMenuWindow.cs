@@ -224,7 +224,7 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.KeyAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
                         // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map

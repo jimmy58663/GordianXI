@@ -72,6 +72,25 @@ namespace Gordian.Engine.Input
         public bool SuppressGamepadActions { get; set; }
 
         /// <summary>
+        /// True while a keyboard key-assignment window waits for a key (and until the assigned key is let go): the keyboard
+        /// then drives no action, so the key being assigned does not also act (#337). Keys still register as pressed
+        /// (<see cref="KeysPressed"/>). Set by the locomotion controller before each <see cref="Update"/>.
+        /// </summary>
+        public bool SuppressKeyboardActions { get; set; }
+
+        /// <summary>The keys that went down on the last <see cref="Update"/>, whatever they are bound to (#337).</summary>
+        public IReadOnlyList<GordianKey> KeysPressed
+        {
+            get { lock (_lock) return new List<GordianKey>(_pressedKeys); }
+        }
+
+        /// <summary>Whether any key is held (a key-assignment window waits for the assigned key to be let go, #337).</summary>
+        public bool AnyKeyHeld
+        {
+            get { lock (_lock) return _heldKeys.Count > 0; }
+        }
+
+        /// <summary>
         /// True while the Map window is open (#23): the movement and camera actions and both sticks read as idle to the
         /// character and the camera (<see cref="IsActionHeld"/>, <see cref="CurrentGamepad"/>), and the map pans and zooms
         /// with them instead (<see cref="IsActionHeldRaw"/>, <see cref="RawGamepad"/>), as retail's map does (round 1 of
@@ -304,9 +323,10 @@ namespace Gordian.Engine.Input
                 _previousKeys.Clear();
                 foreach (var key in _heldKeys) _previousKeys.Add(key);
 
-                // 1. Evaluate Keyboard key chords
+                // 1. Evaluate Keyboard key chords (none while a key-assignment window has the keyboard, #337)
                 foreach (var key in _heldKeys)
                 {
+                    if (SuppressKeyboardActions) break;
                     // Chord with exact modifiers
                     var chord = new InputChord(key, _modifiers);
                     if (profile.TryGetAction(chord, menuContext, out var act))

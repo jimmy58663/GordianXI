@@ -352,6 +352,8 @@ namespace Gordian.Engine.Input
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
             _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
+            // A keyboard key-assignment window is waiting for a key: the keyboard drives nothing until it is let go (#337).
+            _inputState.SuppressKeyboardActions = menus?.IsCapturingKeyboard ?? false;
             _inputState.Update(_profile, elapsed);
 
             // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,

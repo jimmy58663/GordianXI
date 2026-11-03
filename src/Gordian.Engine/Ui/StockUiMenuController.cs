@@ -38,6 +38,9 @@ namespace Gordian.Engine.Ui
         /// </summary>
         GamepadAssign,
 
+        /// <summary>The keyboard's key-assignment windows (<c>k1assign</c>, <c>k2assign</c>, #337): each row a function and its keys.</summary>
+        KeyAssign,
+
         /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
         MapAreas,
 
@@ -1095,6 +1098,10 @@ namespace Gordian.Engine.Ui
             {
                 RefreshGamepadAssign(menu);
             }
+            else if (menu.ListKind == StockUiListKind.KeyAssign)
+            {
+                RefreshKeyAssign(menu);
+            }
             else if (menu.ListKind == StockUiListKind.Effects)
             {
                 uint filtered = (uint)_settings.GetValue(StockUiSettingKey.EffectFilters);
@@ -1203,6 +1210,7 @@ namespace Gordian.Engine.Ui
         public bool ProcessInput(InputState input, TimeSpan elapsed)
         {
             if (ProcessGamepadCapture(input, elapsed)) return true;
+            if (ProcessKeyboardCapture(input, elapsed)) return true;
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
@@ -1341,7 +1349,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.KeyAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1683,6 +1691,7 @@ namespace Gordian.Engine.Ui
             if (TryActivateQuestLog(top, button)) return;
             if (TryActivateSynthesis(top, button) || TryActivateTrade(top, button) || TryActivateItemWindow(top, button) || TryActivateSocial(top, button)) return;
 
+            if (TryActivateKeyAssignment(top, button)) return;
             if (top.ConfigPage is { } page)
             {
                 if (page.TryGetOption(button.ButtonId, out var row, out var choice))
@@ -1729,6 +1738,12 @@ namespace Gordian.Engine.Ui
             if (top.ListKind == StockUiListKind.GamepadAssign)
             {
                 ActivateGamepadAssign(top, button.ButtonId);
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.KeyAssign)
+            {
+                ActivateKeyAssign(top, button.ButtonId);
                 return;
             }
 
