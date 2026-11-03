@@ -1728,6 +1728,8 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
+            // The camera works in display space (-x, -y, z): world east is -X there (#485's compass turns with the view).
+            StockUi.CameraBearing = Gordian.Engine.Ui.StockUiCompass.BearingOf(-Camera.Forward.X, Camera.Forward.Z);
             StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors, subCursor);
         }
 
