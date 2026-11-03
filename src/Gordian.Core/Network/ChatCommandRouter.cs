@@ -202,7 +202,8 @@ namespace Gordian.Core.Network
                 {
                     Kind = ChatCommandResultKind.ServerCommand,
                     SpeechKind = ChatSendKind.Say,
-                    Message = ToServerCoordinateOrder(trimmed)
+                    // Sent as typed: !pos takes the server's order (x, height, y), as the readouts print it (#496).
+                    Message = trimmed
                 };
             }
 
@@ -949,33 +950,6 @@ namespace Gordian.Core.Network
             };
         }
 
-        /// <summary>
-        /// Rewrites <c>!pos x y z [...]</c> typed in FFXI/Windower order (z = height) into the server's order
-        /// (x, height, y), which LandSandBoat's <c>!pos</c> passes straight to <c>setPos</c>. Anything else, including a
-        /// <c>!pos</c> without three numeric coordinates, is sent unchanged.
-        /// </summary>
-        public static string ToServerCoordinateOrder(string command)
-        {
-            if (!command.StartsWith("!pos", StringComparison.OrdinalIgnoreCase) ||
-                (command.Length > 4 && !char.IsWhiteSpace(command[4])))
-            {
-                return command;
-            }
-
-            // Accept the same separators /moveto does: "1 2 3", "1, 2, 3", "(1, 2, 3)".
-            var parts = command.Substring(4).Split(new[] { ' ', ',', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) return command;
-            for (int i = 0; i < 3; i++)
-            {
-                if (!float.TryParse(parts[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
-                {
-                    return command;
-                }
-            }
-            (parts[1], parts[2]) = (parts[2], parts[1]);
-            return "!pos " + string.Join(' ', parts);
-        }
-
         private static ChatCommandResult ParseMoveToCommand(string args)
         {
             if (string.IsNullOrWhiteSpace(args))
@@ -983,12 +957,12 @@ namespace Gordian.Core.Network
                 return new ChatCommandResult
                 {
                     Kind = ChatCommandResultKind.LocalNotice,
-                    Message = "Usage: /moveto <x> <y> [z]"
+                    Message = "Usage: /moveto <x> <height> <y> | /moveto <x> <y>"
                 };
             }
 
-            // Sanitize coordinates copied from /nearby or /pos:
-            // Handles formats: "12.3 45.6 78.9", "12.3, 45.6, 78.9", "(12.3, 45.6, 78.9)", "Pos: (12.3, 45.6, 78.9)", "X=12.3, Y=45.6, Z=78.9"
+            // Sanitize coordinates copied from /nearby or /pos (#496: the server's order, x, height, y):
+            // "12.3 45.6 78.9", "12.3, 45.6, 78.9", "(12.3, 45.6, 78.9)", "Pos: (12.3, 45.6, 78.9)", "X=12.3, Height=45.6, Y=78.9".
             string sanitized = args;
             if (sanitized.StartsWith("Pos:", StringComparison.OrdinalIgnoreCase))
             {
@@ -1000,6 +974,7 @@ namespace Gordian.Core.Network
                 .Replace(")", " ")
                 .Replace("[", " ")
                 .Replace("]", " ")
+                .Replace("Height=", " ", StringComparison.OrdinalIgnoreCase)
                 .Replace("X=", " ", StringComparison.OrdinalIgnoreCase)
                 .Replace("Y=", " ", StringComparison.OrdinalIgnoreCase)
                 .Replace("Z=", " ", StringComparison.OrdinalIgnoreCase)
@@ -1011,34 +986,33 @@ namespace Gordian.Core.Network
                 return new ChatCommandResult
                 {
                     Kind = ChatCommandResultKind.LocalNotice,
-                    Message = "Usage: /moveto <x> <y> [z]"
+                    Message = "Usage: /moveto <x> <height> <y> | /moveto <x> <y>"
                 };
             }
 
-            if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x) ||
-                !float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y))
+            // Three numbers are x, height, y (the server's and !pos's order); two are x, y and keep the current height, as
+            // does "_" in the height's place ("/moveto 10 _ 20"). NaN keeps the player's current height.
+            static bool TryParse(string text, out float value) =>
+                float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+            float x = 0, height = float.NaN, y = 0;
+            bool valid = parts.Length >= 3
+                ? TryParse(parts[0], out x) && (parts[1] == "_" || TryParse(parts[1], out height)) && TryParse(parts[2], out y)
+                : TryParse(parts[0], out x) && TryParse(parts[1], out y);
+            if (!valid)
             {
                 return new ChatCommandResult
                 {
                     Kind = ChatCommandResultKind.LocalNotice,
-                    Message = "Invalid coordinates. Usage: /moveto <x> <y> [z]"
+                    Message = "Invalid coordinates. Usage: /moveto <x> <height> <y> | /moveto <x> <y>"
                 };
             }
 
-            // Height is optional; NaN keeps the player's current height.
-            float z = float.NaN;
-            if (parts.Length >= 3 &&
-                !float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out z))
-            {
-                z = float.NaN;
-            }
-
-            // Coordinates are entered in FFXI/Windower display order (x, y, z = height); internally Y is height.
+            // Internally Y is the height and Z the north-south axis.
             return new ChatCommandResult
             {
                 Kind = ChatCommandResultKind.SyntheticMoveTo,
                 MoveX = x,
-                MoveY = z,
+                MoveY = height,
                 MoveZ = y
             };
         }

@@ -258,18 +258,15 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         [Theory]
-        [InlineData("!pos 124.1 -588.2 -5.6", "!pos 124.1 -5.6 -588.2")]
-        [InlineData("!pos 1 2 3 230", "!pos 1 3 2 230")]
-        [InlineData("!pos 25.6, 35, -15", "!pos 25.6 -15 35")]
-        [InlineData("!pos (25.6, 35, -15) 230", "!pos 25.6 -15 35 230")]
-        [InlineData("!position 1 2 3", "!position 1 2 3")]
-        [InlineData("!pos", "!pos")]
-        [InlineData("!pos Tarudrake", "!pos Tarudrake")]
-        [InlineData("!zone 230", "!zone 230")]
-        public void ServerPosCommand_TakesWindowerOrder(string typed, string sent)
+        [InlineData("!pos 124.1 -5.6 -588.2")]
+        [InlineData("!pos 1 2 3 230")]
+        [InlineData("!pos 25.6, -15, 35")]
+        [InlineData("!pos")]
+        [InlineData("!zone 230")]
+        public void ServerPosCommand_IsSentAsTyped(string typed)
         {
-            Assert.Equal(sent, Gordian.Core.Network.ChatCommandRouter.ToServerCoordinateOrder(typed));
-            Assert.Equal(sent, Gordian.Core.Network.ChatCommandRouter.Parse(typed, Gordian.Core.Network.Packets.ChatSendKind.Say, null).Message);
+            // #496: !pos takes the server's order (x, height, y), the order every readout prints; nothing is swapped.
+            Assert.Equal(typed, Gordian.Core.Network.ChatCommandRouter.Parse(typed, Gordian.Core.Network.Packets.ChatSendKind.Say, null).Message);
         }
 
         [Fact]

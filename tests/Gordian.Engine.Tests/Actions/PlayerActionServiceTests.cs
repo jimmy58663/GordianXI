@@ -84,8 +84,8 @@ namespace Gordian.Engine.Tests.Actions
 
             Assert.True(res.Success);
             Assert.Contains("Position", res.Message);
-            // Windower display order: internal (10, height 5, 20) reads X=10, Y=20, Z=5.
-            Assert.Contains("X=10.00, Y=20.00, Z=5.00", res.Message);
+            // The server order (#496): internal (10, height 5, 20) reads X=10, Height=5, Y=20.
+            Assert.Contains("X=10.00, Height=5.00, Y=20.00", res.Message);
         }
 
         [Fact]
@@ -269,9 +269,10 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
-        public async Task ExecuteCommand_MoveTo_TakesWindowerOrderWithZAsHeight()
+        public async Task ExecuteCommand_MoveTo_TakesTheServerOrderWithHeightSecond()
         {
-            await _actionService.ExecuteCommandAsync("/moveto 124.12 -588.277 -5.69");
+            // #496: x, height, y, as !pos takes it and /pos prints it.
+            await _actionService.ExecuteCommandAsync("/moveto 124.12 -5.69 -588.277");
 
             Assert.True(_world.TryGetByServerId(0x01020304, out var player));
             // Internal Y is height, internal Z is the display Y.
@@ -282,6 +283,15 @@ namespace Gordian.Engine.Tests.Actions
         public async Task ExecuteCommand_MoveTo_WithoutHeightKeepsTheCurrentHeight()
         {
             await _actionService.ExecuteCommandAsync("/moveto 30 40");
+
+            Assert.True(_world.TryGetByServerId(0x01020304, out var player));
+            Assert.Equal(new Vector3(30f, 5f, 40f), player!.Position);
+        }
+
+        [Fact]
+        public async Task ExecuteCommand_MoveTo_UnderscoreForHeightKeepsTheCurrentHeight()
+        {
+            await _actionService.ExecuteCommandAsync("/moveto 30 _ 40");
 
             Assert.True(_world.TryGetByServerId(0x01020304, out var player));
             Assert.Equal(new Vector3(30f, 5f, 40f), player!.Position);
@@ -437,13 +447,13 @@ namespace Gordian.Engine.Tests.Actions
         [InlineData("/moveto 55.5, 12.3, 88.0")]
         [InlineData("/moveto (55.5, 12.3, 88.0)")]
         [InlineData("/moveto Pos: (55.5, 12.3, 88.0)")]
-        [InlineData("/moveto X=55.5, Y=12.3, Z=88.0")]
+        [InlineData("/moveto X=55.5, Height=12.3, Y=88.0")]
         public async Task ExecuteCommand_MoveTo_VariousCoordinateFormats_ParsesSuccessfully(string cmd)
         {
             var res = await _actionService.ExecuteCommandAsync(cmd);
 
             Assert.True(res.Success);
-            Assert.Contains("X=55.50, Y=12.30, Z=88.00", res.Message);
+            Assert.Contains("X=55.50, Height=12.30, Y=88.00", res.Message);
         }
     
 

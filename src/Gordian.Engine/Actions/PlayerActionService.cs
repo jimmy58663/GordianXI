@@ -1304,10 +1304,11 @@ namespace Gordian.Engine.Actions
         #region Locomotion & Inspection Subsystem
 
         /// <summary>
-        /// Formats an internal position (Y = height) in FFXI/Windower display order: X, Y (north/south), Z (height).
+        /// Formats an internal position (Y = height) in the server's order, as <c>!pos</c> and <c>/moveto</c> take it (#496):
+        /// X, height, Y (north/south).
         /// </summary>
         private static string FormatDisplayPosition(Vector3 pos, string format) =>
-            $"X={pos.X.ToString(format)}, Y={pos.Z.ToString(format)}, Z={pos.Y.ToString(format)}";
+            $"X={pos.X.ToString(format)}, Height={pos.Y.ToString(format)}, Y={pos.Z.ToString(format)}";
 
         /// <summary>
         /// Moves towards target coordinates (internal axes, Y = height; a NaN Y keeps the current height).
@@ -1438,7 +1439,7 @@ namespace Gordian.Engine.Actions
             {
                 float dist = Vector3.Distance(center, ent.Position);
                 string name = string.IsNullOrWhiteSpace(ent.Name) ? "<Unknown>" : ent.Name;
-                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Z:F1}, {ent.Position.Y:F1})");
+                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Y:F1}, {ent.Position.Z:F1})");
             }
             return sb.ToString().TrimEnd();
         }
@@ -1462,7 +1463,7 @@ namespace Gordian.Engine.Actions
             }
 
             float dist = Vector3.Distance(myPos, t.Position);
-            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Z:F2}, {t.Position.Y:F2})";
+            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Y:F2}, {t.Position.Z:F2})";
         }
 
         /// <summary>
@@ -1494,7 +1495,7 @@ namespace Gordian.Engine.Actions
                     case "moveto" or "goto":
                         if (_profile.IsRestricted(FeatureRestrictions.Movement))
                             return "Command '/moveto' is blocked by server feature restrictions (Movement).";
-                        return "Usage: /moveto <x> <y> [z] - Move to FFXI/Windower coordinates (z = height, optional).";
+                        return "Usage: /moveto <x> <height> <y> | /moveto <x> <y> - Move to coordinates in the server's order (as !pos); without a height (or with _) the current height is kept.";
                     case "playsound":
                         return "Usage: /playsound <id> | stop - Debug: play sound effect <id> on this client (looped files loop until stop).";
                     case "playmusic":
@@ -1639,7 +1640,7 @@ namespace Gordian.Engine.Actions
             sb.AppendLine("  /nearby [radius]          - Scan nearby entities within radius (default 50y)");
             if (!_profile.IsRestricted(FeatureRestrictions.Movement))
             {
-                sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
+                sb.AppendLine("  /moveto <x> <height> <y>  - Move to target coordinates, server order (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
@@ -2499,7 +2500,7 @@ namespace Gordian.Engine.Actions
             var sb = new StringBuilder();
             sb.AppendLine($"--- Game Master (GM) Commands [Restrictions: {restrictions}] ---");
             sb.AppendLine("[Locomotion & Teleportation]");
-            sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates (Windower order, z = height)");
+            sb.AppendLine("  !pos [x height y [zone]]  - Query or set coordinates (server order)");
             sb.AppendLine("  !goto <player>            - Teleport to player");
             sb.AppendLine("  !bring <player>           - Teleport player to you");
             sb.AppendLine("  !zone <zone_id>           - Teleport to specified zone");
