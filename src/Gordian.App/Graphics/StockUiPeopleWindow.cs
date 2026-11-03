@@ -25,8 +25,8 @@ namespace Gordian.App.Graphics
     {
         private const float JobsX = 21, RankBoxX = 132, RankBoxWidth = 15, RankBoxHeight = 15, NameX = 154, LanguagesX = 247;
 
-        /// <summary>The jobs column's log font scale (round 2 image-54) and the width it must fit before the flag.</summary>
-        private const float JobsScale = 0.8f, JobsWidth = RankBoxX - JobsX - 2;
+        /// <summary>The jobs column's log font scale (round 2 image-54), the same on every row.</summary>
+        private const float JobsScale = 0.8f;
 
         /// <summary>The comment dot: 6 px, its left 2 px before the name, 4 px below the row's top (image-54).</summary>
         private const float CommentDotSize = 6, CommentDotX = NameX - 6, CommentDotY = 4;
@@ -132,8 +132,8 @@ namespace Gordian.App.Graphics
                 {
                     if (logFont != null)
                     {
-                        float js = JobsScale * Math.Min(1, JobsWidth / Math.Max(1, logFont.MeasureWidth(jobs) * JobsScale));
-                        logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + (firstRow.Height - StockUiLogFont.CellHeight * js) * 0.5f * s, s * js, StockUiMenuWindow.White);
+                        // One size for every row (round 3: shrinking long rows to fit made the races differ).
+                        logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + (firstRow.Height - StockUiLogFont.CellHeight * JobsScale) * 0.5f * s, s * JobsScale, StockUiMenuWindow.White);
                     }
                     else renderer.DrawText(font, jobs, areaX + JobsX * s, ry + fontY, s * StockUiPartyWindow.TextScale);
                 }
@@ -160,9 +160,9 @@ namespace Gordian.App.Graphics
                 if (person.Languages is { Length: > 0 } languages) renderer.DrawText(font, languages, areaX + LanguagesX * s, ry + fontY, s, nameTint);
                 if ((person.Area ?? person.Detail) is { Length: > 0 } right)
                 {
+                    // The area in the name's font and size (round 3; image-76: "LowJeuno", "ZvahlBails").
                     float rightEdge = placement.X + (frame.Width - StockUiMenuWindow.MapValueRightPad) * s;
-                    if (logFont != null) logFont.Draw(renderer, right, rightEdge - logFont.MeasureWidth(right) * s, ry + logY, s, StockUiMenuWindow.White);
-                    else renderer.DrawText(font, right, rightEdge - font.MeasureWidth(right) * s, ry + fontY, s);
+                    renderer.DrawText(font, right, rightEdge - font.MeasureWidth(right) * s, ry + fontY, s);
                 }
             }
             renderer.ClearClip();

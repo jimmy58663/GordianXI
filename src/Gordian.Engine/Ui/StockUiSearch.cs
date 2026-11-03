@@ -244,6 +244,21 @@ namespace Gordian.Engine.Ui
             _ => 0x73,
         };
 
+        /// <summary>
+        /// The zone whose compact name (ROM/165/85, <c>StockUiMenuController.ZoneCompactName</c>: "LowJeuno", "BibikiBay") is
+        /// <paramref name="name"/>, ignoring case; null for none. The same table names the zones in the people rows' area
+        /// column and the Map screen's zone list, and is what <c>/sea</c> takes as a zone (#495).
+        /// </summary>
+        public static int? ZoneByCompactName(Func<int, string?>? compactName, string name, int zoneCount = 300)
+        {
+            if (compactName == null || string.IsNullOrWhiteSpace(name)) return null;
+            for (int zone = 1; zone < zoneCount; zone++)
+            {
+                if (compactName(zone) is { Length: > 0 } compact && string.Equals(compact, name.Trim(), StringComparison.OrdinalIgnoreCase)) return zone;
+            }
+            return null;
+        }
+
         /// <summary>A comment type's genre (its high digit: 1 Job Levels ... 7 Miscellaneous); 0 for none.</summary>
         public static int CommentGenreOf(uint commentType) => commentType is >= 0x10 and <= 0x7F ? (int)(commentType >> 4) : 0;
 

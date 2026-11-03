@@ -1316,7 +1316,7 @@ namespace Gordian.App.Graphics
             for (int i = 0; i < rows.Count; i++)
             {
                 var m = groups.Own[i];
-                var mark = m.IsLevelSynced ? PartyRowMark.LevelSyncTarget : m.IsQuartermaster ? PartyRowMark.Quartermaster : PartyRowMark.None;
+                var mark = (m.IsLevelSynced ? PartyRowMark.LevelSyncTarget : PartyRowMark.None) | (m.IsQuartermaster ? PartyRowMark.Quartermaster : PartyRowMark.None);
                 if (mark != PartyRowMark.None) rows[i] = rows[i] with { Mark = mark };
             }
             return rows;

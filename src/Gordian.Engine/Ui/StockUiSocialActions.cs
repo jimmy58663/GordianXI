@@ -57,7 +57,11 @@ namespace Gordian.Engine.Ui
 
         private Func<byte, string?>? JobName => _actions.Menus.JobName;
 
-        private Func<int, string?>? ZoneName => _actions.Menus.ZoneName;
+        /// <summary>
+        /// The people rows' area: the compact zone name (ROM/165/85, "LowJeuno"), as retail's lists show it (round 3 image-76)
+        /// and the Map screen's zone list shows it in parentheses.
+        /// </summary>
+        private Func<int, string?>? ZoneName => _actions.Menus.ZoneCompactName;
 
         public ushort CurrentZone => _zone();
 
