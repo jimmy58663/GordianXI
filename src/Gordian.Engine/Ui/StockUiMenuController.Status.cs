@@ -44,6 +44,7 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private StockUiOpenMenu? OpenStatusPage(StockUiStatusPage page, StockUiOpenMenu from)
         {
+            if (page > StockUiStatusPage.MasterLevels) return OpenStatusWindow(page, from);
             var library = _library;
             string name = StockUiStatus.MenuOf(page);
             if (library == null || name.Length == 0 || !library.TryGetMenu(name, out var definition))
@@ -105,7 +106,7 @@ namespace Gordian.Engine.Ui
             short imageHeight = page switch
             {
                 StockUiStatusPage.CraftSkills => StockUiStatus.CraftFrameHeight,
-                StockUiStatusPage.JobLevels => StockUiStatus.JobLevelImageHeight,
+                StockUiStatusPage.JobLevels or StockUiStatusPage.MasterLevels => StockUiStatus.JobLevelImageHeight,
                 _ => f.Height,
             };
             short height = StockUiStatus.PageHeight(page, info) ?? imageHeight;

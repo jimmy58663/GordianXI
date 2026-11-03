@@ -17,6 +17,16 @@ namespace Gordian.Engine.Ui
         CombatSkills,
         MagicSkills,
         CraftSkills,
+        /// <summary>Master Levels (<c>masterle</c>): every job's master level, laid out as Job Levels (#487).</summary>
+        MasterLevels,
+        // The entries below open their own windows or post to the log (StockUiStatusPages, #487); they are not pages over the list.
+        Currencies,
+        Currencies2,
+        Unity,
+        PlayTime,
+        MeritPoints,
+        JobPoints,
+        AlterEgoPoints,
     }
 
     /// <summary>One skill line of a Status skills page: the skill's name, its level, whether it is capped, and a craft's rank.</summary>
@@ -33,11 +43,14 @@ namespace Gordian.Engine.Ui
     /// <param name="MentorRank">The mentor flag (S2C 0x01B: 0 none, 1 bronze, 2 silver, 3 gold) after "Mentor :".</param>
     /// <param name="GladiatorRank">The Monstrosity Gladiator rank as the Profile writes it ("Gla", "CG", "HCG").</param>
     /// <param name="Prestige">The Monstrosity prestige.</param>
+    /// <param name="MasterLevels">Master levels by job id (S2C 0x01B <c>job_mastery_levels</c>); null when not known.</param>
+    /// <param name="JobMasteryFlags">The jobs with mastery unlocked (S2C 0x01B <c>job_mastery_flags</c>, bit n for job n).</param>
     public sealed record StockUiStatusInfo(StockUiCharacterStats Stats, int Level, int ExpNow, int ExpNext,
         string Title, string Nation, string Race, string HomePoint, int Rank, int RankPoints, int MasteryRank,
         IReadOnlyList<byte> JobLevels, byte MainJob,
         IReadOnlyList<StockUiSkillLine> CombatSkills, IReadOnlyList<StockUiSkillLine> MagicSkills, IReadOnlyList<StockUiSkillLine> CraftSkills,
-        byte SubJob = 0, int NationId = -1, int MentorRank = 0, string GladiatorRank = "Gla", int Prestige = 0);
+        byte SubJob = 0, int NationId = -1, int MentorRank = 0, string GladiatorRank = "Gla", int Prestige = 0,
+        IReadOnlyList<byte>? MasterLevels = null, uint JobMasteryFlags = 0);
 
     /// <summary>
     /// The stock Status window (#23) from the English menu DAT (39542, ROM/119/51; read 2026-10-24 with the menu dump), laid
@@ -82,7 +95,7 @@ namespace Gordian.Engine.Ui
         {
             int rows = page switch
             {
-                StockUiStatusPage.JobLevels => JobRowsPerColumn,
+                StockUiStatusPage.JobLevels or StockUiStatusPage.MasterLevels => JobRowsPerColumn,
                 StockUiStatusPage.CombatSkills => ((info?.CombatSkills.Count ?? CombatSkills.Count) + 1) / 2,
                 StockUiStatusPage.MagicSkills => ((info?.MagicSkills.Count ?? MagicSkills.Count) + 1) / 2,
                 StockUiStatusPage.CraftSkills => CraftSkills.Count,
@@ -116,6 +129,7 @@ namespace Gordian.Engine.Ui
         {
             StockUiStatusPage.Profile => ProfileMenu,
             StockUiStatusPage.JobLevels => JobLevelMenu,
+            StockUiStatusPage.MasterLevels => StockUiStatusPages.MasterLevelMenu,
             StockUiStatusPage.CombatSkills => CombatSkillMenu,
             StockUiStatusPage.MagicSkills or StockUiStatusPage.CraftSkills => MagicSkillMenu,
             _ => string.Empty,

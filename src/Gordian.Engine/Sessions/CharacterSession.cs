@@ -375,6 +375,16 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.ItemMove = (count, from, fromSlot, to, toSlot) => InventoryModule.MoveItemAsync(from, fromSlot, to, toSlot, count);
             ActionService.Menus.CharacterStats = CharacterStats;
             ActionService.Menus.StatusInfo = StatusInfo;
+            // The Status window's own windows (#487): Currencies ask for S2C 0x113 / 0x118 (C2S 0x10F / 0x115), Job Points for
+            // 0x08D (C2S 0x0C0), Mode Switch sends C2S 0x0BE; the open lists follow the packets.
+            ActionService.Menus.StatusPoints = StatusPoints;
+            ActionService.Menus.CurrenciesRequested = second => _ = second ? InventoryModule.RequestCurrencies2Async() : InventoryModule.RequestCurrencies1Async();
+            ActionService.Menus.JobPointsRequested = () => _ = ProgressionModule.SendJobPointsReqAsync();
+            ActionService.Menus.MeritModeChanged = mode => ProgressionModule.SendMeritsAsync(MeritCommandKind.ChangeMode, mode, 0);
+            Inventory.CurrenciesChanged += ActionService.Menus.OnStatusPointsChanged;
+            Progression.MeritsUpdated += ActionService.Menus.OnStatusPointsChanged;
+            Progression.JobPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
+            Progression.AlterEgoPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
             // The Map window (#23): the zone's map, and Wide Scan as /widescan.
             ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
             ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
@@ -489,6 +499,7 @@ namespace Gordian.Engine.Sessions
             };
             AttachKeyItemsAndEquipmentSets();
             AttachSynthesisAndGuildShop();
+            AttachTrade();
             AttachAuctionHouse();
             AttachBlueMagic();
             AttachQuestLog();
@@ -557,7 +568,26 @@ namespace Gordian.Engine.Sessions
                 p.Rank, p.RankPoints, Ui.StockUiStatus.MasteryRankShown(p.MasteryRank), (byte[])p.JobLevels.Clone(), (byte)p.MainJob,
                 Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.CombatSkills, skills), Ui.StockUiStatus.SkillLines(Ui.StockUiStatus.MagicSkills, skills),
                 Ui.StockUiStatus.CraftLines(skills), (byte)p.SubJob, p.Nation <= 2 ? p.Nation : -1, p.MentorRank,
-                Ui.StockUiStatus.GladiatorRankName(Progression.GladiatorRank), Progression.Prestige);
+                Ui.StockUiStatus.GladiatorRankName(Progression.GladiatorRank), Progression.Prestige,
+                (byte[])p.MasterLevels.Clone(), p.JobMasteryFlags);
+        }
+
+        /// <summary>The Status window's merits, job points, alter ego points, currencies and play time (#487).</summary>
+        private Ui.StockUiStatusPoints StatusPoints()
+        {
+            var g = Progression;
+            var jobs = new Ui.StockUiJobPointTotals[S2C_0x063_MiscData.JobPointJobCount];
+            for (int job = 1; job < jobs.Length; job++)
+            {
+                var (capacity, points, spent) = g.GetJobPointTotals(job);
+                jobs[job] = new Ui.StockUiJobPointTotals(capacity, points, spent);
+            }
+            var categories = Ui.StockUiStatusPages.AlterEgoCategories;
+            var upgrades = new int[categories.Count];
+            for (int i = 0; i < upgrades.Length; i++) upgrades[i] = g.GetAlterEgoUpgrade(categories[i].Category);
+            return new Ui.StockUiStatusPoints(g.LimitPoints, g.MeritPoints, g.MaxMeritPoints, g.CanUseMeritMode, g.MeritModeEnabled,
+                jobs, g.AlterEgoPoints, upgrades, Inventory.GetCurrency, Inventory.GetCurrency, World.PlayTimeSecondsNow, (byte)LocalPlayer.MainJob,
+                g.XpCappedOrMeritMode);
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

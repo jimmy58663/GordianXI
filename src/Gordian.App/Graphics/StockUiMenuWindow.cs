@@ -148,6 +148,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiItemWindow.DrawList(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
+            else if (font != null && menu.IsTradeWindow)
+            {
+                StockUiTradeWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
             else if (font != null && menu.IsSynthesisGrid)
             {
                 StockUiSynthesisWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
@@ -211,7 +215,7 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
                         // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
@@ -230,7 +234,7 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
                         if (row.Value is { Length: > 0 } value)
                         {
-                            float valueRight = placement.X + (frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
+                            float valueRight = placement.X + (menu.StatusValueRight ?? frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
                             renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, tint);
                         }
                         continue;
@@ -291,7 +295,9 @@ namespace Gordian.App.Graphics
 
             var selected = menu.SelectedButton;
             // The check window's View Wares takes the plain arrow, not the grid's slot box (retail screenshot, 2026-10-07).
-            string? cursorGroup = menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton ? DefaultCursorGroup : null;
+            // So does the trade window's gil field (round 1 of the 2026-10-31 test, image-25).
+            string? cursorGroup = (menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton) || (menu.IsTradeWindow && selected?.ButtonId == StockUiTrade.GilButton)
+                ? DefaultCursorGroup : null;
             if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp, cursorGroup);
         }
 

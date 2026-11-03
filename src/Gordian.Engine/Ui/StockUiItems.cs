@@ -40,6 +40,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Auction House's Sell: the inventory, worn and NoAuction items greyed; Confirm asks the price (#90).</summary>
         AuctionSell,
+
+        /// <summary>An item picker (<see cref="StockUiItemPicker"/>): the trade windows' item list (#486), the Bazaar's later.</summary>
+        Picker,
     }
 
     /// <summary>

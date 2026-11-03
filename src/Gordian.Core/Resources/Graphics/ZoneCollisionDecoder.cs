@@ -44,6 +44,7 @@ namespace Gordian.Core.Resources.Graphics
             if (groupCount <= 0 || groupsOffset <= 0 || groupsOffset >= payload.Length) return null;
 
             var triangles = new List<CollisionTriangle>();
+            var cullingTables = ZoneCullingTables.Parse(payload);
             var seenPairs = new HashSet<long>();
             int p = groupsOffset;
             for (int g = 0; g < groupCount; g++)
@@ -57,7 +58,7 @@ namespace Gordian.Core.Resources.Graphics
                     int transformOffset = ReadOffset(payload, p);
                     int meshOffset = ReadOffset(payload, p + 4);
                     if (!seenPairs.Add(((long)transformOffset << 32) | (uint)meshOffset)) continue;
-                    AppendObject(payload, transformOffset, meshOffset, triangles);
+                    AppendObject(payload, transformOffset, meshOffset, cullingTables, triangles);
                 }
                 p += 4; // zero terminator
             }
@@ -68,7 +69,7 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Transforms one local-space collision mesh by its placement's world matrix.
         /// </summary>
-        private static void AppendObject(ReadOnlySpan<byte> payload, int transformOffset, int meshOffset,
+        private static void AppendObject(ReadOnlySpan<byte> payload, int transformOffset, int meshOffset, ZoneCullingTables? cullingTables,
                                          List<CollisionTriangle> triangles)
         {
             if (transformOffset <= 0 || transformOffset + TransformSize > payload.Length) return;
@@ -79,6 +80,9 @@ namespace Gordian.Core.Resources.Graphics
             var toWorld = ReadMatrix(payload.Slice(transformOffset, 0x40));
             var toLocal = ReadMatrix(payload.Slice(transformOffset + 0x40, 0x40));
             var normalMatrix = Matrix4x4.Transpose(toLocal);
+            // +0xA8: the culling group, a pointer at the culling table a camera over this object's floor draws with
+            // (xi-tools docs/zone/format.md "Visibility"); 0 for none.
+            int cullingTable = cullingTables?.TableAt(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(transformOffset + 0xA8, 4))) ?? -1;
 
             int positions = ReadOffset(payload, meshOffset + 0x00);
             int normals = ReadOffset(payload, meshOffset + 0x04);
@@ -122,7 +126,7 @@ namespace Gordian.Core.Resources.Graphics
                 int terrain = ((w0 >> 15) & 1) + ((w1 >> 14) & 2) + ((w2 >> 13) & 4) + ((w3 >> 12) & 8);
                 bool cameraTransparent = meshFlagged && (w2 & 0x4000) != 0;
 
-                triangles.Add(new CollisionTriangle(a, b, c, normal, isWall, (CollisionTerrain)terrain, cameraTransparent));
+                triangles.Add(new CollisionTriangle(a, b, c, normal, isWall, (CollisionTerrain)terrain, cameraTransparent, cullingTable));
             }
         }
 

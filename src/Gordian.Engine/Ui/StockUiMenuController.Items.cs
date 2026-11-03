@@ -103,7 +103,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>An Items or Equipment window: drawn at its own place rather than following the root.</summary>
         public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment
-            || IsSynthesisGrid || IsSynthesisOptions;
+            || IsSynthesisGrid || IsSynthesisOptions || IsTradeWindow;
 
         /// <summary>The item worn in the slot a grid button shows (0 when empty or not the Equipment grid).</summary>
         public ushort EquippedItemIn(int buttonId) =>
@@ -117,6 +117,7 @@ namespace Gordian.Engine.Ui
         public ushort DescribedItem =>
             IsItemList ? SelectedItemRow is { IsStorageOptions: false } row ? row.ItemId : (ushort)0
             : IsSynthesisGrid ? SynthesisGridItem
+            : IsTradeWindow ? TradeGridItem
             : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId)
             : IsEquipment ? EquippedItemIn(SelectedButtonId)
             : IsCheck ? SelectedCheckItem
@@ -409,6 +410,7 @@ namespace Gordian.Engine.Ui
                 StockUiItemListKind.SynthesisHistory => StockUiSynthesis.HistoryRows(HistoryEntries(), ItemLookup),
                 StockUiItemListKind.GuildSell => StockUiGuildShop.InventoryRows(Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>(), OrderedRows(ContainerId.Inventory)),
                 StockUiItemListKind.AuctionSell => AuctionSellRows(),
+                StockUiItemListKind.Picker when menu.Picker is { } picker => picker.Rows(OrderedRows(ContainerId.Inventory)),
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
@@ -467,6 +469,11 @@ namespace Gordian.Engine.Ui
                     else if (menu.IsEquipment)
                     {
                         menu.CompanionRows = StockUiItems.EquipRows(Inventory, menu.EquipContainer, null, ItemLookup, Character());
+                        changed = true;
+                    }
+                    else if (menu.IsTradeWindow)
+                    {
+                        RefreshTrade(menu);
                         changed = true;
                     }
                     else if (menu.IsSynthesisGrid)
@@ -547,7 +554,7 @@ namespace Gordian.Engine.Ui
             StockUiOpenMenu? baseWindow = null;
             for (int i = open.Length - 1; i >= 0 && baseWindow == null; i--)
             {
-                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid || open[i].IsSynthesisGrid) baseWindow = open[i];
+                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid || open[i].IsSynthesisGrid || open[i].IsTradeWindow) baseWindow = open[i];
             }
             if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
             var top = open[^1];
@@ -558,6 +565,8 @@ namespace Gordian.Engine.Ui
                 // View House: the storage's short name, or "Items" with the cursor on the inventory (round 2, retail).
                 : window.ItemListKind == StockUiItemListKind.Storage ? window.StorageInventorySide ? StockUiItems.TitleItems : StockUiViewHouse.Title(window.StorageContainer)
                 : window.IsSynthesisGrid || window.ItemListKind == StockUiItemListKind.SynthesisHistory ? StockUiSynthesis.Title
+                : window.Picker is { } picker ? picker.Title
+                : window.IsTradeWindow ? StockUiTrade.Title
                 : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
                 : StockUiItems.TitleItems;
@@ -591,6 +600,7 @@ namespace Gordian.Engine.Ui
                 if (menu.AuctionHelpId >= 0) help = menu.AuctionHelpId; // the Auction House's Sell, Price Set and prompts (#90)
                 else if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisMaterials) help = StockUiSynthesis.HelpSelectMaterials;
+                else if (menu.Picker is { HelpTextId: >= 0 } pickerHelp) help = pickerHelp.HelpTextId;
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
                 else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
@@ -673,6 +683,9 @@ namespace Gordian.Engine.Ui
                     return;
                 case StockUiItemListKind.Storage:
                     MoveFromStorage(list, row);
+                    return;
+                case StockUiItemListKind.Picker:
+                    PickItem(list, row);
                     return;
                 case StockUiItemListKind.AuctionSell:
                     PickAuctionSale(list, row);

@@ -512,16 +512,69 @@ namespace Gordian.Core.World
 
         #region Trade Session
 
+        // Player trade (#486). The lifecycle, as LandSandBoat runs it (map/packets/c2s/0x032_trade_req.cpp, 0x033_trade_res.cpp,
+        // map/items/transactions/player_trade.cpp): a request (C2S 0x032) reaches the target as S2C 0x021; the target's
+        // C2S 0x033 Start opens the window on both sides (S2C 0x022 Start); each slot change (C2S 0x034) comes back to the
+        // offerer as S2C 0x025 and to the partner as S2C 0x023 and withdraws both sides' OK; C2S 0x033 Make reaches the
+        // partner as S2C 0x022 Make; when both have made it the trade commits (S2C 0x022 End) or fails (0x022 Cancel). Slot 0
+        // of the trade window is the gil (item 0xFFFF), slots 1-8 the items.
+
+        /// <summary>A trade request received (S2C 0x021) and not yet answered: the requester's server id (0 = none).</summary>
+        public uint TradeRequesterServerId { get; private set; }
+
+        /// <summary>The target index of <see cref="TradeRequesterServerId"/>.</summary>
+        public ushort TradeRequesterIndex { get; private set; }
+
+        /// <summary>Whether the trade window is open (S2C 0x022 Start until Cancel, End or an error).</summary>
         public bool IsTrading { get; private set; }
         public uint TradePartnerServerId { get; private set; }
         public ushort TradePartnerIndex { get; private set; }
         public TradeResultKind TradeStatus { get; private set; } = TradeResultKind.End;
+
+        /// <summary>The trade counter of the partner's last slot change (S2C 0x023), echoed in C2S 0x033 Make.</summary>
+        public ushort TradeCounter { get; private set; }
+
+        /// <summary>Whether the partner has pressed OK (S2C 0x022 Make) since the trade last changed.</summary>
+        public bool TradePartnerAccepted { get; private set; }
+
         private readonly Dictionary<byte, (ushort ItemId, uint Count, byte[] ExtData)> _partnerTradeItems = new Dictionary<byte, (ushort, uint, byte[])>();
         private readonly Dictionary<byte, (ushort ItemId, uint Count, byte Slot)> _myTradeItems = new Dictionary<byte, (ushort, uint, byte)>();
 
         public IReadOnlyDictionary<byte, (ushort ItemId, uint Count, byte[] ExtData)> PartnerTradeItems => _partnerTradeItems;
         public IReadOnlyDictionary<byte, (ushort ItemId, uint Count, byte Slot)> MyTradeItems => _myTradeItems;
 
+        /// <summary>S2C 0x021: another player asks to trade (server id, target index).</summary>
+        public event Action<uint, ushort>? TradeRequested;
+
+        /// <summary>S2C 0x022: a trade result (kind, the server id and target index of the player it is about).</summary>
+        public event Action<TradeResultKind, uint, ushort>? TradeResultReceived;
+
+        /// <summary>S2C 0x021: remembers the request until it is answered, the trade opens or ends.</summary>
+        public void ReceiveTradeRequest(uint requesterServerId, ushort requesterIndex)
+        {
+            lock (_lock)
+            {
+                TradeRequesterServerId = requesterServerId;
+                TradeRequesterIndex = requesterIndex;
+            }
+
+            TradeRequested?.Invoke(requesterServerId, requesterIndex);
+            TradeChanged?.Invoke();
+        }
+
+        /// <summary>Forgets an unanswered trade request (the client cancelled it).</summary>
+        public void ClearTradeRequest()
+        {
+            lock (_lock)
+            {
+                TradeRequesterServerId = 0;
+                TradeRequesterIndex = 0;
+            }
+
+            TradeChanged?.Invoke();
+        }
+
+        /// <summary>Opens the trade window with a partner (S2C 0x022 Start): both offers empty, nobody's OK pressed.</summary>
         public void StartTrade(uint targetServerId, ushort targetIndex)
         {
             lock (_lock)
@@ -530,6 +583,10 @@ namespace Gordian.Core.World
                 TradePartnerServerId = targetServerId;
                 TradePartnerIndex = targetIndex;
                 TradeStatus = TradeResultKind.Start;
+                TradeRequesterServerId = 0;
+                TradeRequesterIndex = 0;
+                TradeCounter = 0;
+                TradePartnerAccepted = false;
                 _partnerTradeItems.Clear();
                 _myTradeItems.Clear();
             }
@@ -537,26 +594,48 @@ namespace Gordian.Core.World
             TradeChanged?.Invoke();
         }
 
-        public void SetTradeStatus(TradeResultKind status)
+        public void SetTradeStatus(TradeResultKind status) => SetTradeStatus(status, TradePartnerServerId, TradePartnerIndex);
+
+        /// <summary>
+        /// S2C 0x022: Start opens the window, Make / MakeCancel set the partner's OK, and Cancel, End and the errors close the
+        /// trade (and any pending request). <see cref="TradeResultReceived"/> is raised after the state changes.
+        /// </summary>
+        public void SetTradeStatus(TradeResultKind status, uint serverId, ushort actIndex)
         {
+            if (status == TradeResultKind.Start)
+            {
+                StartTrade(serverId, actIndex);
+                TradeResultReceived?.Invoke(status, serverId, actIndex);
+                return;
+            }
+
             lock (_lock)
             {
                 TradeStatus = status;
-                if (status == TradeResultKind.End || status == TradeResultKind.Cancel || status >= TradeResultKind.ErrEtc)
+                if (status == TradeResultKind.Make) TradePartnerAccepted = true;
+                else if (status == TradeResultKind.MakeCancel) TradePartnerAccepted = false;
+                else if (status == TradeResultKind.End || status == TradeResultKind.Cancel || status >= TradeResultKind.ErrEtc)
                 {
                     IsTrading = false;
+                    TradePartnerAccepted = false;
+                    TradeRequesterServerId = 0;
+                    TradeRequesterIndex = 0;
                     _partnerTradeItems.Clear();
                     _myTradeItems.Clear();
                 }
             }
 
+            TradeResultReceived?.Invoke(status, serverId, actIndex);
             TradeChanged?.Invoke();
         }
 
-        public void SetPartnerTradeItem(byte tradeIndex, ushort itemId, uint count, ReadOnlySpan<byte> extData)
+        /// <summary>S2C 0x023: a slot of the partner's offer (count 0 empties it); the change withdraws the partner's OK.</summary>
+        public void SetPartnerTradeItem(byte tradeIndex, ushort itemId, uint count, ReadOnlySpan<byte> extData, ushort tradeCounter = 0)
         {
             lock (_lock)
             {
+                TradeCounter = tradeCounter;
+                TradePartnerAccepted = false;
                 if (count == 0 || itemId == 0)
                 {
                     _partnerTradeItems.Remove(tradeIndex);
@@ -571,10 +650,12 @@ namespace Gordian.Core.World
             TradeChanged?.Invoke();
         }
 
+        /// <summary>S2C 0x025: a slot of the local player's offer as the server took it (count 0 empties it); withdraws the partner's OK.</summary>
         public void SetMyTradeItem(byte tradeIndex, ushort itemId, uint count, byte slot)
         {
             lock (_lock)
             {
+                TradePartnerAccepted = false;
                 if (count == 0 || itemId == 0)
                 {
                     _myTradeItems.Remove(tradeIndex);
@@ -586,6 +667,15 @@ namespace Gordian.Core.World
             }
 
             TradeChanged?.Invoke();
+        }
+
+        /// <summary>Copies of both offers (trade slot to item), safe to read while packets arrive.</summary>
+        public (Dictionary<byte, (ushort ItemId, uint Count, byte Slot)> Mine, Dictionary<byte, (ushort ItemId, uint Count, byte[] ExtData)> Partner) SnapshotTrade()
+        {
+            lock (_lock)
+            {
+                return (new Dictionary<byte, (ushort, uint, byte)>(_myTradeItems), new Dictionary<byte, (ushort, uint, byte[])>(_partnerTradeItems));
+            }
         }
 
         #endregion

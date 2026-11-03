@@ -32,6 +32,9 @@ namespace Gordian.Engine.Ui
     {
         Bid,
         Sell,
+
+        /// <summary>The gil a trade window offers (#486): capped at the gil held, 0 allowed.</summary>
+        TradeGil,
     }
 
     /// <summary>

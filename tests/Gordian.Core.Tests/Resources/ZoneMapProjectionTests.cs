@@ -35,10 +35,13 @@ namespace Gordian.Core.Tests.Resources
         {
             Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(230, 0));
             Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(241, 0));
-            Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(204, 1)); // Fei'Yin
+            Assert.Equal(0.4f, ZoneMapProjection.ScaleOf(204, 1)); // Fei'Yin: a dungeon
+            Assert.Equal(0.4f, ZoneMapProjection.ScaleOf(12, 0)); // Newton Movalpolos
             Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(130, 0)); // Ru'Aun Gardens
-            Assert.Null(ZoneMapProjection.ScaleOf(100, 0)); // West Ronfaure: no home point to check it by
-            Assert.Null(ZoneMapProjection.ScaleOf(9, 1)); // Pso'Xja: which floor its home point is on is not known
+            Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(100, 0)); // West Ronfaure: a field (round 2 of #485)
+            Assert.Equal(0.8f, ZoneMapProjection.ScaleOf(26, 1)); // Tavnazian Safehold's town map...
+            Assert.Equal(0.2f, ZoneMapProjection.ScaleOf(26, 3)); // ...and its 0.2 map
+            Assert.Null(ZoneMapProjection.ScaleOf(9, 1)); // Pso'Xja: too few spawn points on the floor to fit it
             Assert.Null(ZoneMapProjection.ScaleOf(230, 1));
         }
 
