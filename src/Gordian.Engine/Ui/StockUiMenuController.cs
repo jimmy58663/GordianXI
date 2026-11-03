@@ -43,6 +43,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Status window's Currencies, Job Points and Alter Ego Points lists (#487): each row a name and its amount.</summary>
         StatusValues,
+
+        /// <summary>A people list (<see cref="StockUiPeople"/>, #489 / #490): member lists, search results, friends, the blacklist.</summary>
+        People,
     }
 
     /// <summary>
@@ -460,8 +463,14 @@ namespace Gordian.Engine.Ui
         /// <summary>A client message for the log window (entries without a window, the current time).</summary>
         public event Action<string>? NoticePosted;
 
+        /// <summary>A notice drawn in a colour of its own (a search comment in its type's colour, #490).</summary>
+        public event Action<string, UiColor>? TintedNoticePosted;
+
         /// <summary>Posts a client message to the log, as the menus' own notices are (used by windows driven from outside, like the dead window).</summary>
         public void PostNotice(string message) => NoticePosted?.Invoke(message);
+
+        /// <summary>Posts a notice drawn in its own colour.</summary>
+        public void PostTinted(string message, UiColor tint) => TintedNoticePosted?.Invoke(message, tint);
 
         /// <summary>A system sound the keyboard / gamepad menu input calls for (cursor, select, close, open, page).</summary>
         public event Action<StockUiSoundCue>? SoundCue;
@@ -1133,6 +1142,10 @@ namespace Gordian.Engine.Ui
             {
                 RefreshPartyMenu(menu);
             }
+            else if (StockUiSearch.TitleOf(menu.Name) != null)
+            {
+                RefreshSearchMenu(menu);
+            }
             else if (menu.Name.Equals(StockUiMenuEntries.ChatModeMenu, StringComparison.OrdinalIgnoreCase))
             {
                 // Chat modes: the tell partner's name after Tell's red arrow; Linkshell, Linkshell 2 and Unity greyed
@@ -1328,7 +1341,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1668,7 +1681,7 @@ namespace Gordian.Engine.Ui
 
             if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
             if (TryActivateQuestLog(top, button)) return;
-            if (TryActivateSynthesis(top, button) || TryActivateTrade(top, button) || TryActivateItemWindow(top, button)) return;
+            if (TryActivateSynthesis(top, button) || TryActivateTrade(top, button) || TryActivateItemWindow(top, button) || TryActivateSocial(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -1911,6 +1924,18 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.PartyDisband:
                     _ = ConfirmPartyDisbandAsync(CurrentParty.IsLeader);
+                    break;
+
+                case StockUiMenuCommand.PartyAction:
+                    RunPartyAction(entry, from);
+                    break;
+
+                case StockUiMenuCommand.PersonAction:
+                    RunPersonAction(entry, from);
+                    break;
+
+                case StockUiMenuCommand.SearchAction:
+                    RunSearchAction(entry, from);
                     break;
 
                 case StockUiMenuCommand.CurrentTime:

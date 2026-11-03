@@ -1,5 +1,6 @@
 // src/Gordian.App/Graphics/StockUiHelpBar.cs
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Ui;
@@ -21,6 +22,9 @@ namespace Gordian.App.Graphics
     public static class StockUiHelpBar
     {
         private const float TextX = 8, HelpRightMargin = 16, FractionSlashX = 88, FractionY = 12;
+
+        /// <summary>A scrolling title's speed (layout px a second) and the gap before it comes round again (about three spaces).</summary>
+        private const float MarqueeSpeed = 22, MarqueeGap = 24;
 
         /// <summary>The help bar at its authored places on a screen <paramref name="width"/> x <paramref name="height"/> px.</summary>
         public static void DrawOnScreen(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
@@ -64,7 +68,31 @@ namespace Gordian.App.Graphics
                 float s = t.Scale;
                 // The help bar keeps the DAT's translucent fade (the maintainer's retail check, #454 round A2).
                 renderer.DrawMenu(titleWindow, t, includeButtons: false);
-                StockUiTextBoxes.DrawLine(renderer, font, logFont, title, t.X + TextX * s, t.Y + (titleWindow.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
+                float titleY = t.Y + (titleWindow.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s;
+                float room = titleWindow.Frame.Width - 2 * TextX;
+                float titleWidth = StockUiTextBoxes.MeasureLine(font, logFont, title);
+                if (titleWidth <= room)
+                {
+                    StockUiTextBoxes.DrawLine(renderer, font, logFont, title, t.X + TextX * s, titleY, s);
+                }
+                else
+                {
+                    // A title too long for the box scrolls left through it, wrapping round after a gap (retail video of
+                    // "Communication", #490 round 1: about 4.5 s a turn). PROVISIONAL: the speed and gap are read off that video.
+                    // Round 2 found it jittery: the clock is now read in double (a float of the seconds since boot steps by
+                    // hundredths) and the glyphs are placed at sub-pixel positions instead of snapping one by one.
+                    float period = titleWidth + MarqueeGap;
+                    double seconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                    float offset = (float)(seconds * MarqueeSpeed % period);
+                    renderer.SetClip(t.X + TextX * s, t.Y, room * s, titleWindow.Frame.Height * s);
+                    for (int copy = 0; copy < 2; copy++)
+                    {
+                        float x = t.X + (TextX - offset + copy * period) * s;
+                        if (logFont != null) logFont.Draw(renderer, title, x, titleY, s, StockUiMenuWindow.White, snap: false);
+                        else StockUiTextBoxes.DrawLine(renderer, font, logFont, title, x, titleY, s);
+                    }
+                    renderer.ClearClip();
+                }
                 if (numerator is { } used && denominator is { } total)
                 {
                     float ts = s * StockUiPartyWindow.TextScale;

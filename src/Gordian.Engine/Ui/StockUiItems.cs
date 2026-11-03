@@ -55,6 +55,9 @@ namespace Gordian.Engine.Ui
         int StackSize = 1, bool Equipped = false, bool Greyed = false, string? GreyedReason = null, bool IsStorageOptions = false,
         StockUiSetRowAction SetAction = StockUiSetRowAction.None, bool Picked = false)
     {
+        /// <summary>A linkshell item's colour (<see cref="StockUiItems.LinkshellColorOf"/>): its icon is drawn in it; 0 for other items.</summary>
+        public ushort LinkshellColor { get; init; }
+
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
     }
@@ -113,6 +116,15 @@ namespace Gordian.Engine.Ui
     /// </summary>
     public static class StockUiItems
     {
+        /// <summary>
+        /// A linkshell, pearlsack or linkpearl's colour (item ids 513-515): the u16 at extra data offset 6, 4 bits each of R, G,
+        /// B from the low end (LandSandBoat <c>Exdata::Linkshell</c>, <c>src/map/items/exdata/linkshell.h</c>,
+        /// https://github.com/LandSandBoat/server); 0 for other items or no extra data. Retail draws the item's icon in it (round 1:
+        /// the linkpearls in the inventory showed no colour).
+        /// </summary>
+        public static ushort LinkshellColorOf(ushort itemId, byte[]? extData) =>
+            itemId is >= 513 and <= 515 && extData is { Length: >= 8 } ? (ushort)(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(extData.AsSpan(6, 2)) & 0x0FFF) : (ushort)0;
+
         public const string ListMenu = "inventor";
 
         /// <summary>The main menu's Items entry ("menuwind" button 4), where the cursor returns with the Items window.</summary>
@@ -367,7 +379,7 @@ namespace Gordian.Engine.Ui
                 var record = StockUiShop.Lookup(lookup, item.ItemId);
                 if (usableOnly && !IsUsable(lookup?.Invoke(item.ItemId))) continue;
                 rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
-                    Equipped: equipped.Contains((container, item.Slot))));
+                    Equipped: equipped.Contains((container, item.Slot))) { LinkshellColor = LinkshellColorOf(item.ItemId, item.ExtData) });
             }
             return rows;
         }

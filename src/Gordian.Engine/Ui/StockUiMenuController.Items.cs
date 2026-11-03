@@ -137,6 +137,12 @@ namespace Gordian.Engine.Ui
             : AuctionView == StockUiAuctionView.History && AuctionItem.Stack ? AuctionItem.StackSize
             : null;
 
+        /// <summary>
+        /// The linkshell colour <see cref="DescribedItem"/>'s icon takes in the item info window: an item list's linkpearl,
+        /// sack or shell row's (#490 round 6, as its row's icon); 0 for anything else.
+        /// </summary>
+        public ushort DescribedLinkshellColor => IsItemList && SelectedItemRow is { IsStorageOptions: false } row ? row.LinkshellColor : (ushort)0;
+
         private ushort _pagesItem;
         private Func<string, float>? _pagesMeasure;
         private IReadOnlyList<StockUiItemDescriptionPage> _pages = Array.Empty<StockUiItemDescriptionPage>();

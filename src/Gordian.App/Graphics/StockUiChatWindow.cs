@@ -64,6 +64,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static UiColor LineColor(ChatLogLine line, StockUiSettings? settings)
         {
+            if (line.Tint is { } tint) return tint;
             if (line.FontColor is not { } id) return StockUiFontColors.FixedColor(line.Channel);
             return (settings?.GetFontColor(id) ?? StockUiFontColors.Get(id).Default).ToUiColor();
         }

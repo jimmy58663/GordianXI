@@ -1523,7 +1523,9 @@ namespace Gordian.Engine.Input
             else if (_inputState.WasActionTriggered(InputAction.MenuLeft) || _inputState.WasActionTriggered(InputAction.MenuUp)
                 || _inputState.WasActionTriggered(InputAction.TargetCursorLeft) || _inputState.WasActionTriggered(InputAction.TargetPrevious)) step = -1;
             if (step == 0) return;
-            uint pick = SubTargetSelection.Step(service.SubTargetCandidates(_camera), selection.Current.ServerId, step);
+            // A party-only cursor walks the party window's rows in order; any other moves in screen order.
+            uint pick = service.StepPartySubTarget(step);
+            if (pick == 0) pick = SubTargetSelection.Step(service.SubTargetCandidates(_camera), selection.Current.ServerId, step);
             service.MoveSubTarget(pick);
         }
 

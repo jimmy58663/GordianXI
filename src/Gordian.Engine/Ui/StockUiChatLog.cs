@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiChatLog.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Resources.Ui;
 
 namespace Gordian.Engine.Ui
 {
@@ -131,6 +132,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Log page's message type, which picks the window the line goes to when the log is split.</summary>
         public ChatLogType Type { get; }
+
+        /// <summary>A colour of the line's own (half scale) drawn instead of its channel's or Font Colors row's: a search comment in its type's colour (#490).</summary>
+        public UiColor? Tint { get; init; }
 
         /// <summary>The Log page type of a channel's lines (combat lines are classified per line, see <see cref="StockUiCombatLog"/>).</summary>
         public static ChatLogType TypeOf(ChatLogChannel channel) => channel switch

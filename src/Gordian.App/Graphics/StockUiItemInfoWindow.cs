@@ -61,11 +61,11 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Draws the item info window with its top left at <paramref name="at"/>: the item's icon (with
         /// <paramref name="stackCount"/> over it when given) and the page's lines, footer and page arrow, or the empty window
-        /// when <paramref name="page"/> is null.
+        /// when <paramref name="page"/> is null. A linkshell item's icon takes its <paramref name="linkshellColor"/> (#490 round 6).
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
             Func<ushort, ItemRecord?>? itemLookup, ushort itemId, StockUiItemDescriptionPage? page, StockUiPlacement at, long timestamp,
-            int? stackCount = null)
+            int? stackCount = null, ushort linkshellColor = 0)
         {
             if (FrameOf(library, page) is not { } info) return;
             float s = at.Scale;
@@ -75,7 +75,13 @@ namespace Gordian.App.Graphics
                 return;
             }
             renderer.DrawMenu(info, at, includeButtons: false, opaqueBody: true);
-            StockUiMenuWindow.DrawItemIcon(renderer, itemLookup, itemId, at.X + IconX * s, at.Y + IconY * s, IconSize * s);
+            UiColor? iconTint = null;
+            if (linkshellColor != 0)
+            {
+                var (r, g, b) = StockUiLinkshellColors.Rgb(linkshellColor);
+                iconTint = StockUiNamePlates.PearlTint(r, g, b);
+            }
+            StockUiMenuWindow.DrawItemIcon(renderer, itemLookup, itemId, at.X + IconX * s, at.Y + IconY * s, IconSize * s, iconTint);
             if (stackCount is { } count) DrawCount(renderer, font, count, at);
             // The text box: from (48,4) to 8 px before the right edge, the window's height (StockUiTextBoxes clips to it).
             StockUiTextBoxes.DrawLines(renderer, font, logFont, page.Lines, at.X + TextX * s, at.Y + TextY * s,
@@ -106,7 +112,7 @@ namespace Gordian.App.Graphics
         {
             var page = menu.ShownDescriptionPage;
             if (page == null && !emptyWhenNone) return;
-            Draw(renderer, library, font, logFont, menu.ItemLookup, menu.DescribedItem, page, at, timestamp, menu.DescribedStackCount);
+            Draw(renderer, library, font, logFont, menu.ItemLookup, menu.DescribedItem, page, at, timestamp, menu.DescribedStackCount, menu.DescribedLinkshellColor);
         }
 
         /// <summary>The stack count right-aligned on the icon's bottom right, in <c>fontshp</c> with its own outline.</summary>

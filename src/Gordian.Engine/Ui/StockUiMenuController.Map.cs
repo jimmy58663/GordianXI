@@ -226,6 +226,11 @@ namespace Gordian.Engine.Ui
         /// <summary>Confirm on a Change Map row: a region lists its zones, a zone with several maps its maps, a map shows.</summary>
         private void ActivateMapList(StockUiOpenMenu list, int buttonId)
         {
+            if (list.SearchList != StockUiSearchList.None)
+            {
+                ActivateSearchList(list, buttonId); // Search by Area / Unity over the chat (#490)
+                return;
+            }
             lock (_sync)
             {
                 int index = list.EntryIndex(buttonId);

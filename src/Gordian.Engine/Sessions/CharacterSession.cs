@@ -313,9 +313,13 @@ namespace Gordian.Engine.Sessions
             {
                 var members = Party.Members;
                 uint self = LocalPlayer.ServerId;
-                return new Gordian.Engine.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeaderOf(self), members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0));
+                return new Gordian.Engine.Ui.StockUiPartyContext(members.Count > 0, Party.IsLeaderOf(self), members.Count(m => m.ServerId != self), members.Any(m => m.PartyNumber != 0),
+                    ActionService.ConfigModule?.State.IsSet(PlayerConfigFlags.Invite) == true, members.Any(m => m.ServerId == self && m.IsAllianceLeader));
             };
             ActionService.Menus.PartyDisbandRequested = leader => ActionService.DisbandOrLeavePartyAsync(leader);
+            // The rest of the Party menu, Search, Linkshell and Communication (#489, #490).
+            ActionService.Menus.Social = new Gordian.Engine.Ui.StockUiSocialActions(ActionService, Party, PartyModule, ChatModule,
+                () => LocalPlayer.ServerId, () => CharacterName, () => World.CurrentZoneId, () => LocalPlayer.MainJobLevel);
             // Unity membership (#65): the Unity leader (1-11) in S2C 0x061's unity_info; 0 = not in a Unity.
             ActionService.Menus.HasUnity = () => LocalPlayer.UnityFaction != 0;
             ChatModule.LinkshellMessageReceived += msg =>

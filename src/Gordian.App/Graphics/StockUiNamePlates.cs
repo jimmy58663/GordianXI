@@ -60,6 +60,9 @@ namespace Gordian.App.Graphics
         /// <summary>Plates nearer the camera than this (yalms) are skipped: the local player's own in first person.</summary>
         public const float NearestDepth = 1.0f;
 
+        /// <summary>S2C 0x067 mode 2 <c>NameFlags</c> bit 2: the player is under Level Sync (LandSandBoat <c>char_sync.cpp</c>).</summary>
+        private const uint LevelSyncNameFlag = 0x04;
+
         /// <summary>Font pixels between the icon and the name. Provisional.</summary>
         public const float IconGap = 2.0f;
 
@@ -135,7 +138,7 @@ namespace Gordian.App.Graphics
                 byte gmLevel = isLocal ? session.LocalPlayer.GmLevel : (entity as PlayerEntity)?.GmLevel ?? 0;
 
                 var color = ColorOf(library, NamePlateStyle.Color(entity, flags, localId, ownPartyIds, claimGroup));
-                var icon = NamePlateStyle.Icon(flags, gmLevel);
+                var icon = NamePlateStyle.Icon(flags, gmLevel, (entity.SyncNameFlags & LevelSyncNameFlag) != 0);
                 UiColor? iconTint = null;
                 if (icon == NamePlateIcon.Linkshell)
                 {

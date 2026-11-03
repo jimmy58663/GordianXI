@@ -96,14 +96,16 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(grouped.IsGreyed(StockUiParty.AllianceButton));
             Assert.False(grouped.IsGreyed(StockUiParty.ChangeLeaderButton));
 
+            // Alliance opens Form / Dissolve, so an alliance keeps it to dissolve.
             var allied = OpenParty(Controller(new StockUiPartyContext(true, true, 2, true)));
-            Assert.True(allied.IsGreyed(StockUiParty.AllianceButton));
+            Assert.False(allied.IsGreyed(StockUiParty.AllianceButton));
+            Assert.True(alone.IsGreyed(StockUiParty.LevelSyncButton));
         }
 
         [Fact]
         public void EveryPartyButtonHasAnEntry()
         {
-            foreach (var (menu, count) in new[] { (StockUiParty.NotInPartyMenu, 7), (StockUiParty.MemberMenu, 7), (StockUiParty.LeaderMenu, 12) })
+            foreach (var (menu, count) in new[] { (StockUiParty.NotInPartyMenu, 7), (StockUiParty.SeekingMenu, 6), (StockUiParty.MemberMenu, 7), (StockUiParty.LeaderMenu, 12) })
             {
                 int found = Enumerable.Range(1, 12).Count(id => StockUiMenuEntries.TryGet(menu, id, out _));
                 Assert.Equal(count, found);

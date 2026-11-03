@@ -14,7 +14,20 @@ namespace Gordian.App.Graphics
     /// <param name="ZoneName">Set for a member in another zone: the text in parentheses ("(SSandOria)") drawn in place of the HP/MP numbers and gauges.</param>
     /// <param name="StatusIds">Status effect ids in icon order, for the opt-in party status icons (null = none known).</param>
     public readonly record struct PartyRowVitals(string Name, int Hp, int HpPercent, int Mp, int MpPercent, int Tp, bool IsLeader,
-        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null);
+        bool IsAllianceLeader = false, IReadOnlyList<ushort>? StatusIds = null, string? ZoneName = null,
+        PartyRowMark Mark = PartyRowMark.None);
+
+    /// <summary>
+    /// A party row's balls at the window's right edge: the party's quartermaster (green: the member treasure goes to while
+    /// distribution is not Lottery) and the member the party's levels are synced to (red); one member can be both.
+    /// </summary>
+    [Flags]
+    public enum PartyRowMark
+    {
+        None = 0,
+        Quartermaster = 1,
+        LevelSyncTarget = 2,
+    }
 
     /// <summary>
     /// Draws the party window rows (name, HP/MP numbers and gauges, leader marker) inside a "ptw0".."ptw6" frame.
@@ -84,6 +97,9 @@ namespace Gordian.App.Graphics
         // yellow at (16, 16).
         private const string BallTexture = "colorbal";
         private const float BallCell = 16, WhiteBallX = 0, YellowBallX = 16, BallY = 16;
+
+        // The same texture's green (16, 0) and red (32, 0) balls: the quartermaster's and the Level Sync target's marks at a row's right (round 1 image-27, round 2).
+        private const float GreenBallX = 16, RedBallX = 32, SyncBallY = 0;
 
         /// <summary>Screen size of a ball cell so the ball shows 8 pixels across (retail ~6; 8 by request).</summary>
         private const float BallSize = 8 * BallCell / 14;
@@ -171,6 +187,7 @@ namespace Gordian.App.Graphics
                 {
                     // A member in another zone has no vitals: retail shows the name and "(zone)" on the second row.
                     DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                    DrawMarkBall(renderer, row, placement.X + menu.Frame.Width * s, ry, s);
                     renderer.DrawText(font, FitZoneRowName(font, row.Name), rx, ry, textScale);
                     DrawRightAligned(renderer, font, row.ZoneName, rx + ZoneTextRight * s, ry + 10 * s, textScale, null);
                     continue;
@@ -181,6 +198,7 @@ namespace Gordian.App.Graphics
                 DrawGauge(renderer, rx + 48 * s, ry + 15 * s, MiddleWidth, withKnob: false, MpGaugeColor, row.MpPercent, s);
 
                 DrawLeaderBalls(renderer, row, placement.X, ry, s);
+                DrawMarkBall(renderer, row, placement.X + menu.Frame.Width * s, ry, s);
 
                 renderer.DrawText(font, FitName(font, row.Name), rx, ry, textScale);
                 DrawRightAligned(renderer, font, row.Hp.ToString(CultureInfo.InvariantCulture), rx + 87 * s, ry, textScale, HpNumberColor(row.HpPercent));
@@ -271,6 +289,32 @@ namespace Gordian.App.Graphics
             }
             renderer.DrawTextureRect(BallTexture, YellowBallX, BallY, BallCell, BallCell, x, y, size, size, Neutral);
         }
+
+        /// <summary>
+        /// A row's ball on the window's right edge, level with the leader balls: red beside the member the party is synced to
+        /// (LandSandBoat's <c>PARTY_SYNC</c> in S2C 0x0DD), green beside the quartermaster (PartyRFlg; none under Lottery), on a
+        /// member in another zone too (round 3). Round 1 image-27 showed one of each; round 2 (the maintainer's retail check) found
+        /// the green one is the quartermaster, not the other synced members; round 3 image-77 shows a member who is both with
+        /// both balls.
+        /// </summary>
+        private static void DrawMarkBall(StockUiRenderer renderer, PartyRowVitals row, float frameRight, float rowY, float s)
+        {
+            if (row.Mark == PartyRowMark.None) return;
+            float size = BallSize * s;
+            float x = frameRight - 1 * s - size / 2, y = rowY + 12 * s - size / 2;
+            bool both = row.Mark == (PartyRowMark.Quartermaster | PartyRowMark.LevelSyncTarget);
+            if ((row.Mark & PartyRowMark.Quartermaster) != 0)
+            {
+                // Beside the red one, the green ball sits up and to the left of it (round 3 image-77: about 4 px each way).
+                float shift = both ? BothBallsShift * s : 0;
+                renderer.DrawTextureRect(BallTexture, GreenBallX, SyncBallY, BallCell, BallCell, x - shift, y - shift, size, size, Neutral);
+            }
+            if ((row.Mark & PartyRowMark.LevelSyncTarget) != 0)
+                renderer.DrawTextureRect(BallTexture, RedBallX, SyncBallY, BallCell, BallCell, x, y, size, size, Neutral);
+        }
+
+        /// <summary>How far up and left the quartermaster's ball moves when the same member is the Level Sync target (image-77).</summary>
+        private const float BothBallsShift = 4;
 
         /// <summary>
         /// Width (layout pixels at <see cref="TextScale"/>) a name may take: up to the left edge of a four-digit HP

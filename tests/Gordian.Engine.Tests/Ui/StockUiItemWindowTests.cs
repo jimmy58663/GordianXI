@@ -183,6 +183,21 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void DescribedLinkshellItem_TakesItsShellsColour()
+        {
+            var h = new Harness();
+            var ext = new byte[24];
+            ext[6] = 0x3A; ext[7] = 0xFF; // colour 0x0F3A
+            h.Inventory.SetItemAttributes(ContainerId.Inventory, 9, LinkshellItemIds.Linkpearl, 1, 0, ItemLockFlag.Normal, ext);
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, LinkshellItemIds.Linkpearl);
+            Assert.Equal(LinkshellItemIds.Linkpearl, list.DescribedItem);
+            Assert.Equal(0x0F3A, list.DescribedLinkshellColor);
+            h.SelectItem(list, Potion);
+            Assert.Equal(0, list.DescribedLinkshellColor);
+        }
+
+        [Fact]
         public void MainMenuItems_ListsTheInventoryInSlotOrder_WithTheHelpBar()
         {
             var h = new Harness();

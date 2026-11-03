@@ -25,6 +25,9 @@ namespace Gordian.App.Graphics
         private const float BarSourceX = 7, BarSourceY = 23, BarThickness = 2;
         private static readonly UiColor BarColor = new(0x80, 0x18, 0x18, 0x80);
 
+        /// <summary>Where a window's text field starts when it has no button to sit on (the search comment box), in layout px.</summary>
+        private const float SocialFieldInset = 10, CommentDotSize = 8;
+
         /// <summary>
         /// Draws one open menu: the frame, its buttons' label sprites (the page arrows only on a paged menu; the
         /// selected entry tinted orange, glyphs and capsule, as retail does), the red bar under the
@@ -70,7 +73,9 @@ namespace Gordian.App.Graphics
                 // linkshell or Unity); elsewhere (Synthesis, Party, Gamepad) its meaning is still unknown, so it is not drawn.
                 bool isSelected = button.ButtonId == menu.SelectedButtonId;
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
-                if (TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out var label))
+                // A label the controller swaps in (the Party lists' "Play Solo" while seeking, #489) stands for the button's own.
+                if ((menu.LabelImages.TryGetValue(button.ButtonId, out var swapped) && library.TryGetImage(swapped, out var label))
+                    || TryGetLabel(library, button, menu.IsGreyed(button.ButtonId), out label))
                 {
                     // (The Equipment window keeps its slot labels under the icons: retail shows "Main" through a dagger's icon.)
                     if (menu.Check is { } check && StockUiCheckWindow.HoldsItem(check, button.ButtonId))
@@ -184,6 +189,10 @@ namespace Gordian.App.Graphics
             {
                 StockUiQuestLogWindow.Draw(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
+            else if (font != null && menu.ListKind == StockUiListKind.People && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstPeopleRow)
+            {
+                StockUiPeopleWindow.Draw(renderer, library, font, logFont, menu, placement, firstPeopleRow, definition.FindButton(2), timestamp);
+            }
             else if (font != null && menu.Rows.Count > 0 && menu.VisibleRows > 0 && definition.FindButton(1) is { } firstRow)
             {
                 // List pages (Chat Filters): the DAT rows are invisible hit regions; the client draws each row's
@@ -215,14 +224,15 @@ namespace Gordian.App.Graphics
                         else renderer.DrawText(font, row.Text, areaX + FontColorRowTextInset * s, textY, s, row.Color);
                         continue;
                     }
-                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues)
+                    if (menu.ListKind is StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People)
                     {
                         // Gamepad key assignment (#21): the function from the row's origin, its buttons right-aligned
                         // before the scrollbar; no state ball (GordianXI's own list, retail has no in-game one). The Map
                         // window's Change Map lists (#23) the same way: the area or zone in white in the log font (upright,
-                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right.
+                        // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
+                        // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
                         UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
-                        bool mapRow = menu.ListKind == StockUiListKind.MapAreas;
+                        bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
                                 placement.X + (frame.Width - ScrollbarInset) * s, firstRow.Height * s);
@@ -261,6 +271,25 @@ namespace Gordian.App.Graphics
                 if (shown.Length < sample.Length) shown = shown.TrimEnd() + "..";
                 if (logFont != null) logFont.Draw(renderer, shown, placement.X + SampleTextX * s, placement.Y + (frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, menu.SampleColor);
                 else renderer.DrawText(font, shown, placement.X + SampleTextX * s, sampleY, s, menu.SampleColor);
+            }
+
+            if (font != null && menu.SocialField is { IsOpen: true } field)
+            {
+                // Search by Name's name and the search comment (#490): the shared text field over its button (scname's
+                // 96 x 14 field), or inside the frame's top left (the comment box).
+                var at = menu.SocialFieldButton > 0 ? definition.FindButton(menu.SocialFieldButton) : null;
+                float fieldX = placement.X + (at?.X ?? SocialFieldInset) * s, fieldY = placement.Y + (at?.Y ?? SocialFieldInset) * s;
+                float fieldWidth = at?.Width ?? frame.Width - 2 * SocialFieldInset;
+                if (menu.CommentGenre > 0)
+                {
+                    // The comment box's dot in the comment type's colour before the text (image-46: green for EXP Party).
+                    // PROVISIONAL: the colorbal ball by the type's number (1 green ... 7 purple); only type 1 is captured.
+                    float size = CommentDotSize * s;
+                    renderer.DrawTextureRect("colorbal", menu.CommentGenre % 4 * 16, menu.CommentGenre / 4 * 16, 16, 16, fieldX, fieldY + 2 * s, size, size, White);
+                    fieldX += (CommentDotSize + 4) * s;
+                    fieldWidth -= CommentDotSize + 4;
+                }
+                StockUiTextFieldView.Draw(renderer, font, logFont, field, fieldX, fieldY, s, timestamp, fieldWidth);
             }
 
             if (font != null && menu.TitleSuffix?.Invoke() is { Length: > 0 } suffix)
@@ -699,6 +728,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>Slider fill: rows 1-6 of the "gauge" strip, tinted light blue (retail: (194, 194, 255) at the middle).</summary>
         private const string SliderTexture = "gauge";
+
+        /// <summary>A pale solid texel of the "gauge" texture (about 220 per channel) for client-drawn boxes, as the row bar uses.</summary>
+        internal const string SolidTexture = SliderTexture;
+        internal const float SolidTexelX = 30, SolidTexelY = 12;
         private const float SliderFillSourceX = 0, SliderFillSourceY = 1, SliderFillSourceWidth = 64, SliderFillSourceHeight = 6;
         private const float SliderFillTop = 1, SliderFillHeight = 12;
         private static readonly UiColor SliderFillTint = new(0x68, 0x60, 0x84, 0x80);
@@ -723,7 +756,8 @@ namespace Gordian.App.Graphics
         /// title band's bottom to the window's bottom, the translucent gauge strip; the thumb is pale pink-white
         /// (255, 221, 228), as long as the visible share of the list and placed at the first entry's share.
         /// </summary>
-        private const float ScrollbarWidth = 6, ScrollbarInset = 4;
+        private const float ScrollbarWidth = 6;
+        internal const float ScrollbarInset = 4;
         private static readonly UiColor ScrollTrackTint = new(0x80, 0x80, 0x80, 0x30);
         private static readonly UiColor ScrollThumbTint = new(0x93, 0x6E, 0x73, 0x80);
 
@@ -765,7 +799,8 @@ namespace Gordian.App.Graphics
         private const float AssignRowTextInset = 4, AssignValueRightPad = 18;
 
         /// <summary>The Change Map lists' text 23 px into the row and their "[4]" ending 44 px short of the frame's right edge (round 1 image-6).</summary>
-        private const float MapRowTextInset = 23, MapValueRightPad = 44;
+        private const float MapRowTextInset = 23;
+        internal const float MapValueRightPad = 44;
 
         /// <summary>
         /// The Change Map lists' selected-row bar, top to bottom: retail round 2 image-25 shows a red bar under the
@@ -779,7 +814,7 @@ namespace Gordian.App.Graphics
         ];
 
         /// <summary>Draws <see cref="MapRowBarShades"/> as horizontal strips filling the row from <paramref name="left"/> to <paramref name="right"/>.</summary>
-        private static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
+        internal static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
         {
             float strip = height / MapRowBarShades.Length;
             for (int k = 0; k < MapRowBarShades.Length; k++)
@@ -818,7 +853,7 @@ namespace Gordian.App.Graphics
             if (logFont != null) logFont.Draw(renderer, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, sample.Color);
             else renderer.DrawText(font, sample.Text, at.X + SampleTextX * s, at.Y + (box.Frame.Height * s - font.LineHeight * s) * 0.5f, s, sample.Color);
         }
-        private const float ListClipInset = 8;
+        internal const float ListClipInset = 8;
 
         private const string DefaultCursorGroup = "anc_s";
 

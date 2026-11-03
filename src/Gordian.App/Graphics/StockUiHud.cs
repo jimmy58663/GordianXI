@@ -387,8 +387,12 @@ namespace Gordian.App.Graphics
         {
             var menus = session.ActionService.Menus;
             if (_font is not { } font || menus.Suspended || menus.OpenMenus.LastOrDefault() is not { } top) return;
-            if (StockUiParty.TitleOf(top.Name) is not { } title) return;
-            string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+            // The people lists and a person's options (#489, #490) name their purpose; their rows have no help line, so the
+            // frame's help (Level Sync's "Please select the player ...") shows.
+            string? title = top.HelpTitle ?? (top.Parent is { ListKind: StockUiListKind.People } list ? list.HelpTitle : null) ?? StockUiParty.TitleOf(top.Name) ?? StockUiSearch.TitleOf(top.Name);
+            if (title == null) return;
+            int helpId = top.SelectedButton is { HelpTextId: >= 0 } button ? button.HelpTextId : top.Menu.Frame.HelpTextId;
+            string? help = helpId >= 0 ? menus.MenuHelpText?.Invoke(helpId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
@@ -1411,6 +1415,13 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 rows.Add(ToRow(m, session.World.CurrentZoneId, resources));
+            }
+            // The balls at the right (#489): the member the party is synced to (red), the quartermaster (green).
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var m = groups.Own[i];
+                var mark = (m.IsLevelSynced ? PartyRowMark.LevelSyncTarget : PartyRowMark.None) | (m.IsQuartermaster ? PartyRowMark.Quartermaster : PartyRowMark.None);
+                if (mark != PartyRowMark.None) rows[i] = rows[i] with { Mark = mark };
             }
             return rows;
         }
