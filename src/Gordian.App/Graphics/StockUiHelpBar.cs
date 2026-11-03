@@ -26,6 +26,27 @@ namespace Gordian.App.Graphics
         /// <summary>A scrolling title's speed (layout px a second) and the gap before it comes round again (about three spaces).</summary>
         private const float MarqueeSpeed = 22, MarqueeGap = 24;
 
+        /// <summary>
+        /// A help line too long for its box (#313, <c>Long_Help.png</c> and the maintainer's description): it waits at its start,
+        /// scrolls left until its end shows, waits there, then jumps back to the start. PROVISIONAL: the speed and the pauses
+        /// are not measured (no video yet).
+        /// </summary>
+        private const float HelpScrollSpeed = 30, HelpScrollPause = 1.5f;
+
+        /// <summary>
+        /// How far (layout px) a help line <paramref name="overflow"/> px wider than its box has scrolled left at
+        /// <paramref name="seconds"/>: 0 during the first pause, <paramref name="overflow"/> during the last, then round again.
+        /// </summary>
+        internal static float HelpScrollOffset(float overflow, double seconds)
+        {
+            if (overflow <= 0) return 0;
+            double scroll = overflow / HelpScrollSpeed;
+            double t = seconds % (scroll + 2 * HelpScrollPause);
+            if (t < HelpScrollPause) return 0;
+            if (t < HelpScrollPause + scroll) return (float)((t - HelpScrollPause) * HelpScrollSpeed);
+            return overflow;
+        }
+
         /// <summary>The help bar at its authored places on a screen <paramref name="width"/> x <paramref name="height"/> px.</summary>
         public static void DrawOnScreen(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
             string? title, string? text, float scale, uint width, uint height, int? numerator = null, int? denominator = null)
@@ -63,6 +84,7 @@ namespace Gordian.App.Graphics
         private static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
             string? title, string? text, StockUiPlacement? titleAt, StockUiPlacement? helpAt, float? screenWidth, int? numerator, int? denominator)
         {
+            renderer.HelpBarsDrawn++;
             if (titleAt is { } t && title != null && library.TryGetMenu(StockUiCheck.TitleMenu, out var titleWindow))
             {
                 float s = t.Scale;
@@ -109,7 +131,24 @@ namespace Gordian.App.Graphics
                 renderer.DrawMenu(help, h, includeButtons: false, frameWidth: width);
                 if (!string.IsNullOrEmpty(text))
                 {
-                    StockUiTextBoxes.DrawLine(renderer, font, logFont, text.Replace("\n", " "), h.X + TextX * s, h.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s, s);
+                    // One line: retail never wraps the help (Long_Help.png); a line longer than the box scrolls (#313).
+                    string line = text.Replace("\n", " ");
+                    float y = h.Y + (f.Height - StockUiLogFont.CellHeight) * 0.5f * s;
+                    float room = (width ?? f.Width) - 2 * TextX;
+                    float overflow = StockUiTextBoxes.MeasureLine(font, logFont, line) - room;
+                    if (overflow <= 0)
+                    {
+                        StockUiTextBoxes.DrawLine(renderer, font, logFont, line, h.X + TextX * s, y, s);
+                    }
+                    else
+                    {
+                        double seconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                        float x = h.X + (TextX - HelpScrollOffset(overflow, seconds)) * s;
+                        renderer.SetClip(h.X + TextX * s, h.Y, room * s, f.Height * s);
+                        if (logFont != null) logFont.Draw(renderer, line, x, y, s, StockUiMenuWindow.White, snap: false);
+                        else StockUiTextBoxes.DrawLine(renderer, font, logFont, line, x, y, s);
+                        renderer.ClearClip();
+                    }
                 }
             }
         }

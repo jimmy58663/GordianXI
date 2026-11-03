@@ -230,6 +230,12 @@ void main()
         public IReadOnlyList<(float X, float Y, float Width, float Height)> DrawnWindows => _drawnWindows;
 
         /// <summary>
+        /// How many help bars (<see cref="StockUiHelpBar"/>) were drawn this frame: the HUD draws the generic one for an open
+        /// menu only when no window drew its own (#313).
+        /// </summary>
+        public int HelpBarsDrawn { get; set; }
+
+        /// <summary>
         /// Starts a frame's UI. Textures come from the given library (the GPU cache is dropped when it changes).
         /// </summary>
         public void Begin(UiResourceLibrary library)
@@ -242,6 +248,7 @@ void main()
             _vertices.Clear();
             _batches.Clear();
             _drawnWindows.Clear();
+            HelpBarsDrawn = 0;
             Depth = null;
             TexelInset = 0;
             Opacity = 1f;

@@ -243,6 +243,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The menu help text table (ROM/165/75) by id, for the item windows' help bar; set by the HUD.</summary>
         public Func<int, string?>? MenuHelpText { get; set; }
 
+        /// <summary>The menu window title table (ROM/165/76) by id, for the help bar's title box (#313); set by the HUD.</summary>
+        public Func<int, string?>? MenuTitleText { get; set; }
+
         /// <summary>A client message for the log in the error colour (a crystal used with a full inventory).</summary>
         public event Action<string>? ErrorPosted;
 

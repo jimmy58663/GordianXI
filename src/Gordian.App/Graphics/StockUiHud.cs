@@ -174,6 +174,8 @@ namespace Gordian.App.Graphics
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
+                // The window titles (ROM/165/76) for the help bar's title box (#313).
+                menus.MenuTitleText = i => strings.TryGetString(DMsgCategory.MenuTitles, i, out var title) ? title : null;
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
                 // The Status window's currency names (ROM/165/77, #487).
@@ -308,6 +310,8 @@ namespace Gordian.App.Graphics
                     DrawAuctionHelpBar(renderer, library, session, width, height);
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
+                    // Last: the help bar for an open menu whose window drew none of its own (#313).
+                    DrawMenuHelpBar(renderer, library, session, width, height);
                 }
                 if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, coverFrom, width, height);
             }
@@ -398,6 +402,20 @@ namespace Gordian.App.Graphics
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
+
+        /// <summary>
+        /// The help bar over any open menu that drew no bar of its own this frame (#313): the window's title and the selected
+        /// entry's help line (<see cref="StockUiMenuHelpBar"/>). Retail shows the bar whenever a menu is open.
+        /// </summary>
+        private void DrawMenuHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (renderer.HelpBarsDrawn > 0 || _font is not { } font || menus.Suspended || session.Chat.HidesMenus
+                || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            var (title, help) = StockUiMenuHelpBar.Of(top, menus.MenuTitleText, menus.MenuHelpText);
+            if (title == null && help == null) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
 
         /// <summary>The Map window's zone map and help bar under the open <c>map0</c> list (#23); maps decode once and stay cached.</summary>
         private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
