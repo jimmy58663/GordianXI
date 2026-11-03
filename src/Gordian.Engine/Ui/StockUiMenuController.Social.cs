@@ -100,6 +100,9 @@ namespace Gordian.Engine.Ui
                 PeoplePurpose = purpose,
                 PeopleOffset = offset,
                 HelpTitle = StockUiPeople.TitleOf(purpose),
+                // The linkshell lists draw item icons (the members' ranks, the Linkshell window's items, link6's large icon);
+                // without the lookup they drew only the empty slot frames (#490 round 5, image-78).
+                ItemLookup = ItemLookup,
             };
             // The friend list's "No friends registered." (image-39), in the window while it has nobody.
             if (purpose == StockUiPeoplePurpose.Friends && people.Count == 0) menu.EmptyText = StockUiSearch.NoFriendsText;

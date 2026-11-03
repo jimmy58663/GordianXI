@@ -498,7 +498,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>A worn item's Link List: its members in <c>link12</c> under <c>link6</c>, each with its rank's icon (image-33).</summary>
-        private async Task OpenLinkshellMembersAsync(StockUiLinkshellItem item, Task<StockUiPeopleResult> fetch, StockUiOpenMenu parent)
+        internal async Task OpenLinkshellMembersAsync(StockUiLinkshellItem item, Task<StockUiPeopleResult> fetch, StockUiOpenMenu parent)
         {
             StockUiPeopleResult result;
             try
