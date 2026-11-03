@@ -192,6 +192,13 @@ namespace Gordian.Core.World
         public uint ConquestPoints { get; private set; }
         public uint ImperialStanding { get; private set; }
         public byte ConquestNextTally { get; private set; }
+
+        /// <summary>
+        /// The region the character is in (S2C 0x05E bytes 130-135 and 144): San d'Oria's, Bastok's, Windurst's and the
+        /// beastmen's share of all four influences, and the three nations' shares among themselves, in percent. All zero
+        /// outside a conquest region.
+        /// </summary>
+        public ConquestInfluence ConquestCurrentRegion { get; private set; }
         public byte AstralCandescence { get; private set; }
         public byte AlZahbiOrders { get; private set; }
         public BesiegedStronghold MamookStronghold { get; private set; }
@@ -792,6 +799,9 @@ namespace Gordian.Core.World
                 ConquestPoints = conquest.ConquestPoints;
                 ImperialStanding = conquest.ImperialStanding;
                 ConquestNextTally = conquest.NextTally;
+                ConquestCurrentRegion = new ConquestInfluence(conquest.CurrentRegionSandoria, conquest.CurrentRegionBastok,
+                    conquest.CurrentRegionWindurst, conquest.CurrentRegionBeastmen, conquest.CurrentRegionSandoriaPct,
+                    conquest.CurrentRegionBastokPct, conquest.CurrentRegionWindurstPct);
                 AstralCandescence = conquest.AstralCandescence;
                 AlZahbiOrders = conquest.AlZahbiOrders;
                 MamookStronghold = conquest.Mamook;

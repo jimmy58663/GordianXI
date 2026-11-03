@@ -463,13 +463,14 @@ namespace Gordian.Engine.Tests.Ui
         [Fact]
         public void EntriesWithoutAWindow_PostANotice()
         {
-            var menus = Controller();
+            // Page 2 with Bazaar (5), whose window is not done yet.
+            var menus = new StockUiMenuController { Library = UiResourceLibrary.FromDefinitions(new[] { List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 5) }) };
             var notices = new List<string>();
             menus.NoticePosted += notices.Add;
             Assert.True(menus.Open(StockUiMenuEntries.MainMenuPage2));
-            menus.Activate(); // Missions
+            menus.Activate(); // Bazaar
             Assert.Single(notices);
-            Assert.StartsWith("Missions:", notices[0]);
+            Assert.StartsWith("Bazaar", notices[0]);
             Assert.True(menus.IsOpen);
         }
 
@@ -912,13 +913,10 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(2, menus.OpenMenus.Count);
             Place(menus, (500, 100), (200, 100)); // (as if side by side)
 
-            var notices = new List<string>();
-            menus.NoticePosted += notices.Add;
             var missions = Row(500, 100, 0);
             Assert.True(menus.OnMouseDown(MouseButton.Left, missions.X, missions.Y));
-            Assert.Single(menus.OpenMenus);
+            Assert.Single(menus.OpenMenus); // Missions' own window (missionm) is not in this library
             Assert.Equal(1, menus.Top!.SelectedButtonId);
-            Assert.Single(notices); // Missions: not available yet
         }
 
         [Fact]

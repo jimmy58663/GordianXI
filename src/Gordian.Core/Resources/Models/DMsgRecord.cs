@@ -95,6 +95,29 @@ namespace Gordian.Core.Resources.Models
         /// shown in the help bar over the mount list (#87; retail capture Mounts.mp4).
         /// </summary>
         MountHelp,
+        /// <summary>
+        /// The rest of the quest log's name tables (#488), each record an id (the quest's bit in its area's S2C 0x056 block),
+        /// a name and the Client / Summary text: Outlands (ROM/176/65, file 55711), Aht Urhgan (ROM/176/66, 55712), Abyssea
+        /// (ROM/242/64, 55713), Crystal War (ROM/196/6, 55722), Adoulin (ROM/293/70, 55739) and Coalition assignments
+        /// (ROM/293/71, 55740). Other Areas is <see cref="QuestsOther"/> (ROM/176/64, 55710). Found by file id 2026-10-31.
+        /// </summary>
+        QuestsOutlands,
+        QuestsAhtUrhgan,
+        QuestsAbyssea,
+        QuestsCrystalWar,
+        QuestsAdoulin,
+        QuestsCoalition,
+        /// <summary>
+        /// The rest of the mission name tables (#488): Assault (ROM/176/72, 55720), Campaign (ROM/196/8, 55724, 512 rows), A
+        /// Crystalline Prophecy (ROM/222/18, 55735), A Moogle Kupo d'Etat (ROM/223/12, 55736), A Shantotto Ascension
+        /// (ROM/223/13, 55737) and The Voracious Resurgence (ROM/364/36, 55742). Found by file id 2026-10-31.
+        /// </summary>
+        MissionsAssault,
+        MissionsCampaign,
+        MissionsAcp,
+        MissionsAmk,
+        MissionsAsa,
+        MissionsTvr,
         Custom
     }
 

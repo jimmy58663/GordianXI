@@ -187,6 +187,8 @@ namespace Gordian.App.Graphics
                 // The Map window's Change Map lists (#23): zone names (ROM/165/84) and region names (ROM/165/78).
                 menus.ZoneName = i => strings.TryGetString(DMsgCategory.ZoneNames, i, out var zone) ? zone : null;
                 menus.RegionName = i => strings.TryGetString(DMsgCategory.RegionNames, i, out var region) ? region : null;
+                // The conquest map's zone labels (#488): the short zone names (ROM/165/83, "Onzozo Lbrth.").
+                menus.ZoneShortName = i => strings.TryGetString(DMsgCategory.ZoneNamesShort, i, out var zone) ? zone : null;
             }
             if (session.ActionService.MountName == null && _resources is { } mountStrings)
             {
@@ -216,6 +218,12 @@ namespace Gordian.App.Graphics
                 // The Key Items window's categories, names and descriptions (ROM/175/35, #91), read once when first opened.
                 var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
                 menus.KeyItemCatalog = () => catalog.Value;
+            }
+            if (menus.QuestLogCatalog == null && _resources is { } questLog)
+            {
+                // The Missions and Quests windows' names and texts (the quest and mission d_msg tables, #488), read per book.
+                var catalog = StockUiQuestLogCatalog.FromTables(questLog.GetDMsgTable);
+                menus.QuestLogCatalog = () => catalog;
             }
 
             renderer.Begin(library);
@@ -389,7 +397,14 @@ namespace Gordian.App.Graphics
         private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var menus = session.ActionService.Menus;
-            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus || menus.MapWindow is not { } map) return;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus) return;
+            if (menus.PannedMap is { RegionMap: { } regionMap } page)
+            {
+                // A Region Info page's map (#488): under the HUD's windows like the Map window's.
+                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height, library, _logFont, Layout.Scale, Stopwatch.GetTimestamp());
+                return;
+            }
+            if (menus.MapWindow is not { } map) return;
             var loaded = LoadZoneMap(map.MapZone, map.MapNumber);
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
             StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin);
@@ -409,6 +424,20 @@ namespace Gordian.App.Graphics
             }
             return map;
         }
+        /// <summary>The region maps Region Info has loaded.</summary>
+        private readonly Dictionary<Gordian.Core.Resources.Tables.RegionMap, Gordian.Core.Resources.Graphics.DecodedTexture?> _regionMaps = new();
+
+        private Gordian.Core.Resources.Graphics.DecodedTexture? LoadRegionMap(Gordian.Core.Resources.Tables.RegionMap regionMap)
+        {
+            if (!_regionMaps.TryGetValue(regionMap, out var texture))
+            {
+                texture = _resources != null ? Gordian.Core.Resources.Tables.RegionMapFiles.Load(_resources, regionMap) : null;
+                if (texture == null) GordianLog.Warning("UI", $"Region map {regionMap} could not be loaded.");
+                _regionMaps[regionMap] = texture;
+            }
+            return texture;
+        }
+
         private readonly StockUiEventMapWindow _eventMap = new();
 
         /// <summary>The event map (#168): an event's map tutorial, or the map behind a home point list at the option under the cursor.</summary>
@@ -871,6 +900,12 @@ namespace Gordian.App.Graphics
             if (!moved && party is { Hidden: false } p)
             {
                 placement = placement with { Y = Math.Max(0, p.Y - (menu.Frame.Height + 2) * placement.Scale) };
+            }
+            if (font != null && session.ActionService.Menus.PannedMap is { ConquestView: { } conquest })
+            {
+                // The Conquest map puts its Conquest Points in the target window's place (#488, round 1).
+                StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
+                return;
             }
             if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);
             if (target == null || font == null)

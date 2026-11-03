@@ -502,6 +502,7 @@ namespace Gordian.Engine.Sessions
             AttachTrade();
             AttachAuctionHouse();
             AttachBlueMagic();
+            AttachQuestLog();
         }
 
         /// <summary>

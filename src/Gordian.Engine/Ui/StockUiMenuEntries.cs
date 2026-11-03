@@ -181,6 +181,15 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Party menu's Disband: breaks the party up (leader, C2S 0x070) or, for a member, leaves it (C2S 0x06F), after a prompt.</summary>
         PartyDisband,
+
+        /// <summary>A Missions group (<c>missionm</c>; the Argument is its button): its storylines (<see cref="StockUiQuestLog"/>, #488).</summary>
+        MissionGroup,
+
+        /// <summary>Main menu Quests: the quest areas (<see cref="StockUiQuestLog"/>, #488).</summary>
+        Quests,
+
+        /// <summary>Region Info's Conquest: the conquest page for the current region (<see cref="StockUiConquest"/>, #488).</summary>
+        RegionConquest,
     }
 
     /// <summary>
@@ -239,12 +248,12 @@ namespace Gordian.Engine.Ui
             [(MainMenu, 7)] = new("Trade", Command: StockUiMenuCommand.Trade),
             [(MainMenu, 8)] = new("Search", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenu, 9)] = new("Linkshell", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenu, 11)] = new("Region Info", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenu, 11)] = new("Region Info", Opens: StockUiConquest.RegionMenu),
             [(MainMenu, 12)] = new("Map", Command: StockUiMenuCommand.Map),
 
             // Commands, page 2.
-            [(MainMenuPage2, 1)] = new("Missions", Command: StockUiMenuCommand.NotAvailable),
-            [(MainMenuPage2, 2)] = new("Quests", Command: StockUiMenuCommand.NotAvailable),
+            [(MainMenuPage2, 1)] = new("Missions", Opens: StockUiQuestLog.GroupMenu),
+            [(MainMenuPage2, 2)] = new("Quests", Command: StockUiMenuCommand.Quests),
             [(MainMenuPage2, 3)] = new("Key Items", Command: StockUiMenuCommand.KeyItems),
             [(MainMenuPage2, 4)] = new("View House", Command: StockUiMenuCommand.ViewHouse),
             [(MainMenuPage2, 5)] = new("Bazaar", Command: StockUiMenuCommand.NotAvailable),
@@ -255,6 +264,19 @@ namespace Gordian.Engine.Ui
             [(MainMenuPage2, 9)] = new("Communication", Command: StockUiMenuCommand.NotAvailable),
             [(MainMenuPage2, 11)] = new("Shut Down", Command: StockUiMenuCommand.ShutDown),
             [(MainMenuPage2, 12)] = new("Log Out", Command: StockUiMenuCommand.LogOut),
+
+            // Missions and Region Info (#488): the groups and the region pages (label sprites read from the menu dump).
+            [(StockUiQuestLog.GroupMenu, 1)] = new("Nations", Command: StockUiMenuCommand.MissionGroup, Argument: 1),
+            [(StockUiQuestLog.GroupMenu, 2)] = new("Zilart", Command: StockUiMenuCommand.MissionGroup, Argument: 2),
+            [(StockUiQuestLog.GroupMenu, 3)] = new("Promathia", Command: StockUiMenuCommand.MissionGroup, Argument: 3),
+            [(StockUiQuestLog.GroupMenu, 4)] = new("Aht Urhgan", Command: StockUiMenuCommand.MissionGroup, Argument: 4),
+            [(StockUiQuestLog.GroupMenu, 5)] = new("Altana", Command: StockUiMenuCommand.MissionGroup, Argument: 5),
+            [(StockUiQuestLog.GroupMenu, 7)] = new("Adoulin", Command: StockUiMenuCommand.MissionGroup, Argument: 7),
+            [(StockUiQuestLog.GroupMenu, 6)] = new("Add-ons", Command: StockUiMenuCommand.MissionGroup, Argument: 6),
+            [(StockUiConquest.RegionMenu, StockUiConquest.ConquestButton)] = new("Conquest", Command: StockUiMenuCommand.RegionConquest),
+            [(StockUiConquest.RegionMenu, StockUiConquest.BesiegedButton)] = new("Besieged", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiConquest.RegionMenu, StockUiConquest.CampaignButton)] = new("Campaign", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiConquest.RegionMenu, StockUiConquest.ColonizationButton)] = new("Colonization", Command: StockUiMenuCommand.NotAvailable),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
             // View House (#23): mogcont's storages.
