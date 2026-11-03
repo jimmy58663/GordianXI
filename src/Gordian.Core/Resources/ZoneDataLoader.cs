@@ -1196,6 +1196,7 @@ namespace Gordian.Core.Resources
                 zone.Placements.AddRange(placements);
                 zone.PointLightIds.AddRange(ZoneDefDecoder.ParsePointLightTable(zdPayload));
                 zone.Collision = ZoneCollisionDecoder.Decode(zdPayload);
+                zone.CullingTables = ZoneCullingTables.Parse(zdPayload);
                 var doorLeafCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
                 for (int p = 0; p < placements.Count; p++)
@@ -1211,10 +1212,13 @@ namespace Gordian.Core.Resources
                         doorLeafCounts[placement.BlockId] = doorPart + 1;
                     }
 
-                    var templateSubmeshes = ZoneDefDecoder.ResolveTemplate(placement.MeshId, templates, realMeshNames);
-                    if (templateSubmeshes == null || templateSubmeshes.Count == 0) continue;
+                    // Every detail variant the placement can show (#70), each tagged with the slots it fills.
+                    var variants = ZoneDefDecoder.ResolveLodTemplates(placement.MeshId, templates, realMeshNames);
+                    if (variants.Count == 0 || variants.TrueForAll(v => v.Template.Count == 0)) continue;
 
                     var trsMatrix = ZoneDefDecoder.CreateTrsMatrix(placement.Position, placement.Rotation, placement.Scale);
+                    var origin = new Vector3(-placement.Position.X, -placement.Position.Y, placement.Position.Z);
+                    float ownDistance = placement.HasOwnDrawDistance && placement.DrawDistance > 1.0f ? placement.DrawDistance : 0.0f;
 
                     // Door leaves move with their door; the renderer draws them at its live pose.
                     List<MeshGroup>? doorLeaf = null;
@@ -1225,9 +1229,14 @@ namespace Gordian.Core.Resources
                         leaves.Add(new DoorLeaf(doorPart, placement, doorLeaf));
                     }
 
+                    foreach (var (templateSubmeshes, slots) in variants)
                     for (int s = 0; s < templateSubmeshes.Count; s++)
                     {
                         var instantiated = ZoneDefDecoder.InstantiateSubmesh(templateSubmeshes[s], trsMatrix, placement.MeshId);
+                        // Generator-bound records leave the quad-tree pass, which is what the culling tables gate (xi-tools
+                        // docs/zone/format.md "BlockID"): they keep their distance and detail level but no table hides them.
+                        instantiated.Visibility = new PlacementVisibility(placement.IsGeneratorBound ? -1 : placement.RecordIndex, origin,
+                                                                          ownDistance, slots, placement.LodNear, placement.LodMid);
                         instantiated.EnvironmentId = placement.EnvironmentId;
                         // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some;
                         // one flagged at bit 1 takes them only in an interior's DAT.
@@ -1274,7 +1283,12 @@ namespace Gordian.Core.Resources
                     zone.Vessel.Routes.AddRange(sceneryRoutes);
                     foreach (var (doorId, leaves) in zone.Vessel.DoorLeaves) zone.DoorLeaves.TryAdd(doorId, leaves);
                     // In a voyage zone the passengers walk the deck; the scenery moving past has no collision of its own.
-                    if (zone.Vessel.IsVoyage) zone.Collision = zone.Vessel.Collision;
+                    // Its culling tables are the scenery's, which no deck floor names: everything draws.
+                    if (zone.Vessel.IsVoyage)
+                    {
+                        zone.Collision = zone.Vessel.Collision;
+                        zone.CullingTables = null;
+                    }
                 }
 
                 if (zone.Collision != null)

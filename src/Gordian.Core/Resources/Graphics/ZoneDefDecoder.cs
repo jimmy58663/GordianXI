@@ -145,6 +145,7 @@ namespace Gordian.Core.Resources.Graphics
 
             int stride = DetectObjectStride(payload, nodeCount);
             int namePos = 0x20;
+            var cullingTables = stride >= StrideModern ? ZoneCullingTables.Parse(payload) : null;
 
             for (int i = 0; i < nodeCount; i++)
             {
@@ -191,8 +192,19 @@ namespace Gordian.Core.Resources.Graphics
                 int fileIdLink = 0;
                 bool noPointLights = false;
                 bool interiorLightsOnly = false;
+                float lodNear = 0.0f, lodMid = 0.0f;
+                bool ownDrawDistance = false;
+                int cullingTable = -1;
                 if (stride >= StrideModern && b + 0x64 <= payload.Length)
                 {
+                    // Detail thresholds and the "LoD-enabled" cull mode (xi-tools docs/zone/format.md, record table, and
+                    // docs/zone/lod-draw-distance.md). Which flag bit is that mode is an inference from the data (#70): with
+                    // +0x46 bit 0 clear the +0x40 distance is 1000 (or 0) in nearly every record, with it set it is a real
+                    // 10-400 yalms (Lower Jeuno 492 of 704, West Ronfaure 7,426 of 8,177).
+                    lodNear = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(b + 0x38, 4));
+                    lodMid = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(b + 0x3C, 4));
+                    ownDrawDistance = (payload[b + 0x46] & 0x01) != 0;
+                    cullingTable = cullingTables?.TableAt(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(b + 0x48, 4))) ?? -1;
                     noPointLights = (payload[b + 0x46] & 0x01) != 0;
                     interiorLightsOnly = (payload[b + 0x46] & 0x02) != 0;
                     environmentId = ReadCString(payload.Slice(b + 0x4C, 4));
@@ -211,7 +223,12 @@ namespace Gordian.Core.Resources.Graphics
                     blockId,
                     fileIdLink,
                     noPointLights,
-                    interiorLightsOnly
+                    interiorLightsOnly,
+                    i,
+                    lodNear,
+                    lodMid,
+                    ownDrawDistance,
+                    cullingTable
                 ));
             }
 
@@ -498,6 +515,60 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolves a placement's level-of-detail variants: for a mesh id ending <c>_h</c>, <c>_m</c> or <c>_l</c> the
+        /// three variants of its base name, each with the detail slots it fills. A missing variant falls back as the
+        /// client's <c>InitializeMeshLOD</c> does: a single variant fills every slot; with <c>_h</c> and <c>_m</c> the low
+        /// slot takes <c>_m</c>; with <c>_h</c> and <c>_l</c> the mid slot takes <c>_h</c>; with <c>_m</c> and <c>_l</c>
+        /// the high slot takes <c>_m</c> (that last case is not in the source, by symmetry). Any other id resolves through
+        /// <see cref="ResolveTemplate"/> into all three slots. Empty when nothing resolves.
+        /// Fallback rules referenced from xi-tools (docs/zone/lod-draw-distance.md "LoD — how mesh detail levels work",
+        /// https://github.com/vekien/xi-tools).
+        /// </summary>
+        public static List<(List<MeshGroup> Template, LodSlots Slots)> ResolveLodTemplates(
+            string meshId,
+            IReadOnlyDictionary<string, List<MeshGroup>> templates,
+            HashSet<string>? realMeshNames = null)
+        {
+            var variants = new List<(List<MeshGroup> Template, LodSlots Slots)>(3);
+            if (string.IsNullOrEmpty(meshId)) return variants;
+
+            if (meshId.Length >= 2 && meshId[^2] == '_' && "hmlHML".Contains(meshId[^1]))
+            {
+                string baseName = meshId.Substring(0, meshId.Length - 2);
+                templates.TryGetValue(baseName + "_h", out var high);
+                templates.TryGetValue(baseName + "_m", out var mid);
+                templates.TryGetValue(baseName + "_l", out var low);
+                if (high != null || mid != null || low != null)
+                {
+                    var highSlot = high ?? mid ?? low!;
+                    var midSlot = mid ?? high ?? low!;
+                    var lowSlot = low ?? mid ?? high!;
+                    Add(variants, highSlot, LodSlots.High);
+                    Add(variants, midSlot, LodSlots.Mid);
+                    Add(variants, lowSlot, LodSlots.Low);
+                    return variants;
+                }
+            }
+
+            var single = ResolveTemplate(meshId, templates, realMeshNames);
+            if (single != null) variants.Add((single, LodSlots.All));
+            return variants;
+
+            static void Add(List<(List<MeshGroup> Template, LodSlots Slots)> list, List<MeshGroup> template, LodSlots slot)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (ReferenceEquals(list[i].Template, template))
+                    {
+                        list[i] = (template, list[i].Slots | slot);
+                        return;
+                    }
+                }
+                list.Add((template, slot));
+            }
         }
 
         /// <summary>True when a transform's linear part has a negative determinant (a mirroring placement).</summary>
