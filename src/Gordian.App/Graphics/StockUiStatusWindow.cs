@@ -219,22 +219,28 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// A nation's emblem (0 San d'Oria, 1 Bastok, 2 Windurst) scaled into a <paramref name="box"/>-px square at
+        /// (<paramref name="x"/>, <paramref name="y"/>): the Profile's and the people rows' (#489 round 4). The crest's quad is
+        /// bigger than that box, so it is scaled down; false when the emblem is not loaded.
+        /// </summary>
+        internal static bool DrawNationEmblem(StockUiRenderer renderer, UiResourceLibrary library, int nation, float x, float y, float box, float s)
+        {
+            if (nation < 0 || !library.TryGetGroup(EmblemGroup, out var names) || FirstEmblemImage + nation >= names.Images.Count) return false;
+            var emblem = names.Images[FirstEmblemImage + nation];
+            if (emblem.Parts.Count == 0) return false;
+            var part = emblem.Parts[0];
+            float size = Math.Max(1f, part.TopRight.X - part.TopLeft.X), k = box / size;
+            renderer.DrawImage(emblem, x - part.TopLeft.X * k * s, y - part.TopLeft.Y * k * s, s * k);
+            return true;
+        }
+
         private static void DrawProfile(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiStatusInfo info,
             StockUiPlacement p)
         {
             float s = p.Scale;
             var inv = CultureInfo.InvariantCulture;
-            if (info.NationId >= 0 && library.TryGetGroup(EmblemGroup, out var names) && FirstEmblemImage + info.NationId < names.Images.Count)
-            {
-                // The crest's quad is bigger than the Profile's (15 x 15 in the capture): scaled into that box.
-                var emblem = names.Images[FirstEmblemImage + info.NationId];
-                if (emblem.Parts.Count > 0)
-                {
-                    var part = emblem.Parts[0];
-                    float size = Math.Max(1f, part.TopRight.X - part.TopLeft.X), k = EmblemSize / size;
-                    renderer.DrawImage(emblem, p.X + (EmblemX - part.TopLeft.X * k) * s, p.Y + (EmblemY - part.TopLeft.Y * k) * s, s * k);
-                }
-            }
+            DrawNationEmblem(renderer, library, info.NationId, p.X + EmblemX * s, p.Y + EmblemY * s, EmblemSize, s);
             Text(renderer, font, logFont, info.Nation, p.X + NationX * s, CentredY(p, NationRow), s, White);
             Text(renderer, font, logFont, info.Race, p.X + RaceX * s, CentredY(p, RaceRow), s, White);
             Text(renderer, font, logFont, info.HomePoint, p.X + HomePointX * s, CentredY(p, HomePointRow), s, White);

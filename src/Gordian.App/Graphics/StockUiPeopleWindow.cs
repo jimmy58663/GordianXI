@@ -10,7 +10,7 @@ namespace Gordian.App.Graphics
     /// The people lists' rows (#489, #490: Member List, Find Member, Level Sync, the search results, a linkshell's members, the
     /// friend list) as retail draws them in <c>scresult</c> and its sister windows (round 1 image-26, image-28, image-33,
     /// image-44, all at about 1:1 to the 366-px frame): the jobs and race in the log font at 0.8 from x 21 ("[MNK99/RDM49]Elv",
-    /// round 2 image-54: 106 px for those 16 characters, 9 px tall with the brackets), the nation's 16-px flag at x 132 with the
+    /// round 2 image-54: 106 px for those 16 characters, 9 px tall with the brackets; 0.7 since round 4), the nation's emblem at x 132 with the
     /// mission rank's digit at its right edge, the search comment's dot just before the name (in the comment type's colour,
     /// round 2), the name in the menu font from x 154, yellow for your party's leader, cyan for its members and white for the
     /// rest, the seeker's languages at x 247 ("E F") and the area at the right, blank for your own. The cursor's row keeps its
@@ -25,8 +25,12 @@ namespace Gordian.App.Graphics
     {
         private const float JobsX = 21, RankBoxX = 132, RankBoxWidth = 15, RankBoxHeight = 15, NameX = 154, LanguagesX = 247;
 
-        /// <summary>The jobs column's log font scale (round 2 image-54), the same on every row.</summary>
-        private const float JobsScale = 0.8f;
+        /// <summary>
+        /// The jobs column's log font scale and the width it must end within, before the emblem. Round 2 (image-54) set 0.8;
+        /// round 4 found that too big (the race ran under the emblem) and asked for the name's size, so the list now draws at
+        /// 0.7, or smaller if its widest row still would not fit, one scale for every row (round 3).
+        /// </summary>
+        private const float JobsScale = 0.7f, JobsWidth = RankBoxX - JobsX - 2;
 
         /// <summary>The comment dot: 6 px, its left 2 px before the name, 4 px below the row's top (image-54).</summary>
         private const float CommentDotSize = 6, CommentDotX = NameX - 6, CommentDotY = 4;
@@ -36,7 +40,10 @@ namespace Gordian.App.Graphics
         /// <summary>The names' colours (half scale): yellow leader, cyan party (round 1 image-28: about FFE070 and 90E8FF).</summary>
         private static readonly UiColor LeaderTint = new(0x80, 0x70, 0x38, 0x80), PartyTint = new(0x48, 0x74, 0x80, 0x80);
 
-        /// <summary>The rank boxes' nation colours (half scale): San d'Oria red (round 1 image-28), Bastok blue, Windurst green (PROVISIONAL).</summary>
+        /// <summary>
+        /// The rank boxes' nation colours (half scale): San d'Oria red (round 1 image-28), Bastok blue, Windurst green
+        /// (PROVISIONAL); only drawn when the nation's emblem (<c>StockUiStatusWindow.DrawNationEmblem</c>, round 4) is missing.
+        /// </summary>
         private static readonly UiColor[] NationTints =
         {
             new(0x58, 0x10, 0x14, 0x80), new(0x14, 0x28, 0x60, 0x80), new(0x18, 0x48, 0x18, 0x80),
@@ -91,6 +98,7 @@ namespace Gordian.App.Graphics
             int from = Math.Max(0, (int)Math.Floor(first) - 1), to = Math.Min(menu.Rows.Count - 1, (int)Math.Ceiling(first) + menu.VisibleRows);
             float logY = (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s;
             float fontY = (firstRow.Height * s - font.LineHeight * s) * 0.5f;
+            float jobsScale = logFont != null ? JobsScaleOf(logFont, menu) : JobsScale;
             for (int i = from; i <= to; i++)
             {
                 float ry = areaY + (i - first) * pitch * s;
@@ -133,16 +141,20 @@ namespace Gordian.App.Graphics
                     if (logFont != null)
                     {
                         // One size for every row (round 3: shrinking long rows to fit made the races differ).
-                        logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + (firstRow.Height - StockUiLogFont.CellHeight * JobsScale) * 0.5f * s, s * JobsScale, StockUiMenuWindow.White);
+                        logFont.Draw(renderer, jobs, areaX + JobsX * s, ry + (firstRow.Height - StockUiLogFont.CellHeight * jobsScale) * 0.5f * s, s * jobsScale, StockUiMenuWindow.White);
                     }
                     else renderer.DrawText(font, jobs, areaX + JobsX * s, ry + fontY, s * StockUiPartyWindow.TextScale);
                 }
                 if (person.MissionRank != 0)
                 {
-                    var box = NationTints[Math.Min(person.Nation, (byte)(NationTints.Length - 1))];
+                    // The nation's emblem, the Profile's (round 4: a coloured square was not it).
                     float bx = areaX + RankBoxX * s, by = ry + (firstRow.Height - RankBoxHeight) * 0.5f * s;
-                    renderer.DrawTextureRect(StockUiMenuWindow.SolidTexture, StockUiMenuWindow.SolidTexelX, StockUiMenuWindow.SolidTexelY, 1, 1,
-                        bx, by, RankBoxWidth * s, RankBoxHeight * s, box);
+                    if (!StockUiStatusWindow.DrawNationEmblem(renderer, library, person.Nation, bx, by, RankBoxWidth, s))
+                    {
+                        var box = NationTints[Math.Min(person.Nation, (byte)(NationTints.Length - 1))];
+                        renderer.DrawTextureRect(StockUiMenuWindow.SolidTexture, StockUiMenuWindow.SolidTexelX, StockUiMenuWindow.SolidTexelY, 1, 1,
+                            bx, by, RankBoxWidth * s, RankBoxHeight * s, box);
+                    }
                     // The digit at the flag's right edge, its foot on the flag's (image-54: "1" and "3" over the flag's right third).
                     string digit = person.MissionRank.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     float ts = s * StockUiPartyWindow.TextScale;
@@ -167,6 +179,15 @@ namespace Gordian.App.Graphics
             }
             renderer.ClearClip();
             if (menu.CanScroll) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
+        }
+
+        /// <summary>The jobs column's scale for the whole list: <see cref="JobsScale"/>, or less if the widest row would run past the emblem.</summary>
+        private static float JobsScaleOf(StockUiLogFont logFont, StockUiOpenMenu menu)
+        {
+            float widest = 0;
+            foreach (var person in menu.People)
+                if (person.Jobs is { Length: > 0 } jobs) widest = Math.Max(widest, logFont.MeasureWidth(jobs));
+            return widest * JobsScale <= JobsWidth ? JobsScale : JobsWidth / widest;
         }
 
         /// <summary>A Linkshell window row: the item's icon in its colour with the worn slot's digit, its kind, the shell's name.</summary>
