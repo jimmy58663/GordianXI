@@ -433,6 +433,32 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public void S2C_0x05E_Conquest_KeepsTheCurrentRegionInfluence_AndMapsRegionsToRecords()
+        {
+            byte[] payload = new byte[176];
+            payload[22 + 2 * 4 + 3] = 2; // Norvallen held by Bastok
+            payload[130] = 40; payload[131] = 30; payload[132] = 20; payload[144] = 10;
+            payload[133] = 44; payload[134] = 33; payload[135] = 22;
+            var state = new ProgressionState();
+            state.UpdateConquest(new S2C_0x05E_Conquest(payload));
+
+            Assert.Equal(new ConquestInfluence(40, 30, 20, 10, 44, 33, 22), state.ConquestCurrentRegion);
+            Assert.True(state.ConquestCurrentRegion.HasInfluence);
+            Assert.False(default(ConquestInfluence).HasInfluence);
+            // Client region 6 (Norvallen) is conquest record 2.
+            Assert.Equal(2, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(6));
+            Assert.Equal(2, state.GetRegionConquest(Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(6)).Owner);
+            Assert.Equal(0, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(4));   // Ronfaure
+            Assert.Equal(16, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(20)); // Tu'Lia
+            Assert.Equal(17, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(22)); // Movalpolos
+            Assert.Equal(18, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(24)); // Tavnazian Archipelago
+            foreach (int none in new[] { 0, 3, 21, 23, 25, 28, 49, -1 }) Assert.Equal(-1, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(none));
+            // East Ronfaure (101) is in Ronfaure; Southern San d'Oria (230) is a city, without conquest.
+            Assert.Equal(0, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(Gordian.Core.Resources.Tables.ZoneRegions.RegionOf(101)));
+            Assert.Equal(-1, Gordian.Core.Resources.Tables.ZoneRegions.ConquestRecordOf(Gordian.Core.Resources.Tables.ZoneRegions.RegionOf(230)));
+        }
+
+        [Fact]
         public void S2C_0x05E_0x115_0x073_0x110_DecodesCorrectly()
         {
             // 0x05E Conquest

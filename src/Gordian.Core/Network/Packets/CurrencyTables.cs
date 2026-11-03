@@ -214,6 +214,12 @@ namespace Gordian.Core.Network.Packets
         DomainPointsEarnedToday = 91,
         MogSegments = 92,
         Gallimaufry = 93,
+        /// <summary>LandSandBoat only (<c>is_accolades</c>, u16 after Gallimaufry); not in XiPackets' struct.</summary>
+        ImperialStandingAccolades = 94,
+        /// <summary>LandSandBoat only (<c>temenos_units</c>); not in XiPackets' struct.</summary>
+        TemenosUnits = 95,
+        /// <summary>LandSandBoat only (<c>apollyon_units</c>); not in XiPackets' struct.</summary>
+        ApollyonUnits = 96,
     }
 
 
@@ -455,6 +461,11 @@ namespace Gordian.Core.Network.Packets
             (132, 4, 0, true), // DomainPointsEarnedToday
             (136, 4, 0, true), // MogSegments
             (140, 4, 0, true), // Gallimaufry
+            // Beyond XiPackets: LandSandBoat's 0x118 goes on with is_accolades (u16), padding, temenos_units, apollyon_units
+            // (src/map/packets/s2c/0x118_currencies_2.h).
+            (144, 2, 0, false), // ImperialStandingAccolades
+            (148, 4, 0, true), // TemenosUnits
+            (152, 4, 0, true), // ApollyonUnits
         };
     }
 }

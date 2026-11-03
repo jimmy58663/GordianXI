@@ -137,6 +137,15 @@ namespace Gordian.Core.World
         /// <summary>The mastery rank shown with the mentor flag (S2C 0x01B <c>mastery_rank</c>); the Status window's Profile shows it.</summary>
         public byte MasteryRank { get; private set; }
 
+        /// <summary>
+        /// Every job's master level by job id (S2C 0x01B <c>job_mastery_levels</c>; index 0 unused); the Status window's Master
+        /// Levels page reads it. LandSandBoat leaves the field 0.
+        /// </summary>
+        public byte[] MasterLevels { get; } = new byte[24];
+
+        /// <summary>The jobs with mastery unlocked (S2C 0x01B <c>job_mastery_flags</c>: bit n for job n); LandSandBoat leaves it 0.</summary>
+        public uint JobMasteryFlags { get; private set; }
+
         /// <summary>The mentor flag (S2C 0x01B <c>mentor_rank</c>: 0 none, 1 bronze, 2 silver, 3 gold); the Status window's Profile shows it.</summary>
         public byte MentorRank { get; private set; }
         #endregion
@@ -471,6 +480,8 @@ namespace Gordian.Core.World
                 }
                 MasteryRank = jobInfo.MasteryRank;
                 MentorRank = jobInfo.MentorRank;
+                JobMasteryFlags = jobInfo.JobMasteryFlags;
+                for (int job = 1; job < MasterLevels.Length; job++) MasterLevels[job] = jobInfo.GetJobMasteryLevel((JobId)job);
                 for (int job = 1; job < JobLevels.Length; job++)
                 {
                     byte level = jobInfo.GetJobLevel((JobId)job);

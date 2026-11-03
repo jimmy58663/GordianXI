@@ -378,6 +378,7 @@ namespace Gordian.Core.World
         private WeatherTiming _weatherTiming;
         private ZoneLoginInfo _zoneLoginInfo;
         private bool _hasZoneLoginInfo;
+        private long _zoneLoginReceivedAt;
 
         /// <summary>
         /// The schedule of the current weather: when it started and its offset (S2C 0x057, and S2C 0x00A at login), so
@@ -403,6 +404,22 @@ namespace Gordian.Core.World
             get { lock (_syncRoot) return _hasZoneLoginInfo ? _zoneLoginInfo : null; }
         }
 
+        /// <summary>
+        /// The seconds played now: S2C 0x00A's <c>PlayTime</c> (the total at zone-in) plus the time since it arrived; null before
+        /// the first login packet. The Status window's Play Time reads it.
+        /// </summary>
+        public long? PlayTimeSecondsNow
+        {
+            get
+            {
+                lock (_syncRoot)
+                {
+                    if (!_hasZoneLoginInfo) return null;
+                    return _zoneLoginInfo.PlayTime + (long)Stopwatch.GetElapsedTime(_zoneLoginReceivedAt).TotalSeconds;
+                }
+            }
+        }
+
         /// <summary>Records the zone set-up fields from S2C 0x00A.</summary>
         public void UpdateZoneLoginInfo(ZoneLoginInfo info)
         {
@@ -410,6 +427,7 @@ namespace Gordian.Core.World
             {
                 _zoneLoginInfo = info;
                 _hasZoneLoginInfo = true;
+                _zoneLoginReceivedAt = Stopwatch.GetTimestamp();
             }
             // The Mog House room to draw (#354); a model number this client cannot draw leaves the city's terrain.
             int room = info.InMogHouse && MogHouseRooms.IsKnownRoom(info.MyroomMapNumber) ? info.MyroomMapNumber : 0;

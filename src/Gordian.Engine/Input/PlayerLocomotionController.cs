@@ -428,8 +428,9 @@ namespace Gordian.Engine.Input
                 _menuOpen = (menus != null && menus.ProcessInput(_inputState, elapsed)) || inEvent;
             }
 
-            // 2b. The Map window takes the movement and camera input to pan and zoom the map (#23); the character stands.
-            var map = menus?.MapWindow;
+            // 2b. The Map window takes the movement and camera input to pan and zoom the map (#23), a Region Info map the
+            //     movement input to pan it (#488); the character stands.
+            var map = menus?.PannedMap;
             _inputState.MovementCaptured = map != null;
             if (map != null) UpdateMapView(menus!, elapsed);
 

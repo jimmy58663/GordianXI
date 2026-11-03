@@ -429,12 +429,22 @@ namespace Gordian.Core.Resources
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
             DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
             DMsgCategory.MenuMessages => Path.Combine("ROM", "165", "72.DAT"),
+            DMsgCategory.MenuStrings => Path.Combine("ROM", "165", "77.DAT"),
+            DMsgCategory.JobPointStrings => Path.Combine("ROM", "314", "62.DAT"),
+            DMsgCategory.AlterEgoStrings => Path.Combine("ROM", "384", "121.DAT"),
             DMsgCategory.MountNames => Path.Combine("ROM", "351", "84.DAT"),
             DMsgCategory.MountHelp => Path.Combine("ROM", "351", "85.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),
             DMsgCategory.QuestsBastok => Path.Combine("ROM", "176", "61.DAT"),
             DMsgCategory.QuestsWindurst => Path.Combine("ROM", "176", "62.DAT"),
             DMsgCategory.QuestsJeuno => Path.Combine("ROM", "176", "63.DAT"),
+            DMsgCategory.QuestsOther => Path.Combine("ROM", "176", "64.DAT"),
+            DMsgCategory.QuestsOutlands => Path.Combine("ROM", "176", "65.DAT"),
+            DMsgCategory.QuestsAhtUrhgan => Path.Combine("ROM", "176", "66.DAT"),
+            DMsgCategory.QuestsAbyssea => Path.Combine("ROM", "242", "64.DAT"),
+            DMsgCategory.QuestsCrystalWar => Path.Combine("ROM", "196", "6.DAT"),
+            DMsgCategory.QuestsAdoulin => Path.Combine("ROM", "293", "70.DAT"),
+            DMsgCategory.QuestsCoalition => Path.Combine("ROM", "293", "71.DAT"),
             DMsgCategory.MissionsSandoria => Path.Combine("ROM", "176", "67.DAT"),
             DMsgCategory.MissionsBastok => Path.Combine("ROM", "176", "68.DAT"),
             DMsgCategory.MissionsWindurst => Path.Combine("ROM", "176", "69.DAT"),
@@ -444,6 +454,12 @@ namespace Gordian.Core.Resources
             DMsgCategory.MissionsWotg => Path.Combine("ROM", "196", "7.DAT"),
             DMsgCategory.MissionsAdoulin => Path.Combine("ROM", "293", "69.DAT"),
             DMsgCategory.MissionsRov => Path.Combine("ROM", "333", "4.DAT"),
+            DMsgCategory.MissionsAssault => Path.Combine("ROM", "176", "72.DAT"),
+            DMsgCategory.MissionsCampaign => Path.Combine("ROM", "196", "8.DAT"),
+            DMsgCategory.MissionsAcp => Path.Combine("ROM", "222", "18.DAT"),
+            DMsgCategory.MissionsAmk => Path.Combine("ROM", "223", "12.DAT"),
+            DMsgCategory.MissionsAsa => Path.Combine("ROM", "223", "13.DAT"),
+            DMsgCategory.MissionsTvr => Path.Combine("ROM", "364", "36.DAT"),
             _ => string.Empty
         };
 
@@ -453,7 +469,10 @@ namespace Gordian.Core.Resources
             DMsgCategory.QuestsJeuno or DMsgCategory.MissionsSandoria or DMsgCategory.MissionsBastok or
             DMsgCategory.MissionsWindurst or DMsgCategory.MissionsZilart or DMsgCategory.MissionsCop or
             DMsgCategory.MissionsToau or DMsgCategory.MissionsWotg or DMsgCategory.MissionsAdoulin or
-            DMsgCategory.MissionsRov => new[] { "id", "name", "description" },
+            DMsgCategory.MissionsRov or DMsgCategory.QuestsOther or DMsgCategory.QuestsOutlands or DMsgCategory.QuestsAhtUrhgan or
+            DMsgCategory.QuestsAbyssea or DMsgCategory.QuestsCrystalWar or DMsgCategory.QuestsAdoulin or DMsgCategory.QuestsCoalition or
+            DMsgCategory.MissionsAssault or DMsgCategory.MissionsCampaign or DMsgCategory.MissionsAcp or DMsgCategory.MissionsAmk or
+            DMsgCategory.MissionsAsa or DMsgCategory.MissionsTvr => new[] { "id", "name", "description" },
 
             DMsgCategory.SpellHelp or DMsgCategory.AbilityHelp => new[] { "name", "help" },
             DMsgCategory.StatusNames => new[] { "name", "adjective" },

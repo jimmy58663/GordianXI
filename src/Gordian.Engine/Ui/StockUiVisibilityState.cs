@@ -49,8 +49,11 @@ namespace Gordian.Engine.Ui
         /// <summary>The in-world target and sub-target cursors.</summary>
         TargetCursor = 1 << 8,
 
+        /// <summary>The compass, day, time and map square above the log (#485).</summary>
+        Compass = 1 << 9,
+
         /// <summary>Every element above (a clean screen for screenshots or a full replacement HUD).</summary>
-        All = TargetBar | Vitals | Party | Alliance | Buffs | Menus | Chat | NamePlates | TargetCursor,
+        All = TargetBar | Vitals | Party | Alliance | Buffs | Menus | Chat | NamePlates | TargetCursor | Compass,
     }
 
     /// <summary>
@@ -191,6 +194,7 @@ namespace Gordian.Engine.Ui
             ("chat", StockUiElement.Chat),
             ("names", StockUiElement.NamePlates),
             ("cursor", StockUiElement.TargetCursor),
+            ("compass", StockUiElement.Compass),
         };
 
         /// <summary>

@@ -69,6 +69,23 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         MenuMessages,
         /// <summary>
+        /// The menus' short strings (ROM/165/77.DAT, 528 entries; read 2026-10-31, #487): the currency names of the Status
+        /// window's Currencies pages (136-219 and 350-524, not in packet order: 136 "Conquest Points (San d'Oria)", 191
+        /// "Bayld", 443 "Unity Accolades"), the Records of Eminence texts (108-135) and the Unity texts (395-453).
+        /// </summary>
+        MenuStrings,
+        /// <summary>
+        /// The job points' jobs and categories (ROM/314/62.DAT, read 2026-11-01, #487): job n's name at 2n and its line at
+        /// 2n + 1 from 2 ("Warrior", "Adjust various abilities for WAR lv. 99 or above."), the categories after them.
+        /// </summary>
+        JobPointStrings,
+        /// <summary>
+        /// The alter ego points' categories and items (ROM/384/121.DAT, read 2026-11-01, #487): 2-7 "HP/MP", "Attributes",
+        /// "Skills" with "Valid from Lv. 99 or higher.", 16-37 the eleven S2C 0x08E items with their lines ("Uses 1 alter ego
+        /// point to increase the alter ego's STR by 1."); the rest are Japanese placeholders.
+        /// </summary>
+        AlterEgoStrings,
+        /// <summary>
         /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
         /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
         /// </summary>
@@ -78,6 +95,29 @@ namespace Gordian.Core.Resources.Models
         /// shown in the help bar over the mount list (#87; retail capture Mounts.mp4).
         /// </summary>
         MountHelp,
+        /// <summary>
+        /// The rest of the quest log's name tables (#488), each record an id (the quest's bit in its area's S2C 0x056 block),
+        /// a name and the Client / Summary text: Outlands (ROM/176/65, file 55711), Aht Urhgan (ROM/176/66, 55712), Abyssea
+        /// (ROM/242/64, 55713), Crystal War (ROM/196/6, 55722), Adoulin (ROM/293/70, 55739) and Coalition assignments
+        /// (ROM/293/71, 55740). Other Areas is <see cref="QuestsOther"/> (ROM/176/64, 55710). Found by file id 2026-10-31.
+        /// </summary>
+        QuestsOutlands,
+        QuestsAhtUrhgan,
+        QuestsAbyssea,
+        QuestsCrystalWar,
+        QuestsAdoulin,
+        QuestsCoalition,
+        /// <summary>
+        /// The rest of the mission name tables (#488): Assault (ROM/176/72, 55720), Campaign (ROM/196/8, 55724, 512 rows), A
+        /// Crystalline Prophecy (ROM/222/18, 55735), A Moogle Kupo d'Etat (ROM/223/12, 55736), A Shantotto Ascension
+        /// (ROM/223/13, 55737) and The Voracious Resurgence (ROM/364/36, 55742). Found by file id 2026-10-31.
+        /// </summary>
+        MissionsAssault,
+        MissionsCampaign,
+        MissionsAcp,
+        MissionsAmk,
+        MissionsAsa,
+        MissionsTvr,
         Custom
     }
 

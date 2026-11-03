@@ -1305,6 +1305,19 @@ namespace Gordian.Core.Network.Packets
     public readonly record struct ConquestRegion(byte RankingWithBeastmen, byte RankingNoBeastmen, byte Graphics, byte Owner);
 
     /// <summary>
+    /// The influence in the character's current region from S2C 0x05E: each side's share of all four influences
+    /// (<see cref="Sandoria"/>, <see cref="Bastok"/>, <see cref="Windurst"/>, <see cref="Beastmen"/>) and each nation's share
+    /// among the three nations alone (the <c>Pct</c> values), in percent.
+    /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/s2c/0x05e_conquest.cpp).
+    /// </summary>
+    public readonly record struct ConquestInfluence(byte Sandoria, byte Bastok, byte Windurst, byte Beastmen,
+        byte SandoriaPct, byte BastokPct, byte WindurstPct)
+    {
+        /// <summary>Whether any side has influence (zero everywhere outside a conquest region).</summary>
+        public bool HasInfluence => Sandoria + Bastok + Windurst + Beastmen > 0;
+    }
+
+    /// <summary>
     /// One beastmen stronghold from the S2C 0x05E Besieged block. <see cref="Mirrors"/> is the wire value; LandSandBoat
     /// sends the mirror count halved.
     /// </summary>

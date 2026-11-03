@@ -53,6 +53,21 @@ namespace Gordian.Core.Resources.Tables
         /// <summary>The region a zone belongs to (client order), or -1.</summary>
         public static int RegionOf(int zone) => RegionByZone.TryGetValue(zone, out int region) ? region : -1;
 
+        /// <summary>
+        /// The S2C 0x05E conquest record (0 Ronfaure ... 18 Tavnazian Archipelago) of a region in the client's order, or -1
+        /// for a region without conquest (the cities, Dynamis, Tavnazian Marquisate and everything from Promyvion on). The
+        /// client's regions 4 Ronfaure ... 20 Tu'Lia are records 0-16, 22 Movalpolos is 17 and 24 Tavnazian Archipelago 18.
+        /// Conquest region numbering referenced from LandSandBoat (https://github.com/LandSandBoat/server, <c>src/map/zone.h</c>
+        /// <c>REGION_TYPE</c> RONFAURE ... TAVNAZIA).
+        /// </summary>
+        public static int ConquestRecordOf(int region) => region switch
+        {
+            >= 4 and <= 20 => region - 4,
+            22 => 17,
+            24 => 18,
+            _ => -1,
+        };
+
         /// <summary>The zones of a region, by zone id.</summary>
         public static IReadOnlyList<int> ZonesIn(int region) => RegionByZone.Where(p => p.Value == region).Select(p => p.Key).OrderBy(z => z).ToList();
 

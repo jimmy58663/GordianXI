@@ -41,6 +41,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The Map window's Change Map lists (<c>arealist</c>, <c>maplist</c>, #23): areas, an area's zones, a zone's maps.</summary>
         MapAreas,
 
+        /// <summary>The Status window's Currencies, Job Points and Alter Ego Points lists (#487): each row a name and its amount.</summary>
+        StatusValues,
+
         /// <summary>A people list (<see cref="StockUiPeople"/>, #489 / #490): member lists, search results, friends, the blacklist.</summary>
         People,
     }
@@ -83,7 +86,7 @@ namespace Gordian.Engine.Ui
             StockUiConfigPages.TryGet(menu.Name, out var page);
             ConfigPage = page;
             ListKind = listKind ?? StockUiConfigPages.ListKindOf(menu.Name);
-            VisibleRows = ListKind != StockUiListKind.None && StockUiConfigPages.VisibleRowsOf(ListKind) is > 0 and int rows ? rows : visibleRows;
+            VisibleRows = ListKind != StockUiListKind.None && StockUiConfigPages.VisibleRowsOf(ListKind) is > 0 and var rows ? rows : visibleRows;
         }
 
         /// <summary>The Log page's window (1 or 2) a category menu or list is for.</summary>
@@ -341,6 +344,8 @@ namespace Gordian.Engine.Ui
                 // The crystal list and the synthesis grid leave the right of the screen empty (Crystal_Synthesis.png, the
                 // video 2026-10-16): the Synthesis menu and main menu there are hidden (#330).
                 if (ItemListKind == StockUiItemListKind.Crystals || IsSynthesisGrid) right = Math.Max(right, UiResourceLibrary.LayoutWidth - 16);
+                // A trade window: the inventory beside it and (with a player) the partner's offer under it (#486).
+                if (IsTradeWindow) return (f.X, f.Y, UiResourceLibrary.LayoutWidth - 16, Math.Max(bottom, StockUiTrade.PartnerY + f.Height));
                 if (ItemListKind == StockUiItemListKind.RecycleBin) right = Math.Max(right, StockUiItems.RecycleInventoryX + f.Width);
                 if (IsEquipment) return (Math.Min((int)f.X, 16), f.Y, UiResourceLibrary.LayoutWidth - 16, bottom);
                 // A set's grid while it is edited: the storage's list beside it, and the options and set list gone (image-12).
@@ -648,6 +653,7 @@ namespace Gordian.Engine.Ui
         /// <summary>Closes the top menu (a prompt closes as "No").</summary>
         public void CloseTop()
         {
+            if (TryCancelTrade()) return; // the trade window asks "Cancel trade transaction?" (#486)
             StockUiOpenMenu? closed;
             lock (_sync)
             {
@@ -930,11 +936,15 @@ namespace Gordian.Engine.Ui
                 return null;
             }
 
+            // The Status list as the character has it: entries greyed without their key items (#487).
+            var greyed = menuName.Equals(StockUiStatus.CommandMenu, StringComparison.OrdinalIgnoreCase) ? StatusListGreyed() : null;
             var menu = new StockUiOpenMenu(definition, parent, pageRing, message) { Prompt = prompt };
             menu.SelectedButtonId = _lastSelection.TryGetValue(menuName, out int last) && definition.FindButton(last) != null
                 ? last
                 : FirstSelectable(definition);
             Refresh(menu);
+            if (greyed != null) menu.SetGreyed(greyed);
+            if (menuName.Equals(StockUiStatusPages.MeritModeMenu, StringComparison.OrdinalIgnoreCase)) menu.SetMarks(MeritModeMarks());
             if (menu.VisibleRows > 0 && _lastPage.TryGetValue(menuName, out int first))
             {
                 menu.FirstRow = Math.Clamp(first, 0, Math.Max(0, menu.Rows.Count - menu.VisibleRows));
@@ -1286,7 +1296,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();
@@ -1331,7 +1341,7 @@ namespace Gordian.Engine.Ui
                         _ => -1,
                     };
 
-                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.People && top.CanScroll
+                    if (!horizontal && top.ListKind is StockUiListKind.FontColors or StockUiListKind.GamepadAssign or StockUiListKind.MapAreas or StockUiListKind.StatusValues or StockUiListKind.People && top.CanScroll
                         && (direction == InputAction.MenuDown ? top.SelectedButtonId == top.VisibleRows : top.SelectedButtonId == 1))
                     {
                         // The Font Colors list's DAT rows wrap (11 down to 1), as do conf11s's (14 down to 1), which the
@@ -1472,6 +1482,7 @@ namespace Gordian.Engine.Ui
         private static bool IsPopulated(StockUiOpenMenu menu, int buttonId)
         {
             if (menu.IsTreasureList) return buttonId >= 1 && buttonId <= menu.TreasureRows.Count;
+            if (menu.QuestLogView == StockUiQuestLogView.Pages) return menu.IsQuestLogEntry(menu.EntryIndex(buttonId));
             if (menu.VisibleRows == 0) return true;
             int index = menu.EntryIndex(buttonId);
             return index >= 0 && index < menu.Rows.Count;
@@ -1620,6 +1631,7 @@ namespace Gordian.Engine.Ui
             if (top.IsQuantity)
             {
                 if (top.SynthesisPickRow is { } pick) RunSynthesisQuantity(top, pick);
+                else if (top.PickerRow is { } picked) RunPickerQuantity(top, picked);
                 else if (top.ItemDropRow is { } drop) RunDropQuantity(top, drop);
                 else RunQuantity(top);
                 return;
@@ -1668,7 +1680,8 @@ namespace Gordian.Engine.Ui
             }
 
             if (TryActivateKeyItems(top, button) || TryActivateEquipSets(top, button) || TryActivateMacroWindow(top, button)) return;
-            if (TryActivateSynthesis(top, button) || TryActivateItemWindow(top, button) || TryActivateSocial(top, button)) return;
+            if (TryActivateQuestLog(top, button)) return;
+            if (TryActivateSynthesis(top, button) || TryActivateTrade(top, button) || TryActivateItemWindow(top, button) || TryActivateSocial(top, button)) return;
 
             if (top.ConfigPage is { } page)
             {
@@ -1722,6 +1735,12 @@ namespace Gordian.Engine.Ui
             if (top.ListKind == StockUiListKind.MapAreas)
             {
                 ActivateMapList(top, button.ButtonId);
+                return;
+            }
+
+            if (top.ListKind == StockUiListKind.StatusValues)
+            {
+                ActivateStatusList(top);
                 return;
             }
 
@@ -1954,6 +1973,10 @@ namespace Gordian.Engine.Ui
                     if (paged) Changed?.Invoke();
                     break;
 
+                case StockUiMenuCommand.MeritMode:
+                    SwitchMeritMode(entry, from);
+                    break;
+
                 case StockUiMenuCommand.LogOut:
                 case StockUiMenuCommand.ShutDown:
                     _ = ConfirmLogoutAsync(entry.Command == StockUiMenuCommand.ShutDown);
@@ -2045,6 +2068,10 @@ namespace Gordian.Engine.Ui
                     RunRangedAttack(from);
                     break;
 
+                case StockUiMenuCommand.Trade:
+                    RunTradeCommand(from);
+                    break;
+
                 case StockUiMenuCommand.Items:
                     OpenItems(from, from.Target);
                     break;
@@ -2071,6 +2098,18 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.KeyItems:
                     OpenKeyItems(from);
+                    break;
+
+                case StockUiMenuCommand.MissionGroup:
+                    OpenMissionGroup(entry.Argument, from);
+                    break;
+
+                case StockUiMenuCommand.Quests:
+                    OpenQuests(from);
+                    break;
+
+                case StockUiMenuCommand.RegionConquest:
+                    OpenConquest(from);
                     break;
 
                 case StockUiMenuCommand.EquipmentSets:
@@ -2566,7 +2605,7 @@ namespace Gordian.Engine.Ui
                     edit = SliderValueAt(_sliderMenu, _sliderPlacement, _sliderButton, x);
                 }
                 over = TryHit(x, y, out var menu, out var button, out _);
-                if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button)
+                if (_sliderMenu == null && over && button != null && ReferenceEquals(menu, Top) && !IsPageArrow(menu!, button) && !IsQuestLogArrow(menu!, button)
                     && !menu!.IsQuantity && menu.SelectedButtonId != button.ButtonId)
                 {
                     menu.SelectedButtonId = button.ButtonId;
@@ -2614,6 +2653,11 @@ namespace Gordian.Engine.Ui
                     if (IsPageArrow(menu, button))
                     {
                         changed |= FlipPage(menu, button.X < 0 ? -1 : 1);
+                    }
+                    else if (IsQuestLogArrow(menu, button))
+                    {
+                        TurnQuestLogPage(menu, button.ButtonId == StockUiQuestLog.NextPageButton ? 1 : -1);
+                        changed = true;
                     }
                     else if (menu.IsQuantity && button.ButtonId != StockUiShop.QuantityField)
                     {
@@ -2756,7 +2800,7 @@ namespace Gordian.Engine.Ui
         /// paged menu's page arrows (drawn outside the frame only on paged menus).
         /// </summary>
         private static bool IsClickable(StockUiOpenMenu menu, UiMenuButton button) =>
-            IsPageArrow(menu, button) || (menu.IsQuantity && !IsOutsideFrame(menu, button))
+            IsPageArrow(menu, button) || IsQuestLogArrow(menu, button) || (menu.IsQuantity && !IsOutsideFrame(menu, button))
             || (IsSelectable(button) && IsPopulated(menu, button.ButtonId) && !IsOutsideFrame(menu, button));
 
         private static bool IsOutsideFrame(StockUiOpenMenu menu, UiMenuButton button) =>

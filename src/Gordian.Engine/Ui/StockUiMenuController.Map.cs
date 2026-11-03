@@ -95,6 +95,12 @@ namespace Gordian.Engine.Ui
             MapCenterY += dy;
         }
 
+        internal void SetMapCenter(float x, float y)
+        {
+            MapCenterX = x;
+            MapCenterY = y;
+        }
+
         internal void ResetMapView()
         {
             MapZoom = 1f;
@@ -126,6 +132,9 @@ namespace Gordian.Engine.Ui
         /// <summary>A region's name by its client number (ROM/165/78); set by the HUD.</summary>
         public Func<int, string?>? RegionName { get; set; }
 
+        /// <summary>A zone's short name by zone id (ROM/165/83, "Onzozo Lbrth."): the conquest map's labels; set by the HUD.</summary>
+        public Func<int, string?>? ZoneShortName { get; set; }
+
         /// <summary>The open Map window, if any.</summary>
         public StockUiOpenMenu? MapWindow => _open.LastOrDefault(m => m.IsMapWindow);
 
@@ -148,7 +157,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Pans and zooms the open Map window: <paramref name="dx"/> / <paramref name="dy"/> are the pan input times the
+        /// Pans and zooms the open Map window (pans a Region Info map, <see cref="PannedMap"/>): <paramref name="dx"/> / <paramref name="dy"/> are the pan input times the
         /// tick's seconds (right and down positive), <paramref name="zoom"/> the zoom input times the seconds (in positive),
         /// <paramref name="wheel"/> the mouse wheel's notches (up zooms in).
         /// </summary>
@@ -157,9 +166,18 @@ namespace Gordian.Engine.Ui
             if (dx == 0 && dy == 0 && zoom == 0 && wheel == 0) return;
             lock (_sync)
             {
-                if (MapWindow is not { } map) return;
+                if (PannedMap is not { } map) return;
+                if (map.QuestLogView == StockUiQuestLogView.Conquest)
+                {
+                    // The conquest map's movement moves its cursor; the map scrolls when the cursor nears the screen's
+                    // edge (round 3 of #488), and it never zooms (round 1).
+                    MoveConquestCursor(map, dx * StockUiConquest.CursorSpeed, dy * StockUiConquest.CursorSpeed);
+                    Changed?.Invoke();
+                    return;
+                }
+                // A Region Info map keeps its zoom (round 1 of #488: retail pans it but cannot zoom).
                 float factor = MathF.Pow(StockUiMap.ZoomPerSecond, zoom) * MathF.Pow(StockUiMap.WheelZoomStep, wheel);
-                map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);
+                if (map.IsMapWindow) map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);
                 float speed = StockUiMap.PanPerSecond / map.MapZoom;
                 map.PanMap(dx * speed, dy * speed);
             }
