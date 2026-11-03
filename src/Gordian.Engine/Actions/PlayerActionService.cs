@@ -2090,7 +2090,9 @@ namespace Gordian.Engine.Actions
         /// <c>/sea [all] [name] [job] [level] [party] [friend]</c>: searches players on the search server (the current zone, or
         /// every zone with <c>all</c>). A three-letter job code picks the job, <c>75</c> or <c>70-75</c> (also <c>lv75</c>) the level,
         /// <c>party</c> players seeking a party, <c>friend</c> friends, and any other word is a name or name prefix. The full
-        /// result is in <c>SearchService.State.LastSearch</c>; the message lists the first names.
+        /// result is in <c>SearchService.State.LastSearch</c>; the message lists the first names. With the stock menus wired
+        /// (<see cref="StockUiMenuController.Social"/>) the results also open in the Search menu's results window, as retail's
+        /// <c>/sea</c> does (#495).
         /// </summary>
         public async Task<PlayerActionResult> PlayerSearchAsync(string arguments)
         {
@@ -2099,6 +2101,25 @@ namespace Gordian.Engine.Actions
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
             var query = ParseSearchQuery(arguments, _world.CurrentZoneId);
+            if (Menus.Social is { } social)
+            {
+                try
+                {
+                    var people = await social.SearchAsync(query).ConfigureAwait(false);
+                    if (people.Error is { Length: > 0 } error) return PlayerActionResult.Warn(error, Kind);
+                    if (people.People.Count == 0) return PlayerActionResult.Info("No players found.", Kind);
+                    Menus.OpenSearchResults(people.People);
+                    const int ShownRows = 12;
+                    var listed = string.Join(", ", people.People.Take(ShownRows).Select(p => string.IsNullOrEmpty(p.Detail) ? p.Name : $"{p.Name} ({p.Detail})"));
+                    string rest = people.People.Count > ShownRows ? $" and {people.People.Count - ShownRows} more" : string.Empty;
+                    return PlayerActionResult.Info($"{people.People.Count} player(s) found: {listed}{rest}.", Kind);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
+                    return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
+                }
+            }
             try
             {
                 var result = await service.SearchAsync(query).ConfigureAwait(false);

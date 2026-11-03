@@ -221,6 +221,16 @@ namespace Gordian.Engine.Ui
             return query;
         }
 
+        /// <summary>
+        /// <c>/sea</c> (#495): retail's command opens the same results window as the main menu's Search (<c>scresult</c>),
+        /// over whatever is open, or on its own; the command's arguments are only the query's filters. A search that finds
+        /// nobody posts the Search menu's notice instead.
+        /// </summary>
+        public void OpenSearchResults(IReadOnlyList<StockUiPerson> people)
+        {
+            lock (_sync) OpenPeopleList(StockUiPeoplePurpose.SearchResults, people, Top);
+        }
+
         private void Search(StockUiOpenMenu from, SearchQuery query)
         {
             if (Social is { } social) _ = OpenPeopleAsync(StockUiPeoplePurpose.SearchResults, social.SearchAsync(query), from);

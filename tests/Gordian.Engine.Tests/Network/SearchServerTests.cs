@@ -725,6 +725,37 @@ namespace Gordian.Engine.Tests.Network
             Assert.Contains("2 player(s)", result.Message);
         }
 
+        [Fact]
+        public async Task SeaCommand_OpensTheSearchResultsWindow()
+        {
+            // #495: /sea BRD 37-99 builds the Search menu's query and opens its results window, with nothing open before.
+            var session = NewSession(_ => Array.Empty<(byte[], int)>());
+            session.Actions.SearchService = session.Parser.Search;
+            var social = new Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial
+            {
+                SearchResult = new(new[] { new Gordian.Engine.Ui.StockUiPerson("Ayame", CharacterId: 7, Detail: "BRD75/WHM37") }),
+            };
+            var menus = session.Actions.Menus;
+            menus.Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.SharedMenus());
+            menus.Social = social;
+
+            var result = await session.Actions.PlayerSearchAsync("all BRD 37-99");
+
+            Assert.Contains("1 player(s) found: Ayame (BRD75/WHM37)", result.Message);
+            Assert.True(social.LastQuery!.AllAreas);
+            Assert.Equal((byte)10, social.LastQuery.Job);
+            Assert.Equal(((byte)37, (byte)99), social.LastQuery.Level);
+            var list = menus.Top!;
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeople.ResultsMenu, list.Name);
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeoplePurpose.SearchResults, list.PeoplePurpose);
+            Assert.Null(list.Parent);
+            Assert.Equal("Ayame", list.People.Single().Name);
+
+            // Confirm on the "Search Results" bar closes it, as over the Search menu.
+            menus.Activate();
+            Assert.False(menus.IsOpen);
+        }
+
         /// <summary>
         /// <c>/pcmd add</c> and <c>/acmd add</c> for a player in another zone (#362 round 2): the character id comes from a name
         /// search, and C2S 0x06E goes out with it and ActIndex 0 (XiPackets world/client/0x006E; LandSandBoat finds the character by id).
