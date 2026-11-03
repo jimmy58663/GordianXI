@@ -136,6 +136,8 @@ namespace Gordian.Core.World.Collision
                 if (interior._triangles.Length == 0) continue;
                 var min = interior.MinBounds;
                 var max = interior.MaxBounds;
+                // A floor over the interior's top stays: the street over a basement room (#468).
+                if (triangle.Normal.Y < -MinFloorNormalY && centroid.Y < min.Y) continue;
                 if (centroid.X > min.X + InteriorFootprintInset && centroid.X < max.X - InteriorFootprintInset &&
                     centroid.Z > min.Z + InteriorFootprintInset && centroid.Z < max.Z - InteriorFootprintInset &&
                     centroid.Y > min.Y - 1f && centroid.Y < max.Y + 1f &&
@@ -156,7 +158,9 @@ namespace Gordian.Core.World.Collision
         /// stables have zone walls running through the room the interior opens (round 3: blocked at (-87.19, -0.10,
         /// -186.15) where the stables interior has floor), so collision switches with the drawing, as the issue's format
         /// notes say it must. Walls on the footprint's edge (the shop fronts, the doorway) stay, and so does anything over
-        /// ground the interior has no floor for.
+        /// ground the interior has no floor for. So do the zone's floors above the interior's top: Bastok Metalworks' interior
+        /// 310 (<c>m6li</c>) is a room 0.56 to 8 yalms below the street, and the yalm to spare above it took the street's floor
+        /// over it, so the player fell through to Elayne's floor (#468).
         /// </summary>
         public static ZoneCollisionMesh Merge(ZoneCollisionMesh zone, IReadOnlyList<ZoneCollisionMesh> interiors)
         {

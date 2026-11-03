@@ -137,6 +137,40 @@ namespace Gordian.Core.Tests.World
             Assert.Contains(merged.Triangles.ToArray(), t => t.A.X == -10f);
         }
 
+        /// <summary>
+        /// Bastok Metalworks (#468): interior 310 (<c>m6li</c>) is a room 0.56 to 8 yalms below the street, under the street
+        /// from X -35.6 to -20.6. The merge kept the zone's walls and floors within a yalm above an interior's top, so the
+        /// street over it went: the maintainer was stopped at X -20 (no floor under the next step) and, going round, fell to
+        /// Elayne's floor. The street stays now, and the basement keeps its floor.
+        /// </summary>
+        [Fact]
+        public void Metalworks_StreetOverTheBasementRoom_StaysAFloor()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var zone = rm.TryLoadZoneCollision(237)!;
+            var basement = rm.TryLoadSubAreaCollision(310)!;
+            Assert.InRange(basement.MinBounds.Y, 0.5f, 0.6f);
+            var merged = ZoneCollisionMesh.Merge(zone, new[] { basement });
+
+            int streetPoints = 0;
+            for (float x = -34f; x <= -20f; x += 1f)
+            {
+                for (float z = -5f; z <= 5f; z += 1f)
+                {
+                    var feet = new Vector3(x, 0f, z);
+                    if (!zone.TryGetGround(feet, 0.5f, 60f, out var street) || MathF.Abs(street.Height) > 0.01f) continue;
+                    streetPoints++;
+                    Assert.True(merged.TryGetGround(feet, 0.5f, 60f, out var kept), $"no ground at ({x}, {z})");
+                    Assert.True(MathF.Abs(kept.Height) < 0.01f, $"ground {kept.Height} at ({x}, {z})");
+                }
+            }
+            Assert.True(streetPoints > 60, $"{streetPoints} street points");
+            Assert.True(merged.TryGetGround(new Vector3(-27f, 7.5f, 0f), 0.5f, 60f, out var floor));
+            Assert.Equal(8f, floor.Height, 0.01f);
+        }
+
         [Fact]
         public void LowerJeuno_StablesRoom_HasNoZoneWallWhereTheMaintainerWasBlocked()
         {
