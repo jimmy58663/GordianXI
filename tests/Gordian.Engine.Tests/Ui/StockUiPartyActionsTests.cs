@@ -553,6 +553,18 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal((byte)1, StockUiPeople.FromSearch(holder, null, null, 243, linkshellId: 9).LinkshellRank);
             Assert.Equal((byte)3, StockUiPeople.FromSearch(holder, null, null, 243, linkshellId: 4).LinkshellRank);
             Assert.Equal((byte)3, StockUiPeople.FromSearch(pearl, null, null, 243, linkshellId: 9).LinkshellRank);
+            // Round 3: a 0 beside the listed shell (LandSandBoat's LSTYPE_NEW_LINKSHELL) is the holder.
+            var unnamed = holder with { LinkshellRank2 = 0 };
+            Assert.Equal((byte)1, StockUiPeople.FromSearch(unnamed, null, null, 243, linkshellId: 9).LinkshellRank);
+        }
+
+        [Fact]
+        public void ZoneByCompactName_FindsTheZoneOfTheMapScreensName()
+        {
+            Func<int, string?> compact = z => z switch { 4 => "BibikiBay", 245 => "LowJeuno", _ => null };
+            Assert.Equal(245, StockUiSearch.ZoneByCompactName(compact, "lowjeuno"));
+            Assert.Equal(4, StockUiSearch.ZoneByCompactName(compact, "BibikiBay"));
+            Assert.Null(StockUiSearch.ZoneByCompactName(compact, "Lower Jeuno"));
         }
 
         [Fact]

@@ -329,12 +329,15 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// A linkshell list member's rank in the shell <paramref name="linkshellId"/>: the rank beside whichever of their two
         /// worn shells has that id (round 2: a holder wearing their shell in slot 2 and another's pearl in slot 1 showed as a
-        /// pearl). Without an id, the first worn shell's.
+        /// pearl). Without an id, the first worn shell's. A rank of 0 beside the listed shell is the holder's: LandSandBoat
+        /// stores the worn item's type as the rank (<c>CLinkshell::AddMember</c> with <c>GetLSType</c>), and type 0 is its
+        /// <c>LSTYPE_NEW_LINKSHELL</c>, a linkshell; round 3's holder showed no icon at all, which a 0 explains
+        /// (PROVISIONAL: the byte the server sent is now logged by <c>StockUiSocialActions</c> to confirm it).
         /// </summary>
         public static byte LinkshellRankOf(SearchEntity entity, uint linkshellId)
         {
-            if (linkshellId != 0 && entity.LinkshellId1 == linkshellId) return entity.LinkshellRank1;
-            if (linkshellId != 0 && entity.LinkshellId2 == linkshellId) return entity.LinkshellRank2;
+            if (linkshellId != 0 && entity.LinkshellId1 == linkshellId) return entity.LinkshellRank1 == 0 ? (byte)1 : entity.LinkshellRank1;
+            if (linkshellId != 0 && entity.LinkshellId2 == linkshellId) return entity.LinkshellRank2 == 0 ? (byte)1 : entity.LinkshellRank2;
             return entity.LinkshellRank1 != 0 ? entity.LinkshellRank1 : entity.LinkshellRank2;
         }
 

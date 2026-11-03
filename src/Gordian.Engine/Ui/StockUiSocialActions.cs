@@ -158,6 +158,7 @@ namespace Gordian.Engine.Ui
             if (result == null) return StockUiPeopleResult.Failed("Linkshell: no linkshell is equipped there.");
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
             uint shell = StockUiPeople.SharedLinkshellId(result.Players);
+            LogLinkshellRanks(shell, result.Players);
             return new StockUiPeopleResult(result.Players.Select(p => Row(p, shell)).ToList());
         }
 
@@ -168,7 +169,15 @@ namespace Gordian.Engine.Ui
             if (groupId == 0) return StockUiPeopleResult.Failed("Linkshell: this linkshell's id is not known.");
             var result = await search.RefreshLinkshellListByIdAsync(groupId).ConfigureAwait(false);
             if (result.Players.Count == 0 && !result.Complete) return StockUiPeopleResult.Failed("The search server did not answer.");
+            LogLinkshellRanks(groupId, result.Players);
             return new StockUiPeopleResult(result.Players.Select(p => Row(p, groupId)).ToList());
+        }
+
+        /// <summary>The search server's linkshell ids and rank bytes for each member (#490 round 3: the holder's icon was missing).</summary>
+        private static void LogLinkshellRanks(uint shell, IReadOnlyList<SearchEntity> players)
+        {
+            foreach (var p in players)
+                Gordian.Core.Diagnostics.GordianLog.Info("UI", $"Linkshell 0x{shell:X} member {p.Name}: ls1 0x{p.LinkshellId1:X} rank {p.LinkshellRank1}, ls2 0x{p.LinkshellId2:X} rank {p.LinkshellRank2}.");
         }
 
         /// <summary>The containers a linkshell item can be worn from: the inventory and the wardrobes.</summary>
