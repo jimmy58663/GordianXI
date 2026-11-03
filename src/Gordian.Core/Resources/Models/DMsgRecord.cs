@@ -86,6 +86,15 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         AlterEgoStrings,
         /// <summary>
+        /// The merit points' categories and merits (ROM/169/75.DAT, EN file id 0xD986, read 2026-11-03, #491): category n's
+        /// name at 2n and its line at 2n + 1 from 2 ("HP/MP", "Adjust your maximum HP and MP." with "Max. total ability increases: 75"
+        /// on its next line; 12-57 the jobs and Weapon Skills, the S2C 0x08C category id being 64n), then each merit's name at its own
+        /// merit id and its line at id + 1 (64 "Max HP", 65 "Adjust your maximum HP by 10 points."; 384 "Berserk Recast").
+        /// Unused slots are "MeripoName&lt;n&gt;" placeholders. File named by xi-tools (docs/reference/named-dats.md);
+        /// the merit id to string index mapping referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x008C).
+        /// </summary>
+        MeritStrings,
+        /// <summary>
         /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
         /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
         /// </summary>

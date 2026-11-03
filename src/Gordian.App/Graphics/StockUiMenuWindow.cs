@@ -231,7 +231,8 @@ namespace Gordian.App.Graphics
                         // window's Change Map lists (#23) the same way: the area or zone in white in the log font (upright,
                         // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
                         // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
-                        UiColor? tint = i == selectedEntry ? SelectedGlyphTint : null;
+                        // A greyed row (#491: a merit that cannot be raised; #493: an objective done for good) keeps its colour.
+                        UiColor? tint = i == selectedEntry ? SelectedGlyphTint : row.Color;
                         bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,

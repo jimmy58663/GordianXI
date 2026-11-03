@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.Packets;
@@ -83,6 +84,10 @@ namespace Gordian.App.Tests.Graphics
             MenuStringText = id => screen.Resources.TryGetString(DMsgCategory.MenuStrings, id, out var t) ? t : null,
             JobPointText = id => screen.Resources.TryGetString(DMsgCategory.JobPointStrings, id, out var t) ? t : null,
             AlterEgoText = id => screen.Resources.TryGetString(DMsgCategory.AlterEgoStrings, id, out var t) ? t : null,
+            MeritText = id => screen.Resources.TryGetString(DMsgCategory.MeritStrings, id, out var t) ? t : null,
+            Merits = () => new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(0x42, 2, 1), new StockUiMerit(0x80, 9, 3) },
+            JobPointLevel = (job, k) => new StockUiJobPointCategory(k == 0 ? 7 : 0, k == 0 ? 8 : 1),
+            UnityInfo = () => new StockUiUnityInfo(8, 120, 340, new uint[11], new uint[] { 5, 0, 0, 0, 0, 0, 0, 90, 0, 0, 40 }),
         };
 
         [Fact]
@@ -151,6 +156,22 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal((byte)1, mode);
             Assert.Equal(StockUiStatusPages.MeritMenu, menus.Top!.Name);
 
+            // Categories (#491): meritcat with each category's upgrades, meritinf in the level box's place; HP/MP's merits.
+            menus.Move(InputAction.MenuUp); // Categories
+            menus.Activate();
+            Assert.Equal(StockUiProgressionList.MeritCategories, menus.Top!.ProgressionList);
+            Assert.Equal(("HP/MP", "5/75"), (menus.Top!.Rows[0].Text, menus.Top!.Rows[0].Value));
+            Assert.Equal(StockUiProgression.MeritInfoBox, StockUiStatusPagesWindow.BoxOf(menus.OpenMenus));
+            shot = RenderOpen(screen, menus, "gpu_status_merit_categories.png");
+            Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 16 + 6, threshold: 150), "no merit points in meritinf");
+            Assert.True(screen.HasLightPixel(shot, 130 + 4, 130 + 100, 240 + 4 + 6, threshold: 150), "no category info");
+            menus.Activate(); // HP/MP
+            Assert.Equal(new[] { "Max HP", "Max MP" }, menus.Top!.Rows.Select(r => r.Text));
+            RenderOpen(screen, menus, "gpu_status_merit_list.png");
+            menus.Activate(); // Max HP: merit3
+            Assert.Equal(StockUiProgression.MeritEditMenu, menus.Top!.Name);
+            RenderOpen(screen, menus, "gpu_status_merit_edit.png");
+
             // Job Points: the job names, the cursor on the main job, its capacity and job points in the box, its line in the info box.
             OpenStatusEntry(menus, StockUiStatus.JobPointsButton);
             Assert.Contains("0x0C0", requested);
@@ -161,8 +182,14 @@ namespace Gordian.App.Tests.Graphics
             shot = RenderOpen(screen, menus, "gpu_status_jobpoints.png");
             Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 22 + 6, threshold: 150), "no capacity points");
             Assert.True(screen.HasLightPixel(shot, 130 + 4, 130 + 100, 240 + 4 + 6, threshold: 150), "no info box name");
+            // Confirm on a job (#491): its ten categories with "level/20", merit2in in the level box's place.
             menus.Activate();
-            Assert.Contains(notices, n => n.StartsWith("Job Points:", StringComparison.Ordinal));
+            Assert.Equal((StockUiProgressionList.JobPointCategories, 18), (menus.Top!.ProgressionList, menus.Top!.ProgressionKey));
+            Assert.Equal(10, menus.Top!.Rows.Count);
+            Assert.Equal("7/20", menus.Top!.Rows[0].Value);
+            Assert.Equal(StockUiProgression.JobPointInfoBox, StockUiStatusPagesWindow.BoxOf(menus.OpenMenus));
+            shot = RenderOpen(screen, menus, "gpu_status_jobpoint_categories.png");
+            Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 16 + 6, threshold: 150), "no job points in merit2in");
 
             // Alter Ego Points: HP/MP, Attributes, Skills; Attributes lists STR ... CHR with "upgrades/most".
             OpenStatusEntry(menus, StockUiStatus.AlterEgoButton);
@@ -188,6 +215,11 @@ namespace Gordian.App.Tests.Graphics
             shot = RenderOpen(screen, menus, "gpu_status_unity.png", party);
             Assert.True(screen.HasLightPixel(shot, (int)screen.Width - 128 + 40, (int)screen.Width - 128 + 106, 600 - 42 + 20 + 6, threshold: 150),
                 "no unity points");
+            menus.Activate(); // Unity Info (#491)
+            Assert.Equal(StockUiProgressionList.UnityInfo, menus.Top!.ProgressionList);
+            Assert.Equal("Naja Salaheem", menus.Top!.Rows[0].Value);
+            Assert.Equal("1", menus.Top!.Rows[2].Value);
+            RenderOpen(screen, menus, "gpu_status_unity_info.png", party);
 
             // Play Time: one line in the echo colour.
             OpenStatusEntry(menus, StockUiStatus.PlayTimeButton);

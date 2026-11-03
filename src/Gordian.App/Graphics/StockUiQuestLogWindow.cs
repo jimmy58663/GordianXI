@@ -74,6 +74,7 @@ namespace Gordian.App.Graphics
                     DrawDescription(renderer, font, logFont, menu, placement);
                     break;
                 case StockUiQuestLogView.QuestKind:
+                case StockUiQuestLogView.RoeMenu:
                     DrawQuestKind(renderer, library, font, logFont, menu, placement);
                     break;
                 case StockUiQuestLogView.Pages:

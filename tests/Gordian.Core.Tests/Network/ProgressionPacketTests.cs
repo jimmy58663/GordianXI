@@ -319,6 +319,20 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(3, state.GetMeritLevel(0x40));
             Assert.Equal(0, state.GetMeritLevel(0x42));
             Assert.Equal(0, state.GetMeritLevel(0x43));
+            // Kept at 0 for the Merit Points list (#491), in id order.
+            Assert.Equal(new (ushort, byte, byte)[] { (0x40, 1, 3), (0x42, 1, 0) }, state.GetMerits());
+        }
+
+        [Fact]
+        public void S2C_0x111_RoeActiveLog_KeepsTheSlotOrder()
+        {
+            var state = new ProgressionState();
+            byte[] payload = new byte[256];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 12u | (37u << 12));
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 1u);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(63 * 4, 4), 4000u | (2u << 12)); // LSB's time-limited record
+            state.UpdateRoeActiveLog(new S2C_0x111_RoeActiveLog(payload));
+            Assert.Equal(new (int, ushort, uint)[] { (0, 12, 37), (1, 1, 0), (63, 4000, 2) }, state.GetRoeSlots());
         }
 
         [Fact]

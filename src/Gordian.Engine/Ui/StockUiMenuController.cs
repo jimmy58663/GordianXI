@@ -1977,6 +1977,10 @@ namespace Gordian.Engine.Ui
                     SwitchMeritMode(entry, from);
                     break;
 
+                case StockUiMenuCommand.Progression:
+                    RunProgression((StockUiProgressionAction)entry.Argument, from);
+                    break;
+
                 case StockUiMenuCommand.LogOut:
                 case StockUiMenuCommand.ShutDown:
                     _ = ConfirmLogoutAsync(entry.Command == StockUiMenuCommand.ShutDown);

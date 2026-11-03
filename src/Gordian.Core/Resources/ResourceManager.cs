@@ -432,6 +432,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.MenuStrings => Path.Combine("ROM", "165", "77.DAT"),
             DMsgCategory.JobPointStrings => Path.Combine("ROM", "314", "62.DAT"),
             DMsgCategory.AlterEgoStrings => Path.Combine("ROM", "384", "121.DAT"),
+            DMsgCategory.MeritStrings => Path.Combine("ROM", "169", "75.DAT"),
             DMsgCategory.MountNames => Path.Combine("ROM", "351", "84.DAT"),
             DMsgCategory.MountHelp => Path.Combine("ROM", "351", "85.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),

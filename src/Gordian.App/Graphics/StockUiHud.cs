@@ -181,6 +181,8 @@ namespace Gordian.App.Graphics
                 // Job Points' and Alter Ego Points' names and info lines (ROM/314/62, ROM/384/121; #487 round 1).
                 menus.JobPointText = i => strings.TryGetString(DMsgCategory.JobPointStrings, i, out var text) ? text : null;
                 menus.AlterEgoText = i => strings.TryGetString(DMsgCategory.AlterEgoStrings, i, out var text) ? text : null;
+                // Merit Points' categories and merits (ROM/169/75, #491).
+                menus.MeritText = i => strings.TryGetString(DMsgCategory.MeritStrings, i, out var text) ? text : null;
                 // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
                 menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
                 menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
@@ -218,6 +220,13 @@ namespace Gordian.App.Graphics
                 // The Key Items window's categories, names and descriptions (ROM/175/35, #91), read once when first opened.
                 var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
                 menus.KeyItemCatalog = () => catalog.Value;
+            }
+            if (menus.RoeTables == null && _resources is { } roeResources)
+            {
+                // The Records of Eminence objectives and categories (ROM/307/16, ROM/307/24; #493), read once on first use.
+                var roe = new Lazy<Gordian.Core.Resources.Tables.RecordsOfEminenceTables?>(
+                    () => Gordian.Core.Resources.Tables.RecordsOfEminenceTables.Load(roeResources.LoadDatBytes));
+                menus.RoeTables = () => roe.Value;
             }
             if (menus.QuestLogCatalog == null && _resources is { } questLog)
             {
@@ -305,6 +314,7 @@ namespace Gordian.App.Graphics
                     DrawStatus(renderer, library, session, width, height);
                     DrawAuctionHelpBar(renderer, library, session, width, height);
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
+                    DrawRoe(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                 }
                 if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, width, height);
@@ -533,6 +543,14 @@ namespace Gordian.App.Graphics
             var prompt = top.IsPrompt && menus.OpenMenus.Count > 1 ? top : null;
             if (StockUiAuctionWindow.HelpBar(prompt != null && !prompt.IsAuctionWindow ? menus.OpenMenus[^2] : top, menus.MenuHelpText) is not { } bar) return;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
+        }
+
+        /// <summary>The Records of Eminence lists' help bar and objective box (#493).</summary>
+        private void DrawRoe(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus) return;
+            StockUiStatusPagesWindow.DrawRoe(renderer, library, font, _logFont, menus, Layout.Scale, width, height);
         }
 
         /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>

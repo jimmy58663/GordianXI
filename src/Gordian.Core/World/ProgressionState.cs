@@ -170,6 +170,7 @@ namespace Gordian.Core.World
         #region Records of Eminence (RoE)
 
         private readonly Dictionary<ushort, uint> _activeRoeObjectives = new Dictionary<ushort, uint>();
+        private readonly (ushort Id, uint Progress)[] _roeSlots = new (ushort, uint)[S2C_0x111_RoeActiveLog.MaxEntries];
         private readonly byte[] _completedRoeBits = new byte[S2C_0x112_RoeLog.ChunkSize * S2C_0x112_RoeLog.ChunkCount]; // 4096 records
 
         #endregion
@@ -681,7 +682,9 @@ namespace Gordian.Core.World
                     var entry = merit.GetMeritEntry(i);
                     if (S2C_0x08C_Merit.IsRemoval(entry.Index))
                     {
-                        _merits.Remove((ushort)(entry.Index - 1));
+                        // Lowered back to 0 (XiPackets: the index + 1). Retail drops it from its cache; GordianXI keeps it at 0 so
+                        // the Merit Points list still offers it (it lists what 0x08C sent, and LandSandBoat sends every merit).
+                        _merits[(ushort)(entry.Index - 1)] = (entry.Next, 0);
                     }
                     else
                     {
@@ -691,6 +694,34 @@ namespace Gordian.Core.World
             }
 
             MeritsUpdated?.Invoke();
+        }
+
+        /// <summary>
+        /// Every merit S2C 0x08C has listed, by merit id (the category id, 64 n, plus 2 k): its upgrades and the merit points
+        /// the next upgrade costs (LandSandBoat sends the cost 0 outside the Mog House, where merits cannot be changed). The
+        /// Merit Points Categories window lists them (#491).
+        /// </summary>
+        public IReadOnlyList<(ushort Id, byte Next, byte Count)> GetMerits()
+        {
+            var list = new List<(ushort, byte, byte)>();
+            lock (_lock)
+            {
+                foreach (var (id, value) in _merits)
+                {
+                    if (id >= 0x40) list.Add((id, value.Next, value.Count));
+                }
+            }
+            list.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+            return list;
+        }
+
+        /// <summary>The job points a job point category's next level costs (S2C 0x08D <c>next</c>), or 0 when not known.</summary>
+        public int GetJobPointNextCost(int jobNo, int index)
+        {
+            lock (_lock)
+            {
+                return _jobPoints.TryGetValue((jobNo, index), out var val) ? val.Next : 0;
+            }
         }
 
         public byte GetMeritLevel(ushort meritIndex)
@@ -734,6 +765,7 @@ namespace Gordian.Core.World
                 for (int i = 0; i < S2C_0x111_RoeActiveLog.MaxEntries; i++)
                 {
                     var obj = roe.GetActiveObjective(i);
+                    _roeSlots[i] = obj;
                     if (obj.ObjectiveId != 0)
                     {
                         _activeRoeObjectives[obj.ObjectiveId] = obj.Progress;
@@ -780,6 +812,24 @@ namespace Gordian.Core.World
             {
                 return _activeRoeObjectives.TryGetValue(objectiveId, out uint prog) ? prog : 0;
             }
+        }
+
+        /// <summary>
+        /// The objectives S2C 0x111 lists, in its slot order (the order the Records of Eminence Current list shows them; LSB
+        /// shifts the later ones up when one is removed): slots 0-29 the objectives taken, slot 63 the time-limited one LSB
+        /// sends (#493). Empty slots are left out.
+        /// </summary>
+        public IReadOnlyList<(int Slot, ushort ObjectiveId, uint Progress)> GetRoeSlots()
+        {
+            var list = new List<(int, ushort, uint)>();
+            lock (_lock)
+            {
+                for (int i = 0; i < _roeSlots.Length; i++)
+                {
+                    if (_roeSlots[i].Id != 0) list.Add((i, _roeSlots[i].Id, _roeSlots[i].Progress));
+                }
+            }
+            return list;
         }
 
         public IReadOnlyDictionary<ushort, uint> GetActiveRoeObjectives()
