@@ -133,8 +133,10 @@ namespace Gordian.App.Graphics
                 if (person.LinkshellRank != 0)
                 {
                     ushort item = person.LinkshellRank switch { 1 => LinkshellItemIds.Linkshell, 2 => LinkshellItemIds.Pearlsack, _ => LinkshellItemIds.Linkpearl };
-                    // In the item's own colours: retail's member rows (image-33) do not tint them with the shell's colour.
-                    StockUiMenuWindow.DrawItemIcon(renderer, menu, item, areaX + IconX * s, ry, IconSize * s, StockUiMenuWindow.White);
+                    // In the shell's colour, as the Linkshell window's items (the maintainer's request in round 6; round 4 had
+                    // drawn them untinted after retail's image-33).
+                    var (r, g, b) = StockUiLinkshellColors.Rgb(person.LinkshellColor);
+                    StockUiMenuWindow.DrawItemIcon(renderer, menu, item, areaX + IconX * s, ry, IconSize * s, StockUiNamePlates.PearlTint(r, g, b));
                 }
                 if (person.Jobs is { Length: > 0 } jobs)
                 {
