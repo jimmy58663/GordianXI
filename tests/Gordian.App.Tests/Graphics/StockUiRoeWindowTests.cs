@@ -41,7 +41,8 @@ namespace Gordian.App.Tests.Graphics
             if (roe == null) return;
             var catalog = StockUiQuestLogCatalog.FromTables(screen.Resources.GetDMsgTable);
             var slots = new[] { new StockUiRoeSlot(0, 12, 37) };
-            int started = -1;
+            // OpenYesNo answers on the thread pool, which a full parallel test run can keep busy for seconds.
+            var started = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             var menus = new StockUiMenuController
             {
                 Library = screen.Library,
@@ -51,7 +52,7 @@ namespace Gordian.App.Tests.Graphics
                 QuestLogState = () => new StockUiQuestLogState(),
                 RoeTables = () => roe,
                 RoeState = () => new StockUiRoeState(slots, id => id == 1),
-                RoeStarted = id => { started = id; return Task.CompletedTask; },
+                RoeStarted = id => { started.TrySetResult(id); return Task.CompletedTask; },
             };
 
             var kind = menus.OpenQuests(null)!;
@@ -81,8 +82,8 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal("Set objective?", menus.Top!.Message);
             RenderOpen(screen, menus, "gpu_roe_set.png");
             menus.Activate();
-            for (int i = 0; i < 100 && started < 0; i++) System.Threading.Thread.Sleep(10);
-            Assert.Equal(menus.SelectedRoeObjective(objectives)!.Id, started);
+            Assert.True(started.Task.Wait(TimeSpan.FromSeconds(10)), "RoeStarted not called");
+            Assert.Equal(menus.SelectedRoeObjective(objectives)!.Id, started.Task.Result);
         }
     }
 }

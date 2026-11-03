@@ -163,7 +163,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(h.Menus.Top!.IsPrompt);
             Assert.Equal("Raise Max HP?", h.Menus.Top!.Message);
             h.Menus.Activate(); // Yes
-            Assert.Equal((0x40, true), h.MeritSent.Task.Wait(2000) ? h.MeritSent.Task.Result : default);
+            Assert.Equal((0x40, true), h.MeritSent.Task.Wait(10000) ? h.MeritSent.Task.Result : default);
 
             // Max MP has no next cost (at its most): Raise posts a notice.
             h.Menus.Move(InputAction.MenuDown);
@@ -195,7 +195,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             Assert.Equal("Raise Mighty Strikes Effect? (4 job points)", h.Menus.Top!.Message);
             h.Menus.Activate();
-            Assert.True(h.JobPointSent.Task.Wait(2000));
+            Assert.True(h.JobPointSent.Task.Wait(10000));
             Assert.Equal((ushort)0x20, h.JobPointSent.Task.Result);
         }
 
@@ -256,7 +256,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             Assert.Equal("Set objective?", h.Menus.Top!.Message);
             h.Menus.Activate(); // Yes
-            Assert.True(h.RoeStarted.Task.Wait(2000));
+            Assert.True(h.RoeStarted.Task.Wait(10000));
             Assert.Equal(1, h.RoeStarted.Task.Result);
 
             // S2C 0x111 lists it: the row shows its progress; Confirm now asks to remove it.
@@ -270,7 +270,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate(); // Yes
-            Assert.True(h.RoeRemoved.Task.Wait(2000));
+            Assert.True(h.RoeRemoved.Task.Wait(10000));
             Assert.Equal(1, h.RoeRemoved.Task.Result);
         }
 
