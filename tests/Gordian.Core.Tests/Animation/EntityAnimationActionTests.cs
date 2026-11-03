@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Animation/EntityAnimationActionTests.cs
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Graphics;
@@ -268,6 +269,51 @@ namespace Gordian.Core.Tests.Animation
             state.Advance(Tick, AnimationCategory.Death, 0, model);
             Assert.False(state.IsPlayingAction);
             Assert.Equal(1, sink2.Deliveries);
+        }
+
+        /// <summary>
+        /// The work schedule (#455): an idle NPC with sub-animation 3 loops its model's <c>@scd</c>, whose blocking links to
+        /// routines of length 0 chain one after another (as the Leathercraft crafters' <c>m000</c>-<c>m002</c> chain
+        /// <c>l000</c>); it starts over at its end and stops when the NPC moves or the sub-animation changes.
+        /// </summary>
+        [Fact]
+        public void WorkSchedule_LoopsWhileIdleWithSubAnimation3()
+        {
+            var model = Model([("g20", 1f), ("g21", 0.5f)],
+                ("l000", MotionRoutineBuilder.Routine(60, MotionRoutineBuilder.PlayClip("g20?", 60, 60, 0, 0, 1))),
+                ("m001", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.Link(0x3B, "l000", 0), MotionRoutineBuilder.Link(0x3B, "l000", 0))),
+                ("m100", MotionRoutineBuilder.Routine(30, MotionRoutineBuilder.PlayClip("g21?", 30, 30, 0, 0, 1))),
+                ("@scd", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.Link(0x3B, "m001", 0), MotionRoutineBuilder.Link(0x3B, "m100", 0))));
+
+            var schedule = model.MotionRoutines[EntityAnimationState.WorkScheduleRoutine];
+            Assert.Equal([("g20", 0), ("g20", 60), ("g21", 120)], schedule.Segments.Select(s => (s.ClipName, s.StartTick)));
+            Assert.Equal(150, schedule.TotalTicks);
+
+            var state = new EntityAnimationState();
+            void Step(AnimationCategory category, byte sub, int ticks)
+            {
+                for (int i = 0; i < ticks; i++) state.Advance(Tick, category, sub, model);
+            }
+
+            Step(AnimationCategory.Idle, 0, 5);
+            Assert.Null(state.ActiveRoutine);
+
+            Step(AnimationCategory.Idle, 3, 1);
+            Assert.Equal("@scd", state.ActiveRoutine!.Name);
+            Assert.Equal("g20", state.CurrentClip!.Name);
+            Step(AnimationCategory.Idle, 3, 125);
+            Assert.Equal("g21", state.CurrentClip!.Name);
+            Step(AnimationCategory.Idle, 3, 30);
+            Assert.Equal("@scd", state.ActiveRoutine!.Name);
+            Assert.Equal("g20", state.CurrentClip!.Name);
+
+            Step(AnimationCategory.Idle, 0, 1);
+            Assert.Null(state.ActiveRoutine);
+            Step(AnimationCategory.Idle, 3, 1);
+            Assert.NotNull(state.ActiveRoutine);
+            Step(AnimationCategory.Walk, 3, 1);
+            Assert.Null(state.ActiveRoutine);
+            Assert.Equal("wlk", state.CurrentClip!.Name);
         }
 
         [Fact]

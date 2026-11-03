@@ -178,7 +178,7 @@ namespace Gordian.Core.Resources.Graphics
                         Walk(child, at, depth + 1);
                         if (command.Op is OpLinkWait or OpLinkActorWait)
                         {
-                            shift += child.TotalTicks;
+                            shift += MotionRoutineDecoder.WaitTicks(child, routines);
                         }
                     }
                 }
