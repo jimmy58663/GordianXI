@@ -53,6 +53,9 @@ namespace Gordian.App.Graphics
         /// <summary>The description page: the name at (20, 12), the text from (20, 36).</summary>
         private const float DescNameX = 20, DescNameY = 12, DescTextX = 20, DescTextY = 36, DescRightPad = 16;
 
+        /// <summary>How far (layout px) the tally's right end sits inside the window's right edge (image-55).</summary>
+        private const float TallyRightPad = 8;
+
         /// <summary>The influence bars: 88 px wide, 4 px tall, under each side's name and share.</summary>
         private const float BarWidth = 88, BarHeight = 4, BarOffsetY = 15;
 
@@ -62,15 +65,11 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             if (screen.Width > 0 && screen.Height > 0)
             {
-                string? line = menu.QuestLogView == StockUiQuestLogView.Conquest ? menu.ConquestView?.RegionName
-                    : menu.QuestLogHeading ?? menu.ItemHelpText(menu.IsQuestsWindow ? StockUiQuestLog.HelpQuests : StockUiQuestLog.HelpMissions);
+                string? line = menu.QuestLogHeading ?? menu.ItemHelpText(menu.IsQuestsWindow ? StockUiQuestLog.HelpQuests : StockUiQuestLog.HelpMissions);
                 StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, menu.QuestLogTitle, line, s, (uint)screen.Width, (uint)screen.Height);
             }
             switch (menu.QuestLogView)
             {
-                case StockUiQuestLogView.Conquest:
-                    if (menu.ConquestView is { } view) DrawConquest(renderer, font, logFont, menu, view, placement);
-                    break;
                 case StockUiQuestLogView.Description:
                     DrawDescription(renderer, font, logFont, menu, placement);
                     break;
@@ -168,21 +167,58 @@ namespace Gordian.App.Graphics
                 frame.Width - DescTextX - DescRightPad, frame.Height - DescTextY - DescRightPad, s, White, keepBlankLines: true);
         }
 
-        private static void DrawConquest(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+        /// <summary>
+        /// The conquest map's page (#488): the help bar ("Conquest" and the region's control text, retail image-49), and the
+        /// window for the region under the map's cursor, <c>conquer1</c>, or <c>conq6sta</c>'s Balance of Power between
+        /// regions and on a city (image-51), at its DAT place top right. The region window moves to the top left while the
+        /// cursor is in the screen's right half (round 3: image-57, image-61, image-64, image-67, image-68, image-71 and
+        /// image-73 show it there, the others on the right); the Balance of Power was seen on the right only.
+        /// </summary>
+        public static void DrawConquestPage(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+            StockUiPlacement placement, StockUiScreen screen)
+        {
+            if (menu.ConquestView is not { } view) return;
+            float s = placement.Scale;
+            if (screen.Width > 0 && screen.Height > 0)
+            {
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, menu.QuestLogTitle, view.InConquestRegion ? view.Control : null, s,
+                    (uint)screen.Width, (uint)screen.Height);
+            }
+            if (!library.TryGetMenu(view.InConquestRegion ? StockUiConquest.ControlWindow : StockUiConquest.BalanceWindow, out var window)) return;
+            var frame = window.Frame;
+            var at = placement with
+            {
+                X = placement.X + (frame.X - menu.Menu.Frame.X) * s,
+                Y = placement.Y + (frame.Y - menu.Menu.Frame.Y) * s,
+            };
+            if (view.InConquestRegion && screen.Width > 0 && screen.Height > 0)
+            {
+                var (mx, _, mw, _) = StockUiMapWindow.Placement(menu, (int)StockUiConquest.MapSize, (int)StockUiConquest.MapSize, (uint)screen.Width, (uint)screen.Height);
+                if (mx + menu.MapCursorX * mw > screen.Width * 0.5f) at = at with { X = screen.Width - at.X - frame.Width * s };
+            }
+            renderer.DrawMenu(window, at, includeButtons: false, opaqueBody: true);
+            DrawConquest(renderer, font, logFont, frame, view, at);
+        }
+
+        private static void DrawConquest(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, UiMenuFrame frame,
             StockUiConquestView view, StockUiPlacement placement)
         {
             float s = placement.Scale;
             // The frames are 112 px wide: the values are drawn smaller than the log font so a nation's name and share fit.
             float ts = s * StockUiConquest.ValueScale;
-            var frame = menu.Menu.Frame;
             float x = placement.X + StockUiConquest.ValueX * s;
             float width = (frame.Width - StockUiConquest.ValueX - 4) / StockUiConquest.ValueScale;
             if (view.InConquestRegion)
             {
-                StockUiTextBoxes.DrawWrapped(renderer, font, logFont, view.Control, x, placement.Y + StockUiConquest.ControlY * s,
+                // The owner in a word and the tally right-aligned under their headings (retail image-55); the help bar has
+                // the control sentence.
+                StockUiTextBoxes.DrawWrapped(renderer, font, logFont, view.Owner, x, placement.Y + StockUiConquest.ControlY * s,
                     width, (StockUiConquest.TallyY - StockUiConquest.ControlY - 12) / StockUiConquest.ValueScale, ts, White);
-                Text(renderer, font, logFont, StockUiConquest.TallyText(view.NextTally), x, placement.Y + StockUiConquest.TallyY * s, ts, White);
-                for (int i = 0; i < view.Influence.Count; i++)
+                string tally = StockUiConquest.TallyText(view.NextTally);
+                float tallyX = logFont != null ? placement.X + (frame.Width - TallyRightPad) * s - logFont.MeasureWidth(tally) * ts : x;
+                Text(renderer, font, logFont, tally, tallyX, placement.Y + StockUiConquest.TallyY * s, ts, White);
+                // Only the character's own region has shares (S2C 0x05E); retail writes the others' levels as words.
+                for (int i = 0; view.HasInfluence && i < view.Influence.Count; i++)
                 {
                     var bar = view.Influence[i];
                     float y = placement.Y + (StockUiConquest.InfluenceY + i * StockUiConquest.InfluencePitch) * s;

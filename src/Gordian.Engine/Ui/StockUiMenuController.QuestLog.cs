@@ -56,8 +56,49 @@ namespace Gordian.Engine.Ui
         /// <summary>The page's title between the arrows and the help bar's line ("Chains of Promathia", "San d'Oria: Current Quests").</summary>
         public string? QuestLogHeading { get; internal set; }
 
-        /// <summary>The Conquest map's windows, rebuilt when S2C 0x05E changes.</summary>
+        /// <summary>The Conquest map's windows for the region under its cursor, rebuilt when the cursor or S2C 0x05E changes.</summary>
         public StockUiConquestView? ConquestView { get; internal set; }
+
+        /// <summary>
+        /// The conquest map's cursor (0-1 across and down the map image): the movement input moves it, the map scrolls when
+        /// it nears the screen's edge (<see cref="KeepMapCursorInView"/>), and the region ball it comes to selects the
+        /// region the windows and the zone labels show (round 3 of #488, the maintainer's movement video).
+        /// </summary>
+        public float MapCursorX { get; private set; } = 0.5f;
+
+        /// <inheritdoc cref="MapCursorX"/>
+        public float MapCursorY { get; private set; } = 0.5f;
+
+        internal void SetMapCursor(float x, float y)
+        {
+            MapCursorX = Math.Clamp(x, 0, 1);
+            MapCursorY = Math.Clamp(y, 0, 1);
+        }
+
+        /// <summary>
+        /// Keeps the conquest map's cursor on screen, as the drawer sees it this frame: the map (<paramref name="mapWidth"/> x
+        /// <paramref name="mapHeight"/> screen px) scrolls while the cursor is outside the inner part of the screen
+        /// (<see cref="StockUiConquest.CursorLeft"/> ...), and once the map is at its edge the cursor stays
+        /// <paramref name="margin"/> px inside the screen (<paramref name="top"/> px from its top: under the help bar).
+        /// </summary>
+        public void KeepMapCursorInView(float mapWidth, float mapHeight, float screenWidth, float screenHeight, float margin, float top)
+        {
+            if (mapWidth <= 0 || mapHeight <= 0 || screenWidth <= 0 || screenHeight <= 0) return;
+            float Screen(float cursor, float center, float span, float screen) => screen * 0.5f + (cursor - center) * span;
+            float sx = Screen(MapCursorX, MapCenterX, mapWidth, screenWidth), sy = Screen(MapCursorY, MapCenterY, mapHeight, screenHeight);
+            float dx = sx < screenWidth * StockUiConquest.CursorLeft ? sx - screenWidth * StockUiConquest.CursorLeft
+                : sx > screenWidth * StockUiConquest.CursorRight ? sx - screenWidth * StockUiConquest.CursorRight : 0;
+            float dy = sy < screenHeight * StockUiConquest.CursorTop ? sy - screenHeight * StockUiConquest.CursorTop
+                : sy > screenHeight * StockUiConquest.CursorBottom ? sy - screenHeight * StockUiConquest.CursorBottom : 0;
+            if (dx != 0 || dy != 0)
+            {
+                PanMap(dx / mapWidth, dy / mapHeight);
+                ClampMapCenter(screenWidth * 0.5f / mapWidth, screenHeight * 0.5f / mapHeight);
+            }
+            sx = Math.Clamp(Screen(MapCursorX, MapCenterX, mapWidth, screenWidth), margin, screenWidth - margin);
+            sy = Math.Clamp(Screen(MapCursorY, MapCenterY, mapHeight, screenHeight), top, screenHeight - margin);
+            SetMapCursor(MapCenterX + (sx - screenWidth * 0.5f) / mapWidth, MapCenterY + (sy - screenHeight * 0.5f) / mapHeight);
+        }
 
         /// <summary>The region map a Region Info page draws behind it, panned like the Map window.</summary>
         public RegionMap? RegionMap { get; init; }
@@ -90,6 +131,12 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Region Info's Conquest windows for where the character is now (S2C 0x05E).</summary>
         public Func<StockUiConquestView?>? ConquestView { get; set; }
+
+        /// <summary>
+        /// The Conquest windows for a region the map's cursor is on (-1: between regions); null falls back to
+        /// <see cref="ConquestView"/>.
+        /// </summary>
+        public Func<int, StockUiConquestView?>? ConquestRegionView { get; set; }
 
         /// <summary>Asks the server for the conquest figures (C2S 0x05A) as the Conquest map opens; its 0x05E refreshes the page.</summary>
         public Func<Task>? ConquestRequested { get; set; }
@@ -360,8 +407,14 @@ namespace Gordian.Engine.Ui
             {
                 page.ConquestView = view;
                 page.MapZoom = StockUiConquest.MapZoom;
-                // Retail opens on the character's region (round 2 of #488, image-49), kept inside the map's edges.
-                if (StockUiConquest.CenterOf(view.Region) is { } center) page.SetMapCenter(center.U, center.V);
+                // Retail opens with the cursor on the character's region or city (round 2 of #488, image-49), the map
+                // centred on it inside its edges.
+                if (StockUiConquest.CenterOf(view.Region) is { } center)
+                {
+                    page.SetMapCenter(center.U, center.V);
+                    page.SetMapCursor(center.U, center.V);
+                }
+                SelectConquestRegion(page);
                 PushOpen(page);
             }
             Changed?.Invoke();
@@ -409,18 +462,34 @@ namespace Gordian.Engine.Ui
         /// <summary>S2C 0x05E changed: an open Conquest map shows the new figures.</summary>
         public void RefreshConquest()
         {
-            if (ConquestView?.Invoke() is not { } view) return;
             bool changed = false;
             lock (_sync)
             {
                 foreach (var menu in _open)
                 {
                     if (menu.QuestLogView != StockUiQuestLogView.Conquest) continue;
-                    menu.ConquestView = view;
+                    if (ConquestViewOf(menu.ConquestView?.Region ?? -1) is { } view) menu.ConquestView = view;
                     changed = true;
                 }
             }
             if (changed) Changed?.Invoke();
         }
+
+        /// <summary>Moves the conquest map's cursor by (<paramref name="dx"/>, <paramref name="dy"/>) map px.</summary>
+        private void MoveConquestCursor(StockUiOpenMenu page, float dx, float dy)
+        {
+            page.SetMapCursor(page.MapCursorX + dx / StockUiConquest.MapSize, page.MapCursorY + dy / StockUiConquest.MapSize);
+            SelectConquestRegion(page);
+        }
+
+        /// <summary>The region under the conquest map's cursor becomes the page's, its windows and zone labels rebuilt.</summary>
+        private void SelectConquestRegion(StockUiOpenMenu page)
+        {
+            int region = StockUiConquest.RegionAt(page.MapCursorX * StockUiConquest.MapSize, page.MapCursorY * StockUiConquest.MapSize);
+            if (page.ConquestView is { } shown && shown.Region == region) return;
+            if (ConquestViewOf(region) is { } view) page.ConquestView = view;
+        }
+
+        private StockUiConquestView? ConquestViewOf(int region) => ConquestRegionView != null ? ConquestRegionView(region) : ConquestView?.Invoke();
     }
 }

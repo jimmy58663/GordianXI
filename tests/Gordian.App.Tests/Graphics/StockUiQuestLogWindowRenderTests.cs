@@ -120,7 +120,16 @@ namespace Gordian.App.Tests.Graphics
             int kx = (int)(mx + 376 / 512f * mw), ky = (int)(my + 262 / 512f * mh);
             Assert.True(screen.HasLightPixel(control, kx - 30, kx + 30, ky - 14), "no Kolshushu label");
             Assert.True(screen.HasLightPixel(control, (int)target.X + 10, (int)target.X + 100, (int)(target.Y + (tf.Height - 40) + 20 + 6)), "no conquest points");
+            // The cursor to Li'Telor, right of the screen's centre: its page, the window at the top left (round 3, image-61).
+            menus.ConquestRegionView = r => StockUiConquest.Build(progression, r, "Li'Telor", null, zone,
+                id => screen.Resources.TryGetString(DMsgCategory.RegionNames, id, out var n) ? n : null,
+                id => screen.Resources.TryGetString(DMsgCategory.ZoneNamesShort, id, out var z) ? z : null, characterRegion: 10);
+            menus.MoveMapView(41 / 70f, -50 / 70f, 0, 0);
+            Assert.Equal(15, page.ConquestView!.Region);
+            byte[] flipped = Conquest("gpu_conquest_litelor.png");
+            Assert.True(screen.HasLightPixel(flipped, 12, 100, (int)at.Y + 20 + 8), "no region window at the left");
             menus.CloseAll();
+            menus.ConquestRegionView = null;
             region = 3; zone = 243;                         // Ru'Lude Gardens: the Balance of Power
             page = menus.OpenConquest(null);
             Conquest("gpu_conquest_balance.png");

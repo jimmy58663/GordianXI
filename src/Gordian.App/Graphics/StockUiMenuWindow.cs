@@ -40,6 +40,12 @@ namespace Gordian.App.Graphics
                 StockUiAuctionWindow.DrawBidConfirm(renderer, library, font, logFont, menu, placement, timestamp);
                 return;
             }
+            if (font != null && menu.QuestLogView == StockUiQuestLogView.Conquest)
+            {
+                // The conquest map's window follows the region under its cursor (#488, round 3): drawn whole by the page.
+                StockUiQuestLogWindow.DrawConquestPage(renderer, library, font, logFont, menu, placement, screen ?? default);
+                return;
+            }
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;

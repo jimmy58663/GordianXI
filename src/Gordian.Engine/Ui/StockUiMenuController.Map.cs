@@ -167,6 +167,14 @@ namespace Gordian.Engine.Ui
             lock (_sync)
             {
                 if (PannedMap is not { } map) return;
+                if (map.QuestLogView == StockUiQuestLogView.Conquest)
+                {
+                    // The conquest map's movement moves its cursor; the map scrolls when the cursor nears the screen's
+                    // edge (round 3 of #488), and it never zooms (round 1).
+                    MoveConquestCursor(map, dx * StockUiConquest.CursorSpeed, dy * StockUiConquest.CursorSpeed);
+                    Changed?.Invoke();
+                    return;
+                }
                 // A Region Info map keeps its zoom (round 1 of #488: retail pans it but cannot zoom).
                 float factor = MathF.Pow(StockUiMap.ZoomPerSecond, zoom) * MathF.Pow(StockUiMap.WheelZoomStep, wheel);
                 if (map.IsMapWindow) map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);

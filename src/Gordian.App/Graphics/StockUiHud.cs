@@ -391,7 +391,7 @@ namespace Gordian.App.Graphics
             if (menus.PannedMap is { RegionMap: { } regionMap } page)
             {
                 // A Region Info page's map (#488): under the HUD's windows like the Map window's.
-                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height, library, _logFont, Layout.Scale);
+                StockUiRegionMapWindow.Draw(renderer, page, LoadRegionMap(regionMap), width, height, library, _logFont, Layout.Scale, Stopwatch.GetTimestamp());
                 return;
             }
             if (menus.MapWindow is not { } map) return;

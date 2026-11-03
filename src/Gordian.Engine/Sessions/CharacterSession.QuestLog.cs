@@ -14,13 +14,17 @@ namespace Gordian.Engine.Sessions
         {
             var menus = ActionService.Menus;
             menus.QuestLogState = () => StockUiQuestLogState.From(Progression);
-            menus.ConquestView = () =>
+            // The page shows the region under the map's cursor; the character's zone and region mark its own zone and decide
+            // whose influence shares are known.
+            StockUiConquestView Build(int shown)
             {
                 int zone = World.CurrentZoneId;
-                int region = ZoneRegions.RegionOf(zone);
-                string name = region >= 0 ? menus.RegionName?.Invoke(region) ?? string.Empty : string.Empty;
-                return StockUiConquest.Build(Progression, region, name, menus.MenuMessageText, zone, menus.RegionName, menus.ZoneShortName);
-            };
+                string name = shown >= 0 ? menus.RegionName?.Invoke(shown) ?? string.Empty : string.Empty;
+                return StockUiConquest.Build(Progression, shown, name, menus.MenuMessageText, zone, menus.RegionName, menus.ZoneShortName,
+                    ZoneRegions.RegionOf(zone));
+            }
+            menus.ConquestView = () => Build(ZoneRegions.RegionOf(World.CurrentZoneId));
+            menus.ConquestRegionView = Build;
             Progression.MissionsUpdated += menus.RefreshQuestLog;
             menus.ConquestRequested = () => ProgressionModule.SendReqConquestAsync();
             Progression.ConquestUpdated += menus.RefreshConquest;

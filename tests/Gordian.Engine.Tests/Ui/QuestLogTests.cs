@@ -377,7 +377,7 @@ namespace Gordian.Engine.Tests.Ui
             string? Zone(int id) => id switch { 4 => "Bibiki Bay", 213 => "Onzozo Lbrth.", 126 => "Qufim Isl.", _ => $"Z{id}" };
             // In Bibiki Bay (Kolshushu): every placed region, Jeuno as a city, and Kolshushu's seven zones (retail image-49).
             var markers = StockUiConquest.Markers(10, 4, Region, Zone);
-            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.Region, Label: "Kolshushu", X: 376, Y: 262, Side: StockUiMapLabelSide.Above });
+            Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.Region, Label: "Kolshushu", X: 376.5f, Y: 262.5f, Side: StockUiMapLabelSide.Above });
             Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.City, Label: "Jeuno", Region: 3 });
             Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.CurrentZone, Label: "Bibiki Bay" });
             Assert.Contains(markers, m => m is { Kind: StockUiConquestMarkerKind.Zone, Label: "Onzozo Lbrth.", Side: StockUiMapLabelSide.Left });
@@ -386,9 +386,70 @@ namespace Gordian.Engine.Tests.Ui
             // In a city: the regions alone; a region without a name is left out.
             Assert.DoesNotContain(StockUiConquest.Markers(3, 243, Region, Zone), m => m.Kind is StockUiConquestMarkerKind.Zone or StockUiConquestMarkerKind.CurrentZone);
             Assert.Empty(StockUiConquest.Markers(10, 4, null, null));
-            // Regions not seen in a capture yet have no point to open on.
-            Assert.Null(StockUiConquest.CenterOf(0));
-            Assert.Equal((313 / 512f, 163 / 512f), StockUiConquest.CenterOf(14));
+            // Every region and city is placed (round 3 captures); a zone LandSandBoat leaves without a region still shows with
+            // its region's (the Cloister of Flames with Elshimo Uplands, image-57).
+            foreach (int region in new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24 })
+                Assert.NotNull(StockUiConquest.CenterOf(region));
+            Assert.Null(StockUiConquest.CenterOf(21));
+            Assert.Equal((312.5f / 512f, 162.5f / 512f), StockUiConquest.CenterOf(14));
+            var uplands = StockUiConquest.Markers(19, -1, Region, id => id == 207 ? "Clstr.of Flames" : $"Z{id}");
+            Assert.Contains(uplands, m => m is { Label: "Clstr.of Flames", Side: StockUiMapLabelSide.Right });
+            Assert.Equal(7, uplands.Count(m => m.Kind == StockUiConquestMarkerKind.Zone));
+            Assert.Contains(StockUiConquest.Markers(9, -1, Region, Zone), m => m is { Label: "Z170", Side: StockUiMapLabelSide.Below });
+        }
+
+        [Fact]
+        public void ConquestCursor_SelectsTheRegionItComesTo_AndScrollsTheMapAtTheScreensEdge()
+        {
+            // The region under the cursor: within 3 map px of a region's ball; a city or open map is no region.
+            Assert.Equal(10, StockUiConquest.RegionAt(376.5f, 262.5f));
+            Assert.Equal(10, StockUiConquest.RegionAt(378f, 264f));
+            Assert.Equal(-1, StockUiConquest.RegionAt(370f, 262.5f));
+            Assert.Equal(-1, StockUiConquest.RegionAt(286.5f, 202.5f));
+
+            var h = new Harness();
+            var progression = new ProgressionState();
+            h.Conquest = StockUiConquest.Build(progression, 10, "Kolshushu", zone: 4);
+            h.Menus.ConquestRegionView = r => StockUiConquest.Build(progression, r, $"R{r}", zone: 4, characterRegion: 10);
+            Assert.True(h.Menus.Open(StockUiMenuEntries.MainMenu));
+            h.Choose(11);
+            var page = h.Choose(StockUiConquest.ConquestButton);
+            Assert.Equal((376.5f / 512f, 262.5f / 512f), (page.MapCursorX, page.MapCursorY));
+            Assert.Equal(10, page.ConquestView!.Region);
+            Assert.True(page.ConquestView.HasInfluence);
+
+            // Movement moves the cursor (70 map px a second), not the map, and leaving the ball shows the Balance of Power.
+            float centerX = page.MapCenterX;
+            h.Menus.MoveMapView(0.1f, 0, 0, 0);
+            Assert.Equal((376.5f + 7) / 512f, page.MapCursorX, 4);
+            Assert.Equal(centerX, page.MapCenterX);
+            Assert.Equal(-1, page.ConquestView!.Region);
+            Assert.False(page.ConquestView.InConquestRegion);
+
+            // Up to Aragoneu (359.5, 220.5): its page, without shares (another region's influence is not in 0x05E).
+            h.Menus.MoveMapView(-(7 + 17) / 70f, -42 / 70f, 0, 0);
+            Assert.Equal(11, page.ConquestView!.Region);
+            Assert.False(page.ConquestView.HasInfluence);
+
+            // The drawer keeps the cursor in view: past the inner part of the screen the map scrolls under it...
+            const float mapSize = 512 * 11.5f, width = 2552, height = 1434;
+            page.KeepMapCursorInView(mapSize, mapSize, width, height, 12, 40);
+            float Sx() => width / 2 + (page.MapCursorX - page.MapCenterX) * mapSize;
+            for (int i = 0; i < 16; i++)
+            {
+                h.Menus.MoveMapView(0.1f, 0, 0, 0);
+                page.KeepMapCursorInView(mapSize, mapSize, width, height, 12, 40);
+            }
+            Assert.True(page.MapCenterX > 376.5f / 512f);
+            Assert.Equal(width * StockUiConquest.CursorRight, Sx(), 1);
+            // ...and at the map's right edge the cursor goes on to the screen's edge.
+            for (int i = 0; i < 20; i++)
+            {
+                h.Menus.MoveMapView(1f, 0, 0, 0);
+                page.KeepMapCursorInView(mapSize, mapSize, width, height, 12, 40);
+            }
+            Assert.Equal(1 - width / 2 / mapSize, page.MapCenterX, 4);
+            Assert.Equal(width - 12, Sx(), 1);
         }
 
         [Fact]
@@ -419,17 +480,18 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(Gordian.Core.Resources.Tables.RegionMap.Conquest, page.RegionMap);
             Assert.Same(page, h.Menus.PannedMap);
             Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
-            // It opens on the character's region (retail image-49): Ronfaure's marker.
-            Assert.Equal((176 / 512f, 182 / 512f), (page.MapCenterX, page.MapCenterY));
-            h.Menus.MoveMapView(0.5f, 0, 1f, 2f);
+            // It opens on the character's region (retail image-49): the map and its cursor on Ronfaure's marker.
+            Assert.Equal((176.5f / 512f, 182.5f / 512f), (page.MapCenterX, page.MapCenterY));
+            Assert.Equal((176.5f / 512f, 182.5f / 512f), (page.MapCursorX, page.MapCursorY));
+            h.Menus.MoveMapView(0.01f, 0, 1f, 2f);
             Assert.Equal(StockUiConquest.MapZoom, page.MapZoom);
-            Assert.True(page.MapCenterX > 176 / 512f);
+            Assert.True(page.MapCursorX > 176.5f / 512f);
             var view = page.ConquestView!;
             Assert.Equal(StockUiConquest.BeastmenRegionFallback, view.Control);
             Assert.Equal(3, view.NextTally);
             Assert.Equal(new[] { 30, 20, 10, 40 }, view.Influence.Select(b => b.Percent));
             Assert.Equal(1500u, view.ConquestPoints);
-            Assert.Equal("Region Info", page.QuestLogTitle);
+            Assert.Equal("Conquest", page.QuestLogTitle);
 
             // In a city: the Balance of Power.
             h.Menus.CloseTop();
@@ -455,7 +517,9 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal("Bastok", StockUiConquest.Build(progression, 5, "Zulkheim").Control);
             Assert.Equal(StockUiConquest.NeutralRegionFallback, StockUiConquest.Build(progression, 6, "Norvallen").Control);
             Assert.Equal("Region text", StockUiConquest.Build(progression, 6, "Norvallen", id => id == StockUiConquest.NeutralRegionText ? "Region text" : null).Control);
-            Assert.Equal(("1 day", "4 days"), (StockUiConquest.TallyText(1), StockUiConquest.TallyText(4)));
+            Assert.Equal(("1 day.", "137 days."), (StockUiConquest.TallyText(1), StockUiConquest.TallyText(137)));
+            // The window's owner in a word (retail image-55 "Neutral").
+            Assert.Equal(("Bastok", "Neutral"), (StockUiConquest.Build(progression, 5, "Zulkheim").Owner, StockUiConquest.Build(progression, 6, "Norvallen").Owner));
         }
 
         #endregion
