@@ -202,6 +202,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>A Search, Linkshell or Communication entry (#490, <see cref="StockUiSearch"/>); the Argument packs a <see cref="StockUiSearchAction"/>.</summary>
         SearchAction,
+
+        /// <summary>A Mog House menu entry (#93, <see cref="StockUiMogHouse"/>); the Argument is a <see cref="StockUiMogHouseAction"/>.</summary>
+        MogHouseAction,
     }
 
     /// <summary>
@@ -307,6 +310,32 @@ namespace Gordian.Engine.Ui
             [(StockUiViewHouse.MenuName, 13)] = new("Mog Wardrobe 6", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe6),
             [(StockUiViewHouse.MenuName, 14)] = new("Mog Wardrobe 7", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe7),
             [(StockUiViewHouse.MenuName, 15)] = new("Mog Wardrobe 8", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe8),
+
+            // The Mog House (#93): the moogle's menu (myroom; mogext away from home), the Layout menus (rmlo1-4).
+            [(StockUiMogHouse.MoogleMenu, 1)] = StockUiMogHouse.Entry("Storage", StockUiMogHouseAction.Storages),
+            [(StockUiMogHouse.MoogleMenu, 2)] = StockUiMogHouse.Entry("Delivery Box", StockUiMogHouseAction.Delivery),
+            [(StockUiMogHouse.MoogleMenu, 3)] = StockUiMogHouse.Entry("Change Jobs", StockUiMogHouseAction.ChangeJobs),
+            [(StockUiMogHouse.MoogleMenu, 4)] = StockUiMogHouse.Entry("Gardening", StockUiMogHouseAction.Gardening),
+            [(StockUiMogHouse.MoogleMenu, 5)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Layout),
+            [(StockUiMogHouse.MoogleMenu, 6)] = StockUiMogHouse.Entry("Open Mog House", StockUiMogHouseAction.OpenHouse),
+            [(StockUiMogHouse.MoogleMenu, 7)] = StockUiMogHouse.Entry("Remodel", StockUiMogHouseAction.Remodel),
+            [(StockUiMogHouse.AwayMoogleMenu, 1)] = StockUiMogHouse.Entry("Storage", StockUiMogHouseAction.Storages),
+            [(StockUiMogHouse.AwayMoogleMenu, 2)] = StockUiMogHouse.Entry("Delivery Box", StockUiMogHouseAction.Delivery),
+            [(StockUiMogHouse.AwayMoogleMenu, 3)] = StockUiMogHouse.Entry("Change Jobs", StockUiMogHouseAction.ChangeJobs),
+            [(StockUiMogHouse.LayoutFloorMenu, 1)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutFloorMenu, 2)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
+            [(StockUiMogHouse.LayoutFloorMenu, 3)] = StockUiMogHouse.Entry("Back", StockUiMogHouseAction.QuitLayout),
+            [(StockUiMogHouse.LayoutPieceMenu, 1)] = StockUiMogHouse.Entry("Rearrange", StockUiMogHouseAction.Move),
+            [(StockUiMogHouse.LayoutPieceMenu, 2)] = StockUiMogHouse.Entry("Remove", StockUiMogHouseAction.ClearAway),
+            [(StockUiMogHouse.LayoutPieceMenu, 3)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutPieceMenu, 4)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
+            [(StockUiMogHouse.ClearAllMenu, 1)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAllConfirm),
+            [(StockUiMogHouse.ClearAllMenu, 2)] = StockUiMogHouse.Entry("Exit", StockUiMogHouseAction.Return),
+            [(StockUiMogHouse.LayoutMannequinMenu, 1)] = StockUiMogHouse.Entry("Equip", StockUiMogHouseAction.Mannequin),
+            [(StockUiMogHouse.LayoutMannequinMenu, 2)] = StockUiMogHouse.Entry("Rearrange", StockUiMogHouseAction.Move),
+            [(StockUiMogHouse.LayoutMannequinMenu, 3)] = StockUiMogHouse.Entry("Remove", StockUiMogHouseAction.ClearAway),
+            [(StockUiMogHouse.LayoutMannequinMenu, 4)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutMannequinMenu, 5)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
 
             // Map (#23).
             [(StockUiMap.MenuName, StockUiMap.MarkersButton)] = new("Markers", Command: StockUiMenuCommand.NotAvailable),

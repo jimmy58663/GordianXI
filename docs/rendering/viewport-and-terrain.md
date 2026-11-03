@@ -218,6 +218,7 @@ In the Mog House the server keeps the city as the zone and sends S2C 0x00A `Logi
 - *The moogle.* LandSandBoat spawns a room's moogle (and the orchestrion's curator) only when the client sends C2S 0x01A SendResRdy (0x14) (`packets/c2s/0x01a_action.cpp` → `SpawnConditionalNPCs`); GordianXI never sent it, so no moogle appeared except during the first visit's cutscene (round 2). It is sent when the room's zone-in completes (S2C 0x008).
 - *Slow zone-in and the red connection dot (round 2).* Into or out of a room the zone id stays the city's, so the zone-line monitor never saw a zone change: the `zmr?` request stayed pending and held every C2S 0x015 until its 15 s timeout, and LandSandBoat sent 0x008 only then (log of 2026-10-22: request 21:32:06, 0x00A at 06.7, 0x008 at 21.4). Every S2C 0x00A now answers a pending request.
 - *Entrances.* The city's `zmr?` / `zms?` lines are requested like any zone line now (LandSandBoat places the player in the room).
+- *Menus.* The moogle's menu, Layout, Open Mog, Remodel and the mannequin are in [stock-ui.md](../ui/stock-ui.md#mog-house-menus-93) (#93). Placed furniture is not drawn in the room yet: the Layout grid is a 2D stand-in for retail's top-down camera.
 - *Not mapped:* second floors (0x267-0x26A), 745 (Ronfaure front), the Mog Garden. The room's lighting is not checked against retail (offscreen the walls are darker than the capture's cream).
 
 *Verification:* `dotnet test --filter MogHouseRoomTests`; offscreen of the San d'Oria room (key 0x8121) from its centre.

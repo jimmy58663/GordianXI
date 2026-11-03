@@ -296,6 +296,12 @@ namespace Gordian.Core.World
         public event Action? JobPointsUpdated;
         public event Action? RecordsOfEminenceUpdated;
         public event Action? MogHouseUpdated;
+
+        /// <summary>The server asked for the moogle's menu (S2C 0x02E, sent when the moogle is talked to).</summary>
+        public event Action? MogMenuOpened;
+
+        /// <summary>A furniture or plant operation result arrived (S2C 0x0FA): the layout menus follow it.</summary>
+        public event Action<MyRoomOperationInfo>? MyRoomOperationReceived;
         public event Action? ConquestUpdated;
         public event Action? FishingUpdated;
         public event Action? ToteboardUpdated;
@@ -1014,6 +1020,15 @@ namespace Gordian.Core.World
         {
             lock (_lock) LastMyRoomOperation = operation;
             MogHouseUpdated?.Invoke();
+            MyRoomOperationReceived?.Invoke(operation);
+        }
+
+        /// <summary>Marks the moogle's menu requested (S2C 0x02E) and raises <see cref="MogMenuOpened"/>.</summary>
+        internal void OpenMogMenu()
+        {
+            IsInMogHouse = true;
+            MogMenuPending = true;
+            MogMenuOpened?.Invoke();
         }
 
         public void SetMyRoomResult(byte result)

@@ -1206,6 +1206,7 @@ namespace Gordian.Engine.Ui
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
+            if (ProcessMogHouseLayout(input)) return true; // the Mog House layout grid (#93)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1936,6 +1937,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.SearchAction:
                     RunSearchAction(entry, from);
+                    break;
+
+                case StockUiMenuCommand.MogHouseAction:
+                    RunMogHouseAction(entry, from);
                     break;
 
                 case StockUiMenuCommand.CurrentTime:

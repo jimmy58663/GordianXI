@@ -296,6 +296,7 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
+                DrawMogHouseLayout(renderer, library, menus, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -536,6 +537,19 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
+        /// <summary>The Mog House layout grid (#93) under any layout menu, and its help bar while the grid has the cursor.</summary>
+        private void DrawMogHouseLayout(StockUiRenderer renderer, UiResourceLibrary library, StockUiMenuController menus, uint width, uint height)
+        {
+            var layout = menus.MogHouseLayout;
+            if (_font is not { } font || !layout.Active) return;
+            StockUiMogHouseLayoutWindow.Draw(renderer, font, layout, Layout.Scale, width, height);
+            if (menus.OpenMenus.Count == 0)
+            {
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMogHouseLayoutWindow.Title, StockUiMogHouseLayoutWindow.HelpLine(layout),
+                    Layout.Scale, width, height);
+            }
+        }
+
         private void DrawBlueMagicHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var menus = session.ActionService.Menus;
