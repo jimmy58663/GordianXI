@@ -70,8 +70,12 @@ namespace Gordian.Engine.Ui
         /// <summary>A system message of the client's table (ROM/27/76) with a player's name as string 0; null when not loaded.</summary>
         public Func<int, string, string?>? SystemMessageText { get; set; }
 
+        /// <summary>The distance in yalms from the character to an entity (server id); null when either is not known.</summary>
+        public Func<uint, float?>? TradeDistanceTo { get; set; }
+
         private uint _tradeRequestedTo;
         private DateTime _tradeRequestedAt;
+        private StockUiOpenMenu? _rangeCancelled;
 
         /// <summary>The clock outgoing requests time out on (tests replace it).</summary>
         public Func<DateTime> TradeClock { get; set; } = () => DateTime.UtcNow;
@@ -189,6 +193,12 @@ namespace Gordian.Engine.Ui
             string name = window?.TradePartner.Name is { Length: > 0 } open ? open : TradeTargetOf?.Invoke(serverId)?.Name ?? string.Empty;
             if (window != null && !window.IsNpcTrade) CloseMenu(window);
             int message = StockUiTrade.ResultMessage(kind);
+            // The partner's client cancelled for the distance before ours saw it: the same line as ours (round 3, B3).
+            if (kind == TradeResultKind.Cancel && OutOfTradeRange(serverId))
+            {
+                if (window == null) return; // ours already cancelled for it and printed the line
+                message = StockUiTrade.OutOfRange;
+            }
             if (kind == TradeResultKind.End) NoticePosted?.Invoke(TradeText(message, name));
             else if (message >= 0) ErrorPosted?.Invoke(TradeText(message, name));
         }
@@ -201,6 +211,24 @@ namespace Gordian.Engine.Ui
             lock (_sync) RefreshTrade(window);
             Changed?.Invoke();
         }
+
+        /// <summary>
+        /// The character or the partner moved: past <see cref="StockUiTrade.Range"/> the player trade cancels with "Target out
+        /// of range." and C2S 0x033 Cancel, no prompt. The server never cancels for the distance (it only refuses to start or
+        /// commit), so the client does (retail, round 3, 2026-11-01). PROVISIONAL: that retail sends 0x033 Cancel here.
+        /// </summary>
+        public void CheckTradeRange()
+        {
+            if (TradeWindow is not { IsNpcTrade: false } window || !OutOfTradeRange(window.TradePartner.ServerId)) return;
+            // Our movement and the partner's updates arrive on different threads: one cancel per window.
+            if (System.Threading.Interlocked.Exchange(ref _rangeCancelled, window) == window) return;
+            CloseMenu(window);
+            GordianLog.Info("TRADE", $"{window.TradePartner.Name} is out of range; cancelling the trade (C2S 0x033 Cancel).");
+            ErrorPosted?.Invoke(TradeText(StockUiTrade.OutOfRange));
+            _ = SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0));
+        }
+
+        private bool OutOfTradeRange(uint serverId) => TradeDistanceTo?.Invoke(serverId) is { } distance && distance > StockUiTrade.Range;
 
         /// <summary>A zone change: the trade window closes (the server ends the trade) and requests are forgotten.</summary>
         public void CloseTrade()
@@ -357,7 +385,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// OK: with a player, C2S 0x033 Make with the trade counter (once until the trade changes); the trade completes when
-        /// both have pressed it. With an NPC, C2S 0x036 with the offer, and the windows close back to where they came from.
+        /// both have pressed it. With an NPC, C2S 0x036 with the offer, and every menu closes (main menu included).
         /// </summary>
         private void AcceptTrade(StockUiOpenMenu window)
         {
@@ -367,7 +395,7 @@ namespace Gordian.Engine.Ui
                 if (entries.Length == 0) return;
                 var npc = window.TradePartner;
                 GordianLog.Info("TRADE", $"Trading {entries.Length} entries to {npc.Name} ({npc.ServerId}).");
-                CloseTradeFlow(window);
+                CloseAll(); // the main menu too, so the next Confirm goes to the NPC's event (round 3, B3)
                 _ = SendTradeAsync(() => NpcTrade?.Invoke(npc.ServerId, npc.Index, entries));
                 return;
             }
@@ -402,14 +430,6 @@ namespace Gordian.Engine.Ui
             if (Top is not { IsTradeWindow: true } window) return false;
             _ = CancelTradeAsync(window);
             return true;
-        }
-
-        /// <summary>Closes the hand-over window and what led to it, down to the main menu it was opened from.</summary>
-        private void CloseTradeFlow(StockUiOpenMenu window)
-        {
-            var first = window;
-            while (first.Parent is { } parent && parent.PageRing.Count == 0 && !parent.IsCommandMenu && !parent.Pinned) first = parent;
-            CloseMenu(first);
         }
 
         private async Task SendTradeAsync(Func<Task?> send)

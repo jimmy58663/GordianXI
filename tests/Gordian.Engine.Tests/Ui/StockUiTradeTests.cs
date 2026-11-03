@@ -405,6 +405,41 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void MovingPastSixYalms_CancelsTheTrade_WithTargetOutOfRange()
+        {
+            var h = new Harness();
+            float distance = 5.9f;
+            h.Menus.TradeDistanceTo = id => id == PartnerId ? distance : null;
+            var window = h.Open();
+            h.Menus.CheckTradeRange();
+            Assert.Same(window, h.Menus.TradeWindow);
+
+            // Past 6 yalms: closed, the line, and 0x033 Cancel with no prompt (the server never cancels for it, round 3, B3).
+            distance = 6.1f;
+            h.Menus.CheckTradeRange();
+            h.Menus.CheckTradeRange();
+            Assert.Null(h.Menus.TradeWindow);
+            Assert.False(h.Menus.IsOpen);
+            Assert.Equal("Target out of range.", h.Errors.Single());
+            Assert.Equal("0x033 Cancel 0", h.Sent.Single());
+            // The partner's client cancelled for it too: no second line.
+            h.Inventory.SetTradeStatus(TradeResultKind.Cancel, PartnerId, PartnerIndex);
+            Assert.Single(h.Errors);
+        }
+
+        [Fact]
+        public void PartnersCancel_WhileOutOfRange_PrintsTargetOutOfRange()
+        {
+            var h = new Harness();
+            h.Menus.TradeDistanceTo = _ => 8f;
+            h.Open();
+            h.Inventory.SetTradeStatus(TradeResultKind.Cancel, PartnerId, PartnerIndex);
+            Assert.Null(h.Menus.TradeWindow);
+            Assert.Equal("Target out of range.", h.Errors.Single());
+            Assert.Empty(h.Sent);
+        }
+
+        [Fact]
         public async Task Cancel_AsksFirst_ThenSendsCancelAndCloses()
         {
             var h = new Harness();
@@ -465,8 +500,8 @@ namespace Gordian.Engine.Tests.Ui
             window.SelectedButtonId = StockUiTrade.OkButton;
             h.Menus.Activate();
             Assert.Equal(new[] { "0x036 01100042 42 0:100 4:1 2:3" }, h.Sent);
-            // The windows close back to the main menu.
-            Assert.Equal(StockUiMenuEntries.MainMenu, h.Menus.Top!.Name);
+            // Every menu closes, the main menu too, so the next Confirm continues the NPC's event (round 3, B3).
+            Assert.False(h.Menus.IsOpen);
         }
 
         [Fact]
@@ -518,7 +553,7 @@ namespace Gordian.Engine.Tests.Ui
             rm.InitializeFileTable();
             var messages = new Gordian.Engine.Events.ClientMessageController(new Gordian.Core.Resources.Tables.ClientMessageTables(rm.LoadDatBytesByFileId), _ => null);
             foreach (int id in new[] { StockUiTrade.WishesToTrade, StockUiTrade.AlreadyRequested, StockUiTrade.CannotTradeNow, StockUiTrade.CannotTradeTarget,
-                StockUiTrade.SelectTarget, StockUiTrade.TradeComplete, StockUiTrade.AlreadyInWindow })
+                StockUiTrade.SelectTarget, StockUiTrade.TradeComplete, StockUiTrade.AlreadyInWindow, StockUiTrade.OutOfRange })
             {
                 var lines = messages.FormatTableMessage(id, Array.Empty<int>(), new[] { "Cybin" });
                 Assert.NotNull(lines);

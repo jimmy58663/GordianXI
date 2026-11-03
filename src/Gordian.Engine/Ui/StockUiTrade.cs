@@ -88,13 +88,20 @@ namespace Gordian.Engine.Ui
 
         // System messages (ROM/27/76).
         public const int WishesToTrade = 24, AlreadyRequested = 25, CannotTradeNow = 26, CannotTradeItem = 27,
-            CannotTradeTarget = 28, SelectTarget = 29, TradeComplete = 30, AlreadyInWindow = 104;
+            CannotTradeTarget = 28, SelectTarget = 29, TradeComplete = 30, AlreadyInWindow = 104, OutOfRange = 9;
 
         /// <summary>The prompt before cancelling a trade (ROM/165/77 #45).</summary>
         public const string CancelQuestion = "Cancel trade transaction?";
 
         /// <summary>A request stays pending this long on the server (LandSandBoat: a new invite to the target is refused within 60 s).</summary>
         public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// How far apart the two sides may be, in yalms. LandSandBoat checks it (3D, <c>withinTradeRange</c> in
+        /// <c>player_trade.cpp</c>) only when the trade starts and when it commits, never while it is open, so the client
+        /// does: past it the trade cancels with "Target out of range." (retail, round 3, 2026-11-01).
+        /// </summary>
+        public const float Range = 6.0f;
 
         /// <summary>
         /// The client's buttons over the partner's slots (21-24 over 25-28, partner slot 1-8): the cursor goes down into them
@@ -178,6 +185,7 @@ namespace Gordian.Engine.Ui
             SelectTarget => "Select a target to trade with.",
             TradeComplete => "Trade complete.",
             AlreadyInWindow => "That item is already placed in the trade window.",
+            OutOfRange => "Target out of range.",
             _ => string.Empty,
         };
 

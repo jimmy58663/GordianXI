@@ -44,6 +44,17 @@ namespace Gordian.Engine.Sessions
             Inventory.TradeResultReceived += menus.OnTradeResult;
             Inventory.TradeChanged += menus.OnTradeChanged;
             World.ZoneChanged += _ => menus.CloseTrade();
+            // Either side walking past StockUiTrade.Range cancels the trade (the client's check, round 3): our walking
+            // reports through the locomotion controller, /moveto through LocalPlayerMoved, the partner through the world.
+            menus.TradeDistanceTo = serverId =>
+                World.TryGetByServerId(serverId, out var other) && World.TryGetByServerId(LocalPlayer.ServerId, out var self)
+                    ? System.Numerics.Vector3.Distance(self.Position, other.Position) : null;
+            Locomotion.LocomotionUpdated += (_, _, _) => menus.CheckTradeRange();
+            ActionService.LocalPlayerMoved += (_, _) => menus.CheckTradeRange();
+            World.EntityUpdated += entity =>
+            {
+                if (menus.TradeWindow is { IsNpcTrade: false } window && entity.ServerId == window.TradePartner.ServerId) menus.CheckTradeRange();
+            };
         }
     }
 }
