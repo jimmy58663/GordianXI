@@ -52,19 +52,19 @@ namespace Gordian.App.Tests.Graphics
                 QuestLogState = () => new StockUiQuestLogState(),
                 RoeTables = () => roe,
                 RoeState = () => new StockUiRoeState(slots, id => id == 1),
+                RoeTotals = () => new StockUiRoeTotals(1, 91669, 55355, 1170, 725, 273),
                 RoeStarted = id => { started.TrySetResult(id); return Task.CompletedTask; },
             };
 
             var kind = menus.OpenQuests(null)!;
-            Assert.Equal(new[] { "Current", "Completed", "Records of Eminence", "Vana'Bout" }, kind.Rows.Select(r => r.Text));
-            RenderOpen(screen, menus, "gpu_roe_quests.png");
-            kind.SelectedButtonId = StockUiRecordsOfEminence.RoeKindButton;
-            menus.Activate();
-            Assert.Equal(new[] { "Current", "Objective List" }, menus.Top!.Rows.Select(r => r.Text));
-            menus.Top!.SelectedButtonId = StockUiRecordsOfEminence.ObjectiveListButton;
+            Assert.Equal(new[] { "Current", "Completed", "Current", "Objective List" }, kind.Rows.Select(r => r.Text));
+            Assert.Equal("1/30", kind.Rows[2].Value);
+            var quests = RenderOpen(screen, menus, "gpu_roe_quests.png");
+            // The figures at the window's foot (image-34): "Sparks :" at the left.
+            Assert.True(screen.HasLightPixel(quests, 16 + 14, 16 + 60, 48 + 198 + 9, threshold: 150), "no figures");
+            kind.SelectedButtonId = StockUiRecordsOfEminence.ObjectiveListButton;
             menus.Activate();
             Assert.Equal("Tutorial", menus.Top!.Rows[0].Text);
-            Assert.Equal(11, menus.Top!.Rows.Count);
             RenderOpen(screen, menus, "gpu_roe_categories.png");
             menus.Activate(); // Tutorial
             Assert.Equal("Basics", menus.Top!.Rows[0].Text);

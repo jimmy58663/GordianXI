@@ -33,7 +33,7 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The points box the open windows show, or null: the top one of Merit Points, Job Points, Alter Ego Points, Unity; over
-        /// the merit categories and merits <c>meritinf</c>, over a job's job point categories <c>merit2in</c> (#491).
+        /// the merit categories and merits <c>meritinf</c> (#491).
         /// </summary>
         public static string? BoxOf(IReadOnlyList<StockUiOpenMenu> open)
         {
@@ -45,7 +45,6 @@ namespace Gordian.App.Graphics
                 switch (menu.ProgressionList)
                 {
                     case StockUiProgressionList.MeritCategories or StockUiProgressionList.Merits: return StockUiProgression.MeritInfoBox;
-                    case StockUiProgressionList.JobPointCategories: return StockUiProgression.JobPointInfoBox;
                 }
                 switch (menu.StatusWindow)
                 {
@@ -67,7 +66,7 @@ namespace Gordian.App.Graphics
         /// Whether the box stands in the level box's place (16,208): the merit box does, and the info boxes of #491 (16,240) take
         /// it too; Unity's sits over the party window.
         /// </summary>
-        public static bool ReplacesLevelBox(string? box) => box is StockUiStatusPages.MeritBox or StockUiProgression.MeritInfoBox or StockUiProgression.JobPointInfoBox;
+        public static bool ReplacesLevelBox(string? box) => box is StockUiStatusPages.MeritBox or StockUiProgression.MeritInfoBox;
 
         /// <summary>
         /// The Status list window that covers the stats side, or null: the top window, or the list under <c>merit3</c> or a prompt
@@ -124,7 +123,8 @@ namespace Gordian.App.Graphics
                     int job = JobUnderCursor(open, points);
                     var totals = StockUiStatusPages.JobPointsOf(points, job);
                     Value(renderer, font, at, string.Create(inv, $"{totals.CapacityPoints}/{StockUiStatusPages.MaxCapacityPoints}"), UpperValueY);
-                    Value(renderer, font, at, string.Create(inv, $"{totals.JobPoints}/{StockUiStatusPages.MaxJobPoints} P"), LowerValueY);
+                    Value(renderer, font, at, string.Create(inv, $"{totals.JobPoints}/{StockUiStatusPages.MaxJobPoints} P"), LowerValueY,
+                        totals.JobPoints >= StockUiStatusPages.MaxJobPoints ? StockUiProgression.AtMost : null);
                     break;
                 case StockUiStatusPages.AlterEgoBox:
                     Value(renderer, font, at, string.Create(inv, $"{points.AlterEgoPoints}/{StockUiStatusPages.MaxAlterEgoPoints}"), SingleValueY);
@@ -140,31 +140,53 @@ namespace Gordian.App.Graphics
                     Value(renderer, font, at, string.Create(inv, $"{points.MeritPoints}/{points.MaxMeritPoints} P"), InfoUpperValueY);
                     if (MeritCategoryOf(open) is > 0 and var category && menus?.Merits?.Invoke() is { } merits)
                     {
-                        int max = StockUiProgression.CategoryMax(menus.MeritText?.Invoke(category * 2 + 1));
+                        int max = StockUiProgression.CategoryMostOf(category, menus.MeritText);
                         int total = StockUiProgression.CategoryTotal(category, merits);
                         Value(renderer, font, at, max > 0 ? string.Create(inv, $"{total}/{max}") : total.ToString(inv), InfoLowerValueY);
-                    }
-                    break;
-                }
-                case StockUiProgression.JobPointInfoBox:
-                {
-                    // merit2in (#491): the job's job points under "Job Points", its categories' levels and most under "Combo Total/Max".
-                    int jpJob = JobUnderCursor(open, points);
-                    Value(renderer, font, at, string.Create(inv, $"{StockUiStatusPages.JobPointsOf(points, jpJob).JobPoints}/{StockUiStatusPages.MaxJobPoints} P"),
-                        InfoUpperValueY);
-                    if (menus != null)
-                    {
-                        var categories = StockUiProgression.JobPointCategories(jpJob, menus.JobPointText);
-                        int total = 0;
-                        foreach (int k in categories) total += menus.JobPointLevel?.Invoke(jpJob, k).Level ?? 0;
-                        Value(renderer, font, at, string.Create(inv, $"{total}/{categories.Count * StockUiProgression.MaxJobPointLevel}"), InfoLowerValueY);
                     }
                     break;
                 }
             }
         }
 
-        /// <summary>The value tops in <c>meritinf</c> / <c>merit2in</c> (112 x 56): under "Merit Points" and under "Combo Total/Max".</summary>
+        /// <summary>The Job Points pages' title bar in <c>jbpcat</c> (image-30, image-31): left, top, height and its text's places.</summary>
+        private const float TitleBarX = 4, TitleBarY = 2, TitleBarHeight = 14, TitleTextX = 28, ComboTotalX = 170, TitleBarRightPad = 14;
+
+        /// <summary>The title bar's blue-grey, top to bottom, read by eye from image-30 (PROVISIONAL).</summary>
+        private static readonly (byte R, byte G, byte B)[] TitleBarShades =
+        [
+            (112, 124, 150), (100, 114, 142), (90, 104, 134), (82, 96, 126), (74, 88, 118), (66, 80, 110), (58, 72, 102), (50, 64, 94),
+        ];
+
+        /// <summary>The red page arrows of <c>frames</c>, the paging window's (<c>quest01</c> buttons 9, 10).</summary>
+        private const int LeftArrowImage = 25, RightArrowImage = 26;
+
+        /// <summary>
+        /// The title bar of the Job Points pages, over <c>jbpcat</c>'s rows: "Job Points", or "Gifts" and "Combo Total:" the job
+        /// points spent, between the red arrows at the DAT's buttons 11 and 12 (the frame has the room, nothing in the DAT draws it).
+        /// </summary>
+        public static void DrawJobPointTitle(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement at)
+        {
+            bool gifts = menu.ProgressionList == StockUiProgressionList.JobGifts;
+            if (!gifts && menu.ProgressionList != StockUiProgressionList.JobPointCategories) return;
+            float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
+            var f = menu.Menu.Frame;
+            StockUiMenuWindow.DrawShades(renderer, TitleBarShades, at.X + TitleBarX * s, at.Y + TitleBarY * s, at.X + (f.Width - TitleBarRightPad) * s, TitleBarHeight * s);
+            float y = at.Y + (TitleBarY + 1) * s;
+            renderer.DrawText(font, gifts ? StockUiProgression.JobGiftsPageTitle : StockUiProgression.JobPointsPageTitle, at.X + TitleTextX * s, y, ts, White);
+            if (gifts)
+            {
+                string combo = string.Create(CultureInfo.InvariantCulture, $"{StockUiProgression.ComboTotalLabel} {menu.JobGiftsSpent}");
+                renderer.DrawText(font, combo, at.X + ComboTotalX * s, y, ts, White);
+            }
+            if (library.TryGetGroup("frames", out var frames) && frames.Images.Count > RightArrowImage)
+            {
+                renderer.DrawImage(frames.Images[LeftArrowImage], at.X + 9 * s, at.Y + 3 * s, s);
+                renderer.DrawImage(frames.Images[RightArrowImage], at.X + 336 * s, at.Y + 3 * s, s);
+            }
+        }
+
+        /// <summary>The value tops in <c>meritinf</c> (112 x 56): under "Merit Points" and under "Combo Total/Max".</summary>
         private const float InfoUpperValueY = 16, InfoLowerValueY = 39;
 
         /// <summary>The merit category the open windows show: the one under the categories' cursor, or the merits list's.</summary>
@@ -218,6 +240,11 @@ namespace Gordian.App.Graphics
                     nameId = StockUiProgression.JobPointCategoryNameId(top.ProgressionKey, top.SelectedRowKey);
                     strings = menus.JobPointText;
                     break;
+                case StockUiProgressionList.JobGifts when top.SelectedRowKey >= 0:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = StockUiProgression.JobGiftNameId(top.ProgressionKey, top.SelectedRowKey);
+                    strings = menus.JobGiftText;
+                    break;
                 default:
                     menuName = string.Empty;
                     nameId = -1;
@@ -260,7 +287,7 @@ namespace Gordian.App.Graphics
         {
             for (int i = open.Count - 1; i >= 0; i--)
             {
-                if (open[i].ProgressionList == StockUiProgressionList.JobPointCategories) return open[i].ProgressionKey;
+                if (open[i].ProgressionList is StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts) return open[i].ProgressionKey;
                 if (open[i].StatusWindow == StockUiStatusPage.JobPoints && open[i].SelectedStatusRow is >= 0 and var row) return row + 1;
             }
             return points.MainJob;
@@ -288,10 +315,10 @@ namespace Gordian.App.Graphics
                 (f.Width - InfoTextX - InfoRightPad) * s, (f.Height - InfoTextY) * s, s, White);
         }
 
-        private static void Value(StockUiRenderer renderer, UiFont font, StockUiPlacement at, string text, float y)
+        private static void Value(StockUiRenderer renderer, UiFont font, StockUiPlacement at, string text, float y, UiColor? color = null)
         {
             float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
-            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, White);
+            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, color ?? White);
         }
     }
 }

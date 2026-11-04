@@ -62,6 +62,8 @@ namespace Gordian.App.Graphics
                 // the bottom border (round 2, O7).
                 frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null);
 
+            if (font != null) StockUiStatusPagesWindow.DrawJobPointTitle(renderer, library, font, menu, placement);
+
             foreach (var button in definition.Buttons)
             {
                 bool outsideFrame = button.X < 0 || button.X >= frame.Width;
@@ -232,7 +234,8 @@ namespace Gordian.App.Graphics
                         // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
                         // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
                         // A greyed row (#491: a merit that cannot be raised; #493: an objective done for good) keeps its colour.
-                        UiColor? tint = i == selectedEntry ? SelectedGlyphTint : row.Color;
+                        bool jobPointPage = menu.ProgressionList is StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts;
+                        UiColor? tint = i == selectedEntry ? (jobPointPage ? StockUiProgression.SelectedPink : SelectedGlyphTint) : row.Color;
                         bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
@@ -246,7 +249,7 @@ namespace Gordian.App.Graphics
                         if (row.Value is { Length: > 0 } value)
                         {
                             float valueRight = placement.X + (menu.StatusValueRight ?? frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
-                            renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, tint);
+                            renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, i == selectedEntry ? tint : row.ValueColor ?? tint);
                         }
                         continue;
                     }
@@ -815,12 +818,16 @@ namespace Gordian.App.Graphics
         ];
 
         /// <summary>Draws <see cref="MapRowBarShades"/> as horizontal strips filling the row from <paramref name="left"/> to <paramref name="right"/>.</summary>
-        internal static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height)
+        internal static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height) =>
+            DrawShades(renderer, MapRowBarShades, left, top, right, height);
+
+        /// <summary>Horizontal strips of <paramref name="shades"/> filling the bar, top to bottom.</summary>
+        internal static void DrawShades(StockUiRenderer renderer, (byte R, byte G, byte B)[] shades, float left, float top, float right, float height)
         {
-            float strip = height / MapRowBarShades.Length;
-            for (int k = 0; k < MapRowBarShades.Length; k++)
+            float strip = height / shades.Length;
+            for (int k = 0; k < shades.Length; k++)
             {
-                var (r, g, b) = MapRowBarShades[k];
+                var (r, g, b) = shades[k];
                 // The solid texel is pale (about 220 per channel, measured from a render), so a half-scale tint of
                 // 128/220 of the colour draws the colour itself.
                 renderer.DrawTextureRect(SliderTexture, 30, 12, 1, 1, left, top + k * strip, right - left, strip + 0.5f,

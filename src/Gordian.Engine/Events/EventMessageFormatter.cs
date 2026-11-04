@@ -115,6 +115,15 @@ namespace Gordian.Engine.Events
         /// </summary>
         public const byte UnityLeaderKind = 0x89;
 
+        /// <summary>A merit's name by number (0x7F 0xB0: the merit id / 2, as LandSandBoat's S2C 0x029 carries it).</summary>
+        public const byte MeritKind = 0xB0;
+
+        /// <summary>A job point category's name by number (0x7F 0xB1: job x 32 + k).</summary>
+        public const byte JobPointKind = 0xB1;
+
+        /// <summary>A Records of Eminence objective's name by objective id (0x01 kind 0x41; messages 697, 704, 705).</summary>
+        public const byte RoeObjectiveKind = (byte)'A';
+
         /// <summary>The 0x01 kind with no value (01 01 01) that stands for the article of the item tag after it.</summary>
         public const byte ArticleKind = 0x01;
 
@@ -217,8 +226,11 @@ namespace Gordian.Engine.Events
                         line.Append(context.ModifierText);
                         break;
                     case EventMessageSegmentKind.ActionName:
-                        Substitute(context.ResolveActionName(segment.Code, context.GetNumber(segment.Argument)) ?? string.Empty);
+                    {
+                        int action = context.GetNumber(segment.Argument);
+                        Substitute(context.ResolveActionName(segment.Code, action) ?? context.ResolveName(segment.Code, action) ?? string.Empty);
                         break;
+                    }
                     case EventMessageSegmentKind.PlayerName:
                         Substitute(context.PlayerName);
                         break;

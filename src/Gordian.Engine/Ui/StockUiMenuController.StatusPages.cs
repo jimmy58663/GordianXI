@@ -220,6 +220,11 @@ namespace Gordian.Engine.Ui
                 StockUiStatusPoints? points = null;
                 foreach (var menu in _open)
                 {
+                    if (menu.QuestLogView == StockUiQuestLogView.QuestKind)
+                    {
+                        menu.Rows = QuestKindRows();
+                        changed = true;
+                    }
                     if (!menu.IsStatusValueList) continue;
                     if (RefreshProgressionList(menu))
                     {
@@ -235,7 +240,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on a Status list's row: a job lists its job point categories (<c>merit2ca</c>, #491), an Alter Ego Points
+        /// Confirm on a Status list's row: a job lists its job point categories (<c>jbpcat</c>, #491), an Alter Ego Points
         /// category its items (<c>fp_cat2</c>); the lists of #491 / #493 go to <see cref="ActivateProgressionList"/>. Spending
         /// alter ego points is not done: no packet for it is known (LandSandBoat has no handler).
         /// </summary>

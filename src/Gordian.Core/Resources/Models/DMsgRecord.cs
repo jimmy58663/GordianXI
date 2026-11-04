@@ -95,6 +95,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         MeritStrings,
         /// <summary>
+        /// The job point gifts (ROM/324/59.DAT, EN file id 0xD97A, read 2026-11-04, #491): 512 strings a job from Warrior, gift
+        /// slot k's name at (job - 1) x 512 + 2k and its line after it ("Physical Defense Bonus", "Increases physical defense
+        /// by 10."); 62 slots, unused ones ".". File named by xi-tools (docs/reference/named-dats.md).
+        /// </summary>
+        JobGiftStrings,
+        /// <summary>
         /// Mount names by client mount id (ROM/351/84.DAT, EN file id 0xD981, 39 entries: 0 "Chocobo", 1 "Raptor" ... 38
         /// "Bubble Crab"), the mount list's rows (#87). Table referenced from xi-tools (docs/mounts/mechanism.md).
         /// </summary>

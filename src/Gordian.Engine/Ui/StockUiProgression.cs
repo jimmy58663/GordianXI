@@ -37,6 +37,9 @@ namespace Gordian.Engine.Ui
         MeritCategories,
         Merits,
         JobPointCategories,
+
+        /// <summary>The Job Points window's second page: the job's gifts (<c>jbpcat</c>'s frame).</summary>
+        JobGifts,
         UnityInfo,
         UnityRanking,
         UnityLeaders,
@@ -70,9 +73,11 @@ namespace Gordian.Engine.Ui
     /// asking first, then sends C2S 0x0BE kind 3 (Param1 1 raise / 0 lower, Param2 the merit id / 2: LandSandBoat shifts it
     /// back). LandSandBoat allows it in a Mog House only and sends each merit's next cost as 0 elsewhere.</item>
     /// <item>Job Points: Confirm on a job lists its ten categories (ROM/314/62 at job x 64 + 2 k) with "level/20" in
-    /// <c>merit2ca</c> and <c>merit2in</c> (16,240: "Job Points", "Combo Total/Max"); Confirm asks, then sends C2S 0x0BF with
-    /// the category's index (job x 32 + k; LandSandBoat's <c>JOBPOINT_TYPE</c>), allowed in a Mog House only. A level costs
-    /// its number plus one in job points (LandSandBoat <c>JobPointCost</c>; S2C 0x08D <c>next</c>), to 20.</item>
+    /// <c>jbpcat</c> under a "Job Points" title bar with page arrows, <c>levmeri2</c> below (retail image-30); Confirm asks,
+    /// then sends C2S 0x0BF with the category's index (job x 32 + k; LandSandBoat's <c>JOBPOINT_TYPE</c>), allowed in a Mog
+    /// House only. A level costs its number plus one in job points (LandSandBoat <c>JobPointCost</c>; S2C 0x08D <c>next</c>),
+    /// to 20. Left / Right turns to the second page, "Gifts" with "Combo Total:" the job points spent: the job's gifts
+    /// (ROM/324/59) with the job points spent each needs, grey until earned (image-31 to image-33).</item>
     /// <item>Unity: opening <c>ut_menu</c> sends C2S 0x116 kinds 0 and 1 (XiPackets: retail sends both, each answered by 32 S2C
     /// 0x063). Unity Info lists "Current Unity:", the rankings, the personal evaluations and "Unity chat settings:" with
     /// Active / Inactive (C2S 0x118; the maintainer's capture <c>Main_Menu_Page1.mp4</c> 1:00-1:10); Ranking Info sends C2S
@@ -83,7 +88,7 @@ namespace Gordian.Engine.Ui
     public static class StockUiProgression
     {
         public const string MeritCategoryMenu = "meritcat", MeritListMenu = "merit2ca", MeritEditMenu = "merit3";
-        public const string MeritInfoBox = "meritinf", JobPointInfoBox = "merit2in";
+        public const string MeritInfoBox = "meritinf";
 
         /// <summary><c>merit3</c>'s buttons.</summary>
         public const int MeritRaiseButton = 1, MeritLowerButton = 2;
@@ -95,7 +100,31 @@ namespace Gordian.Engine.Ui
         public const int MeritCategoryCount = 28;
 
         /// <summary>The first job category (Warrior, 384 = 6 x 64) and the job categories' second group's base (0x800).</summary>
-        private const int FirstJobCategory = 6, WeaponSkillsCategory = 26, SecondGroupBase = 0x800;
+        private const int FirstJobCategory = 6, SecondGroupBase = 0x800;
+
+        /// <summary>The Others category, and Weapon Skills, listed right after it (the maintainer's retail check, round 1).</summary>
+        public const int OthersCategory = 5, WeaponSkillsCategory = 26;
+
+        /// <summary>The key item that opens Weapon Skills ("Heart of the Bushin", LandSandBoat <c>HEART_OF_THE_BUSHIN</c>); greyed without it.</summary>
+        public const ushort WeaponSkillsKeyItem = 2059;
+
+        /// <summary>Weapon Skills' most upgrades, which its table line does not name (LandSandBoat <c>data/merits.yaml</c>).</summary>
+        private const int WeaponSkillsMax = 15;
+
+        /// <summary>The Maximum Merit Points merit, the one merit of HP/MP with its own limit.</summary>
+        private const int MaxMeritPointsMerit = 0x44;
+
+        /// <summary>
+        /// A merit's most upgrades (S2C 0x08C does not carry it): the length of its upgrade cost list in LandSandBoat's
+        /// <c>data/merits.yaml</c>: 15 for HP/MP and the attributes, 45 for Maximum Merit Points, 8 for the combat and magic
+        /// skills, 5 for the others, the jobs and the weapon skills. GordianXI's own addition, retail shows the upgrades only.
+        /// </summary>
+        public static int MeritMax(int meritId) => meritId == MaxMeritPointsMerit ? 45 : CategoryOfMerit(meritId) switch
+        {
+            1 or 2 => 15,
+            3 or 4 => 8,
+            _ => 5,
+        };
 
         /// <summary>A category's S2C 0x08C id (64 n): its merits' ids are this plus 2 k.</summary>
         public static int MeritCategoryId(int category) => category * 64;
@@ -135,14 +164,15 @@ namespace Gordian.Engine.Ui
             return total;
         }
 
-        /// <summary>The categories that have a name in the table, in table order (HP/MP ... Rune Fencer).</summary>
+        /// <summary>The categories that have a name in the table, in table order but Weapon Skills after Others (HP/MP ... Rune Fencer).</summary>
         public static IReadOnlyList<int> MeritCategories(Func<int, string?>? text)
         {
             var list = new List<int>(MeritCategoryCount);
             for (int c = 1; c <= MeritCategoryCount; c++)
             {
-                if (!IsPlaceholder(text?.Invoke(c * 2))) list.Add(c);
+                if (c != WeaponSkillsCategory && !IsPlaceholder(text?.Invoke(c * 2))) list.Add(c);
             }
+            if (!IsPlaceholder(text?.Invoke(WeaponSkillsCategory * 2))) list.Insert(Math.Min(OthersCategory, list.Count), WeaponSkillsCategory);
             return list;
         }
 
@@ -157,16 +187,25 @@ namespace Gordian.Engine.Ui
             return total;
         }
 
-        /// <summary>The categories list's rows: the name and "total/most" ("12/75"; the total alone when no most is known).</summary>
-        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
+        /// <summary>A category's most upgrades: its table line's, or Weapon Skills' own.</summary>
+        public static int CategoryMostOf(int category, Func<int, string?>? text) =>
+            category == WeaponSkillsCategory ? WeaponSkillsMax : CategoryMax(text?.Invoke(category * 2 + 1));
+
+        /// <summary>
+        /// The categories list's rows: the name and "total/most" ("12/75"; the total alone when no most is known); Weapon Skills
+        /// is greyed without <paramref name="weaponSkillsOpen"/>.
+        /// </summary>
+        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text,
+            bool weaponSkillsOpen = true)
         {
             var rows = new List<StockUiListRow>(categories.Count);
             foreach (int c in categories)
             {
-                int max = CategoryMax(text?.Invoke(c * 2 + 1));
+                int max = CategoryMostOf(c, text);
                 int total = CategoryTotal(c, merits);
                 string value = max > 0 ? string.Create(CultureInfo.InvariantCulture, $"{total}/{max}") : total.ToString(CultureInfo.InvariantCulture);
-                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false, Value: value));
+                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false,
+                    c == WeaponSkillsCategory && !weaponSkillsOpen ? Greyed : null, value));
             }
             return rows;
         }
@@ -183,14 +222,14 @@ namespace Gordian.Engine.Ui
             return list;
         }
 
-        /// <summary>The merits list's rows: the name and the upgrades; a merit that cannot be raised now (no next cost) is greyed.</summary>
+        /// <summary>The merits list's rows: the name and "upgrades/most" ("2/15"); a merit that cannot be raised now (no next cost) is greyed.</summary>
         public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
         {
             var rows = new List<StockUiListRow>(merits.Count);
             foreach (var m in merits)
             {
                 rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(m.Id) ?? string.Empty, false, m.Next == 0 ? Greyed : null,
-                    m.Count.ToString(CultureInfo.InvariantCulture)));
+                    string.Create(CultureInfo.InvariantCulture, $"{m.Count}/{MeritMax(m.Id)}")));
             }
             return rows;
         }
@@ -218,7 +257,56 @@ namespace Gordian.Engine.Ui
             return list;
         }
 
-        /// <summary>The job point categories' rows: the name and "level/20".</summary>
+        /// <summary>The blue of a figure at its most ("20/20", "500/500 P"; retail image-30, white below it in image-33), half scale.</summary>
+        public static readonly Gordian.Core.Resources.Ui.UiColor AtMost = new(0x25, 0x48, 0x68, 0x80);
+
+        /// <summary>The pink of the row under the cursor on the Job Points pages (image-30 to image-33), the quest log's, half scale.</summary>
+        public static readonly Gordian.Core.Resources.Ui.UiColor SelectedPink = new(0x80, 0x41, 0x64, 0x80);
+
+        /// <summary>The right edges of the values in <c>jbpcat</c>: a category's "level/20" and a gift's job points (image-30, image-31).</summary>
+        public const int JobPointValueRight = 269, JobGiftValueRight = 342;
+
+        /// <summary>The title bars of the Job Points window's pages (image-30, image-31).</summary>
+        public const string JobPointsPageTitle = "Job Points", JobGiftsPageTitle = "Gifts", ComboTotalLabel = "Combo Total:";
+
+        /// <summary>The strings ROM/324/59 keeps a job, and the gift slots that hold one.</summary>
+        private const int JobGiftStringsPerJob = 512, JobGiftSlots = 62;
+
+        /// <summary>
+        /// The job points spent each gift slot needs. The client's table holds only the names, so the figures are LandSandBoat's
+        /// (<c>sql/job_point_gifts.sql</c>, the same for every job), checked against the retail lists of image-31 to image-33;
+        /// its two rows for one gift (attack and ranged attack) are one slot here. Slot 23 is unused.
+        /// </summary>
+        private static readonly int[] JobGiftThresholds =
+        {
+            5, 5, 10, 20, 25, 30, 45, 50, 55, 60, 80, 95, 100, 100, 125, 145, 150, 180, 205, 210, 245, 275, 280, 0, 320, 355, 360, 405, 445, 450, 500,
+            500, 545, 550, 605, 655, 660, 720, 775, 780, 845, 905, 910, 980, 1045, 1050, 1125, 1195, 1200, 1200, 1280, 1355, 1360, 1445, 1530, 1620,
+            1710, 1805, 1900, 2000, 2100, 2100,
+        };
+
+        /// <summary>A gift's name in ROM/324/59; its line follows.</summary>
+        public static int JobGiftNameId(int job, int slot) => (job - 1) * JobGiftStringsPerJob + slot * 2;
+
+        /// <summary>The job points spent a gift slot needs.</summary>
+        public static int JobGiftThreshold(int slot) => slot >= 0 && slot < JobGiftThresholds.Length ? JobGiftThresholds[slot] : 0;
+
+        /// <summary>The gifts' rows and their slots: the name and the job points spent it needs, grey until <paramref name="spent"/> reaches them.</summary>
+        public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) JobGiftRows(int job, int spent, Func<int, string?>? text)
+        {
+            var rows = new List<StockUiListRow>(JobGiftSlots);
+            var keys = new List<int>(JobGiftSlots);
+            for (int slot = 0; slot < JobGiftSlots; slot++)
+            {
+                string? name = text?.Invoke(JobGiftNameId(job, slot));
+                if (IsPlaceholder(name) || name == ".") continue;
+                int needed = JobGiftThreshold(slot);
+                rows.Add(new StockUiListRow(rows.Count + 1, name!, false, spent >= needed ? null : Greyed, needed.ToString(CultureInfo.InvariantCulture)));
+                keys.Add(slot);
+            }
+            return (rows, keys);
+        }
+
+        /// <summary>The job point categories' rows: the name and "level/20", blue at 20.</summary>
         public static IReadOnlyList<StockUiListRow> JobPointCategoryRows(int job, IReadOnlyList<int> categories, Func<int, int, StockUiJobPointCategory>? levels,
             Func<int, string?>? text)
         {
@@ -227,7 +315,7 @@ namespace Gordian.Engine.Ui
             {
                 int level = levels?.Invoke(job, k).Level ?? 0;
                 rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(JobPointCategoryNameId(job, k)) ?? string.Empty, false,
-                    level >= MaxJobPointLevel ? Greyed : null, string.Create(CultureInfo.InvariantCulture, $"{level}/{MaxJobPointLevel}")));
+                    Value: string.Create(CultureInfo.InvariantCulture, $"{level}/{MaxJobPointLevel}"), ValueColor: level >= MaxJobPointLevel ? AtMost : null));
             }
             return rows;
         }

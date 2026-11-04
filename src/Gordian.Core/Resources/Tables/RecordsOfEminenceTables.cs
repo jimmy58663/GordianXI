@@ -23,6 +23,21 @@ namespace Gordian.Core.Resources.Tables
     {
         /// <summary>Kind 1: the objective <see cref="Value"/> must be completed (the S2C 0x112 bit) for the child to show.</summary>
         public const byte ObjectiveCompleted = 1;
+
+        /// <summary>Kind 4: the zone <see cref="Value"/> must have been visited (S2C 0x008's table).</summary>
+        public const byte ZoneVisited = 4;
+
+        /// <summary>
+        /// Kind 6: the Unity rotation: 0-5 S2C 0x110 <c>RoEUnityShared</c> must be <see cref="Value"/>, 0x100-0x103
+        /// <c>RoEUnityLeader</c> must be <see cref="Value"/> less <see cref="LeaderRotationBase"/>.
+        /// </summary>
+        public const byte UnityRotation = 6;
+
+        /// <summary>Kind 7: the character's Unity leader (1-11) must be <see cref="Value"/>.</summary>
+        public const byte UnityLeader = 7;
+
+        /// <summary>Kind 6's values from here on are the leader rotation.</summary>
+        public const int LeaderRotationBase = 0x100;
     }
 
     /// <summary>One child of a category: a subcategory (an id of 0xF2xx) or an objective (0xE000 + objective id).</summary>
@@ -50,7 +65,9 @@ namespace Gordian.Core.Resources.Tables
     /// string table at 0x20 (u32 count, then u32 offset / u32 kind pairs from the table's start; a string at offset + 0x1C):
     /// [0] the name, [4] the description. Unused records are named ".".</item>
     /// <item>Category: 0x04 the child count, 0x08 up to 28 children of 20 bytes (u32 record id, four u32 conditions: kind in the
-    /// top byte, value below; kind 1 = an objective completed, others not decoded), a string table at 0x238: [0] the name.
+    /// top byte, value below: kind 1 an objective completed, 4 a zone visited, 6 the Unity rotation, 7 the Unity leader, see
+    /// <see cref="RoeCondition"/>; read from the retail file and matched to XiPackets' S2C 0x008 and 0x110 fields, 2026-11-04),
+    /// a string table at 0x238: [0] the name.
     /// Record 61952 (0xF200) is the root: its children are the eleven top categories (Tutorial ... Other).</item>
     /// </list>
     /// </summary>

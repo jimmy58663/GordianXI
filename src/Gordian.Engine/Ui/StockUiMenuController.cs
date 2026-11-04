@@ -17,7 +17,7 @@ namespace Gordian.Engine.Ui
     /// (a filter that is ON, drawn with the "ON" ball instead of "OFF").
     /// </summary>
     /// <param name="Value">Client text drawn at the row's right (the gamepad key-assignment list's buttons); null for none.</param>
-    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null);
+    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null, UiColor? ValueColor = null);
 
     /// <summary>
     /// The client-drawn list pages: rows over the DAT's invisible row buttons. The Chat Filters, Log and Effects lists draw
@@ -1296,7 +1296,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveJobPointPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();

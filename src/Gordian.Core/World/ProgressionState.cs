@@ -238,6 +238,9 @@ namespace Gordian.Core.World
 
         #region Unity Concord
 
+        /// <summary>Whether S2C 0x110 has arrived, so the RoE Unity rotation below is known.</summary>
+        public bool UnityReceived { get; private set; }
+
         public uint UnitySparks { get; private set; }
         public ushort UnityDeeds { get; private set; }
         public ushort UnityPlaudits { get; private set; }
@@ -791,6 +794,37 @@ namespace Gordian.Core.World
             RecordsOfEminenceUpdated?.Invoke();
         }
 
+        /// <summary>The zones visited (S2C 0x008), null before the first; one bit a zone.</summary>
+        private byte[]? _zonesVisited;
+
+        /// <summary>Takes S2C 0x008's table of the zones visited.</summary>
+        public void UpdateZonesVisited(byte[] table)
+        {
+            lock (_lock) _zonesVisited = table;
+        }
+
+        /// <summary>Whether the character has visited <paramref name="zoneId"/>; true before S2C 0x008 has told us.</summary>
+        public bool HasVisitedZone(int zoneId)
+        {
+            lock (_lock)
+            {
+                if (_zonesVisited == null) return true;
+                int index = zoneId >> 3;
+                return index >= 0 && index < _zonesVisited.Length && (_zonesVisited[index] & (1 << (zoneId & 7))) != 0;
+            }
+        }
+
+        /// <summary>How many Records of Eminence objectives S2C 0x112 lists as completed.</summary>
+        public int CountRoeObjectivesCompleted()
+        {
+            int count = 0;
+            lock (_lock)
+            {
+                foreach (byte b in _completedRoeBits) count += System.Numerics.BitOperations.PopCount(b);
+            }
+            return count;
+        }
+
         public bool IsRoeObjectiveCompleted(ushort objectiveId)
         {
             int byteIndex = objectiveId / 8;
@@ -934,6 +968,7 @@ namespace Gordian.Core.World
         {
             lock (_lock)
             {
+                UnityReceived = true;
                 UnitySparks = unity.Sparks;
                 UnityDeeds = unity.Deeds;
                 UnityPlaudits = unity.Plaudits;

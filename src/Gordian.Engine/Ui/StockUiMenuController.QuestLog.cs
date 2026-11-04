@@ -24,9 +24,6 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Region Info's Conquest map (<see cref="StockUiConquestView"/>).</summary>
         Conquest,
-
-        /// <summary>Quests > Records of Eminence: Current / Objective List, in <c>quest00</c>'s frame (#493).</summary>
-        RoeMenu,
     }
 
     public sealed partial class StockUiOpenMenu
@@ -121,7 +118,6 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The window title the help bar shows: "Missions", "Quests" or "Region Info".</summary>
         public string QuestLogTitle => QuestLogView == StockUiQuestLogView.Conquest ? StockUiConquest.Title
-            : QuestLogView == StockUiQuestLogView.RoeMenu ? StockUiRecordsOfEminence.HelpTitle
             : IsQuestsWindow ? StockUiQuestLog.QuestsTitle : StockUiQuestLog.MissionsTitle;
     }
 
@@ -173,7 +169,11 @@ namespace Gordian.Engine.Ui
         /// pitch n (w x h), the end rows linked to themselves (the page's own moves step past them), and the DAT's buttons
         /// <paramref name="keep"/> as authored (the paging window's arrows); no rows for a description or a Conquest window.
         /// </summary>
-        private UiMenuDefinition? QuestLogDefinition(string name, int rows, int x, int y, int pitch, int width, int height, params int[] keep)
+        private UiMenuDefinition? QuestLogDefinition(string name, int rows, int x, int y, int pitch, int width, int height, params int[] keep) =>
+            QuestLogDefinition(name, rows, x, i => y + i * pitch, width, height, keep);
+
+        /// <summary>A quest log window whose row i (from 0) stands at <paramref name="rowY"/>(i).</summary>
+        private UiMenuDefinition? QuestLogDefinition(string name, int rows, int x, Func<int, int> rowY, int width, int height, int[] keep)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(name, out var window)) return null;
@@ -184,7 +184,7 @@ namespace Gordian.Engine.Ui
                 {
                     ButtonId = (short)i,
                     X = (short)x,
-                    Y = (short)(y + (i - 1) * pitch),
+                    Y = (short)rowY(i - 1),
                     Width = (short)width,
                     Height = (short)height,
                     NavUp = (sbyte)(i == 1 ? 1 : i - 1),
@@ -245,12 +245,12 @@ namespace Gordian.Engine.Ui
             return OpenPages(StockUiQuestLog.StorylineMenu, books, page, quests: false, completed: false, parent, catalog, state);
         }
 
-        /// <summary>Opens the Quests window (#488): Current, Completed, Records of Eminence and Vana'Bout (#493).</summary>
+        /// <summary>Opens the Quests window (#488): Current, Completed, and Records of Eminence's Current and Objective List (#493).</summary>
         public StockUiOpenMenu? OpenQuests(StockUiOpenMenu? parent)
         {
             if (!TryGetQuestLog(out _, out _)) return null;
-            var definition = QuestLogDefinition(StockUiQuestLog.QuestKindMenu, 4, StockUiQuestLog.KindRowX, StockUiQuestLog.KindRowY,
-                StockUiQuestLog.KindRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight);
+            var definition = QuestLogDefinition(StockUiQuestLog.QuestKindMenu, StockUiQuestLog.KindRowYs.Length, StockUiQuestLog.KindRowX,
+                i => StockUiQuestLog.KindRowYs[i], StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight, Array.Empty<int>());
             if (definition == null) return null;
             var kind = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, 4)
             {
@@ -260,12 +260,7 @@ namespace Gordian.Engine.Ui
             };
             lock (_sync)
             {
-                kind.Rows = new List<StockUiListRow>
-                {
-                    new(1, StockUiQuestLog.CurrentKind, false), new(2, StockUiQuestLog.CompletedKind, false),
-                    new(StockUiRecordsOfEminence.RoeKindButton, ShortText(StockUiRecordsOfEminence.TitleText, StockUiRecordsOfEminence.Title), false),
-                    new(StockUiRecordsOfEminence.VanaBoutKindButton, StockUiRecordsOfEminence.VanaBoutTitle, false),
-                };
+                kind.Rows = QuestKindRows();
                 kind.SelectedButtonId = 1;
                 PushOpen(kind);
             }
@@ -438,14 +433,7 @@ namespace Gordian.Engine.Ui
             if (!top.IsQuestLogWindow) return false;
             switch (top.QuestLogView)
             {
-                case StockUiQuestLogView.QuestKind when button.ButtonId == StockUiRecordsOfEminence.RoeKindButton:
-                    OpenRoeMenu(top);
-                    break;
-                case StockUiQuestLogView.QuestKind when button.ButtonId == StockUiRecordsOfEminence.VanaBoutKindButton:
-                    // LandSandBoat does not implement Vana'Bout and no packet for its objectives is known yet (#493).
-                    NoticePosted?.Invoke("Vana'Bout is not available yet.");
-                    break;
-                case StockUiQuestLogView.RoeMenu:
+                case StockUiQuestLogView.QuestKind when button.ButtonId is StockUiRecordsOfEminence.CurrentButton or StockUiRecordsOfEminence.ObjectiveListButton:
                     OpenRoeList(button.ButtonId, top);
                     break;
                 case StockUiQuestLogView.QuestKind:

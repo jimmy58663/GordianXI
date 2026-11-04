@@ -85,7 +85,7 @@ namespace Gordian.App.Tests.Graphics
             // Quests: Current / Completed, then San d'Oria's current quests.
             Assert.NotNull(menus.OpenQuests(null));
             byte[] kind = Shot("gpu_quests_kind.png");
-            Assert.True(screen.HasLightPixel(kind, px + 55, px + 200, py + 68 + 9), "no Completed row");
+            Assert.True(screen.HasLightPixel(kind, px + 55, px + 200, py + 46 + 9), "no Completed row");
             menus.Activate();
             byte[] quests = Shot("gpu_quests_current.png");
             Assert.True(screen.HasLightPixel(quests, px + 55, px + 300, py + 65 + 9), "no quest name on the second row");

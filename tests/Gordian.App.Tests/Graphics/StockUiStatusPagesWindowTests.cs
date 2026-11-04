@@ -86,7 +86,8 @@ namespace Gordian.App.Tests.Graphics
             AlterEgoText = id => screen.Resources.TryGetString(DMsgCategory.AlterEgoStrings, id, out var t) ? t : null,
             MeritText = id => screen.Resources.TryGetString(DMsgCategory.MeritStrings, id, out var t) ? t : null,
             Merits = () => new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(0x42, 2, 1), new StockUiMerit(0x80, 9, 3) },
-            JobPointLevel = (job, k) => new StockUiJobPointCategory(k == 0 ? 7 : 0, k == 0 ? 8 : 1),
+            JobPointLevel = (job, k) => new StockUiJobPointCategory(k == 0 ? 7 : k == 1 ? 20 : 0, k == 0 ? 8 : 1),
+            JobGiftText = i => screen.Resources.TryGetString(DMsgCategory.JobGiftStrings, i, out var t) ? t : null,
             UnityInfo = () => new StockUiUnityInfo(8, 120, 340, new uint[11], new uint[] { 5, 0, 0, 0, 0, 0, 0, 90, 0, 0, 40 }),
         };
 
@@ -182,14 +183,21 @@ namespace Gordian.App.Tests.Graphics
             shot = RenderOpen(screen, menus, "gpu_status_jobpoints.png");
             Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 22 + 6, threshold: 150), "no capacity points");
             Assert.True(screen.HasLightPixel(shot, 130 + 4, 130 + 100, 240 + 4 + 6, threshold: 150), "no info box name");
-            // Confirm on a job (#491): its ten categories with "level/20", merit2in in the level box's place.
+            // Confirm on a job (#491): its ten categories with "level/20" under the title bar, levmeri2 below.
             menus.Activate();
             Assert.Equal((StockUiProgressionList.JobPointCategories, 18), (menus.Top!.ProgressionList, menus.Top!.ProgressionKey));
             Assert.Equal(10, menus.Top!.Rows.Count);
             Assert.Equal("7/20", menus.Top!.Rows[0].Value);
-            Assert.Equal(StockUiProgression.JobPointInfoBox, StockUiStatusPagesWindow.BoxOf(menus.OpenMenus));
+            Assert.Equal(StockUiStatusPages.JobPointBox, StockUiStatusPagesWindow.BoxOf(menus.OpenMenus));
             shot = RenderOpen(screen, menus, "gpu_status_jobpoint_categories.png");
-            Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 16 + 6, threshold: 150), "no job points in merit2in");
+            Assert.True(screen.HasLightPixel(shot, 16 + 28, 16 + 90, 48 + 4, threshold: 150), "no Job Points title");
+            // Right: the gifts, "Gifts" and "Combo Total:" in the title bar.
+            menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal(StockUiProgressionList.JobGifts, menus.Top!.ProgressionList);
+            Assert.True(menus.Top!.Rows.Count > 50);
+            shot = RenderOpen(screen, menus, "gpu_status_job_gifts.png");
+            Assert.True(screen.HasLightPixel(shot, 16 + 170, 16 + 260, 48 + 4, threshold: 150), "no Combo Total");
+            menus.Move(Gordian.Engine.Input.InputAction.MenuLeft);
 
             // Alter Ego Points: HP/MP, Attributes, Skills; Attributes lists STR ... CHR with "upgrades/most".
             OpenStatusEntry(menus, StockUiStatus.AlterEgoButton);

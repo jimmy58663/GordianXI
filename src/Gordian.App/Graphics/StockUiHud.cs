@@ -183,6 +183,7 @@ namespace Gordian.App.Graphics
                 menus.AlterEgoText = i => strings.TryGetString(DMsgCategory.AlterEgoStrings, i, out var text) ? text : null;
                 // Merit Points' categories and merits (ROM/169/75, #491).
                 menus.MeritText = i => strings.TryGetString(DMsgCategory.MeritStrings, i, out var text) ? text : null;
+                menus.JobGiftText = i => strings.TryGetString(DMsgCategory.JobGiftStrings, i, out var text) ? text : null;
                 // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
                 menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
                 menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
@@ -224,9 +225,7 @@ namespace Gordian.App.Graphics
             if (menus.RoeTables == null && _resources is { } roeResources)
             {
                 // The Records of Eminence objectives and categories (ROM/307/16, ROM/307/24; #493), read once on first use.
-                var roe = new Lazy<Gordian.Core.Resources.Tables.RecordsOfEminenceTables?>(
-                    () => Gordian.Core.Resources.Tables.RecordsOfEminenceTables.Load(roeResources.LoadDatBytes));
-                menus.RoeTables = () => roe.Value;
+                menus.RoeTables = () => roeResources.RecordsOfEminence;
             }
             if (menus.QuestLogCatalog == null && _resources is { } questLog)
             {

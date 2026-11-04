@@ -68,9 +68,81 @@ namespace Gordian.Engine.Tests.Ui
             var hp = StockUiProgression.MeritsOf(1, merits, text);
             Assert.Equal(new[] { 0x40, 0x42 }, hp.Select(m => m.Id));
             var meritRows = StockUiProgression.MeritRows(hp, text);
-            Assert.Equal(("Max HP", "4", (UiColor?)null), (meritRows[0].Text, meritRows[0].Value, meritRows[0].Color));
+            Assert.Equal(("Max HP", "4/15", (UiColor?)null), (meritRows[0].Text, meritRows[0].Value, meritRows[0].Color));
             Assert.Equal(StockUiProgression.Greyed, meritRows[1].Color);
             Assert.Equal(new[] { 384, 2048 }, StockUiProgression.MeritsOf(6, merits, text).Select(m => m.Id));
+        }
+
+        [Fact]
+        public void WeaponSkills_ListsAfterOthers_GreyedWithoutTheKeyItem()
+        {
+            Func<int, string?> text = id => id switch
+            {
+                2 => "HP/MP", 4 => "Attributes", 6 => "Combat Skills", 8 => "Magic Skills", 10 => "Others", 12 => "Warrior", 52 => "Weapon Skills", _ => null,
+            };
+            var categories = StockUiProgression.MeritCategories(text);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 26, 6 }, categories);
+            var merits = new[] { new StockUiMerit(26 * 64, 20, 2) };
+            var locked = StockUiProgression.MeritCategoryRows(categories, merits, text, weaponSkillsOpen: false);
+            Assert.Equal(("Weapon Skills", "2/15", (UiColor?)StockUiProgression.Greyed), (locked[5].Text, locked[5].Value, locked[5].Color));
+            Assert.Null(locked[4].Color);
+            Assert.Null(StockUiProgression.MeritCategoryRows(categories, merits, text)[5].Color);
+        }
+
+        [Theory]
+        [InlineData(0x40, 15)] // Max HP
+        [InlineData(0x44, 45)] // Maximum Merit Points
+        [InlineData(0x80, 15)] // STR
+        [InlineData(0xC0, 8)]  // Hand-to-Hand
+        [InlineData(0x100, 8)] // Divine Magic
+        [InlineData(0x140, 5)] // Enmity
+        [InlineData(384, 5)]   // Berserk Recast
+        [InlineData(2048, 5)]  // Warrior's second group
+        public void MeritMax_ByMerit(int merit, int most) => Assert.Equal(most, StockUiProgression.MeritMax(merit));
+
+        [Fact]
+        public void JobGifts_ListTheNamedSlots_GreyUntilEarned()
+        {
+            Func<int, string?> text = id => id switch { 512 => "Magic Defense Bonus", 514 => "Capacity Point Bonus", 516 => ".", 558 => "Elemental Bonus", _ => null };
+            Assert.Equal(512, StockUiProgression.JobGiftNameId(2, 0));
+            var (rows, keys) = StockUiProgression.JobGiftRows(2, 5, text);
+            Assert.Equal(new[] { 0, 1, 23 }, keys);
+            Assert.Equal(("Magic Defense Bonus", "5", (UiColor?)null), (rows[0].Text, rows[0].Value, rows[0].Color));
+            var (locked, _) = StockUiProgression.JobGiftRows(2, 4, text);
+            Assert.Equal(StockUiProgression.Greyed, locked[0].Color);
+            // The retail lists of image-31 and image-32.
+            Assert.Equal(new[] { 5, 5, 10, 20, 25, 30, 45, 50, 55, 60 }, Enumerable.Range(0, 10).Select(StockUiProgression.JobGiftThreshold));
+            Assert.Equal(new[] { 280, 320, 355, 360, 405, 445, 450, 500, 500, 545 },
+                new[] { 22, 24, 25, 26, 27, 28, 29, 30, 31, 32 }.Select(StockUiProgression.JobGiftThreshold));
+        }
+
+        [Fact]
+        public void BasicMessages_NameMeritsJobPointsAndObjectives()
+        {
+            var old = Gordian.Engine.Events.EventDialogController.NameResolver;
+            Gordian.Engine.Events.EventDialogController.NameResolver = (kind, id) => (kind, id) switch
+            {
+                (Gordian.Engine.Events.EventMessageFormatter.MeritKind, 32) => "Max HP",
+                (Gordian.Engine.Events.EventMessageFormatter.JobPointKind, 32) => "Mighty Strikes Effect",
+                (Gordian.Engine.Events.EventMessageFormatter.RoeObjectiveKind, 1) => "First Step Forward",
+                _ => null,
+            };
+            try
+            {
+                string Line(byte[] raw, uint param, uint value) => CombatLogFormatter.FormatBattleMessage(
+                    new CombatMessageRecord { MessageId = 1, Param = param, Value = value }, _ => "Me", battleMessages: _ => EventMessageDecoder.Decode(raw));
+                // Messages 380, 720 and 704 of file 7027.
+                var merit = Convert.FromHexString("596F7572207FB000206D6F64696669636174696F6E2068617320726973656E20746F206C6576656C2012012E7F310007");
+                var jobPoint = Convert.FromHexString("596F7572207FB100206D6F64696669636174696F6E2068617320726973656E20746F206C6576656C2012012E7F310007");
+                var taken = Convert.FromHexString("596F75206861766520756E64657274616B656E2087B2010541828080802E87B37F310007");
+                Assert.Equal("Your Max HP modification has risen to level 3.", Line(merit, 32, 3));
+                Assert.Equal("Your Mighty Strikes Effect modification has risen to level 3.", Line(jobPoint, 32, 3));
+                Assert.Equal("You have undertaken \"First Step Forward.\"", Line(taken, 1, 0));
+            }
+            finally
+            {
+                Gordian.Engine.Events.EventDialogController.NameResolver = old;
+            }
         }
 
         [Fact]
@@ -131,6 +203,37 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal("Number Completed 37/200  Rewards: 1,000 Spa. 5,000 EXP 100 Unity Accolades", line);
         }
 
+        [Fact]
+        public void RoeConditions_ZoneUnityAndRotation_EmptySectionsHide()
+        {
+            bool Show(byte kind, int value, StockUiRoeState state) =>
+                StockUiRecordsOfEminence.IsVisible(new RoeChild(0xE001, new[] { new RoeCondition(kind, value) }), state);
+            var state = new StockUiRoeState(Array.Empty<StockUiRoeSlot>(), id => id == 1)
+            {
+                ZoneVisited = zone => zone == 100, UnityLeader = 3, UnitySharedRotation = 2, UnityLeaderRotation = 1,
+            };
+            Assert.True(Show(RoeCondition.ZoneVisited, 100, state));
+            Assert.False(Show(RoeCondition.ZoneVisited, 101, state));
+            Assert.True(Show(RoeCondition.UnityLeader, 3, state));
+            Assert.False(Show(RoeCondition.UnityLeader, 4, state));
+            Assert.True(Show(RoeCondition.UnityRotation, 2, state));
+            Assert.False(Show(RoeCondition.UnityRotation, 3, state));
+            Assert.True(Show(RoeCondition.UnityRotation, 0x101, state));
+            Assert.False(Show(RoeCondition.UnityRotation, 0x100, state));
+            // Before S2C 0x110 every rotation counts; without S2C 0x008 every zone does.
+            var unknown = new StockUiRoeState(Array.Empty<StockUiRoeSlot>(), _ => false);
+            Assert.True(Show(RoeCondition.UnityRotation, 4, unknown));
+            Assert.True(Show(RoeCondition.ZoneVisited, 200, unknown));
+
+            // The Locked section's only objective needs objective 4: until it is done the section does not show.
+            var tables = RoeTables();
+            var none = new StockUiRoeState(Array.Empty<StockUiRoeSlot>(), _ => false);
+            var (top, _) = StockUiRecordsOfEminence.CategoryRows(tables, RecordsOfEminenceTables.RootCategory, none);
+            Assert.Equal(new[] { "Tutorial", "Combat (Wide Area)" }, top.Select(r => r.Text));
+            var done = new StockUiRoeState(Array.Empty<StockUiRoeSlot>(), id => id == 4);
+            Assert.Contains("Locked", StockUiRecordsOfEminence.CategoryRows(tables, RecordsOfEminenceTables.RootCategory, done).Rows.Select(r => r.Text));
+        }
+
         #endregion
 
         #region Flows
@@ -174,7 +277,7 @@ namespace Gordian.Engine.Tests.Ui
             // S2C 0x08C: the open lists follow, the cursor kept.
             h.Merits = new[] { new StockUiMerit(0x40, 4, 5), new StockUiMerit(0x42, 0, 15) };
             h.Menus.OnStatusPointsChanged();
-            Assert.Equal("5", list.Rows[0].Value);
+            Assert.Equal("5/15", list.Rows[0].Value);
             Assert.Equal(1, list.SelectedStatusRow);
         }
 
@@ -197,6 +300,18 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             Assert.True(h.JobPointSent.Task.Wait(10000));
             Assert.Equal((ushort)0x20, h.JobPointSent.Task.Result);
+
+            // Left / Right turns to the job's gifts and back; Confirm on a gift does nothing.
+            Assert.Equal(StockUiStatusPages.JobPointMenu, categories.Name);
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.Equal(StockUiProgressionList.JobGifts, categories.ProgressionList);
+            Assert.Equal(("Physical Defense Bonus", "5"), (categories.Rows[0].Text, categories.Rows[0].Value));
+            Assert.Equal(StockUiProgression.Greyed, categories.Rows[0].Color);
+            h.Menus.Activate();
+            Assert.Same(categories, h.Menus.Top);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal(StockUiProgressionList.JobPointCategories, categories.ProgressionList);
+            Assert.Equal(StockUiProgression.JobPointValueRight, categories.StatusValueRight);
         }
 
         [Fact]
@@ -228,13 +343,9 @@ namespace Gordian.Engine.Tests.Ui
         {
             var h = new Harness();
             var kind = h.Menus.OpenQuests(null)!;
-            Assert.Equal(4, kind.Rows.Count);
-            Assert.Equal("Records of Eminence", kind.Rows[2].Text);
-            kind.SelectedButtonId = StockUiRecordsOfEminence.RoeKindButton;
-            h.Menus.Activate();
-            var roe = h.Menus.Top!;
-            Assert.Equal(StockUiQuestLogView.RoeMenu, roe.QuestLogView);
-            Assert.Equal(StockUiRecordsOfEminence.HelpTitle, roe.QuestLogTitle);
+            Assert.Equal(new[] { "Current", "Completed", "Current", "Objective List" }, kind.Rows.Select(r => r.Text));
+            Assert.Equal("0/30", kind.Rows[2].Value);
+            kind.SelectedButtonId = StockUiRecordsOfEminence.CurrentButton;
 
             // Current with nothing taken: "No current objectives."
             h.Menus.Activate();
@@ -242,7 +353,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(1, h.UnityQuests);
 
             // Objective List: Tutorial > First Step Forward is done for good; Vanquish Multiple Enemies I is taken.
-            roe.SelectedButtonId = StockUiRecordsOfEminence.ObjectiveListButton;
+            kind.SelectedButtonId = StockUiRecordsOfEminence.ObjectiveListButton;
             h.Menus.Activate();
             Assert.Equal(StockUiProgressionList.RoeCategories, h.Menus.Top!.ProgressionList);
             h.Menus.Activate(); // Tutorial
@@ -263,6 +374,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Slots = new[] { new StockUiRoeSlot(0, 1, 0) };
             h.Menus.OnStatusPointsChanged();
             Assert.Equal("0/1", objectives.Rows[0].Value);
+            Assert.Equal("1/30", kind.Rows[2].Value);
             h.Menus.Activate();
             Assert.StartsWith("Remove objective?", h.Menus.Top!.Message, StringComparison.Ordinal);
             h.Menus.Activate(); // default No
@@ -329,11 +441,8 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(library.TryGetMenu(StockUiProgression.MeritEditMenu, out var edit));
             Assert.Equal((612, 613), (edit.FindButton(1)!.HelpTextId, edit.FindButton(2)!.HelpTextId));
             foreach (var button in edit.Buttons) Assert.True(StockUiMenuEntries.TryGet(StockUiProgression.MeritEditMenu, button.ButtonId, out _));
-            foreach (string box in new[] { StockUiProgression.MeritInfoBox, StockUiProgression.JobPointInfoBox })
-            {
-                Assert.True(library.TryGetMenu(box, out var info));
-                Assert.Equal((16, 240, 112, 56), (info.Frame.X, info.Frame.Y, info.Frame.Width, info.Frame.Height));
-            }
+            Assert.True(library.TryGetMenu(StockUiProgression.MeritInfoBox, out var info));
+            Assert.Equal((16, 240, 112, 56), (info.Frame.X, info.Frame.Y, info.Frame.Width, info.Frame.Height));
         }
 
         #endregion
@@ -397,9 +506,10 @@ namespace Gordian.Engine.Tests.Ui
             var objectives = Rotate(Objective(1, "First Step Forward", 1, false)
                 .Concat(Objective(12, "Vanquish Multiple Enemies I", 200, true, 1000, 5000, 100))
                 .Concat(Objective(13, "Vanquish Multiple Enemies II", 500, false)).ToArray());
-            var categories = Rotate(Category(0xF200, "", (0xF210, 0), (0xF211, 0))
+            var categories = Rotate(Category(0xF200, "", (0xF210, 0), (0xF211, 0), (0xF212, 0))
                 .Concat(Category(0xF210, "Tutorial", (0xE001, 0), (0xE00C, 0x01000001), (0xE00D, 0x01000004)))
-                .Concat(Category(0xF211, "Combat (Wide Area)", (0xE00C, 0))).ToArray());
+                .Concat(Category(0xF211, "Combat (Wide Area)", (0xE00C, 0)))
+                .Concat(Category(0xF212, "Locked", (0xE00D, 0x01000004))).ToArray());
             return RecordsOfEminenceTables.Parse(objectives, categories)!;
         }
 
@@ -460,6 +570,7 @@ namespace Gordian.Engine.Tests.Ui
                 Menus.JobPointText = id => id switch { 64 => "Mighty Strikes Effect", 66 => "Berserk Effect", _ => null };
                 Menus.JobPointLevel = (job, k) => job == 1 && k == 0 ? new StockUiJobPointCategory(3, 4) : default;
                 Menus.JobPointSpent = index => { JobPointSent.TrySetResult(index); return Task.CompletedTask; };
+                Menus.JobGiftText = id => id == 0 ? "Physical Defense Bonus" : null;
                 Menus.MenuStringText = id => id switch
                 {
                     108 => "Records of Eminence", 109 => "Current", 110 => "Objective List", 111 => "Set objective?",

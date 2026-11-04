@@ -401,6 +401,7 @@ namespace Gordian.Engine.Sessions
             ActionService.Menus.UnityChatChanged = active => ProgressionModule.SendUnityToggleAsync(active);
             ActionService.Menus.UnityInfo = UnityInfo;
             ActionService.Menus.RoeState = RoeState;
+            ActionService.Menus.RoeTotals = RoeTotals;
             ActionService.Menus.RoeStarted = id => ProgressionModule.SendRoeStartAsync((ushort)(id & 0xFFF));
             ActionService.Menus.RoeRemoved = id => ProgressionModule.SendRoeRemoveAsync((ushort)(id & 0xFFF));
             Progression.UnityUpdated += ActionService.Menus.OnStatusPointsChanged;
@@ -628,12 +629,22 @@ namespace Gordian.Engine.Sessions
         }
 
         /// <summary>The Records of Eminence log (#493): S2C 0x111's slots and S2C 0x112's completed bits.</summary>
+        private Ui.StockUiRoeTotals RoeTotals() => new(Ui.StockUiRecordsOfEminence.ActiveCount(RoeState()), Progression.UnitySparks,
+            ActionService.Menus.StatusPoints?.Invoke()?.Currency1(Gordian.Core.Network.Packets.Currency1Kind.UnityAccolades) ?? 0,
+            Progression.UnityDeeds, Progression.UnityPlaudits, Progression.CountRoeObjectivesCompleted());
+
         private Ui.StockUiRoeState RoeState()
         {
             var slots = Progression.GetRoeSlots();
             var list = new Ui.StockUiRoeSlot[slots.Count];
             for (int i = 0; i < list.Length; i++) list[i] = new Ui.StockUiRoeSlot(slots[i].Slot, slots[i].ObjectiveId, (int)slots[i].Progress);
-            return new Ui.StockUiRoeState(list, id => id is >= 0 and < 4096 && Progression.IsRoeObjectiveCompleted((ushort)id));
+            return new Ui.StockUiRoeState(list, id => id is >= 0 and < 4096 && Progression.IsRoeObjectiveCompleted((ushort)id))
+            {
+                ZoneVisited = Progression.HasVisitedZone,
+                UnityLeader = UnityInfo()?.Leader ?? 0,
+                UnitySharedRotation = Progression.UnityReceived ? Progression.RoEUnityShared : -1,
+                UnityLeaderRotation = Progression.UnityReceived ? Progression.RoEUnityLeader : -1,
+            };
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

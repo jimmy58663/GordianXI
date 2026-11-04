@@ -12,6 +12,18 @@ namespace Gordian.Engine.Ui
     /// <summary>The Records of Eminence log as the server left it: the objectives taken (S2C 0x111) and the completed bits (S2C 0x112).</summary>
     public sealed record StockUiRoeState(IReadOnlyList<StockUiRoeSlot> Slots, Func<int, bool> Completed)
     {
+        /// <summary>Whether a zone has been visited (S2C 0x008); null when not known, and every zone counts.</summary>
+        public Func<int, bool>? ZoneVisited { get; init; }
+
+        /// <summary>The character's Unity leader (S2C 0x061 <c>unity_info</c>, 1-11, 0 none).</summary>
+        public int UnityLeader { get; init; }
+
+        /// <summary>The rotation of the Unity (Shared) and Unity (leader) objectives (S2C 0x110); -1 before the first, and any counts.</summary>
+        public int UnitySharedRotation { get; init; } = -1;
+
+        /// <inheritdoc cref="UnitySharedRotation"/>
+        public int UnityLeaderRotation { get; init; } = -1;
+
         public StockUiRoeSlot? SlotOf(int objectiveId)
         {
             foreach (var s in Slots)
@@ -22,6 +34,9 @@ namespace Gordian.Engine.Ui
         }
     }
 
+    /// <summary>The figures of the Quests window's foot (image-34): objectives taken, S2C 0x110's sparks, deeds and plaudits, Unity accolades, S2C 0x112's count.</summary>
+    public readonly record struct StockUiRoeTotals(int Active, long Sparks, long Accolades, int Deeds, int Plaudits, int Completed);
+
     /// <summary>
     /// The Records of Eminence windows (#493), from the client's objective and category tables
     /// (<see cref="RecordsOfEminenceTables"/>), the short strings (ROM/165/77 108-135: 108 "Records of Eminence", 109 "Current",
@@ -30,17 +45,18 @@ namespace Gordian.Engine.Ui
     /// Required" / "Number Completed", 131 "Rewards:", 123 / 124 / 121 " Spa." / " EXP" / "Unity Accolades", 520 "Vana・Bout")
     /// and XiPackets (C2S 0x10C / 0x10D carry the objective id; C2S 0x117 is sent as Current and Objective List open):
     /// <list type="bullet">
-    /// <item>Main menu Quests (<c>quest00</c>) gains rows 3 and 4: Records of Eminence and Vana'Bout (the maintainer's retail
-    /// check of 2026-11-01: the RoE list is the one quest list where the player accepts and cancels entries).</item>
-    /// <item>Records of Eminence offers Current and Objective List in <c>quest00</c>'s frame. Objective List walks the category
+    /// <item>Main menu Quests (<c>quest00</c>; retail image-34) shows, under Current and Completed, the heading "Records of
+    /// Eminence" over its Current ("11/30" objectives taken) and Objective List, then Vana'Bout, greyed (it is not active in
+    /// retail, no packet for it is known), and the Plaudits, Sparks, Unity Accolades, Deeds and Number Completed figures.</item>
+    /// <item>Objective List walks the category
     /// tree (the eleven top categories, then their subcategories, then the objectives), each level a list in <c>meritcat</c>'s
     /// frame; an objective taken shows its progress ("37/200"), one completed that cannot be repeated is greyed and posts 112.
     /// Confirm asks 111 and sends C2S 0x10C; on an objective taken it asks 115 and sends C2S 0x10D.</item>
     /// <item>Current lists S2C 0x111's objectives in slot order with their progress; Confirm asks 115 / 116 and sends C2S 0x10D.</item>
-    /// <item>A child of a category is shown only when its kind-1 conditions (objectives that must be completed first) hold;
-    /// the other condition kinds (4, 6, 7: Unity and others) are not decoded and are taken as met (PROVISIONAL).</item>
-    /// <item>PROVISIONAL: the windows' frames and the rows' look (no retail capture of the RoE windows yet), and Vana'Bout,
-    /// which LandSandBoat does not implement (no packet for its objectives is known).</item>
+    /// <item>The server sends no list of what is on offer (S2C 0x112 carries only the completed bits): as retail must, the
+    /// client decides from the category table's conditions (<see cref="RoeCondition"/>). A child shows when they all hold, and
+    /// a category only when something under it shows.</item>
+    /// <item>PROVISIONAL: the lists' frames and the rows' look (no retail capture of them yet).</item>
     /// </list>
     /// </summary>
     public static class StockUiRecordsOfEminence
@@ -57,25 +73,65 @@ namespace Gordian.Engine.Ui
         /// <summary>The help bar's title over the RoE windows: ROM/165/77 133 "RoE" (the full name does not fit the title box).</summary>
         public const string HelpTitle = "RoE";
 
-        /// <summary><c>quest00</c>'s rows 3 and 4.</summary>
-        public const int RoeKindButton = 3, VanaBoutKindButton = 4;
+        /// <summary><c>quest00</c>'s Records of Eminence rows.</summary>
+        public const int CurrentButton = 3, ObjectiveListButton = 4;
 
-        /// <summary>The Records of Eminence choice's rows.</summary>
-        public const int CurrentButton = 1, ObjectiveListButton = 2;
+        /// <summary>The most objectives taken at once (LandSandBoat; retail image-34's "11/30").</summary>
+        public const int ActiveLimit = 30;
 
-        /// <summary>Whether <paramref name="child"/> of a category shows: its kind-1 conditions (objectives completed) hold.</summary>
+        /// <summary>ROM/165/77 ids of the Quests window's foot.</summary>
+        public const int SparksLabel = 120, AccoladesLabel = 121, DeedsLabel = 122, PlauditsLabel = 521;
+
+        /// <summary>Current's figure: the objectives taken of the most ("11/30"; the time-limited record in slot 63 does not count).</summary>
+        public static int ActiveCount(StockUiRoeState? state)
+        {
+            int count = 0;
+            if (state == null) return count;
+            foreach (var s in state.Slots)
+            {
+                if (s.Slot < ActiveLimit) count++;
+            }
+            return count;
+        }
+
+        private static bool Holds(RoeCondition c, StockUiRoeState state) => c.Kind switch
+        {
+            RoeCondition.ObjectiveCompleted => state.Completed(c.Value),
+            RoeCondition.ZoneVisited => state.ZoneVisited?.Invoke(c.Value) != false,
+            RoeCondition.UnityLeader => state.UnityLeader == c.Value,
+            RoeCondition.UnityRotation when c.Value >= RoeCondition.LeaderRotationBase =>
+                state.UnityLeaderRotation < 0 || state.UnityLeaderRotation == c.Value - RoeCondition.LeaderRotationBase,
+            RoeCondition.UnityRotation => state.UnitySharedRotation < 0 || state.UnitySharedRotation == c.Value,
+            _ => true,
+        };
+
+        /// <summary>Whether <paramref name="child"/> of a category shows: its conditions hold.</summary>
         public static bool IsVisible(RoeChild child, StockUiRoeState? state)
         {
+            if (state == null) return true;
             foreach (var c in child.Conditions)
             {
-                if (c.Kind == RoeCondition.ObjectiveCompleted && state != null && !state.Completed(c.Value)) return false;
+                if (!Holds(c, state)) return false;
             }
             return true;
         }
 
+        /// <summary>Whether a category has an objective to show, at any depth.</summary>
+        private static bool HasObjectives(RecordsOfEminenceTables tables, RoeCategory category, StockUiRoeState? state, int depth = 0)
+        {
+            if (depth > 8) return false;
+            foreach (var child in category.Children)
+            {
+                if (!IsVisible(child, state)) continue;
+                if (child.IsObjective ? tables.Objective(child.ObjectiveId) != null
+                    : tables.Category(child.RecordId) is { } sub && HasObjectives(tables, sub, state, depth + 1)) return true;
+            }
+            return false;
+        }
+
         /// <summary>
-        /// The rows of a category's list and the record id each stands for: subcategories by name, objectives by name with their
-        /// progress when taken, greyed when completed and not repeatable. Unknown records are left out.
+        /// The rows of a category's list and the record id each stands for: subcategories that hold an objective to show by name,
+        /// objectives by name with their progress when taken, greyed when completed and not repeatable. Unknown records are left out.
         /// </summary>
         public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) CategoryRows(RecordsOfEminenceTables tables, int categoryRecord,
             StockUiRoeState? state)
@@ -86,7 +142,7 @@ namespace Gordian.Engine.Ui
             if (categoryRecord == RecordsOfEminenceTables.RootCategory)
             {
                 var top = new List<RoeChild>();
-                foreach (var c in tables.TopCategories()) top.Add(new RoeChild(c.RecordId, Array.Empty<RoeCondition>()));
+                foreach (var child in tables.Category(categoryRecord)?.Children ?? (IEnumerable<RoeChild>)Array.Empty<RoeChild>()) top.Add(child);
                 children = top;
             }
             else children = tables.Category(categoryRecord)?.Children ?? (IEnumerable<RoeChild>)Array.Empty<RoeChild>();
@@ -99,7 +155,7 @@ namespace Gordian.Engine.Ui
                     rows.Add(ObjectiveRow(rows.Count + 1, o, state));
                     keys.Add(child.RecordId);
                 }
-                else if (tables.Category(child.RecordId) is { Name.Length: > 0 } c)
+                else if (tables.Category(child.RecordId) is { Name.Length: > 0 } c && HasObjectives(tables, c, state))
                 {
                     rows.Add(new StockUiListRow(rows.Count + 1, c.Name, false));
                     keys.Add(child.RecordId);

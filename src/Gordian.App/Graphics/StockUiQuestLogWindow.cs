@@ -14,7 +14,8 @@ namespace Gordian.App.Graphics
     /// red arrows; "Current:" and "Completed:" at the window's left; each quest or mission behind a bullet on its 320 x 18
     /// row, white, pink under the cursor, the mission in progress pale yellow when the cursor is elsewhere; a note (another
     /// nation's "Not allowed under current allegiance.", an empty quest page's text) where an entry's name goes.</item>
-    /// <item><c>quest00</c>'s Current and Completed behind bullets (image-12).</item>
+    /// <item><c>quest00</c> (retail image-34): Current and Completed behind bullets, the "Records of Eminence" heading over its
+    /// Current ("11/30") and Objective List, Vana'Bout greyed beside Plaudits, and the figures at the foot.</item>
     /// <item>The description page (the name, then the text wrapped to the window).</item>
     /// <item>The Conquest map's windows: the values under <c>conquer1</c>'s baked-in headings (Regional Control, Next tally
     /// in, Regional Influence as four bars), or <c>conq6sta</c>'s Balance of Power; Conquest Points are drawn by the HUD in
@@ -74,7 +75,6 @@ namespace Gordian.App.Graphics
                     DrawDescription(renderer, font, logFont, menu, placement);
                     break;
                 case StockUiQuestLogView.QuestKind:
-                case StockUiQuestLogView.RoeMenu:
                     DrawQuestKind(renderer, library, font, logFont, menu, placement);
                     break;
                 case StockUiQuestLogView.Pages:
@@ -107,9 +107,41 @@ namespace Gordian.App.Graphics
                 if (menu.Menu.FindButton(row.ButtonId) is not { } button) continue;
                 float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
                 Bullet(renderer, bx, by, button.Height, s);
-                Text(renderer, font, logFont, row.Text, bx + EntryTextInset * s, RowTextY(font, logFont, by, button.Height, s), s,
-                    row.ButtonId == menu.SelectedButtonId ? SelectedTint : White);
+                float ty = RowTextY(font, logFont, by, button.Height, s);
+                var tint = row.ButtonId == menu.SelectedButtonId ? SelectedTint : White;
+                Text(renderer, font, logFont, row.Text, bx + EntryTextInset * s, ty, s, tint);
+                if (row.Value is { Length: > 0 } value) Text(renderer, font, logFont, value, placement.X + KindValueX * s, ty, s, tint);
             }
+            if (menu.Controller is { } menus) DrawRoeFigures(renderer, font, logFont, menus, placement);
+        }
+
+        /// <summary>Where <c>quest00</c>'s extras stand (image-34, UI 1:1): the heading, the row figure, the left and right figure columns.</summary>
+        private const float KindHeadingX = 19, KindValueX = 180, KindLeftLabelX = 14, KindLeftValueRight = 160, KindRightLabelX = 167, KindRightValueRight = 350;
+
+        /// <summary><c>quest00</c>'s heading, Vana'Bout row and figures. The labels are the client's (ROM/165/77); " :" and ":" as image-34 prints them.</summary>
+        private static void DrawRoeFigures(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiMenuController menus, StockUiPlacement placement)
+        {
+            float s = placement.Scale;
+            string T(int id, string fallback) => menus.MenuStringText?.Invoke(id) is { Length: > 0 } t ? t : fallback;
+            float Y(float top) => RowTextY(font, logFont, placement.Y + top * s, StockUiQuestLog.PickerRowHeight, s);
+            void Figure(string label, long value, float labelX, float valueRight, float y)
+            {
+                Text(renderer, font, logFont, label, placement.X + labelX * s, y, s, White);
+                string number = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                Text(renderer, font, logFont, number, placement.X + valueRight * s - StockUiTextBoxes.MeasureLine(font, logFont, number) * s, y, s, White);
+            }
+            Text(renderer, font, logFont, T(StockUiRecordsOfEminence.TitleText, StockUiRecordsOfEminence.Title), placement.X + KindHeadingX * s,
+                Y(StockUiQuestLog.KindHeadingY), s, White);
+            float vanaBout = placement.Y + StockUiQuestLog.KindVanaBoutY * s, bulletX = placement.X + StockUiQuestLog.KindRowX * s;
+            Bullet(renderer, bulletX, vanaBout, StockUiQuestLog.PickerRowHeight, s);
+            Text(renderer, font, logFont, StockUiRecordsOfEminence.VanaBoutTitle, bulletX + EntryTextInset * s, Y(StockUiQuestLog.KindVanaBoutY), s, StockUiProgression.Greyed);
+            var totals = menus.RoeTotals?.Invoke() ?? default;
+            Figure(T(StockUiRecordsOfEminence.PlauditsLabel, "Plaudits") + " :", totals.Plaudits, KindValueX, KindRightValueRight, Y(StockUiQuestLog.KindVanaBoutY));
+            float first = Y(StockUiQuestLog.KindFiguresY), second = Y(StockUiQuestLog.KindFiguresY + StockUiQuestLog.KindFiguresPitch);
+            Figure(T(StockUiRecordsOfEminence.SparksLabel, "Sparks") + " :", totals.Sparks, KindLeftLabelX, KindLeftValueRight, first);
+            Figure(T(StockUiRecordsOfEminence.AccoladesLabel, "Unity Accolades") + ":", totals.Accolades, KindRightLabelX, KindRightValueRight, first);
+            Figure(T(StockUiRecordsOfEminence.DeedsLabel, "Deeds") + " :", totals.Deeds, KindLeftLabelX, KindLeftValueRight, second);
+            Figure(T(StockUiRecordsOfEminence.CompletedText, "Number Completed") + ":", totals.Completed, KindRightLabelX, KindRightValueRight, second);
         }
 
         private static void DrawPage(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Resources.Tables;
+using Gordian.Engine.Input;
 
 namespace Gordian.Engine.Ui
 {
@@ -23,6 +24,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The key of the row under the cursor, or -1.</summary>
         public int SelectedRowKey => SelectedStatusRow is >= 0 and var row && row < RowKeys.Count ? RowKeys[row] : -1;
 
+        /// <summary>The controller behind this window, for the Quests window's figures.</summary>
+        public StockUiMenuController? Controller => ItemOwner;
+
+        /// <summary>The job points spent on the job the Gifts page shows, for its "Combo Total:".</summary>
+        public int JobGiftsSpent { get; internal set; }
+
         /// <summary>A Records of Eminence list (#493).</summary>
         public bool IsRoeList => ProgressionList is StockUiProgressionList.RoeCategories or StockUiProgressionList.RoeObjectives or StockUiProgressionList.RoeCurrent;
     }
@@ -31,6 +38,9 @@ namespace Gordian.Engine.Ui
     {
         /// <summary>The merit table's strings by id (ROM/169/75): categories at 2 n, merits at their id. Set by the HUD.</summary>
         public Func<int, string?>? MeritText { get; set; }
+
+        /// <summary>The job point gifts' strings by id (ROM/324/59). Set by the HUD.</summary>
+        public Func<int, string?>? JobGiftText { get; set; }
 
         /// <summary>The merits S2C 0x08C listed (<c>ProgressionState.GetMerits</c>); set by the session.</summary>
         public Func<IReadOnlyList<StockUiMerit>>? Merits { get; set; }
@@ -67,6 +77,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Records of Eminence log (S2C 0x111 / 0x112); set by the session.</summary>
         public Func<StockUiRoeState?>? RoeState { get; set; }
+
+        /// <summary>The Quests window's figures (S2C 0x110, 0x112, 0x113); set by the session.</summary>
+        public Func<StockUiRoeTotals>? RoeTotals { get; set; }
 
         /// <summary>Takes an objective (C2S 0x10C) by objective id. Set by the session.</summary>
         public Func<int, Task>? RoeStarted { get; set; }
@@ -109,7 +122,8 @@ namespace Gordian.Engine.Ui
         {
             StockUiProgressionList.MeritCategories => (StockUiProgression.MeritCategoryMenu, StockUiProgression.MeritCategoryHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.Merits => (StockUiProgression.MeritListMenu, StockUiProgression.MeritListHelp, StockUiStatusPage.MeritPoints),
-            StockUiProgressionList.JobPointCategories => (StockUiProgression.MeritListMenu, StockUiProgression.JobPointCategoryHelp, StockUiStatusPage.JobPoints),
+            StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts =>
+                (StockUiStatusPages.JobPointMenu, StockUiProgression.JobPointCategoryHelp, StockUiStatusPage.JobPoints),
             StockUiProgressionList.UnityInfo => (StockUiProgression.MeritCategoryMenu, -1, StockUiStatusPage.Unity),
             StockUiProgressionList.UnityRanking => (StockUiProgression.MeritCategoryMenu, -1, StockUiStatusPage.Unity),
             StockUiProgressionList.UnityLeaders => (StockUiProgression.MeritCategoryMenu, StockUiProgression.UnityListHelp, StockUiStatusPage.Unity),
@@ -124,7 +138,7 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.MeritCategories:
                 {
                     var categories = StockUiProgression.MeritCategories(MeritText);
-                    return (StockUiProgression.MeritCategoryRows(categories, CurrentMerits(), MeritText), categories);
+                    return (StockUiProgression.MeritCategoryRows(categories, CurrentMerits(), MeritText, WeaponSkillsOpen), categories);
                 }
                 case StockUiProgressionList.Merits:
                 {
@@ -138,6 +152,8 @@ namespace Gordian.Engine.Ui
                     var categories = StockUiProgression.JobPointCategories(key, JobPointText);
                     return (StockUiProgression.JobPointCategoryRows(key, categories, JobPointLevel, JobPointText), categories);
                 }
+                case StockUiProgressionList.JobGifts:
+                    return StockUiProgression.JobGiftRows(key, StockUiStatusPages.JobPointsOf(StatusPoints?.Invoke(), key).Spent, JobGiftText);
                 case StockUiProgressionList.UnityInfo:
                     return (StockUiProgression.UnityInfoRows(UnityInfo?.Invoke(), UnityChatActive, MenuStringText), Array.Empty<int>());
                 case StockUiProgressionList.UnityRanking:
@@ -160,7 +176,30 @@ namespace Gordian.Engine.Ui
         {
             var (menu, help, page) = ProgressionWindow(list);
             var (rows, keys) = ProgressionRows(list, key);
-            return OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys);
+            var open = OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys);
+            if (open != null && list == StockUiProgressionList.JobPointCategories) open.StatusValueRight = StockUiProgression.JobPointValueRight;
+            return open;
+        }
+
+        /// <summary>Whether Weapon Skills can be opened: the character holds Heart of the Bushin.</summary>
+        private bool WeaponSkillsOpen => KeyItemHeld?.Invoke(StockUiProgression.WeaponSkillsKeyItem) == true;
+
+        /// <summary>Left / Right on the Job Points window's pages: the job's categories and its gifts, the cursor back on the first row. Call under the lock.</summary>
+        private bool TryMoveJobPointPage(InputAction direction)
+        {
+            if (direction is not (InputAction.MenuLeft or InputAction.MenuRight) || Top is not { } top) return false;
+            if (top.ProgressionList is not (StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts)) return false;
+            bool gifts = top.ProgressionList == StockUiProgressionList.JobPointCategories;
+            top.ProgressionList = gifts ? StockUiProgressionList.JobGifts : StockUiProgressionList.JobPointCategories;
+            top.StatusValueRight = gifts ? StockUiProgression.JobGiftValueRight : StockUiProgression.JobPointValueRight;
+            top.JobGiftsSpent = StockUiStatusPages.JobPointsOf(StatusPoints?.Invoke(), top.ProgressionKey).Spent;
+            var (rows, keys) = ProgressionRows(top.ProgressionList, top.ProgressionKey);
+            top.Rows = rows;
+            top.RowKeys = keys;
+            top.FirstRow = 0;
+            top.ScrollFrom = 0;
+            top.SelectedButtonId = rows.Count > 0 ? 1 : 0;
+            return true;
         }
 
         /// <summary>Confirm on a list of #491 / #493.</summary>
@@ -169,6 +208,8 @@ namespace Gordian.Engine.Ui
             int rowKey = list.SelectedRowKey;
             switch (list.ProgressionList)
             {
+                case StockUiProgressionList.MeritCategories when rowKey == StockUiProgression.WeaponSkillsCategory && !WeaponSkillsOpen:
+                    break;
                 case StockUiProgressionList.MeritCategories when rowKey > 0:
                     lock (_sync) OpenProgressionList(StockUiProgressionList.Merits, rowKey, list, 0);
                     Changed?.Invoke();
@@ -208,6 +249,7 @@ namespace Gordian.Engine.Ui
         private bool RefreshProgressionList(StockUiOpenMenu menu)
         {
             if (menu.ProgressionList == StockUiProgressionList.None) return false;
+            if (menu.ProgressionList == StockUiProgressionList.JobGifts) menu.JobGiftsSpent = StockUiStatusPages.JobPointsOf(StatusPoints?.Invoke(), menu.ProgressionKey).Spent;
             var (rows, keys) = ProgressionRows(menu.ProgressionList, menu.ProgressionKey);
             int keep = menu.SelectedRowKey;
             menu.Rows = rows;
@@ -326,39 +368,25 @@ namespace Gordian.Engine.Ui
             OnStatusPointsChanged();
         }
 
-        /// <summary>Main menu Quests > Records of Eminence (<c>quest00</c> row 3): Current and Objective List.</summary>
-        private void OpenRoeMenu(StockUiOpenMenu parent)
+        /// <summary>The Quests window's rows: Current, Completed, and Records of Eminence's Current ("11/30") and Objective List.</summary>
+        private List<StockUiListRow> QuestKindRows() => new()
+        {
+            new(1, StockUiQuestLog.CurrentKind, false),
+            new(2, StockUiQuestLog.CompletedKind, false),
+            new(StockUiRecordsOfEminence.CurrentButton, ShortText(StockUiRecordsOfEminence.CurrentText, "Current"), false,
+                Value: string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"{StockUiRecordsOfEminence.ActiveCount(RoeState?.Invoke())}/{StockUiRecordsOfEminence.ActiveLimit}")),
+            new(StockUiRecordsOfEminence.ObjectiveListButton, ShortText(StockUiRecordsOfEminence.ObjectiveListText, "Objective List"), false),
+        };
+
+        /// <summary>Records of Eminence's Current or Objective List (C2S 0x117 first, as retail does).</summary>
+        private void OpenRoeList(int button, StockUiOpenMenu parent)
         {
             if (RoeTables?.Invoke() == null)
             {
                 NoticePosted?.Invoke("Records of Eminence: the objective tables are not loaded in this session.");
                 return;
             }
-            var definition = QuestLogDefinition(StockUiQuestLog.QuestKindMenu, 2, StockUiQuestLog.KindRowX, StockUiQuestLog.KindRowY,
-                StockUiQuestLog.KindRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight);
-            if (definition == null) return;
-            var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, 2)
-            {
-                QuestLogView = StockUiQuestLogView.RoeMenu,
-                IsQuestsWindow = true,
-                ItemOwner = this,
-            };
-            lock (_sync)
-            {
-                menu.Rows = new List<StockUiListRow>
-                {
-                    new(StockUiRecordsOfEminence.CurrentButton, ShortText(StockUiRecordsOfEminence.CurrentText, "Current"), false),
-                    new(StockUiRecordsOfEminence.ObjectiveListButton, ShortText(StockUiRecordsOfEminence.ObjectiveListText, "Objective List"), false),
-                };
-                menu.SelectedButtonId = 1;
-                PushOpen(menu);
-            }
-            Changed?.Invoke();
-        }
-
-        /// <summary>The Records of Eminence choice's Current or Objective List (C2S 0x117 first, as retail does).</summary>
-        private void OpenRoeList(int button, StockUiOpenMenu parent)
-        {
             UnityQuestRequested?.Invoke();
             bool current = button == StockUiRecordsOfEminence.CurrentButton;
             if (current && (RoeState?.Invoke()?.Slots.Count ?? 0) == 0)
