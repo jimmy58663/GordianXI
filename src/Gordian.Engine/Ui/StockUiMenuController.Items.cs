@@ -526,9 +526,9 @@ namespace Gordian.Engine.Ui
             top.IsManualSort = false;
             top.ManualSortFrom = null;
             var library = _library;
-            if (library != null && library.TryGetMenu(OptionsMenuOf(top), out var definition))
+            if (library != null && library.TryGetMenu(top.IsActionList ? OptionsMenuFor(top.ActionCategory) : OptionsMenuOf(top), out var definition))
             {
-                var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = true };
+                var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsItemOptions = !top.IsActionList, IsActionOptions = top.IsActionList };
                 options.SelectedButtonId = StockUiItems.ManualSortButton;
                 PushOpen(options);
             }

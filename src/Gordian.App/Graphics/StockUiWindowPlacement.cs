@@ -1,4 +1,5 @@
 // src/Gordian.App/Graphics/StockUiWindowPlacement.cs
+using System;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Ui;
 
@@ -42,6 +43,17 @@ namespace Gordian.App.Graphics
 
         /// <summary>Whether the screen is known (a size or the log's edge), so windows can be placed against it.</summary>
         public static bool HasScreen(StockUiScreen screen) => screen.Height > 0 || screen.Window1Top != null;
+
+        /// <summary>
+        /// Where a window goes with its bottom on Window 1 top edge and its authored offset from the log left edge (the confirm
+        /// windows): it moves with the log and follows its line count.
+        /// </summary>
+        public static (float X, float Y) OnLog(UiMenuFrame frame, float logLeft, float logTop, float scale, float width, float height) =>
+            (Math.Clamp(logLeft + (frame.X - LogAuthoredX) * scale, 0, Math.Max(0, width - frame.Width * scale)),
+             Math.Clamp(logTop - frame.Height * scale, 0, Math.Max(0, height - frame.Height * scale)));
+
+        /// <summary>The log window's authored left edge (<c>logwindo</c>, 16): a window's offset on the log is measured from it.</summary>
+        private const float LogAuthoredX = 16;
 
         /// <summary>
         /// The top of a window <paramref name="height"/> screen px tall with its bottom on Window 1's top edge; while the log

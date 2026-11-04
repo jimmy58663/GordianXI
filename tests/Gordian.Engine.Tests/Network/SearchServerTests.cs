@@ -709,6 +709,90 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal("all whm", ChatCommandRouter.Parse("/sea all whm").Message);
         }
 
+        private static string? ZoneNames(int zone) => zone switch
+        {
+            230 => "Southern San d'Oria",
+            235 => "Bastok Markets",
+            246 => "Port Jeuno",
+            248 => "Selbina",
+            _ => null,
+        };
+
+        [Theory]
+        [InlineData("Cybin")]
+        [InlineData("cybin")]
+        public void ParseSearchQuery_AnyOtherWordIsAName(string words)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(words, query.Name);
+            Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray());
+        }
+
+        [Theory]
+        [InlineData("elv", (byte)1)]
+        [InlineData("ELVAAN", (byte)1)]
+        [InlineData("Hume", (byte)0)]
+        [InlineData("galka", (byte)4)]
+        public void ParseSearchQuery_Races(string words, byte race)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(race, query.Race);
+            Assert.Null(query.Name);
+        }
+
+        [Theory]
+        [InlineData("sandoria", (byte)0)]
+        [InlineData("San d'Oria", (byte)0)]
+        [InlineData("BASTOK", (byte)1)]
+        [InlineData("windurst", (byte)2)]
+        public void ParseSearchQuery_Nations(string words, byte nation)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(nation, query.Nation);
+            Assert.Null(query.Name);
+            Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray()); // the current zone: a nation is no zone
+        }
+
+        [Theory]
+        [InlineData("selbina", 248)]
+        [InlineData("Port Jeuno", 246)]
+        [InlineData("port_jeuno", 246)]
+        [InlineData("bastok markets", 235)]
+        [InlineData("southern san d'oria", 230)]
+        public void ParseSearchQuery_AZoneNameTakesThePlaceOfTheCurrentZone(string words, int zone)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 1, ZoneNames);
+            Assert.Equal(new[] { (ushort)zone }, query.Areas.ToArray());
+            Assert.False(query.AllAreas);
+            Assert.Null(query.Name);
+            Assert.Null(query.Nation);
+        }
+
+        [Fact]
+        public void ParseSearchQuery_TheMaintainersCombinations()
+        {
+            var seeking = PlayerActionService.ParseSearchQuery("all inv brd 24-35", 230, ZoneNames);
+            Assert.True(seeking.AllAreas);
+            Assert.Empty(seeking.Areas);
+            Assert.Equal((ushort)SearchFlags.SeekingParty, seeking.Flags1);
+            Assert.Equal((byte)10, seeking.Job);
+            Assert.Equal(((byte)24, (byte)35), seeking.Level);
+
+            var anyone = PlayerActionService.ParseSearchQuery("ALL INV 12-16", 230, ZoneNames);
+            Assert.True(anyone.AllAreas);
+            Assert.Equal((ushort)SearchFlags.SeekingParty, anyone.Flags1);
+            Assert.Null(anyone.Job);
+            Assert.Equal(((byte)12, (byte)16), anyone.Level);
+
+            var rank = PlayerActionService.ParseSearchQuery("rank 10", 230, ZoneNames);
+            Assert.Equal(((byte)10, (byte)10), rank.Rank);
+            Assert.Null(rank.Level);
+
+            var none = PlayerActionService.ParseSearchQuery("", 230, ZoneNames);
+            Assert.Equal(new ushort[] { 230 }, none.Areas.ToArray());
+            Assert.False(none.AllAreas);
+        }
+
         [Fact]
         public async Task SeaCommand_ListsTheFoundPlayers()
         {
@@ -741,7 +825,7 @@ namespace Gordian.Engine.Tests.Network
 
             var result = await session.Actions.PlayerSearchAsync("all BRD 37-99");
 
-            Assert.Contains("1 player(s) found: Ayame (BRD75/WHM37)", result.Message);
+            Assert.True(string.IsNullOrEmpty(result.Message)); // the window shows them; nothing goes to the log (round 1)
             Assert.True(social.LastQuery!.AllAreas);
             Assert.Equal((byte)10, social.LastQuery.Job);
             Assert.Equal(((byte)37, (byte)99), social.LastQuery.Level);

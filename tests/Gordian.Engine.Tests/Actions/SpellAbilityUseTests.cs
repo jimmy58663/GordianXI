@@ -378,6 +378,29 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
+        public void CommandMenuTrust_HasTheOptionsWindow_TheOtherMagicListsDoNot()
+        {
+            // #476 round 1: Options did not show from the command menu's Trust; image-14's magic list has none.
+            LoadMenus();
+            Learn(TestCatalog.Cure, TestCatalog.Shantotto);
+            var menus = _service.Menus;
+            var target = new StockUiTargetContext(StockUiTargetKind.Self, SelfId, "Me");
+            Assert.True(menus.OpenCommandMenu(target));
+            var command = menus.Top!;
+            var trust = menus.OpenActionList(StockUiActionList.Spells, StockUiActionMenu.TrustKind, command)!;
+            Assert.NotNull(trust.ActionTarget);
+            Assert.True(trust.ShowsActionOptions);
+            Assert.True(menus.ToggleActionOptions());
+            Assert.True(menus.Top!.IsActionOptions);
+            menus.CloseTop();
+            menus.CloseTop();
+
+            var magic = menus.OpenActionList(StockUiActionList.Spells, 0, command)!;
+            Assert.False(magic.ShowsActionOptions);
+            Assert.False(menus.ToggleActionOptions());
+        }
+
+        [Fact]
         public async Task AbilitiesWindow_GreyedRowsPostWhyEmptyListsShowTheirTextAndAbilitiesAskForTheTarget()
         {
             LoadMenus();

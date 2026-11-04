@@ -382,7 +382,9 @@ namespace Gordian.App.Graphics
             // Set Spells over the Magic list draws its own help bar; only one is ever drawn (round 1, N11, image-19).
             if (actions.Menus.OpenMenus.Any(m => m.IsBlueMagicWindow)) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
-            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+            // Manual sort shows the item lists' "Select item to move." (#476).
+            string? help = list.IsManualSort ? actions.Menus.MenuHelpText?.Invoke(StockUiItems.HelpSelectItemToMove) : list.SelectedActionRow?.Help;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -780,6 +782,12 @@ namespace Gordian.App.Graphics
                         // A book's options open beside its row, left of the book list (PROVISIONAL: authored at 0,0; retail's place not captured).
                         x = Math.Max(0, listAt.X - (frame.Width + 4) * root.Scale);
                         y = Math.Clamp(listAt.Y + (bookRow.Y - 6) * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    }
+                    else if (menu.IsPrompt && !shopWindow && _window1Top is { } promptLogTop)
+                    {
+                        // The confirm windows (comyn, yesno) stand on Window 1's top edge whatever its line count, at their
+                        // DAT offset from its left edge (round 1 of the 2026-11-03 test; authored for the eight-line log only).
+                        (x, y) = StockUiWindowPlacement.OnLog(frame, _window1Left.X, promptLogTop, root.Scale, width, height);
                     }
                     else if (menu.IsActionList && _window1Top is { } listTop)
                     {

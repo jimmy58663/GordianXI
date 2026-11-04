@@ -446,7 +446,7 @@ namespace Gordian.App.Graphics
                 float ry = areaY + (i - first) * pitch * s;
                 // The picture (magiconw, or magico2w from 1000), else the small icon.
                 if (StockUiActionMenu.RowImage(library, row.Icon, row.SmallIcon) is { } icon) DrawIcon(renderer, icon, iconX, ry, ActionIconSize * s);
-                UiColor tint = i == selectedEntry ? ActionSelectedTint : row.IsGreyedAt(timestamp) ? ActionGreyedTint : White;
+                UiColor tint = i == menu.ManualSortFrom ? StockUiItemWindow.PickedTint : i == selectedEntry ? ActionSelectedTint : row.IsGreyedAt(timestamp) ? ActionGreyedTint : White;
                 if (logFont != null) logFont.Draw(renderer, row.Name, textX, ry + ActionRowTextDrop * s, s, tint);
                 else renderer.DrawText(font, row.Name, textX, ry + (firstRow.Height * s - font.LineHeight * s) * 0.5f, s, tint);
             }

@@ -2087,12 +2087,11 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// <c>/sea [all] [name] [job] [level] [party] [friend]</c>: searches players on the search server (the current zone, or
-        /// every zone with <c>all</c>). A three-letter job code picks the job, <c>75</c> or <c>70-75</c> (also <c>lv75</c>) the level,
-        /// <c>party</c> players seeking a party, <c>friend</c> friends, and any other word is a name or name prefix. The full
-        /// result is in <c>SearchService.State.LastSearch</c>; the message lists the first names. With the stock menus wired
-        /// (<see cref="StockUiMenuController.Social"/>) the results also open in the Search menu's results window, as retail's
-        /// <c>/sea</c> does (#495).
+        /// <c>/sea</c>, not case-sensitive (the maintainer's grammar, #495 round 1): searches players on the search server in
+        /// the current zone, a named zone, or every zone with <c>all</c>. Filters combine (<see cref="ParseSearchQuery"/>):
+        /// <c>/sea all inv brd 24-35</c>. With the stock menus wired (<see cref="StockUiMenuController.Social"/>) the results
+        /// open in the Search menu's results window and nothing is printed but "No players found." and errors; without them
+        /// the message lists the first names. The full result is in <c>SearchService.State.LastSearch</c>.
         /// </summary>
         public async Task<PlayerActionResult> PlayerSearchAsync(string arguments)
         {
@@ -2100,7 +2099,7 @@ namespace Gordian.Engine.Actions
             var service = SearchService;
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
-            var query = ParseSearchQuery(arguments, _world.CurrentZoneId);
+            var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName);
             if (Menus.Social is { } social)
             {
                 try
@@ -2109,10 +2108,7 @@ namespace Gordian.Engine.Actions
                     if (people.Error is { Length: > 0 } error) return PlayerActionResult.Warn(error, Kind);
                     if (people.People.Count == 0) return PlayerActionResult.Info("No players found.", Kind);
                     Menus.OpenSearchResults(people.People);
-                    const int ShownRows = 12;
-                    var listed = string.Join(", ", people.People.Take(ShownRows).Select(p => string.IsNullOrEmpty(p.Detail) ? p.Name : $"{p.Name} ({p.Detail})"));
-                    string rest = people.People.Count > ShownRows ? $" and {people.People.Count - ShownRows} more" : string.Empty;
-                    return PlayerActionResult.Info($"{people.People.Count} player(s) found: {listed}{rest}.", Kind);
+                    return PlayerActionResult.Info(string.Empty, Kind);
                 }
                 catch (Exception ex)
                 {
@@ -2143,27 +2139,107 @@ namespace Gordian.Engine.Actions
             }
         }
 
-        /// <summary>Turns the arguments of <c>/sea</c> into a search; see <see cref="PlayerSearchAsync"/>.</summary>
-        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone)
+        /// <summary>
+        /// Turns the arguments of <c>/sea</c> into a search; words are not case-sensitive and combine (the maintainer's
+        /// retail grammar, #495 round 1, 2026-11-04): <c>all</c> every zone; a zone's name, joined or as words (<c>selbina</c>,
+        /// <c>port jeuno</c>, through <paramref name="zoneName"/>), else the current zone; a job code; <c>24-35</c>, <c>75</c>
+        /// or <c>lv75</c> the level; <c>rank 10</c>; a race (<c>elv</c>, <c>elvaan</c>, ...); a nation (<c>sandoria</c>,
+        /// <c>bastok</c>, <c>windurst</c>); <c>inv</c> (also <c>party</c>, <c>pt</c>) players seeking a party; <c>friend</c>
+        /// friends. Any other word is a name or name prefix. A zone's several words are read first, so <c>bastok markets</c>
+        /// is the zone and <c>bastok</c> alone the nation. PROVISIONAL: the race short forms past <c>elv</c>, and a one-word
+        /// zone name beating a player of that name.
+        /// </summary>
+        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone, Func<int, string?>? zoneName = null)
         {
             var query = new SearchQuery();
-            foreach (string raw in (arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            var words = (arguments ?? string.Empty).Split(new[] { ' ', '_' }, StringSplitOptions.RemoveEmptyEntries);
+            Dictionary<string, ushort>? zones = null;
+            bool TryZone(string text, out ushort zone)
             {
+                zone = 0;
+                if (zoneName == null) return false;
+                zones ??= SearchZones(zoneName);
+                return zones.TryGetValue(SearchKey(text), out zone);
+            }
+
+            for (int i = 0; i < words.Length; i++)
+            {
+                bool named = false;
+                for (int count = Math.Min(MaxZoneWords, words.Length - i); count >= 2 && !named; count--)
+                {
+                    string joined = string.Concat(words.Skip(i).Take(count));
+                    if (SearchNation(joined) is { } several)
+                    {
+                        query.Nation = several;
+                        named = true;
+                    }
+                    else if (TryZone(joined, out ushort zone))
+                    {
+                        query.Areas.Add(zone);
+                        named = true;
+                    }
+                    if (named) i += count - 1;
+                }
+                if (named) continue;
+
+                string raw = words[i];
                 string token = raw.ToLowerInvariant();
                 if (token == "all") { query.AllAreas = true; continue; }
-                if (token is "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
+                if (token is "inv" or "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
                 if (token == "friend" || token == "friends") { query.FriendsOnly = true; continue; }
+                if (token == "rank" && i + 1 < words.Length && TryParseLevelRange(words[i + 1], out var ranks))
+                {
+                    query.Rank = ranks;
+                    i++;
+                    continue;
+                }
 
                 string levelText = token.StartsWith("lv", StringComparison.Ordinal) ? token[2..] : token;
                 if (TryParseLevelRange(levelText, out var range)) { query.Level = range; continue; }
 
                 if (token.Length == 3 && SearchJobCodes.TryGetValue(token, out var job)) { query.Job = (byte)job; continue; }
+                if (SearchRaces.TryGetValue(token, out byte race)) { query.Race = race; continue; }
+                if (SearchNation(token) is { } nation) { query.Nation = nation; continue; }
+                if (TryZone(token, out ushort oneWord)) { query.Areas.Add(oneWord); continue; }
 
                 query.Name ??= raw;
             }
-            if (!query.AllAreas && currentZone != 0) query.Areas.Add(currentZone);
+            if (query.AllAreas) query.Areas.Clear();
+            else if (query.Areas.Count == 0 && currentZone != 0) query.Areas.Add(currentZone);
             return query;
         }
+
+        /// <summary>The most words <c>/sea</c> tries as one zone name.</summary>
+        private const int MaxZoneWords = 6;
+
+        /// <summary>A name as <c>/sea</c> compares it: lower case letters and digits only ("Ru'Lude Gardens" = "ruludegardens").</summary>
+        private static string SearchKey(string name) => string.Concat(name.Where(char.IsLetterOrDigit)).ToLowerInvariant();
+
+        private static Dictionary<string, ushort> SearchZones(Func<int, string?> zoneName)
+        {
+            var zones = new Dictionary<string, ushort>();
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (zoneName(zone) is { Length: > 0 } name) zones.TryAdd(SearchKey(name), zone);
+            }
+            return zones;
+        }
+
+        /// <summary>A nation's number in the search request (the Search menu's: 0 San d'Oria, 1 Bastok, 2 Windurst), or null.</summary>
+        private static byte? SearchNation(string text) => SearchKey(text) switch
+        {
+            "sandoria" => (byte)0,
+            "bastok" => (byte)1,
+            "windurst" => (byte)2,
+            _ => null,
+        };
+
+        /// <summary>A race's number in the search request (the Search menu's, both genders).</summary>
+        private static readonly Dictionary<string, byte> SearchRaces = new()
+        {
+            ["hume"] = 0, ["hum"] = 0, ["elvaan"] = 1, ["elv"] = 1, ["tarutaru"] = 2, ["taru"] = 2, ["tar"] = 2,
+            ["mithra"] = 3, ["mit"] = 3, ["galka"] = 4, ["gal"] = 4,
+        };
 
         private static bool TryParseLevelRange(string text, out (byte Min, byte Max) range)
         {

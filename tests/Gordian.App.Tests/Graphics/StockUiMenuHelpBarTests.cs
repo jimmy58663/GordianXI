@@ -48,6 +48,19 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void ConfirmWindow_StandsOnTheLogAtItsOffset_WhateverTheLogsLinesAndPlace()
+        {
+            // comyn: 130,208, 252 x 88, authored 114 px right of the log (logwindo, 16). Round 1 of the 2026-11-03 test.
+            var comyn = new Gordian.Core.Resources.Ui.UiMenuFrame { X = 130, Y = 208, Width = 252, Height = 88 };
+            Assert.Equal((130f, 312f), StockUiWindowPlacement.OnLog(comyn, 16, 400, 1, 1280, 720));
+            // A taller log, and a log moved right at scale 2.
+            Assert.Equal((130f, 212f), StockUiWindowPlacement.OnLog(comyn, 16, 300, 1, 1280, 720));
+            Assert.Equal((328f, 424f), StockUiWindowPlacement.OnLog(comyn, 100, 600, 2, 1280, 720));
+            // Never off the screen.
+            Assert.Equal(0f, StockUiWindowPlacement.OnLog(comyn, 16, 40, 1, 1280, 720).Y);
+        }
+
+        [Fact]
         public void LongHelpLine_WaitsScrollsWaitsAndJumpsBack()
         {
             const float overflow = 60;
