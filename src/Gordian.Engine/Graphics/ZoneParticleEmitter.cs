@@ -1185,6 +1185,9 @@ namespace Gordian.Engine.Graphics
                 }
 
                 case 0x49: Clock(slot, frame.DayFraction, t => p.LightTheta = t); break; // point-light theta by time of day
+                case 0x5A: // Unnamed by the references. Four floats; a particle born at scale 0 takes the first three (see particles.md)
+                    if (p.Scale == Vector3.Zero) p.Scale = op.Vector(0);
+                    break;
                 case 0x5B: Progress(p, slot, p.LightTheta, t => p.LightTheta = t); break;
                 case 0x5C: Progress(p, slot, p.LightRange, r => p.LightRange = r); break;
                 case 0x5D: Progress(p, slot, p.LightThetaMultiplier, m => p.LightThetaMultiplier = m); break;

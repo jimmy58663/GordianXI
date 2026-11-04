@@ -196,6 +196,28 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(0f, Assert.Single(emitter.Particles).ColorMultiplier.W);
         }
 
+        [Fact]
+        public void Op5A_SizesAParticleBornAtScaleZero_AndLeavesASizedOneAlone()
+        {
+            // The Waypoint's orb (52715 grw1): scale 0 at birth, 0x5A (0.4, 0.4, 0.4, 0) in its updaters.
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Initializers.RemoveAll(o => o.OpCode == 0x0F);
+            def.Initializers.Add(new ParticleOpcode(0x0F, 0, Args(0f, 0f, 0f)));
+            def.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(0.4f, 0.4f, 0.4f, 0f)));
+            var orb = new ZoneParticleEmitter(Template(def));
+            orb.Update(1f, Frame);
+            orb.Update(1f, Frame);
+            Assert.Equal(new Vector3(0.4f), Assert.Single(orb.Particles).Scale);
+
+            // A lamp halo (d_go lt20): born at 1.6 with 0x5A (3, 3, 3, 1.5).
+            var lampDef = Surf(life: 1000, framesPerEmission: 10000);
+            lampDef.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(3f, 3f, 3f, 1.5f)));
+            var lamp = new ZoneParticleEmitter(Template(lampDef));
+            lamp.Update(1f, Frame);
+            lamp.Update(1f, Frame);
+            Assert.Equal(20f, Assert.Single(lamp.Particles).Scale.X);
+        }
+
         private static uint IdArg(string id) =>
             BitConverter.ToUInt32(System.Text.Encoding.ASCII.GetBytes(id.PadRight(4, '\0')), 0);
 
