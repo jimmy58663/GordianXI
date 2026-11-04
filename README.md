@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/assets/gordian_256.png" alt="GordianXI Gordian Knot logo" width="180">
+</p>
+
 # GordianXI
 
 [![Target Framework](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
