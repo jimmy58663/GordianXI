@@ -212,6 +212,8 @@ namespace Gordian.App.Graphics
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
                 Gordian.Engine.Ui.StandardMessages.ItemLookup ??= menus.ItemLookup;
+                menus.MogHouseLayout.InfoOf = items.GetFurnitureInfo;
+                menus.OnMogHouseFurnitureChanged();
             }
             if (menus.KeyItemCatalog == null && _resources is { } keyItems)
             {
@@ -392,7 +394,7 @@ namespace Gordian.App.Graphics
             // frame's help (Level Sync's "Please select the player ...") shows.
             string? title = top.HelpTitle ?? (top.Parent is { ListKind: StockUiListKind.People } list ? list.HelpTitle : null) ?? StockUiParty.TitleOf(top.Name) ?? StockUiSearch.TitleOf(top.Name);
             if (title == null) return;
-            int helpId = top.SelectedButton is { HelpTextId: >= 0 } button ? button.HelpTextId : top.Menu.Frame.HelpTextId;
+            int helpId = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? top.HelpTextIdOf(button) : top.Menu.Frame.HelpTextId;
             string? help = helpId >= 0 ? menus.MenuHelpText?.Invoke(helpId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
@@ -537,15 +539,19 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
-        /// <summary>The Mog House layout grid (#93) under any layout menu, and its help bar while the grid has the cursor.</summary>
+        /// <summary>The frame's camera, for what the HUD draws in the 3D scene.</summary>
+        public Matrix4x4 ViewProjection { get; set; }
+
+        /// <summary>The Mog House Layout's lines and cursor (#93) under any menu, and its help bar while no menu is up.</summary>
         private void DrawMogHouseLayout(StockUiRenderer renderer, UiResourceLibrary library, StockUiMenuController menus, uint width, uint height)
         {
             var layout = menus.MogHouseLayout;
             if (_font is not { } font || !layout.Active) return;
-            StockUiMogHouseLayoutWindow.Draw(renderer, font, layout, Layout.Scale, width, height);
+            var resources = _resources;
+            StockUiMogHouseLayoutWindow.Draw(renderer, library, layout, ViewProjection, id => resources?.TryLoadFurnitureModel(id) != null, Layout.Scale, width, height, Stopwatch.GetTimestamp());
             if (menus.OpenMenus.Count == 0)
             {
-                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMogHouseLayoutWindow.Title, StockUiMogHouseLayoutWindow.HelpLine(layout),
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMogHouseLayoutWindow.Title, StockUiMogHouseLayoutWindow.HelpLine,
                     Layout.Scale, width, height);
             }
         }
@@ -586,7 +592,7 @@ namespace Gordian.App.Graphics
             var top = menus.OpenMenus.LastOrDefault(m => m.IsMacroWindow);
             if (top != null)
             {
-                string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+                string? help = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? menus.MenuHelpText?.Invoke(top.HelpTextIdOf(button)) : null;
                 string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
                 if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
                 StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);

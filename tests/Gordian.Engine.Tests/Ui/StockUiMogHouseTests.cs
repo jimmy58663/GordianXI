@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 using Gordian.Engine.Ui;
@@ -15,16 +16,30 @@ namespace Gordian.Engine.Tests.Ui
     /// <summary>The Mog House menus (#93): the moogle's menu, Layout (C2S 0x0FA / 0x0FB), Open Mog House / Remodel (0x0CB), the mannequin (0x03B).</summary>
     public class StockUiMogHouseTests
     {
-        private const ushort SimpleBed = 2, OakBed = 3, BrassFlowerpot = 217, HumeMannequin = 256, BronzeCap = 12448, LeatherVest = 12568;
+        private const ushort SimpleBed = 2, OakBed = 3, OakTable = 24, Vase = 150, Flag = 181, BrassFlowerpot = 217, HumeMannequin = 256, BronzeCap = 12448, LeatherVest = 12568;
 
         private static readonly Dictionary<ushort, ItemRecord> Records = new()
         {
             [SimpleBed] = new ItemRecord { ItemId = SimpleBed, Name = "Simple Bed", ItemType = MogHouseFurniture.FurnishingItemType },
             [OakBed] = new ItemRecord { ItemId = OakBed, Name = "Oak Bed", ItemType = MogHouseFurniture.FurnishingItemType },
+            [OakTable] = new ItemRecord { ItemId = OakTable, Name = "Oak Table", ItemType = MogHouseFurniture.FurnishingItemType },
+            [Vase] = new ItemRecord { ItemId = Vase, Name = "Vase", ItemType = MogHouseFurniture.FurnishingItemType },
+            [Flag] = new ItemRecord { ItemId = Flag, Name = "San d'Orian Flag", ItemType = MogHouseFurniture.FurnishingItemType },
             [BrassFlowerpot] = new ItemRecord { ItemId = BrassFlowerpot, Name = "Brass Flowerpot", ItemType = MogHouseFurniture.FlowerpotItemType },
             [HumeMannequin] = new ItemRecord { ItemId = HumeMannequin, Name = "H Mannequin", ItemType = MogHouseFurniture.MannequinItemType },
             [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", EquipSlotsMask = 1 << (int)EquipSlotId.Head },
             [LeatherVest] = new ItemRecord { ItemId = LeatherVest, Name = "Leather Vest", EquipSlotsMask = 1 << (int)EquipSlotId.Body },
+        };
+
+        private static readonly Dictionary<ushort, FurnitureInfo> Furniture = new()
+        {
+            [SimpleBed] = new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 70),
+            [OakBed] = new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 110),
+            [OakTable] = new FurnitureInfo(FurnitureFlags.Surface, 3, 4, 100),
+            [Vase] = new FurnitureInfo(FurnitureFlags.OnTable, 1, 1, 10),
+            [Flag] = new FurnitureInfo(FurnitureFlags.Wall, 3, 1, 250),
+            [BrassFlowerpot] = new FurnitureInfo(FurnitureFlags.OnTable | FurnitureFlags.Flowerpot, 1, 1, 100),
+            [HumeMannequin] = new FurnitureInfo(FurnitureFlags.Floor, 3, 2, 1),
         };
 
         private static UiMenuDefinition List(string name, short x, short y, int count)
@@ -41,10 +56,24 @@ namespace Gordian.Engine.Tests.Ui
             return new UiMenuDefinition { Name = name, Frame = new UiMenuFrame { X = x, Y = y, Width = 112, Height = (short)(8 + 16 * count) }, Buttons = buttons };
         }
 
+        private static UiMenuDefinition ItemList() => new()
+        {
+            Name = StockUiItems.ListMenu,
+            Frame = new UiMenuFrame { X = 16, Y = 48, Width = 182, Height = 190, HelpTextId = 3 },
+            Buttons = Enumerable.Range(1, StockUiItems.ListRows).Select(i => new UiMenuButton
+            {
+                ButtonId = (short)i, X = 3, Y = (short)(6 + 18 * (i - 1)), Width = 132, Height = 16,
+                NavUp = (sbyte)(i == 1 ? 1 : i - 1), NavDown = (sbyte)(i == StockUiItems.ListRows ? i : i + 1), NavLeft = (sbyte)i, NavRight = (sbyte)i,
+            }).ToList(),
+        };
+
         private static UiResourceLibrary Library() => UiResourceLibrary.FromDefinitions(new[]
         {
             List(StockUiMogHouse.MoogleMenu, 16, 208, 7),
             List(StockUiMogHouse.AwayMoogleMenu, 16, 272, 3),
+            List(StockUiMenuEntries.MainMenu, 384, 48, 12),
+            List(StockUiMogHouse.SafeMenu, 384, 48, 2),
+            ItemList(),
             List(StockUiMogHouse.LayoutFloorMenu, 16, 240, 3),
             List(StockUiMogHouse.LayoutPieceMenu, 16, 224, 4),
             List(StockUiMogHouse.ClearAllMenu, 16, 256, 2),
@@ -95,8 +124,11 @@ namespace Gordian.Engine.Tests.Ui
                 Menus.MogHouse = House;
                 Menus.InMogHouse = () => InMogHouse;
                 Menus.NoticePosted += Notices.Add;
-                // A placed bed at (2, 20), a mannequin at (16, 4), an oak bed and a flowerpot in the safes.
-                Inventory.SetItemAttributes(ContainerId.MogSafe, 1, SimpleBed, 1, 0, ItemLockFlag.Normal, Ext(true, 2, 20, 1));
+                Menus.MogHouseLayout.InfoOf = id => Furniture.TryGetValue(id, out var info) ? info : null;
+                Inventory.SetContainerSizes(ContainerId.MogSafe, 80, 80);
+                Inventory.SetContainerSizes(ContainerId.MogSafe2, 80, 80);
+                // A placed bed at (2, 16), a mannequin at (16, 4), an oak bed and a flowerpot in the safes.
+                Inventory.SetItemAttributes(ContainerId.MogSafe, 1, SimpleBed, 1, 0, ItemLockFlag.Normal, Ext(true, 2, 16, 0));
                 Inventory.SetItemAttributes(ContainerId.MogSafe, 2, HumeMannequin, 1, 0, ItemLockFlag.Normal, MannequinExt(16, 4, head: 3));
                 Inventory.SetItemAttributes(ContainerId.MogSafe, 3, OakBed, 1, 0, ItemLockFlag.Normal, Ext(false, 0, 0, 0));
                 Inventory.SetItemAttributes(ContainerId.MogSafe2, 1, BrassFlowerpot, 1, 0, ItemLockFlag.Normal, Ext(false, 0, 0, 0));
@@ -128,12 +160,22 @@ namespace Gordian.Engine.Tests.Ui
                 Menus.Activate();
             }
 
-            public void CursorTo(int x, int z)
+            /// <summary>The piece in hand to a cell, a step at a time.</summary>
+            public void HoldTo(int x, int z)
             {
                 var layout = Menus.MogHouseLayout;
-                Menus.MoveLayoutCursor(x - layout.CursorX, 0);
-                Menus.MoveLayoutCursor(0, z - layout.CursorZ);
-                Assert.Equal((x, z), (layout.CursorX, layout.CursorZ));
+                while (layout.HeldX != x) Menus.MoveLayoutCursor(Math.Sign(x - layout.HeldX), 0);
+                while (layout.HeldZ != z) Menus.MoveLayoutCursor(0, Math.Sign(z - layout.HeldZ));
+            }
+
+            /// <summary>Confirm on an item of the open Mog Safe list.</summary>
+            public void Pick(ushort itemId)
+            {
+                var list = Menus.Top!;
+                Assert.Equal(StockUiItemListKind.Picker, list.ItemListKind);
+                list.FirstRow = 0;
+                list.SelectedButtonId = list.ItemRows.ToList().FindIndex(r => r.ItemId == itemId) + 1;
+                Menus.Activate();
             }
 
             public async Task AnswerYesNoAsync(bool yes)
@@ -184,82 +226,168 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void Layout_PlacesAPieceFromTheSafe_AndQuitSendsTheEmptyLayout()
+        public void Layout_StartsOnAPiece_AndTheDirectionsJumpBetweenPieces()
         {
             var h = new Harness();
             h.Moogle(5);
             var layout = h.Menus.MogHouseLayout;
             Assert.True(layout.Active);
             Assert.Empty(h.Menus.OpenMenus);
-            Assert.Equal(4, layout.Pieces.Count);
+            Assert.Equal(SimpleBed, layout.Selected?.ItemId);
 
-            // Confirm on empty floor: rmlo1; Place lists what is not placed (the oak bed and the flowerpot).
-            h.CursorTo(4, 10);
+            // The mannequin lies to the south-east of the bed; nothing lies west of it.
+            h.Menus.MoveLayoutCursor(-1, 0);
+            Assert.Equal(SimpleBed, layout.Selected?.ItemId);
+            h.Menus.MoveLayoutCursor(1, 0);
+            Assert.Equal(HumeMannequin, layout.Selected?.ItemId);
+            h.Menus.MoveLayoutCursor(0, 1);
+            Assert.Equal(SimpleBed, layout.Selected?.ItemId);
+        }
+
+        [Fact]
+        public void Layout_PlacesAPieceFromASafe_AndCancelBringsBackTheMoogleMenu()
+        {
+            var h = new Harness();
+            h.Moogle(5);
+            var layout = h.Menus.MogHouseLayout;
             h.Menus.ConfirmLayoutCell();
-            Assert.Equal(StockUiMogHouse.LayoutFloorMenu, h.Menus.Top!.Name);
-            h.Choose(1);
-            Assert.Equal(new[] { "Oak Bed", "Brass Flowerpot" }, h.Menus.Top!.Rows.Select(r => r.Text));
-            h.Answer(1);
+            Assert.Equal(StockUiMogHouse.LayoutPieceMenu, h.Menus.Top!.Name);
+            h.Choose(3); // Layout
+            Assert.Equal(StockUiMogHouse.SafeMenu, h.Menus.Top!.Name);
+            h.Choose(1); // Mog Safe: what is not placed in it
+            Assert.Equal(new ushort[] { OakBed }, h.Menus.Top!.ItemRows.Select(r => r.ItemId));
+            h.Pick(OakBed);
             Assert.Empty(h.Menus.OpenMenus);
             Assert.Equal(OakBed, layout.Held?.ItemId);
 
-            // Turn it twice, try the block in front of the door, then place it.
+            // Turned twice; the block in front of the door and the bed refuse it.
             h.Menus.TurnHeldPiece();
             h.Menus.TurnHeldPiece();
-            h.CursorTo(8, 4);
+            Assert.Equal(2, layout.Rotation);
+            h.HoldTo(8, 4);
             h.Menus.ConfirmLayoutCell();
             Assert.Equal(StockUiMogHouse.CellNotUsableNotice, h.Notices.Last());
+            h.HoldTo(3, 15);
+            Assert.False(layout.CanPlaceHeld());
             Assert.Empty(h.House.Sent);
-            h.CursorTo(4, 10);
+            h.HoldTo(1, 4);
             h.Menus.ConfirmLayoutCell();
             Assert.Null(layout.Held);
-            Assert.Equal(new[] { $"0x0FA {OakBed} {(byte)ContainerId.MogSafe}:3 f0 4,0,10 r2" }, h.House.Sent);
+            Assert.Equal(new[] { $"0x0FA {OakBed} {(byte)ContainerId.MogSafe}:3 f0 1,0,4 r2" }, h.House.Sent);
+            Assert.Equal(OakBed, layout.Selected?.ItemId); // the cursor stays on it, before S2C 0x020 comes back
 
-            // Cancel on the grid ends the layout: 0x0FA with every field 0.
+            // Cancel ends the Layout: 0x0FA with every field 0, and the moogle's menu is back on Layout.
             h.Menus.CancelLayout();
             Assert.False(layout.Active);
             Assert.Equal("0x0FA 0", h.House.Sent.Last());
+            Assert.Equal(StockUiMogHouse.MoogleMenu, h.Menus.Top!.Name);
+            Assert.Equal(StockUiMogHouse.LayoutButton, h.Menus.Top!.SelectedButtonId);
         }
 
         [Fact]
-        public void Layout_OnAPiece_MovesOrClearsIt()
+        public void Layout_OnAPiece_RearrangesOrRemovesIt()
         {
             var h = new Harness();
             h.Moogle(5);
             var layout = h.Menus.MogHouseLayout;
-            h.CursorTo(2, 20);
             h.Menus.ConfirmLayoutCell();
-            Assert.Equal(StockUiMogHouse.LayoutPieceMenu, h.Menus.Top!.Name);
-
-            // Move: the bed follows the cursor with its rotation; Cancel puts it back without a packet.
-            h.Choose(1);
+            h.Choose(1); // Rearrange
             Assert.Equal(SimpleBed, layout.Held?.ItemId);
-            Assert.Equal(1, layout.Rotation);
-            Assert.Null(layout.PieceAt(2, 20)); // the held piece is not drawn at its old cell
+            Assert.Equal((2, 16), (layout.HeldX, layout.HeldZ));
+
+            // Cancel puts it back without a packet, and the Layout stays.
+            h.Menus.MoveLayoutCursor(1, 0);
             h.Menus.CancelLayout();
             Assert.Null(layout.Held);
             Assert.True(layout.Active);
             Assert.Empty(h.House.Sent);
 
-            // Clear Away: 0x0FB.
+            // Remove: 0x0FB, and the cursor goes on to the mannequin.
             h.Menus.ConfirmLayoutCell();
             h.Choose(2);
             Assert.Equal(new[] { $"0x0FB {SimpleBed} {(byte)ContainerId.MogSafe}:1" }, h.House.Sent);
+            Assert.Equal(HumeMannequin, layout.Selected?.ItemId);
         }
 
         [Fact]
-        public void Layout_ClearAll_ClearsEveryPieceOnTheFloor()
+        public void Layout_MovesTheFootprintWithItsRotation_OnTheGrid()
+        {
+            var h = new Harness();
+            h.Moogle(5);
+            var layout = h.Menus.MogHouseLayout;
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(1);
+            // 4 x 6 turned is 6 x 4; it stops at the grid's east edge.
+            h.Menus.TurnHeldPiece();
+            for (int i = 0; i < 30; i++) h.Menus.MoveLayoutCursor(1, 0);
+            Assert.Equal(MogHouseFurniture.GridWidth - 6, layout.HeldX);
+        }
+
+        [Fact]
+        public void Layout_ATableTakesItsPieces_AndAWallPieceWalksTheSlots()
+        {
+            var h = new Harness();
+            h.Inventory.SetItemAttributes(ContainerId.MogSafe, 4, OakTable, 1, 0, ItemLockFlag.Normal, Ext(true, 2, 8, 0));
+            h.Inventory.SetItemAttributes(ContainerId.MogSafe, 5, Vase, 1, 0, ItemLockFlag.Normal, Ext(false, 0, 0, 0));
+            h.Inventory.SetItemAttributes(ContainerId.MogSafe, 6, Flag, 1, 0, ItemLockFlag.Normal, Ext(false, 0, 0, 0));
+            h.Moogle(5);
+            var layout = h.Menus.MogHouseLayout;
+
+            // A vase set on the table stands at the table's height / 10.
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(3);
+            h.Choose(1);
+            h.Pick(Vase);
+            h.HoldTo(3, 9);
+            Assert.Equal(10, layout.HeldLevel());
+            h.Menus.ConfirmLayoutCell();
+            Assert.Equal($"0x0FA {Vase} {(byte)ContainerId.MogSafe}:5 f0 3,10,9 r0", h.House.Sent.Last());
+
+            // Moving the table sends the vase first, the same offset away.
+            h.Menus.MoveLayoutCursor(0, 1); // onto the table
+            Assert.Equal(OakTable, layout.Selected?.ItemId);
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(1);
+            h.HoldTo(3, 8);
+            h.House.Sent.Clear();
+            h.Menus.ConfirmLayoutCell();
+            for (int i = 0; i < 200 && h.House.Sent.Count < 2; i++) Task.Delay(5).Wait();
+            Assert.Equal(new[] { $"0x0FA {Vase} {(byte)ContainerId.MogSafe}:5 f0 4,10,9 r0", $"0x0FA {OakTable} {(byte)ContainerId.MogSafe}:4 f0 3,0,8 r0" }, h.House.Sent);
+
+            // A wall piece: the slots, not the cells; the rotation stays 0.
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(3);
+            h.Choose(1);
+            h.Pick(Flag);
+            Assert.Equal(0, layout.HeldX);
+            h.Menus.MoveLayoutCursor(1, 0);
+            Assert.Equal(1, layout.HeldX);
+            h.Menus.MoveLayoutCursor(-1, 0);
+            h.Menus.MoveLayoutCursor(-1, 0);
+            Assert.Equal(4, layout.HeldX);
+            h.Menus.TurnHeldPiece();
+            h.Menus.ConfirmLayoutCell();
+            Assert.Equal($"0x0FA {Flag} {(byte)ContainerId.MogSafe}:6 f0 4,0,0 r0", h.House.Sent.Last());
+        }
+
+        [Fact]
+        public void Layout_RemoveAll_ClearsEveryPieceOnTheFloor()
         {
             var h = new Harness();
             h.Moogle(5);
             h.Menus.ConfirmLayoutCell();
-            h.Choose(2); // rmlo1 Clear All
+            h.Choose(4); // rmlo2 Remove All
             Assert.Equal(StockUiMogHouse.ClearAllMenu, h.Menus.Top!.Name);
-            h.Choose(2); // Return
-            Assert.Equal(StockUiMogHouse.LayoutFloorMenu, h.Menus.Top!.Name);
-            h.Choose(2);
+            h.Choose(2); // Exit
+            Assert.Equal(StockUiMogHouse.LayoutPieceMenu, h.Menus.Top!.Name);
+            h.Choose(4);
             h.Choose(1);
             Assert.Equal(2, h.House.Sent.Count(s => s.StartsWith("0x0FB")));
+            Assert.Null(h.Menus.MogHouseLayout.Selected);
+
+            // Nothing placed: Confirm opens the empty room's menu.
+            h.Menus.ConfirmLayoutCell();
+            Assert.Equal(StockUiMogHouse.LayoutFloorMenu, h.Menus.Top!.Name);
         }
 
         [Fact]
@@ -270,10 +398,29 @@ namespace Gordian.Engine.Tests.Ui
             h.Moogle(5);
             var layout = h.Menus.MogHouseLayout;
             Assert.True(layout.SecondFloor);
-            Assert.Null(layout.PieceAt(2, 20));
+            Assert.Null(layout.Selected);
             h.Menus.ConfirmLayoutCell();
             h.Choose(1);
-            Assert.Equal(new[] { "Oak Bed" }, h.Menus.Top!.Rows.Select(r => r.Text));
+            h.Choose(2); // Mog Safe 2: only the flowerpot, which the second floor refuses
+            Assert.Empty(h.Menus.Top!.ItemRows);
+        }
+
+        [Fact]
+        public void MainMenu_InTheMogHouse_ReadsMogHouseAndOpensTheMooglesMenu()
+        {
+            var h = new Harness();
+            Assert.True(h.Menus.OpenMainMenu());
+            var main = h.Menus.Top!;
+            Assert.Equal(StockUiMogHouse.MogHouseLabelImage, main.LabelImages[StockUiMogHouse.MainMenuButton].ImageIndex);
+            Assert.Equal(StockUiMogHouse.MogHouseHelp, main.HelpTextIdOf(main.Menu.FindButton(StockUiMogHouse.MainMenuButton)!));
+            main.SelectedButtonId = StockUiMogHouse.MainMenuButton;
+            h.Menus.Activate();
+            Assert.Equal(StockUiMogHouse.MoogleMenu, h.Menus.Top!.Name);
+
+            h.Menus.CloseAll();
+            h.InMogHouse = false;
+            Assert.True(h.Menus.OpenMainMenu());
+            Assert.Empty(h.Menus.Top!.LabelImages);
         }
 
         [Fact]
@@ -281,7 +428,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             var h = new Harness();
             h.Moogle(5);
-            h.CursorTo(16, 4);
+            h.Menus.MoveLayoutCursor(1, 0);
             h.Menus.ConfirmLayoutCell();
             Assert.Equal(StockUiMogHouse.LayoutMannequinMenu, h.Menus.Top!.Name);
             h.Choose(1);
@@ -312,7 +459,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task OpenMogHouse_AsksAndToggles_AndLayoutIsRefusedWhileOpen()
+        public async Task OpenMog_ReadsCloseMog_AndGreysLayoutAndRemodel()
         {
             var h = new Harness();
             h.Moogle(6);
@@ -320,15 +467,22 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { "0x0CB Open" }, h.House.Sent);
             Assert.True(h.Menus.MogHouseOpenToVisitors);
 
-            h.Moogle(5);
-            Assert.Equal(StockUiMogHouse.LayoutWhileOpenNotice, h.Notices.Last());
+            // The menu stays up with the new look.
+            var menu = h.Menus.Top!;
+            Assert.Equal(StockUiMogHouse.MoogleMenu, menu.Name);
+            Assert.Equal(StockUiMogHouse.CloseMogLabelImage, menu.LabelImages[StockUiMogHouse.OpenHouseButton].ImageIndex);
+            Assert.True(menu.IsGreyed(StockUiMogHouse.LayoutButton));
+            Assert.True(menu.IsGreyed(StockUiMogHouse.RemodelButton));
+            h.Choose(StockUiMogHouse.LayoutButton);
             Assert.False(h.Menus.MogHouseLayout.Active);
 
-            h.Moogle(6);
             h.House.Sent.Clear();
+            h.Choose(StockUiMogHouse.OpenHouseButton);
             await h.AnswerYesNoAsync(true);
             Assert.Equal(new[] { "0x0CB Close" }, h.House.Sent);
             Assert.False(h.Menus.MogHouseOpenToVisitors);
+            Assert.Empty(h.Menus.Top!.LabelImages);
+            Assert.False(h.Menus.Top!.IsGreyed(StockUiMogHouse.LayoutButton));
         }
 
         [Fact]

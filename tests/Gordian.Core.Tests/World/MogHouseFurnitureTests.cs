@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Network;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 using Xunit;
 
@@ -91,6 +92,66 @@ namespace Gordian.Core.Tests.World
             Assert.Empty(MogHouseFurniture.Snapshot(inv, null));
             Assert.True(MogHouseFurniture.IsMannequin(HumeMannequin));
             Assert.False(MogHouseFurniture.IsMannequin(SimpleBed));
+        }
+
+        [Fact]
+        public void FurnitureTable_ReadsItsRecords_AndTheModelFileRuns()
+        {
+            // A container of one 0x59 section: the walker's 16-byte header, a record for a 4 x 6 bed and an empty one.
+            var table = new byte[16];
+            Array.Copy(new byte[] { 0, 0, 2, 0, 4, 6, 70, 0 }, table, 8);
+            Array.Copy(new byte[] { 0, 0, 3, 0, 0, 0, 0, 0 }, 0, table, 8, 8);
+            var dat = new byte[16 + 16 + 16];
+            uint size = (uint)((16 + 16) / 16);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(dat.AsSpan(4), 0x59u | (size << 7));
+            Array.Copy(table, 0, dat, 16, 16);
+            var parsed = FurnitureTable.Parse(dat);
+            Assert.Single(parsed);
+            Assert.Equal(new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 70), parsed[2]);
+
+            Assert.Equal(32929, FurnitureTable.ModelFileId(2));
+            Assert.Equal(0, FurnitureTable.ModelFileId(256)); // mannequins
+            Assert.Equal(51464, FurnitureTable.ModelFileId(281));
+            Assert.Equal(62825, FurnitureTable.ModelFileId(3598));
+        }
+
+        [Fact]
+        public void RetailFurniture_MatchesTheTableAndItsMesh()
+        {
+            const string game = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(game)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(game);
+            rm.InitializeFileTable();
+            Assert.Equal(new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 70), rm.GetFurnitureInfo(SimpleBed));
+            Assert.Equal(FurnitureFlags.Wall, rm.GetFurnitureInfo(181)!.Value.Flags); // San d'Orian Flag
+            Assert.Null(rm.GetFurnitureInfo(4096));
+            var bed = rm.TryLoadFurnitureModel(SimpleBed);
+            Assert.NotNull(bed);
+            Assert.StartsWith("m_bed_02", bed!.Meshes[0].Name);
+            Assert.NotEmpty(bed.Textures);
+            Assert.Null(rm.TryLoadFurnitureModel(HumeMannequin));
+        }
+
+        [Fact]
+        public void Placement_PutsTheMeshAtTheFootprintsMiddle()
+        {
+            var bed = new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 70);
+            // The room's middle is the grid's: (10, 12) on the first floor. x runs east, display x west.
+            var at = MogHouseFurniture.FloorTransform(bed, 8, 9, 0, 0, false).Translation;
+            Assert.Equal(0f, at.X, 3);
+            Assert.Equal(0f, at.Z, 3);
+            // Turned, the footprint is 6 x 4 and level 10 is a yalm up.
+            at = MogHouseFurniture.FloorTransform(bed, 0, 0, 10, 1, false).Translation;
+            Assert.Equal(6f - 3 * 0.6f, at.X, 3);
+            Assert.Equal(1f, at.Y, 3);
+            Assert.Equal(-7.2f + 2 * 0.6f, at.Z, 3);
+            Assert.Equal((6, 4), MogHouseFurniture.Footprint(bed, 3));
+
+            // The second floor's rows run 26, so its grid starts further south.
+            Assert.Equal(-7.8f, MogHouseFurniture.CellCorner(0, 0, true).Z, 3);
+            Assert.NotNull(MogHouseFurniture.WallTransform(4, false));
+            Assert.Null(MogHouseFurniture.WallTransform(5, false));
+            Assert.Null(MogHouseFurniture.WallTransform(0, true));
         }
 
         [Fact]

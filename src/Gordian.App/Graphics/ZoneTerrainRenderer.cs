@@ -9,6 +9,7 @@ using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
 using Gordian.Core.World.Collision;
 using NeoVeldrid;
@@ -1494,6 +1495,7 @@ namespace Gordian.App.Graphics
 
             DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawDoors(sceneUniform, frustum, ref draws, ref visible, ref culled);
+            DrawFurniture(sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawPlacedSubmeshes(_vesselSubmeshes, Matrix4x4.Identity, _activeDecodedTextures, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
             DrawSubAreaInteriors(resourceManager, sceneUniform, environment, frustum, deferred: false, ref draws, ref visible, ref culled);
             DrawTransportVessels(entities, resourceManager, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
@@ -2940,6 +2942,58 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>The Mog House's furniture this frame (#93); null or empty outside one.</summary>
+        public IReadOnlyList<FurnitureInstance>? Furniture { get; set; }
+
+        private readonly Dictionary<FurnitureModel, List<GpuSubmesh>> _furnitureMeshes = new();
+
+        /// <summary>
+        /// Draws the furniture as <see cref="DrawDoors"/> draws a leaf: a model's meshes are uploaded once, around their origin, and
+        /// each piece's place is a per-draw world transform in the scene uniform.
+        /// </summary>
+        private void DrawFurniture(ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+        {
+            var furniture = Furniture;
+            if (furniture == null || furniture.Count == 0) return;
+            foreach (var piece in furniture)
+            {
+                if (!_furnitureMeshes.TryGetValue(piece.Model, out var meshes))
+                {
+                    meshes = new List<GpuSubmesh>(piece.Model.Meshes.Count);
+                    lock (_shared.GpuLock)
+                    {
+                        foreach (var mesh in piece.Model.Meshes)
+                        {
+                            if (mesh.Vertices.Length > 0 && mesh.Indices.Length > 0) meshes.Add(UploadSubmesh(_shared, mesh));
+                        }
+                    }
+                    _furnitureMeshes[piece.Model] = meshes;
+                }
+                foreach (var submesh in meshes)
+                {
+                    TransformBounds(submesh.MinBounds, submesh.MaxBounds, piece.World, out var min, out var max);
+                    if (!frustum.IntersectsBox(min, max))
+                    {
+                        culled++;
+                        continue;
+                    }
+                    var moved = sceneUniform;
+                    moved.World = piece.World;
+                    _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref moved);
+                    _commandList.SetPipeline(ForSubmesh(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline, submesh.NoCull));
+                    _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
+                    _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, piece.Model.Textures));
+                    _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
+                    _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                    _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                    _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
+                    draws++;
+                    visible++;
+                }
+            }
+        }
+
         /// <summary>The axis-aligned bounds of a box after a transform (its eight corners).</summary>
         private static void TransformBounds(Vector3 min, Vector3 max, in Matrix4x4 transform, out Vector3 outMin, out Vector3 outMax)
         {
@@ -2976,6 +3030,11 @@ namespace Gordian.App.Graphics
             foreach (var runtime in _runtimes.Values) runtime.Dispose();
             _runtimes.Clear();
             _runtime = null;
+            foreach (var meshes in _furnitureMeshes.Values)
+            {
+                foreach (var submesh in meshes) submesh.Dispose();
+            }
+            _furnitureMeshes.Clear();
             foreach (var meshes in _actorEffectMeshes.Values)
             {
                 foreach (var list in meshes.Values)

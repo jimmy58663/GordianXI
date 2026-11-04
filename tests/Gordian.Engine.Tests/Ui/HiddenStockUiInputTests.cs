@@ -47,6 +47,31 @@ namespace Gordian.Engine.Tests.Ui
             return new Harness(controller, input, actions, chat, world);
         }
 
+        private sealed class NoHouse : IStockUiMogHouse
+        {
+            public bool OnSecondFloor => false;
+            public Task PlaceAsync(FurniturePlacement piece, bool secondFloor, byte x, byte level, byte z, byte rotation) => Task.CompletedTask;
+            public Task FinishLayoutAsync() => Task.CompletedTask;
+            public Task ClearAwayAsync(FurniturePlacement piece) => Task.CompletedTask;
+            public Task SetHouseOpenAsync(bool open) => Task.CompletedTask;
+            public Task RemodelAsync(ushort style) => Task.CompletedTask;
+            public Task MannequinAsync(SubcontainerKind kind, FurniturePlacement mannequin, SubcontainerSlotIndex slot, byte storageSlot) => Task.CompletedTask;
+        }
+
+        /// <summary>Round 1 of #93: with no menu open the arrows stayed camera keys, so the Layout's cursor never moved.</summary>
+        [Fact]
+        public void MogHouseLayout_TakesTheMenuKeys()
+        {
+            var h = Create();
+            h.Actions.Menus.MogHouse = new NoHouse();
+            h.Actions.Menus.MogHouseLayout.Active = true;
+            h.Controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(h.Input.MenuContext);
+            h.Actions.Menus.MogHouseLayout.Active = false;
+            h.Controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(h.Input.MenuContext);
+        }
+
         [Fact]
         public void MenuKey_OpensTheShownMenu()
         {

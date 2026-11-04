@@ -11,7 +11,7 @@ namespace Gordian.Engine.Sessions
         /// <summary>
         /// The Mog House menus (#93): S2C 0x02E opens the moogle's menu; Layout, Open Mog House, Remodel and the mannequin
         /// send C2S 0x0FA / 0x0FB / 0x0CB / 0x03B through the progression and inventory modules; the furniture's places come
-        /// back in the Mog Safes' S2C 0x020 extra data (and 0x0FA), so the layout grid follows the inventory. A zone change
+        /// back in the Mog Safes' S2C 0x020 extra data (and 0x0FA), so the room's pieces follow the inventory. A zone change
         /// ends the layout.
         /// </summary>
         private void AttachMogHouse()
@@ -25,6 +25,8 @@ namespace Gordian.Engine.Sessions
                 if (container is ContainerId.MogSafe or ContainerId.MogSafe2) menus.OnMogHouseFurnitureChanged();
             };
             World.ZoneChanged += _ => menus.OnMogHouseZoneChanged();
+            // Into or out of a room the zone id stays the city's: the room's own change reads the furniture for its floor.
+            World.MapZoneChanged += _ => menus.OnMogHouseFurnitureChanged();
         }
 
         private sealed class MogHouseActions : IStockUiMogHouse

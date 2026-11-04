@@ -1,8 +1,10 @@
 // src/Gordian.Core/World/MogHouseFurniture.cs
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.Resources.Tables;
 
 namespace Gordian.Core.World
 {
@@ -71,13 +73,15 @@ namespace Gordian.Core.World
     }
 
     /// <summary>
-    /// The Mog House layout grid and the furnishings in the Mog Safes. The grid is cells of the room seen from above:
-    /// x 0-19 across, z rows from the door side, (0, 0) the bottom left facing north. The first floor's rows run 0-23
-    /// with an 8 x 18 block in front of the door (x 6-13, z 0-17) that takes nothing, and five wall slots (0-4); the
-    /// second floor's rows run 0-25, all usable, with 92 wall slots. Furnishings are item type 10, flowerpots 12 and
-    /// mannequins 14 in the item DAT (checked against the retail item DAT, 2026-11-02: Simple Bed 2 is 10, Brass
-    /// Flowerpot 217 is 12, H♂ Mannequin 256 is 14). A furnishing's footprint and whether it hangs on a wall or stacks
-    /// on a table are not in the item DAT; the server checks them (LandSandBoat keeps them in its own table).
+    /// The Mog House layout grid and the furnishings in the Mog Safes. The grid is cells of 0.6 yalm seen from above, centred on
+    /// the room: x 0-19 from west to east, z rows from the door side, (0, 0) the bottom left facing north. The first floor's rows
+    /// run 0-23 with an 8 x 18 block in front of the door (x 6-13, z 0-17) that takes nothing, and five wall slots (0-4); the
+    /// second floor's rows run 0-25, all usable, with 92 wall slots. Furnishings are item type 10, flowerpots 12 and mannequins 14
+    /// in the item DAT (checked against the retail item DAT, 2026-11-02: Simple Bed 2 is 10, Brass Flowerpot 217 is 12, H♂
+    /// Mannequin 256 is 14). Footprints and placement rules come from the client's <see cref="FurnitureTable"/>.
+    /// **Beyond XiPackets / LandSandBoat:** the cell size and origin, from the San d'Oria room (file 389) against the retail video
+    /// <c>20261104-0517-47</c>: the permanent rug is 4.8 x 7.2 yalms centred on the room and fills columns 6-13, rows 6-17; a
+    /// Simple Bed's mesh (2.1 x 3.4) fits its 4 x 6 cells only at 0.6.
     /// Grid sizes referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x00FA) and
     /// LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0fa_myroom_layout.cpp).
     /// </summary>
@@ -94,6 +98,59 @@ namespace Gordian.Core.World
 
         public static int Rows(bool secondFloor) => secondFloor ? SecondFloorRows : FirstFloorRows;
 
+        /// <summary>A grid cell's side in yalms.</summary>
+        public const float CellSize = 0.6f;
+
+        /// <summary>The east and west walls' distance from the room's middle (video: one cell's width past the grid, less a little).</summary>
+        public const float WallX = 6.5f;
+
+        /// <summary>How high a wall piece's origin hangs (<b>provisional</b>: the top-down video does not show it).</summary>
+        public const float WallHeight = 2.5f;
+
+        /// <summary>The first floor's wall slots' places along the walls: slots 0-1 on the east wall, 2-4 on the west (XiPackets' diagram).</summary>
+        private static readonly (bool East, float Z)[] FirstFloorWalls = { (true, 4.8f), (true, -4.8f), (false, -4.8f), (false, 0f), (false, 4.8f) };
+
+        /// <summary>A cell corner's place on the floor, internal space: x east, z north (the room's middle is the origin).</summary>
+        public static (float X, float Z) CellCorner(float x, float z, bool secondFloor) =>
+            ((x - GridWidth / 2f) * CellSize, (z - Rows(secondFloor) / 2f) * CellSize);
+
+        /// <summary>A footprint's cells across and deep at a rotation: quarter turns swap them.</summary>
+        public static (int X, int Z) Footprint(in FurnitureInfo info, int rotation) =>
+            (rotation & 1) != 0 ? (info.SizeZ, info.SizeX) : (info.SizeX, info.SizeZ);
+
+        /// <summary>
+        /// Where a floor piece's mesh goes in display space (-x, -y, z), its origin at the footprint's middle, raised by its
+        /// stacking level (C2S 0x0FA <c>y</c>, tenths of a yalm), turned a quarter clockwise per <paramref name="rotation"/>
+        /// (<b>provisional</b>: which way is not checked against retail).
+        /// </summary>
+        public static Matrix4x4 FloorTransform(in FurnitureInfo info, int x, int z, int level, int rotation, bool secondFloor)
+        {
+            var (w, d) = Footprint(info, rotation);
+            var (cx, cz) = CellCorner(x + w / 2f, z + d / 2f, secondFloor);
+            return Matrix4x4.CreateRotationY(-rotation * MathF.PI / 2) * Matrix4x4.CreateTranslation(-cx, level * 0.1f, cz);
+        }
+
+        /// <summary>A first-floor wall slot's place, display space, its mesh's back on the wall and facing into the room; null for a slot with no known place.</summary>
+        public static Matrix4x4? WallTransform(int slot, bool secondFloor)
+        {
+            if (secondFloor || slot < 0 || slot >= FirstFloorWalls.Length) return null;
+            var (east, z) = FirstFloorWalls[slot];
+            return Matrix4x4.CreateRotationY(east ? -MathF.PI / 2 : MathF.PI / 2) * Matrix4x4.CreateTranslation(east ? -WallX : WallX, WallHeight, z);
+        }
+
+        /// <summary>Whether a footprint at a cell stays on usable floor.</summary>
+        public static bool FootprintFits(int x, int z, int width, int depth, bool secondFloor)
+        {
+            for (int cx = x; cx < x + width; cx++)
+            {
+                for (int cz = z; cz < z + depth; cz++)
+                {
+                    if (!IsFloorCell(cx, cz, secondFloor)) return false;
+                }
+            }
+            return true;
+        }
+
         /// <summary>Whether a grid cell takes furniture on that floor.</summary>
         public static bool IsFloorCell(int x, int z, bool secondFloor)
         {
@@ -105,6 +162,9 @@ namespace Gordian.Core.World
         /// <summary>Whether an item type is one the layout places (a furnishing, flowerpot or mannequin).</summary>
         public static bool IsFurnishingType(ushort itemType) =>
             itemType is FurnishingItemType or FlowerpotItemType or MannequinItemType;
+
+        /// <summary>Whether an item is furniture the layout can use.</summary>
+        public static bool IsFurniture(ushort itemId, Func<ushort, ItemRecord?>? lookup) => lookup?.Invoke(itemId) is { } record && IsFurnishingType(record.ItemType);
 
         /// <summary>Whether an item is a mannequin (item ids 256-263: Hume ♂/♀, Elvaan ♂/♀, Tarutaru ♂/♀, Mithra, Galka).</summary>
         public static bool IsMannequin(ushort itemId) => itemId is >= 256 and <= 263;

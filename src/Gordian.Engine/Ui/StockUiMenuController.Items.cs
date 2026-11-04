@@ -588,6 +588,9 @@ namespace Gordian.Engine.Ui
                         numerator = used;
                         denominator = total;
                         break;
+                    case StockUiItemListKind.Picker when window.Picker?.Count is { } counted:
+                        (numerator, denominator) = StockUiItems.Fill(Inventory, counted);
+                        break;
                     case StockUiItemListKind.Usable:
                         numerator = window.ItemRows.Count;
                         denominator = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;

@@ -322,6 +322,8 @@ namespace Gordian.Engine.Ui
             [(StockUiMogHouse.AwayMoogleMenu, 1)] = StockUiMogHouse.Entry("Storage", StockUiMogHouseAction.Storages),
             [(StockUiMogHouse.AwayMoogleMenu, 2)] = StockUiMogHouse.Entry("Delivery Box", StockUiMogHouseAction.Delivery),
             [(StockUiMogHouse.AwayMoogleMenu, 3)] = StockUiMogHouse.Entry("Change Jobs", StockUiMogHouseAction.ChangeJobs),
+            [(StockUiMogHouse.SafeMenu, 1)] = StockUiMogHouse.Entry("Mog Safe", StockUiMogHouseAction.PlaceFromSafe),
+            [(StockUiMogHouse.SafeMenu, 2)] = StockUiMogHouse.Entry("Mog Safe 2", StockUiMogHouseAction.PlaceFromSafe2),
             [(StockUiMogHouse.LayoutFloorMenu, 1)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
             [(StockUiMogHouse.LayoutFloorMenu, 2)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
             [(StockUiMogHouse.LayoutFloorMenu, 3)] = StockUiMogHouse.Entry("Back", StockUiMogHouseAction.QuitLayout),

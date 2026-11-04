@@ -347,7 +347,8 @@ namespace Gordian.Engine.Input
             if (chat == null && Chat is { } hiddenChat) ReleaseHiddenChat(hiddenChat);
             // The sub-target cursor (an action waiting for its target) takes the menu keys as a menu does.
             bool subTargeting = _actionService?.SubTargeting != null;
-            bool menuOpen = (menus?.IsOpen ?? false) || subTargeting;
+            // The Mog House Layout takes the menu keys with no menu open (#93).
+            bool menuOpen = (menus?.IsOpen ?? false) || subTargeting || (menus?.MogHouseLayout.Active ?? false);
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
