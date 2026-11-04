@@ -276,8 +276,10 @@ namespace Gordian.Core.Tests.Animation
         /// routines of length 0 chain one after another (as the Leathercraft crafters' <c>m000</c>-<c>m002</c> chain
         /// <c>l000</c>); it starts over at its end and stops when the NPC moves or the sub-animation changes.
         /// </summary>
-        [Fact]
-        public void WorkSchedule_LoopsWhileIdleWithSubAnimation3()
+        [Theory]
+        [InlineData(3)] // a later update
+        [InlineData(7)] // LandSandBoat's spawn packet: bit 2 set under the value (round 1: the crafters stood idle)
+        public void WorkSchedule_LoopsWhileIdleWithSubAnimation3(byte working)
         {
             var model = Model([("g20", 1f), ("g21", 0.5f)],
                 ("l000", MotionRoutineBuilder.Routine(60, MotionRoutineBuilder.PlayClip("g20?", 60, 60, 0, 0, 1))),
@@ -298,22 +300,28 @@ namespace Gordian.Core.Tests.Animation
             Step(AnimationCategory.Idle, 0, 5);
             Assert.Null(state.ActiveRoutine);
 
-            Step(AnimationCategory.Idle, 3, 1);
+            Step(AnimationCategory.Idle, working, 1);
             Assert.Equal("@scd", state.ActiveRoutine!.Name);
             Assert.Equal("g20", state.CurrentClip!.Name);
-            Step(AnimationCategory.Idle, 3, 125);
+            Step(AnimationCategory.Idle, working, 125);
             Assert.Equal("g21", state.CurrentClip!.Name);
-            Step(AnimationCategory.Idle, 3, 30);
+            Step(AnimationCategory.Idle, working, 30);
             Assert.Equal("@scd", state.ActiveRoutine!.Name);
             Assert.Equal("g20", state.CurrentClip!.Name);
 
             Step(AnimationCategory.Idle, 0, 1);
             Assert.Null(state.ActiveRoutine);
-            Step(AnimationCategory.Idle, 3, 1);
+            Step(AnimationCategory.Idle, working, 1);
             Assert.NotNull(state.ActiveRoutine);
-            Step(AnimationCategory.Walk, 3, 1);
+            Step(AnimationCategory.Walk, working, 1);
             Assert.Null(state.ActiveRoutine);
             Assert.Equal("wlk", state.CurrentClip!.Name);
+
+            // Sub-animations 1 and 2 reach the client as 5 and 6 at spawn: those NPCs stand idle.
+            Step(AnimationCategory.Idle, 5, 1);
+            Assert.Null(state.ActiveRoutine);
+            Step(AnimationCategory.Idle, 6, 1);
+            Assert.Null(state.ActiveRoutine);
         }
 
         [Fact]

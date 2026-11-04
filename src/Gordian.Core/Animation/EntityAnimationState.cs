@@ -221,7 +221,12 @@ namespace Gordian.Core.Animation
         /// </summary>
         public const string WorkScheduleRoutine = "@scd";
 
-        /// <summary>The 0x00E sub-animation that has an NPC play its <see cref="WorkScheduleRoutine"/>.</summary>
+        /// <summary>
+        /// The 0x00E sub-animation that has an NPC play its <see cref="WorkScheduleRoutine"/>, read from the low two bits of
+        /// MonStat: XiPackets says the client treats it as 2 or 3 bits depending on the entity, and LandSandBoat's spawn packet
+        /// sets bit 2 under any non-zero value (entity_update.cpp, packet 0x2A), so a working NPC arrives as 7, and as 3 only
+        /// in a later update, which a standing NPC never gets (#455 round 1).
+        /// </summary>
         public const byte WorkScheduleSubAnimation = 3;
 
         private AnimationClip? _overlayClip;
@@ -726,7 +731,7 @@ namespace Gordian.Core.Animation
         }
 
         private static bool PlaysWorkSchedule(AnimationCategory category, byte subAnimation) =>
-            category == AnimationCategory.Idle && subAnimation == WorkScheduleSubAnimation;
+            category == AnimationCategory.Idle && (subAnimation & 3) == WorkScheduleSubAnimation;
 
         private bool TryStartWorkSchedule(EntityModel model, long now)
         {
