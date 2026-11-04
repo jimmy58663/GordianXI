@@ -239,6 +239,7 @@ namespace Gordian.Engine.Graphics
         private Vector3 _cameraRawPosition;
         private Vector3 _cameraRawForward;
         private Vector3 _daylightColor = Vector3.One;
+        private float _dayFraction;
         private float _framesUntilNextParticle;
         private int _totalEmitted;
         private float _routineClock = -1.0f;
@@ -303,6 +304,7 @@ namespace Gordian.Engine.Graphics
             _cameraRawPosition = frame.CameraRawPosition;
             _cameraRawForward = frame.CameraRawForward;
             _daylightColor = frame.DaylightColor;
+            _dayFraction = frame.DayFraction;
             for (int i = 0; i < Particles.Count; i++)
             {
                 UpdateParticle(Particles[i], frames, frame);
@@ -766,11 +768,13 @@ namespace Gordian.Engine.Graphics
                 if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, ChildFollow.None);
             }
 
-            // A weighted-mesh particle is drawn the frame it is born, before its updaters run: it takes its birth weights
-            // now, or 324's blink would open the eye for a frame before closing it.
+            // A particle is drawn the frame it is born, before its updaters run. It takes its birth mesh weights now, or 324's
+            // blink would open the eye for a frame before closing it, and the gates on its alpha (time of day, distance), or a
+            // West Ronfaure brazier that is off by day would flash on each emission (TESTING-2026-11-03 captures).
+            var birthFrame = new ZoneParticleFrame(_cameraRawPosition, _dayFraction, _daylightColor);
             foreach (var op in Def.Updaters)
             {
-                if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E) ApplyUpdater(p, op, 0f, new ZoneParticleFrame(_cameraRawPosition, 0f, _daylightColor));
+                if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E or 0x2E or 0x3F or 0x48) ApplyUpdater(p, op, 0f, birthFrame);
             }
             return p;
         }

@@ -169,6 +169,33 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(0.5f, Assert.Single(emitter.Particles).ColorMultiplier.W, 2);
         }
 
+        [Fact]
+        public void ClockAlphaGate_HoldsFromTheFrameAParticleIsBorn()
+        {
+            // West Ronfaure's braziers (kohi) are off by day: an unlit flame must not flash on the frame it is emitted.
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Updaters.Add(new ParticleOpcode(0x3F, 0, Array.Empty<uint>()));
+            var curves = new Dictionary<ushort, KeyFrameCurve> { [0] = new("kohi", new[] { new KeyFrameEntry(0f, 0f), new KeyFrameEntry(1f, 0f) }) };
+            var emitter = new ZoneParticleEmitter(new ZoneEmitterTemplate(def, curves));
+
+            emitter.Update(1f, Frame); // emitted; not updated yet
+
+            Assert.Equal(0f, Assert.Single(emitter.Particles).ColorMultiplier.W);
+        }
+
+        [Fact]
+        public void DrawDistanceGate_HoldsFromTheFrameAParticleIsBorn()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Updaters.Add(new ParticleOpcode(0x2E, 0, new[] { BitConverter.SingleToUInt32Bits(10f), BitConverter.SingleToUInt32Bits(30f), 0u }));
+            def.Setup!.BasePosition = new Vector3(40f, 0f, 0f);
+            var emitter = new ZoneParticleEmitter(Template(def));
+
+            emitter.Update(1f, Frame);
+
+            Assert.Equal(0f, Assert.Single(emitter.Particles).ColorMultiplier.W);
+        }
+
         private static uint IdArg(string id) =>
             BitConverter.ToUInt32(System.Text.Encoding.ASCII.GetBytes(id.PadRight(4, '\0')), 0);
 
