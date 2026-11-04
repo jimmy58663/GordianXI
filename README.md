@@ -20,6 +20,8 @@ By replacing the legacy 2002 executable entirely, GordianXI cuts through decades
 
 https://github.com/user-attachments/assets/a7610e29-20df-4961-81e5-449579a500b8
 
+<p align="center"><sub><b>GordianXI in action</b> · 1080p, 30 fps, no audio</sub></p>
+
 ---
 
 ## 📸 Screenshots
