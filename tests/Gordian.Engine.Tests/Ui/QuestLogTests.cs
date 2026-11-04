@@ -569,8 +569,23 @@ namespace Gordian.Engine.Tests.Ui
             // Campaign: the dots come with S2C 0x071; a city's panel, a zone's panel (image-19, -22).
             var empty = StockUiRegionInfo.Campaign(-1, null, 54469, "obtaining");
             Assert.Equal("obtaining", empty.HelpLine);
-            Assert.DoesNotContain(empty.Markers, m => m.Look == StockUiRegionMarkerLook.CampaignZone);
-            Assert.Equal((StockUiRegionInfo.AlliedBox, "54469"), (empty.BoxWindow, empty.BoxValue));
+            // Retail without S2C 0x071 (the video of 2026-11-04): every dot unowned, no panel, no box.
+            Assert.Equal(26, empty.Markers.Count(m => m is { Look: StockUiRegionMarkerLook.CampaignZone, Owner: 0 }));
+            Assert.Empty(empty.Panels);
+            Assert.Equal(string.Empty, empty.BoxWindow);
+            // The zones the video's cursor named where geography had it wrong, each with its label.
+            foreach (var (x, y, zone, side) in new[]
+            {
+                (217.5f, 210.5f, 85, StockUiMapLabelSide.Right), (251.5f, 202.5f, 83, StockUiMapLabelSide.Below), // La Vaule, Vunkerl Inlet
+                (163.5f, 292.5f, 88, StockUiMapLabelSide.Above), (201.5f, 266.5f, 89, StockUiMapLabelSide.Above), // North Gustaberg, Grauberg
+                (355.5f, 233.5f, 97, StockUiMapLabelSide.Below), (319.5f, 204.5f, 98, StockUiMapLabelSide.Above), // Meriphataud, Sauromugue
+                (319.5f, 222.5f, 164, StockUiMapLabelSide.Below), // Garlaige Citadel
+            })
+            {
+                var dot = StockUiRegionInfo.Campaign(StockUiRegionInfo.PointAt(Gordian.Core.Resources.Tables.RegionMap.Campaign, x, y), null, 0, "obtaining",
+                    zoneName: z => z == zone ? "found [S]" : null);
+                Assert.Equal(("found", side), dot.Markers.Where(m => m.Label == "found").Select(m => (m.Label, m.Side)).Single());
+            }
             var zones = new CampaignZone[26];
             zones[25] = new CampaignZone(4, 1000, 1000, 0, 0, 0, 0, 250, 1000, 1000);
             var campaign = new CampaignInfo(54469, new[] { 3, 2, 2, 19 }, new[] { new CampaignNation(3, 90, 95), default, default, default, default, default, default }, zones);

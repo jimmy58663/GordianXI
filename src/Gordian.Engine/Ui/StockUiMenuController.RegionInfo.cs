@@ -31,8 +31,8 @@ namespace Gordian.Engine.Ui
             if (ConquestRequested is { } request) _ = request();
             RegionInfoFiguresRequested?.Invoke();
             var (u, v, point) = StockUiRegionInfo.OpeningPoint(map, CurrentZone?.Invoke() ?? 0);
-            if (RegionInfoView?.Invoke(map, point) is not { Panels.Count: > 0 } view) return null;
-            var definition = QuestLogDefinition(view.Panels[0].Window, 0, 0, 0, 0, 0, 0);
+            if (RegionInfoView?.Invoke(map, point) is not { } view) return null;
+            var definition = QuestLogDefinition(view.Panels.Count > 0 ? view.Panels[0].Window : StockUiRegionInfo.CampaignWindow, 0, 0, 0, 0, 0, 0);
             if (definition == null) return null;
             var page = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null)
             {

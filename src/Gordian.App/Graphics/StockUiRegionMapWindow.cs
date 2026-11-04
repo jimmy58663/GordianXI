@@ -110,7 +110,7 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// A Besieged, Campaign or Colonization marker (#492): the 2026-11-03 captures' discs (<c>aht0</c>, <c>aht1</c>, about 24 px),
         /// crests (about 22 px), grey balls, a Campaign zone's ball in its owner's colour (<c>colorbal</c>: violet for the
-        /// beastmen, red, blue and yellow for the nations), and the names in white, lilac (a city), pink (a stronghold) or gold
+        /// beastmen, red, blue and yellow for the nations, dark with a "?" for no owner known), and the names in white, lilac (a city), pink (a stronghold) or gold
         /// (a front, without a point).
         /// </summary>
         private static void DrawRegionMarker(StockUiRenderer renderer, UiResourceLibrary? library, StockUiLogFont? logFont, StockUiRegionMarker marker,
@@ -133,8 +133,14 @@ namespace Gordian.App.Graphics
             else if (marker.Look == StockUiRegionMarkerLook.CampaignZone)
             {
                 half = BallSize * 0.5f * s;
-                var (cellX, cellY) = marker.Owner switch { 1 => (32f, 0f), 2 => (0f, 0f), 3 => (16f, 16f), _ => (48f, 16f) };
+                var (cellX, cellY) = marker.Owner switch { 1 => (32f, 0f), 2 => (0f, 0f), 3 => (16f, 16f), 4 => (48f, 16f), _ => (32f, 16f) };
                 renderer.DrawTextureRect(Ball, cellX, cellY, BallCell, BallCell, px - half, py - half, half * 2, half * 2, Neutral);
+                if (marker.Owner is < 1 or > 4 && logFont != null)
+                {
+                    // No owner known: the dark ball with a "?" (the retail video of 2026-11-04).
+                    float mark = s * LabelScale;
+                    logFont.Draw(renderer, "?", px - logFont.MeasureWidth("?") * mark * 0.5f, py - StockUiLogFont.CellHeight * mark * 0.5f, mark, Neutral);
+                }
             }
             else if (marker.Look == StockUiRegionMarkerLook.Ball && marker.Crest == null)
             {

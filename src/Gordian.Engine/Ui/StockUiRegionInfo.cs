@@ -78,10 +78,10 @@ namespace Gordian.Engine.Ui
     /// frame, shows the orders and the three beastman forces; on a stronghold's hub (Mamool Ja Savagelands, Halvung Territory,
     /// Arrapago Islands) <c>beseige2</c> shows that base. Both from S2C 0x05E's Besieged block; box <c>imperial</c>.</item>
     /// <item><b>Campaign:</b> <c>campresu</c> between points; <c>campsan</c> on a city or a beastman stronghold, <c>camparea</c>
-    /// on a zone's dot; from S2C 0x071 mode 2. The dots appear with that packet (LandSandBoat never sends it, and retail
-    /// on LandSandBoat reads "Now obtaining information from server.", ROM/165/72 #6). The 26 dots are the packet's 26
-    /// zones; only Throne Room, Castle Zvahl Keep and Baileys are named by a capture, the rest are assigned by
-    /// geography (PROVISIONAL). Box <c>allied</c>.</item>
+    /// on a zone's dot; from S2C 0x071 mode 2. The 26 dots are the packet's 26 zones, each named by the retail video of
+    /// 2026-11-04. Box <c>allied</c>. Without that packet (LandSandBoat never sends it) the video shows the help bar's
+    /// "Now obtaining information from server." (ROM/165/72 #6), every dot as a dark "?" ball with its name under the
+    /// cursor, and no panel or box.</item>
     /// <item><b>Colonization:</b> <c>colorank</c> between points and on the Sacred City, <c>coloresu</c> on an Ulbuka zone's
     /// hub for that zone; from S2C 0x071 mode 3 (which LandSandBoat sends for C2S 0x05A). Box <c>colopoin</c>.</item>
     /// </list>
@@ -182,19 +182,20 @@ namespace Gordian.Engine.Ui
             new(247.5f, 257.5f, Above, StockUiRegionMarkerLook.Stronghold, Region: 43, Nation: 4),
             new(399.5f, 230.5f, Above, StockUiRegionMarkerLook.Stronghold, Region: 44, Nation: 5),
             new(150.5f, 86.5f, Above, StockUiRegionMarkerLook.Stronghold, Region: 45, Nation: 6),
-            // Records 23-25 are named by image-19 to -21; the others by geography (PROVISIONAL), the dots' places by every capture.
-            new(161.5f, 166.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 80, Record: 0), new(191.5f, 166.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 81, Record: 1),
-            new(225.5f, 184.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 82, Record: 2), new(217.5f, 210.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 83, Record: 3),
-            new(249.5f, 162.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 84, Record: 4), new(251.5f, 202.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 85, Record: 5),
-            new(255.5f, 184.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 175, Record: 6), new(205.5f, 317.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 87, Record: 7),
-            new(201.5f, 266.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 88, Record: 8), new(163.5f, 292.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 89, Record: 9),
-            new(211.5f, 240.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 90, Record: 10), new(263.5f, 220.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 91, Record: 11),
+            // Each dot's zone and label side from the cursor stopping on it in the maintainer's retail video of 2026-11-04;
+            // a zone's record from LandSandBoat's campaign_map.sql; the dots' places from every capture.
+            new(161.5f, 166.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 80, Record: 0), new(191.5f, 166.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 81, Record: 1),
+            new(225.5f, 184.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 82, Record: 2), new(251.5f, 202.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 83, Record: 3),
+            new(249.5f, 162.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 84, Record: 4), new(217.5f, 210.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 85, Record: 5),
+            new(255.5f, 184.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 175, Record: 6), new(205.5f, 317.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 87, Record: 7),
+            new(163.5f, 292.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 88, Record: 8), new(201.5f, 266.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 89, Record: 9),
+            new(211.5f, 240.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 90, Record: 10), new(263.5f, 220.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 91, Record: 11),
             new(233.5f, 256.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 92, Record: 12), new(255.5f, 236.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 171, Record: 13),
-            new(333.5f, 334f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 94, Record: 14), new(323.5f, 306.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 95, Record: 15),
-            new(343.5f, 274.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 96, Record: 16), new(319.5f, 204.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 97, Record: 17),
-            new(319.5f, 222.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 98, Record: 18), new(385.5f, 233.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 99, Record: 19),
-            new(355.5f, 233.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 164, Record: 20), new(233.5f, 108.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 136, Record: 21),
-            new(191.5f, 108.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 137, Record: 22), new(152.5f, 100.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 138, Record: 23),
+            new(333.5f, 334f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 94, Record: 14), new(323.5f, 306.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 95, Record: 15),
+            new(343.5f, 274.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 96, Record: 16), new(355.5f, 233.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 97, Record: 17),
+            new(319.5f, 204.5f, Above, StockUiRegionMarkerLook.CampaignZone, Zone: 98, Record: 18), new(385.5f, 233.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 99, Record: 19),
+            new(319.5f, 222.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 164, Record: 20), new(233.5f, 108.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 136, Record: 21),
+            new(191.5f, 108.5f, Below, StockUiRegionMarkerLook.CampaignZone, Zone: 137, Record: 22), new(152.5f, 100.5f, Right, StockUiRegionMarkerLook.CampaignZone, Zone: 138, Record: 23),
             new(138.5f, 100.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 155, Record: 24), new(138.5f, 90.5f, Left, StockUiRegionMarkerLook.CampaignZone, Zone: 156, Record: 25),
         };
 
@@ -367,14 +368,16 @@ namespace Gordian.Engine.Ui
             {
                 if (regionName?.Invoke(region) is { Length: > 0 } name) markers.Add(new StockUiRegionMarker(StockUiRegionMarkerLook.Front, name, x, y, Above));
             }
-            if (campaign != null && picked && point.Record >= 0 && zoneName?.Invoke(point.Zone) is { Length: > 0 } label)
+            if (picked && point.Record >= 0 && zoneName?.Invoke(point.Zone) is { Length: > 0 } label)
             {
                 // Retail's label has no " [S]" (image-19: "Throne Room").
                 string plain = label.EndsWith(" [S]", StringComparison.Ordinal) ? label[..^4] : label;
                 markers.Add(new StockUiRegionMarker(StockUiRegionMarkerLook.Front, plain, point.X, point.Y, point.Side) with { Look = StockUiRegionMarkerLook.Ball, Crest = string.Empty });
             }
-            return new StockUiRegionInfoView(RegionMap.Campaign, CampaignTitle, campaign == null ? obtaining : null, new[] { panel }, markers, AlliedBox,
-                Number(campaign?.AlliedNotes is { } notes && notes > 0 ? notes : alliedNotes), selected);
+            // Nothing from the server yet: no panel and no box (the video of 2026-11-04).
+            if (campaign == null) return new StockUiRegionInfoView(RegionMap.Campaign, CampaignTitle, obtaining, Array.Empty<StockUiRegionInfoPanel>(), markers, string.Empty, string.Empty, selected);
+            return new StockUiRegionInfoView(RegionMap.Campaign, CampaignTitle, null, new[] { panel }, markers, AlliedBox,
+                Number(campaign.AlliedNotes > 0 ? campaign.AlliedNotes : alliedNotes), selected);
         }
 
         public static StockUiRegionInfoView Colonization(int selected, ColonizationInfo? colonization, long bayld, string obtaining,
@@ -407,7 +410,7 @@ namespace Gordian.Engine.Ui
                 Number(colonization?.Bayld is { } value && value > 0 ? value : bayld), selected);
         }
 
-        /// <summary>The map's points: its hubs and cities always, a Campaign zone's dot only with S2C 0x071's owner.</summary>
+        /// <summary>The map's points: its hubs and cities, and a Campaign zone's dot with S2C 0x071's owner (0 until it comes).</summary>
         private static List<StockUiRegionMarker> PointMarkers(Point[] points, Func<int, string?>? regionName, Func<int, string?>? zoneName, CampaignInfo? campaign)
         {
             var markers = new List<StockUiRegionMarker>();
@@ -415,10 +418,8 @@ namespace Gordian.Engine.Ui
             {
                 if (p.Record >= 0)
                 {
-                    if (campaign != null && p.Record < campaign.Zones.Count)
-                    {
-                        markers.Add(new StockUiRegionMarker(StockUiRegionMarkerLook.CampaignZone, string.Empty, p.X, p.Y, p.Side, campaign.Zones[p.Record].Owner));
-                    }
+                    int owner = campaign != null && p.Record < campaign.Zones.Count ? campaign.Zones[p.Record].Owner : 0;
+                    markers.Add(new StockUiRegionMarker(StockUiRegionMarkerLook.CampaignZone, string.Empty, p.X, p.Y, p.Side, owner));
                     continue;
                 }
                 string name = (p.Region >= 0 ? regionName?.Invoke(p.Region) : zoneName?.Invoke(p.Zone)) ?? string.Empty;

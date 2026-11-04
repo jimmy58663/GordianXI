@@ -938,7 +938,7 @@ namespace Gordian.App.Graphics
                 StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
                 return;
             }
-            if (font != null && session.ActionService.Menus.PannedMap is { RegionInfoView: { } regionInfo })
+            if (font != null && session.ActionService.Menus.PannedMap is { RegionInfoView: { BoxWindow.Length: > 0 } regionInfo })
             {
                 // Besieged, Campaign and Colonization put Imperial Standing, Allied Notes and Bayld there (#492).
                 StockUiRegionInfoWindow.DrawBox(renderer, library, font, _logFont, regionInfo, placement, menu.Frame.Width, menu.Frame.Height);
