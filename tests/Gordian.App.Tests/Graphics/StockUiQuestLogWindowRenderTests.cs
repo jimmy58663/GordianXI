@@ -160,7 +160,10 @@ namespace Gordian.App.Tests.Graphics
                 Library = screen.Library,
                 MenuMessageText = id => screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var t) ? t : null,
             };
-            menus.RegionInfoView = map => StockUiRegionInfo.Build(map, progression, 256, menus.MenuMessageText);
+            string? Region(int id) => screen.Resources.TryGetString(DMsgCategory.RegionNames, id, out var t) ? t : null;
+            string? Zone(int id) => screen.Resources.TryGetString(DMsgCategory.ZoneNames, id, out var t) ? t : null;
+            menus.CurrentZone = () => 256;
+            menus.RegionInfoView = (map, point) => StockUiRegionInfo.Build(map, point, progression, new StockUiRegionInfoFigures(15073195, 54469, 0), menus.MenuMessageText, Region, Zone);
             var layout = new StockUiScreen(screen.Width, screen.Height, null);
             byte[] Page(RegionMap map, string name)
             {
@@ -176,13 +179,27 @@ namespace Gordian.App.Tests.Graphics
                     StockUiMenuWindow.Draw(r, screen.Library, screen.Font, page, placement, 0, logFont: screen.LogFont, screen: layout);
                 }, name);
             }
-            var at = StockUiLayout.Place(Gordian.Core.Resources.Ui.UiAnchor.TopRight, 384, 48, 112, 206, 1, screen.Width, screen.Height);
+            bool HasPanelText(byte[] shot, int y) => screen.HasLightPixel(shot, 20, 110, y) || screen.HasLightPixel(shot, (int)screen.Width - 110, (int)screen.Width - 20, y);
             byte[] besieged = Page(RegionMap.Besieged, "gpu_region_besieged.png");
-            Assert.True(screen.HasLightPixel(besieged, (int)at.X + 10, (int)at.X + 100, (int)at.Y + 22 + 6), "no Al Zahbi orders");
+            Assert.True(HasPanelText(besieged, 48 + 25 + 6), "no Al Zahbi orders");
+            // The cursor to Halvung Territory: the base panel, its zones on the map (image-2).
+            var halvung = menus.Top!;
+            menus.MoveMapView((288.5f - halvung.MapCursorX * 512) / StockUiConquest.CursorSpeed, (285.5f - halvung.MapCursorY * 512) / StockUiConquest.CursorSpeed, 0, 0);
+            Assert.Equal(StockUiRegionInfo.BaseWindow, halvung.RegionInfoView!.Panels[0].Window);
+            Assert.Contains(halvung.RegionInfoView.Markers, m => m.Label == "Lebros Cavern");
+            var map = RegionMapFiles.Load(screen.Resources, RegionMap.Besieged);
+            var frame = halvung.Menu.Frame;
+            var placement = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, 1, screen.Width, screen.Height);
+            screen.Render(r =>
+            {
+                StockUiRegionMapWindow.Draw(r, halvung, map, screen.Width, screen.Height, screen.Library, screen.LogFont);
+                StockUiMenuWindow.Draw(r, screen.Library, screen.Font, halvung, placement, 0, logFont: screen.LogFont, screen: layout);
+                StockUiRegionInfoWindow.DrawBox(r, screen.Library, screen.Font, screen.LogFont, halvung.RegionInfoView!, placement with { Y = screen.Height - 120 }, 112, 60);
+            }, "gpu_region_halvung.png");
             Assert.Equal("Campaign", menus.OpenRegionInfo(RegionMap.Campaign, null)!.QuestLogTitle);
             Page(RegionMap.Campaign, "gpu_region_campaign.png");
             byte[] colony = Page(RegionMap.Colonization, "gpu_region_colonization.png");
-            Assert.True(screen.HasLightPixel(colony, (int)at.X + 90, (int)at.X + 106, (int)at.Y + 21 + 6), "no Pioneers rank");
+            Assert.True(HasPanelText(colony, 48 + 21 + 6), "no Pioneers rank");
         }
     }
 }

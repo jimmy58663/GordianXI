@@ -205,6 +205,13 @@ namespace Gordian.Engine.Ui
                     Changed?.Invoke();
                     return;
                 }
+                if (map.QuestLogView == StockUiQuestLogView.RegionInfo)
+                {
+                    // Besieged, Campaign and Colonization have the same cursor (the 2026-11-03 captures, #492).
+                    MoveRegionInfoCursor(map, dx * StockUiConquest.CursorSpeed, dy * StockUiConquest.CursorSpeed);
+                    Changed?.Invoke();
+                    return;
+                }
                 // A Region Info map keeps its zoom (round 1 of #488: retail pans it but cannot zoom).
                 float factor = MathF.Pow(StockUiMap.ZoomPerSecond, zoom) * MathF.Pow(StockUiMap.WheelZoomStep, wheel);
                 if (map.IsMapWindow) map.MapZoom = Math.Clamp(map.MapZoom * factor, 1f, StockUiMap.MaxZoom);

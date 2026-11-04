@@ -100,7 +100,9 @@ namespace Gordian.Engine.Tests.Events
             // #481: Castle Zvahl Keep's home point (global 58) is on the zone's map 4, not its first floor.
             var state = EventMapState.Closed
                 .WithQueryEntry(0, new EventQueryMapEntry(1, EventQueryMapEntry.HomePointKind, 58, 0, 0, 0))
-                .WithQueryEntry(1, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, 0, 0, 0, 0))
+                .WithQueryEntry(1, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, Gordian.Core.Resources.Tables.SurvivalGuides.ListNumberOf(0), 0, 0, 0))
+                .WithQueryEntry(2, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, 162, 0, 0, 0))
+                .WithQueryEntry(3, new EventQueryMapEntry(1, EventQueryMapEntry.HomePointKind, 82, 0, 0, 0))
                 .WithQueryMap();
             var homePoint = state.Focus(0)!;
             Assert.Equal((162, 4), (homePoint.Zone, homePoint.MapNumber));
@@ -111,6 +113,10 @@ namespace Gordian.Engine.Tests.Events
             Assert.Equal(80f, guide.Z!.Value, 3);
             Assert.Equal(EventMapPin.SurvivalGuide, guide.Pin);
             Assert.Equal(EventMapState.SurvivalGuideLabel, Assert.Single(guide.Markers).Name);
+            // The maintainer's log of round 1: West Ronfaure's list sends 162 for Fort Ghelsba's guide (zone 141).
+            Assert.Equal(141, state.Focus(2)!.Zone);
+            // Pso'Xja's home point stands on a floor without a map: retail writes "There is no map for this area.".
+            Assert.Equal(EventMapFocus.NoMap, state.Focus(3)!.MapNumber);
         }
 
         [Fact]

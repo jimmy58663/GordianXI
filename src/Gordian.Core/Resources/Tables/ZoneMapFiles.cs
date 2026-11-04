@@ -208,12 +208,22 @@ namespace Gordian.Core.Resources.Tables
         public static int FloorOf(int zoneId, int collisionFloor) => Resolve(zoneId, collisionFloor);
 
         /// <summary>
+        /// The map of a point on collision floor <paramref name="collisionFloor"/>: as <see cref="FloorOf(int, int)"/>, but -1 on
+        /// a floor that names no map in a multi-floor zone without a map 0. Retail has no map there: Pso'Xja's home point
+        /// stands on such a floor and retail writes "There is no map for this area." (round 1 of the 2026-11-03 test).
+        /// </summary>
+        public static int PointMap(int zoneId, int collisionFloor)
+        {
+            var maps = MapsOf(zoneId);
+            return collisionFloor == 0 && maps.Count > 1 && maps[0] != 0 ? -1 : FloorOf(zoneId, collisionFloor);
+        }
+
+        /// <summary>
         /// The map of the floor a character stands on (#481): the map the collision floor under <paramref name="position"/>
-        /// (internal space) names (<see cref="ZoneCollisionMesh.MapFloorUnder"/>), else the zone's first map; -1 for a zone
-        /// without maps.
+        /// (internal space) names (<see cref="ZoneCollisionMesh.MapFloorUnder"/>), by <see cref="PointMap"/>; -1 for none.
         /// </summary>
         public static int FloorOf(int zoneId, ZoneCollisionMesh? collision, Vector3 position) =>
-            FloorOf(zoneId, MapsOf(zoneId).Count > 1 && collision != null ? collision.MapFloorUnder(position) : 0);
+            PointMap(zoneId, MapsOf(zoneId).Count > 1 && collision != null ? collision.MapFloorUnder(position) : 0);
 
         /// <summary>The first texture section of a map DAT.</summary>
         public static DecodedTexture? Decode(byte[] dat, string source)

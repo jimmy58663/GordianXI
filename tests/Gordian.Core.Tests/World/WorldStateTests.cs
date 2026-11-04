@@ -189,6 +189,24 @@ namespace Gordian.Core.Tests.World
             Assert.False(state.HasStatusEffect(99));
         }
 
+        /// <summary>
+        /// LandSandBoat's zone change at the end of an event sends a living character S2C 0x037 status 3 at 100% HP (round 1 of
+        /// the 2026-11-03 test, a survival guide's teleport): the character is vanishing, not dead.
+        /// </summary>
+        [Theory]
+        [InlineData(100, false, true)]
+        [InlineData(0, true, false)]
+        public void Status3_IsDeathOnlyWithoutHp(byte hpp, bool dead, bool vanishing)
+        {
+            byte[] payload = new byte[0x60];
+            payload[36 + 2] = hpp; // Flags0 bits 16-23
+            payload[44] = LocalPlayerState.StatusDead;
+            var state = new LocalPlayerState();
+            state.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+            Assert.Equal(dead, state.IsDead);
+            Assert.Equal(vanishing, state.IsVanishing);
+        }
+
         [Fact]
         public async Task EntityPacketModule_CoordinatesInboundAndOutboundPackets()
         {

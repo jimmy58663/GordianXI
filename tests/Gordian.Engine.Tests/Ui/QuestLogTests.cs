@@ -79,11 +79,9 @@ namespace Gordian.Engine.Tests.Ui
             Window(StockUiConquest.RegionMenu, 384, 48, 4, 112, 74),
             Window(StockUiConquest.ControlWindow, 384, 48, 0, 112, 206),
             Window(StockUiConquest.BalanceWindow, 384, 48, 0, 112, 72),
-            Window(StockUiRegionInfo.BesiegedWindow, 384, 48, 0, 112, 206),
+            Window(StockUiRegionInfo.OrdersWindow, 384, 48, 0, 112, 206),
             Window(StockUiRegionInfo.CampaignWindow, 384, 48, 0, 112, 88),
             Window(StockUiRegionInfo.RanksWindow, 384, 48, 0, 112, 120),
-            Window(StockUiRegionInfo.RateWindow, 384, 48, 0, 112, 56),
-            Window(StockUiRegionInfo.BayldWindow, 384, 256, 0, 112, 40),
         });
 
         private sealed class Harness
@@ -509,11 +507,19 @@ namespace Gordian.Engine.Tests.Ui
             // Besieged, Campaign and Colonization (#492): each its region map, panned, and its panels.
             h.Menus.CloseTop();
             var influence = new ProgressionState();
-            h.Menus.RegionInfoView = map => StockUiRegionInfo.Build(map, influence, 256, null); // Western Adoulin
+            h.Menus.CurrentZone = () => 256; // Western Adoulin
+            h.Menus.RegionInfoView = (map, point) => StockUiRegionInfo.Build(map, point, influence, new StockUiRegionInfoFigures(7, 8, 9), null, null, null);
             var besieged = h.Choose(StockUiConquest.BesiegedButton);
-            Assert.Equal((StockUiRegionInfo.BesiegedWindow, (Gordian.Core.Resources.Tables.RegionMap?)Gordian.Core.Resources.Tables.RegionMap.Besieged, "Besieged"),
+            Assert.Equal((StockUiRegionInfo.OrdersWindow, (Gordian.Core.Resources.Tables.RegionMap?)Gordian.Core.Resources.Tables.RegionMap.Besieged, "Besieged"),
                 (besieged.Name, besieged.RegionMap, besieged.QuestLogTitle));
             Assert.Same(besieged, h.Menus.PannedMap);
+            Assert.Equal((StockUiRegionInfo.ImperialBox, "7"), (besieged.RegionInfoView!.BoxWindow, besieged.RegionInfoView.BoxValue));
+            // The cursor reaches Halvung Territory: its stronghold's panel (image-2); away from it, the orders again.
+            float du = (288.5f - besieged.MapCursorX * 512) / StockUiConquest.CursorSpeed, dv = (285.5f - besieged.MapCursorY * 512) / StockUiConquest.CursorSpeed;
+            h.Menus.MoveMapView(du, dv, 0, 0);
+            Assert.Equal(StockUiRegionInfo.BaseWindow, besieged.RegionInfoView!.Panels[0].Window);
+            h.Menus.MoveMapView(0.5f, 0, 0, 0);
+            Assert.Equal(StockUiRegionInfo.OrdersWindow, besieged.RegionInfoView!.Panels[0].Window);
             h.Menus.CloseTop();
             var campaign = h.Choose(StockUiConquest.CampaignButton);
             Assert.Equal(StockUiRegionInfo.ObtainingFallback, campaign.RegionInfoView!.HelpLine); // LandSandBoat sends no Campaign
@@ -529,26 +535,55 @@ namespace Gordian.Engine.Tests.Ui
             var colonyView = colonization.RegionInfoView!;
             Assert.Null(colonyView.HelpLine);
             Assert.Equal(new[] { "1", "2", "0", "0", "0", "0" }, colonyView.Panels[0].Texts.Select(t => t.Text));
-            Assert.Equal("12,345", Assert.Single(colonyView.Panels[1].Texts).Text);
+            Assert.Equal("12345", colonyView.BoxValue); // no commas (image-8)
         }
 
         [Fact]
         public void RegionInfo_BesiegedOrders_AndColonizationInUlbuka()
         {
-            var besieged = StockUiRegionInfo.Besieged(1, new[] { new BesiegedStronghold(2, 50, 3, false, 0, 0), default, default });
+            var strongholds = new[] { new BesiegedStronghold(2, 97, 3, false, 8, 1), default, default };
+            var besieged = StockUiRegionInfo.Besieged(-1, 2, strongholds, 15073195);
             var texts = besieged.Panels[0].Texts;
-            Assert.Equal(("Intercept enemy", "forces"), (texts[0].Text, texts[1].Text)); // wrapped to the panel
-            Assert.Equal(("Mamool Ja", "Attacking Lv.3"), (texts[2].Text, texts[3].Text));
-            Assert.True(besieged.PanelsSwapSides);
+            Assert.Equal("Invade Enemy Base", texts[0].Text); // image
+            Assert.Equal(new[] { "Mamool Ja Savages", "Lv", "3", "Attacking" }, texts.Skip(1).Take(4).Select(t => t.Text));
+            Assert.Equal("15073195", besieged.BoxValue);
+            // On Mamool Ja Savagelands: Mamook's base panel, its zones shown (image-3).
+            int mamool = StockUiRegionInfo.PointAt(Gordian.Core.Resources.Tables.RegionMap.Besieged, 273.5f, 389f);
+            var stronghold = StockUiRegionInfo.Besieged(mamool, 2, strongholds, 0, zoneName: z => $"zone {z}");
+            Assert.Equal(StockUiRegionInfo.BaseWindow, stronghold.Panels[0].Window);
+            Assert.Contains(stronghold.Panels[0].Texts, t => t.Text == "zone 65");
+            Assert.Equal(0.97f, Assert.Single(stronghold.Panels[0].Bars).Fill, 3);
+            Assert.Contains(stronghold.Markers, m => m.Label == "zone 67"); // Jade Sepulcher
+            Assert.DoesNotContain(besieged.Markers, m => m.Label == "zone 67");
 
-            // In Ceizak Battlegrounds the page shows that zone's rate and bivouacs, with Bayld under it.
+            // On Ceizak Battlegrounds: that zone's rate and bivouacs (image-9); Colonization's first zone word is Yahse.
             var colonization = new ColonizationInfo(new byte[6],
-                new[] { default, new ColonizationZone(40, 1, 3), default, default, default, default, default, default }, 7);
-            var view = StockUiRegionInfo.Colonization(colonization, 261, "obtaining");
+                new[] { default, new ColonizationZone(79, 3, 3), default, default, default, default, default, default }, 7);
+            int ceizak = StockUiRegionInfo.PointAt(Gordian.Core.Resources.Tables.RegionMap.Colonization, 289.5f, 139.5f);
+            var view = StockUiRegionInfo.Colonization(ceizak, colonization, 0, "obtaining");
             Assert.Equal(StockUiRegionInfo.RateWindow, view.Panels[0].Window);
-            Assert.Equal(new[] { "40%", "1/3" }, view.Panels[0].Texts.Select(t => t.Text));
-            Assert.Equal(0.4f, Assert.Single(view.Panels[0].Bars).Fill, 3);
-            Assert.Equal(StockUiRegionInfo.BayldWindow, view.Panels[1].Window);
+            Assert.Equal(new[] { "79%", "3/3" }, view.Panels[0].Texts.Select(t => t.Text));
+            Assert.Equal(0.79f, Assert.Single(view.Panels[0].Bars).Fill, 3);
+            Assert.Equal((StockUiRegionInfo.BayldBox, "7"), (view.BoxWindow, view.BoxValue));
+
+            // Campaign: the dots come with S2C 0x071; a city's panel, a zone's panel (image-19, -22).
+            var empty = StockUiRegionInfo.Campaign(-1, null, 54469, "obtaining");
+            Assert.Equal("obtaining", empty.HelpLine);
+            Assert.DoesNotContain(empty.Markers, m => m.Look == StockUiRegionMarkerLook.CampaignZone);
+            Assert.Equal((StockUiRegionInfo.AlliedBox, "54469"), (empty.BoxWindow, empty.BoxValue));
+            var zones = new CampaignZone[26];
+            zones[25] = new CampaignZone(4, 1000, 1000, 0, 0, 0, 0, 250, 1000, 1000);
+            var campaign = new CampaignInfo(54469, new[] { 3, 2, 2, 19 }, new[] { new CampaignNation(3, 90, 95), default, default, default, default, default, default }, zones);
+            var regionMap = Gordian.Core.Resources.Tables.RegionMap.Campaign;
+            var city = StockUiRegionInfo.Campaign(StockUiRegionInfo.PointAt(regionMap, 176.5f, 162.5f), campaign, 0, "obtaining");
+            Assert.Equal(StockUiRegionInfo.NationWindow, city.Panels[0].Window);
+            Assert.Equal(new[] { "Allied Forces", "San d'Oria", "Lv 3" }, city.Panels[0].Texts.Select(t => t.Text));
+            var throne = StockUiRegionInfo.Campaign(StockUiRegionInfo.PointAt(regionMap, 138.5f, 90.5f), campaign, 0, "obtaining", zoneName: z => z == 156 ? "Throne Room [S]" : null);
+            Assert.Equal(StockUiRegionInfo.ZoneWindow, throne.Panels[0].Window);
+            Assert.Equal("1000/1000", throne.Panels[0].Texts[0].Text);
+            Assert.Equal(1f, throne.Panels[0].Bars[3].Fill, 3); // the beastmen's 250 x 0.4
+            Assert.Contains(throne.Markers, m => m.Label == "Throne Room");
+            Assert.Equal(26, throne.Markers.Count(m => m.Look == StockUiRegionMarkerLook.CampaignZone));
         }
 
         [Fact]

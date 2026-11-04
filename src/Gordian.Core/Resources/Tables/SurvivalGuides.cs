@@ -1,14 +1,17 @@
 // src/Gordian.Core/Resources/Tables/SurvivalGuides.cs
+using System;
 using System.Collections.Generic;
 
 namespace Gordian.Core.Resources.Tables
 {
     /// <summary>
-    /// The survival guides by their number (#479): the number the survival guide event (8500) gives each list entry with
-    /// opcode 0xD4 sub-case 1 (kind 2, the survival guide network; kind 0 is the home points') and LandSandBoat's
-    /// <c>survivalGuides</c> key. Read from the retail event itself: every survival guide NPC runs the same script (zone 2's
+    /// The survival guides by their number (#479): LandSandBoat's <c>survivalGuides</c> key and what the event reports back
+    /// when one is chosen (<c>0x60001</c>: guide 6). Its list rows give opcode 0xD4 sub-case 1 kind 2 (the survival guide
+    /// network; kind 0 is the home points') with another number: 0x80 plus the guide's entry in the event's table at code
+    /// offset 0x16FF (<see cref="ListNumbers"/>; the maintainer's log of round 1: West Ronfaure's list sends 128, 162, 147,
+    /// 169 for guides 6-9). Read from the retail event itself: every survival guide NPC runs the same script (zone 2's
     /// actor 0x0100217D, 469 references), which keeps per-number tables of work references 0xD0 bytes (104 entries) apart:
-    /// the zone at code offset 0x13BF, the gil cost at 0x148F (1000 each), the list order at 0x16FF, x at 0x17CF, z at
+    /// the zone at code offset 0x13BF, the gil cost at 0x148F (1000 each), the list number at 0x16FF, x at 0x17CF, z at
     /// 0x189F, y (the height, internal space) at 0x196F and the heading at 0x1A3F, in thousandths; 98 guides, the rest of
     /// each table zero. **Beyond XiEvents and LandSandBoat:** the table's place in the event DAT and kind 2. The floor of
     /// each guide in a multi-floor zone is found as for <see cref="HomePoints"/>. Checked by <c>ZoneMapProjectionTests</c>
@@ -64,6 +67,24 @@ namespace Gordian.Core.Resources.Tables
             [89] = 1, [91] = 1, [94] = 1, [96] = 1,
         };
 
+        /// <summary>The event's table at code offset 0x16FF: each guide's number in opcode 0xD4 sub 1, without its 0x80, by guide number.</summary>
+        private static readonly byte[] ListNumbers =
+        {
+            24, 25, 26, 27, 83, 84, 0, 34, 19, 41, 28, 1, 30, 44, 45, 55, 2, 29, 36, 21, 3, 96, 50, 42, 4, 31, 35, 22, 5, 20, 43, 56, 32, 6,
+            46, 54, 10, 33, 37, 23, 7, 39, 8, 38, 9, 92, 40, 11, 47, 93, 12, 48, 82, 13, 94, 51, 53, 14, 52, 80, 81, 15, 49, 95, 17, 18, 16,
+            57, 58, 59, 60, 61, 62, 91, 85, 90, 89, 86, 63, 64, 66, 79, 87, 67, 68, 65, 69, 70, 78, 88, 71, 72, 73, 74, 77, 75, 76, 97,
+        };
+
+        /// <summary>The guide a list row names with opcode 0xD4 sub 1's number (0x80 plus its <see cref="ListNumbers"/> entry), or -1.</summary>
+        public static int FromListNumber(int number)
+        {
+            if ((number & 0x80) == 0) return -1;
+            return Array.IndexOf(ListNumbers, (byte)(number & 0x7F));
+        }
+
+        /// <summary>The number opcode 0xD4 sub 1 gives guide <paramref name="guide"/>'s list row.</summary>
+        public static int ListNumberOf(int guide) => 0x80 | ListNumbers[guide];
+
         /// <summary>How many survival guides the table holds.</summary>
         public static int Count => Points.Length;
 
@@ -83,7 +104,7 @@ namespace Gordian.Core.Resources.Tables
 
         /// <summary>The map survival guide <paramref name="number"/> is on (<see cref="ZoneMapFiles.MapsOf"/>), or -1 for none.</summary>
         public static int MapOf(int number) =>
-            number < 0 || number >= Points.Length ? -1 : ZoneMapFiles.FloorOf(Points[number].Zone, Floors.GetValueOrDefault(number));
+            number < 0 || number >= Points.Length ? -1 : ZoneMapFiles.PointMap(Points[number].Zone, Floors.GetValueOrDefault(number));
 
         /// <summary>The survival guides of zone <paramref name="zoneId"/> with the map each is on.</summary>
         public static IReadOnlyList<ZoneMapPoint> InZone(int zoneId)

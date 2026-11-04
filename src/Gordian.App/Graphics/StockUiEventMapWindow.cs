@@ -65,6 +65,8 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static readonly UiColor MapColor = new(0x80, 0x80, 0x80, 0x40);
 
+        private static readonly UiColor NoMapColor = new(0x80, 0x18, 0x18, 0x80);
+
         private (int Zone, int Map)? _shown;
         private Vector2 _from, _to, _current;
         private long _slideStart;
@@ -129,6 +131,17 @@ namespace Gordian.App.Graphics
 
         /// <summary>Forgets the shown map, so the next one opens on its point without a slide.</summary>
         public void Reset() => _shown = null;
+
+        /// <summary>
+        /// Retail's red "There is no map for this area." (<see cref="EventMapFocus.NoMapText"/>) in place of the map, over the
+        /// scene. PROVISIONAL: its place and colour; the round 1 note gives only the text and that it is red.
+        /// </summary>
+        public static void DrawNoMap(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, float uiScale, uint width, uint height)
+        {
+            float textWidth = StockUiTextBoxes.MeasureLine(font, logFont, EventMapFocus.NoMapText) * uiScale;
+            StockUiTextBoxes.DrawLine(renderer, font, logFont, EventMapFocus.NoMapText, (width - textWidth) * 0.5f,
+                height * AnchorY, uiScale, NoMapColor);
+        }
 
         /// <summary>A pin centred on (<paramref name="x"/>, <paramref name="y"/>) and its label (if any) to the right.</summary>
         internal static void DrawPin(StockUiRenderer renderer, StockUiLogFont? logFont, EventMapPin pin, string label, float x, float y, float s)

@@ -391,6 +391,8 @@ namespace Gordian.Engine.Sessions
             Progression.AlterEgoPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
             // The Map window (#23): the zone's map, and Wide Scan as /widescan.
             ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            // A living character the server sends away fades out rather than dying.
+            LocalPlayer.ServerStatusChanged += (_, _) => FadeOutIfVanishing();
             // ...on the floor the character stands on (#481).
             ActionService.Menus.CurrentMapFloor = () =>
                 World.TryGetByServerId(LocalPlayer.ServerId, out var self) && self != null ? Ui.StockUiMap.FloorOf(World, self.Position) : -1;

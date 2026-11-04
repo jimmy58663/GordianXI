@@ -51,6 +51,11 @@ namespace Gordian.App.Graphics
         private static readonly UiColor CurrentZone = new(0x80, 0x74, 0x68, 0x80);
         private static readonly UiColor City = new(0x58, 0x50, 0x80, 0x80);
         private static readonly UiColor BallColor = new(0x60, 0x5E, 0x58, 0x80);
+        private static readonly UiColor Stronghold = new(0x7D, 0x4B, 0x78, 0x80);
+        private static readonly UiColor Front = new(0x73, 0x55, 0x23, 0x80);
+
+        /// <summary>The Besieged discs' and the region pages' crests' sizes (layout px; the 2026-11-03 captures).</summary>
+        private const float HubSize = 24, RegionCrestSize = 22;
 
         /// <summary>The box's orange (image-55: about 255,165,70 on every side).</summary>
         private static readonly UiColor BoxColor = new(0x80, 0x52, 0x23, 0x80);
@@ -65,13 +70,22 @@ namespace Gordian.App.Graphics
             renderer.DrawScreenTint(width, height, Vector3.Zero);
             if (texture == null || texture.Width <= 0 || texture.Height <= 0) return;
             var (x, y, w, h) = StockUiMapWindow.Placement(page, texture.Width, texture.Height, width, height);
-            if (page.ConquestView != null)
+            if (page.ConquestView != null || page.RegionInfoView != null)
             {
                 float top = library != null ? StockUiMapWindow.Margin(library, scale, width, height) : EdgeMargin * scale;
                 page.KeepMapCursorInView(w, h, width, height, EdgeMargin * scale, top);
                 (x, y, w, h) = StockUiMapWindow.Placement(page, texture.Width, texture.Height, width, height);
             }
             renderer.DrawTexture("regionmap:" + texture.Source, texture, x, y, w, h, MapColor);
+            if (page.RegionInfoView is { } info)
+            {
+                foreach (var marker in info.Markers)
+                {
+                    DrawRegionMarker(renderer, library, logFont, marker, x + marker.X / texture.Width * w, y + marker.Y / texture.Height * h, scale);
+                }
+                if (library != null) DrawCursor(renderer, library, new Vector2(x + page.MapCursorX * w, y + page.MapCursorY * h), scale, timestamp);
+                return;
+            }
             if (page.ConquestView is not { } view) return;
             foreach (var marker in view.Markers)
             {
@@ -91,6 +105,65 @@ namespace Gordian.App.Graphics
             renderer.DrawTextureRect(SolidTexture, 1, 1, 1, 1, left, top + size - line, size, line, BoxColor);
             // StockUiTargetWindow's row selector is the menu arrow at half size; ArrowScale brings it to retail's.
             StockUiTargetWindow.DrawRowSelector(renderer, library, new Vector2(left, at.Y), s * ArrowScale, timestamp);
+        }
+
+        /// <summary>
+        /// A Besieged, Campaign or Colonization marker (#492): the 2026-11-03 captures' discs (<c>aht0</c>, <c>aht1</c>, about 24 px),
+        /// crests (about 22 px), grey balls, a Campaign zone's ball in its owner's colour (<c>colorbal</c>: violet for the
+        /// beastmen, red, blue and yellow for the nations), and the names in white, lilac (a city), pink (a stronghold) or gold
+        /// (a front, without a point).
+        /// </summary>
+        private static void DrawRegionMarker(StockUiRenderer renderer, UiResourceLibrary? library, StockUiLogFont? logFont, StockUiRegionMarker marker,
+            float px, float py, float s)
+        {
+            float half = 0;
+            string? texture = marker.Look switch
+            {
+                StockUiRegionMarkerLook.Hub => "aht0",
+                StockUiRegionMarkerLook.AlliedHub => "aht1",
+                StockUiRegionMarkerLook.Stronghold => "mcre",
+                StockUiRegionMarkerLook.City => marker.Crest,
+                _ => null,
+            };
+            if (texture != null && library != null && library.TryGetTexture(texture, out var image) && image != null)
+            {
+                half = (marker.Look is StockUiRegionMarkerLook.Hub or StockUiRegionMarkerLook.AlliedHub ? HubSize : RegionCrestSize) * 0.5f * s;
+                renderer.DrawTextureRect(texture, 0, 0, image.Width, image.Height, px - half, py - half, half * 2, half * 2, Neutral);
+            }
+            else if (marker.Look == StockUiRegionMarkerLook.CampaignZone)
+            {
+                half = BallSize * 0.5f * s;
+                var (cellX, cellY) = marker.Owner switch { 1 => (32f, 0f), 2 => (0f, 0f), 3 => (16f, 16f), _ => (48f, 16f) };
+                renderer.DrawTextureRect(Ball, cellX, cellY, BallCell, BallCell, px - half, py - half, half * 2, half * 2, Neutral);
+            }
+            else if (marker.Look == StockUiRegionMarkerLook.Ball && marker.Crest == null)
+            {
+                half = BallSize * 0.5f * s;
+                renderer.DrawTextureRect(Ball, BallCellX, BallCellY, BallCell, BallCell, px - half, py - half, half * 2, half * 2, BallColor);
+            }
+            else if (marker.Look == StockUiRegionMarkerLook.Ball)
+            {
+                half = BallSize * 0.5f * s; // a Campaign zone's label beside its dot
+            }
+            if (logFont == null || marker.Label.Length == 0) return;
+            float ts = s * LabelScale;
+            float textWidth = logFont.MeasureWidth(marker.Label) * ts;
+            float row = StockUiLogFont.CellHeight * ts;
+            var color = marker.Look switch
+            {
+                StockUiRegionMarkerLook.City => City,
+                StockUiRegionMarkerLook.Stronghold => Stronghold,
+                StockUiRegionMarkerLook.Front => Front,
+                _ => Neutral,
+            };
+            var (lx, ly) = marker.Look == StockUiRegionMarkerLook.Front ? (px - textWidth * 0.5f, py - row * 0.5f) : marker.Side switch
+            {
+                StockUiMapLabelSide.Above => (px - textWidth * 0.5f, py - half - LabelGap * s - row),
+                StockUiMapLabelSide.Below => (px - textWidth * 0.5f, py + half + LabelGap * s),
+                StockUiMapLabelSide.Left => (px - half - LabelGap * s - textWidth, py - row * 0.5f),
+                _ => (px + half + LabelGap * s, py - row * 0.5f),
+            };
+            logFont.Draw(renderer, marker.Label, lx, ly, ts, color);
         }
 
         private static void DrawMarker(StockUiRenderer renderer, UiResourceLibrary? library, StockUiLogFont? logFont, StockUiConquestMarker marker,

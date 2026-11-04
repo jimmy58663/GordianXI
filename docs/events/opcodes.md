@@ -813,7 +813,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | Sub | Bytes | Events | Meaning (XiEvents OpCodes/0x00D4) | GordianXI |
 |---|---|---|---|---|
 | 0x00 | 8 | 488 | The 0x24 query, one byte later, with the zone's own map (type 6) opened behind it | runs: `OpenQueryMap`, then the query |
-| 0x01 | 8 | 488 | `D4 01 option:work kind:work number:work`: an option's travel point | runs (`SetQueryMapEntry`); kind 0 (home points, `HomePoints`) and kind 2 (survival guides, `SurvivalGuides`, #479) are shown on the point's floor (#481). **Beyond XiEvents:** kind 2 is the survival guide network (the guide event 8500 passes a reference holding 2) |
+| 0x01 | 8 | 488 | `D4 01 option:work kind:work number:work`: an option's travel point | runs (`SetQueryMapEntry`); kind 0 (home points, `HomePoints`) and kind 2 (survival guides, `SurvivalGuides`, #479) are shown on the point's floor (#481). **Beyond XiEvents:** kind 2 is the survival guide network (the guide event 8500 passes a reference holding 2), its number 0x80 plus the guide's entry in the event's table at code offset 0x16FF |
 | 0x02 | 8 | 166 | The 0x24 query without the map | runs (`OpenQuery`) |
 | 0x03 | 6 | 163 | `D4 03 option:work value:work` | recorded (`SetQueryMapEntry`), not shown |
 | 0x04 | 12 | 6 | `D4 04 option:work value:work a:work b:work c:work` | recorded, not shown |

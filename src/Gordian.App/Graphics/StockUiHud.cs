@@ -458,6 +458,12 @@ namespace Gordian.App.Graphics
                 _eventMap.Reset();
                 return;
             }
+            if (focus.MapNumber == Gordian.Engine.Events.EventMapFocus.NoMap)
+            {
+                _eventMap.Reset();
+                StockUiEventMapWindow.DrawNoMap(renderer, font, _logFont, Layout.Scale, width, height);
+                return;
+            }
             int mapNumber = Gordian.Core.Resources.Tables.ZoneMapFiles.Resolve(focus.Zone, focus.MapNumber);
             if (mapNumber < 0) return;
             if (LoadZoneMap(focus.Zone, mapNumber) is not { } loaded) return;
@@ -930,6 +936,12 @@ namespace Gordian.App.Graphics
             {
                 // The Conquest map puts its Conquest Points in the target window's place (#488, round 1).
                 StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
+                return;
+            }
+            if (font != null && session.ActionService.Menus.PannedMap is { RegionInfoView: { } regionInfo })
+            {
+                // Besieged, Campaign and Colonization put Imperial Standing, Allied Notes and Bayld there (#492).
+                StockUiRegionInfoWindow.DrawBox(renderer, library, font, _logFont, regionInfo, placement, menu.Frame.Width, menu.Frame.Height);
                 return;
             }
             if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);

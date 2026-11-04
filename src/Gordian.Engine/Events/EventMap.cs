@@ -41,7 +41,14 @@ namespace Gordian.Engine.Events
     /// What the event map shows this frame: a zone's map, the point it is centred on (null: the map's centre) and the
     /// markers on it.
     /// </summary>
-    public sealed record EventMapFocus(int Zone, int MapNumber, float? X, float? Z, IReadOnlyList<EventMapMarker> Markers, EventMapPin Pin);
+    public sealed record EventMapFocus(int Zone, int MapNumber, float? X, float? Z, IReadOnlyList<EventMapMarker> Markers, EventMapPin Pin)
+    {
+        /// <summary><see cref="MapNumber"/> of a point retail has no map for: <see cref="NoMapText"/> shows instead of a map.</summary>
+        public const int NoMap = -2;
+
+        /// <summary>Retail's red text (round 1 of the 2026-11-03 test, Pso'Xja's home point). In no string table of the install.</summary>
+        public const string NoMapText = "There is no map for this area.";
+    }
 
     /// <summary>
     /// The event map's state (#168), replaced whole on each change so the HUD can read it on another thread. Two kinds:
@@ -122,14 +129,12 @@ namespace Gordian.Engine.Events
                     && HomePoints.TryGet(entry.Second, out int zone, out _, out float x, out float z))
                 {
                     // The point's own floor (#481): Castle Zvahl Keep's home point is on its map 4.
-                    return new EventMapFocus(zone, HomePoints.MapOf(entry.Second), x, z,
-                        new[] { new EventMapMarker(entry.Second, x, z, HomePointLabel) }, EventMapPin.HomePoint);
+                    return PointFocus(zone, HomePoints.MapOf(entry.Second), x, z, entry.Second, HomePointLabel, EventMapPin.HomePoint);
                 }
                 if (QueryEntries.TryGetValue(option, out entry) && entry is { Sub: 1, First: EventQueryMapEntry.SurvivalGuideKind }
-                    && SurvivalGuides.TryGet(entry.Second, out zone, out x, out _, out z))
+                    && SurvivalGuides.FromListNumber(entry.Second) is >= 0 and var guide && SurvivalGuides.TryGet(guide, out zone, out x, out _, out z))
                 {
-                    return new EventMapFocus(zone, SurvivalGuides.MapOf(entry.Second), x, z,
-                        new[] { new EventMapMarker(entry.Second, x, z, SurvivalGuideLabel) }, EventMapPin.SurvivalGuide);
+                    return PointFocus(zone, SurvivalGuides.MapOf(guide), x, z, guide, SurvivalGuideLabel, EventMapPin.SurvivalGuide);
                 }
                 if (!IsOpen) return null;
             }
@@ -138,6 +143,9 @@ namespace Gordian.Engine.Events
             if (Markers.Count > 0) (fx, fz) = (Markers[^1].X, Markers[^1].Z);
             return new EventMapFocus(Zone, MapNumber, fx, fz, Markers, EventMapPin.Event);
         }
+
+        private static EventMapFocus PointFocus(int zone, int map, float x, float z, int index, string label, EventMapPin pin) =>
+            new(zone, map < 0 ? EventMapFocus.NoMap : map, x, z, new[] { new EventMapMarker(index, x, z, label) }, pin);
 
         /// <summary>The home point marker's label (retail capture, #168).</summary>
         public const string HomePointLabel = "Home Point";

@@ -104,7 +104,7 @@ namespace Gordian.Core.Resources.Tables
 
         /// <summary>The map home point <paramref name="number"/> is on (<see cref="ZoneMapFiles.MapsOf"/>), or -1 for none.</summary>
         public static int MapOf(int number) =>
-            number < 0 || number >= Points.Length ? -1 : ZoneMapFiles.FloorOf(Points[number].Zone, Floors.GetValueOrDefault(number));
+            number < 0 || number >= Points.Length ? -1 : ZoneMapFiles.PointMap(Points[number].Zone, Floors.GetValueOrDefault(number));
 
         /// <summary>The home points of zone <paramref name="zoneId"/> with the map each is on, in global number order (the Map window's icons).</summary>
         public static IReadOnlyList<ZoneMapPoint> InZone(int zoneId)

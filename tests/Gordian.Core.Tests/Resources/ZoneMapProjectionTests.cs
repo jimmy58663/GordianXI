@@ -167,7 +167,10 @@ namespace Gordian.Core.Tests.Resources
                 Assert.Equal(Read(0x17CF, i), (int)System.MathF.Round(x * 1000));
                 Assert.Equal(Read(0x189F, i), (int)System.MathF.Round(z * 1000));
                 Assert.Equal(Read(0x196F, i), (int)System.MathF.Round(y * 1000));
+                Assert.Equal(0x80 | Read(0x16FF, i), SurvivalGuides.ListNumberOf(i));
+                Assert.Equal(i, SurvivalGuides.FromListNumber(SurvivalGuides.ListNumberOf(i)));
             }
+            Assert.Equal(-1, SurvivalGuides.FromListNumber(6)); // a guide's own number is not a list number
             Assert.Equal(0, Read(0x13BF, SurvivalGuides.Count)); // the table ends there
             Assert.Equal(98, SurvivalGuides.Count);
         }
@@ -238,6 +241,7 @@ namespace Gordian.Core.Tests.Resources
                 Assert.Equal(ZoneMapFiles.FloorOf(zone, collision, new System.Numerics.Vector3(x, y, z)), SurvivalGuides.MapOf(i));
             }
             Assert.Equal(4, HomePoints.MapOf(58));
+            Assert.Equal(-1, HomePoints.MapOf(82)); // Pso'Xja: no floor under its home point, and no map 0
         }
     }
 }

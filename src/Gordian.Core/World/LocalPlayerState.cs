@@ -317,8 +317,16 @@ namespace Gordian.Core.World
         /// <summary><see cref="ServerStatus"/> of a dead character (LandSandBoat <c>xi.animation.DEATH</c>).</summary>
         public const byte StatusDead = 3;
 
-        /// <summary>Whether the character is dead (S2C 0x037 status 3).</summary>
-        public bool IsDead => ServerStatus == StatusDead;
+        /// <summary>
+        /// Whether the character is dead (S2C 0x037 status 3 with no HP). A living character is sent status 3 too: LandSandBoat's
+        /// <c>setPos</c> to another zone at the end of an event (the survival guides, home points) marks the character
+        /// disappearing and the event's end then writes the death animation (<c>char_entity.cpp</c>, <c>isDead</c> counts
+        /// disappearing), at 100% HP (round 1 of the 2026-11-03 test): see <see cref="IsVanishing"/>.
+        /// </summary>
+        public bool IsDead => ServerStatus == StatusDead && Hpp == 0;
+
+        /// <summary>Whether the server has the living character leaving the zone (S2C 0x037 status 3 with HP): it fades out, it does not die.</summary>
+        public bool IsVanishing => ServerStatus == StatusDead && Hpp > 0;
 
         /// <summary>
         /// What the dead character's menu offers besides the home point: a Raise or Tractor from S2C 0x0F9, kept until
