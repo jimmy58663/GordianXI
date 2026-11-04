@@ -2769,16 +2769,26 @@ namespace Gordian.Engine.Actions
             string? window = Array.Find(UiWindowIds, id => id == first);
             if (window == null || parts.Length < 2) return PlayerActionResult.Warn(UiLayoutUsage, Kind);
 
+            // The log and its input line are one chat window to hide or show: "chat" alone used to take only the input line.
+            string? chatPartner = window switch
+            {
+                StockUiWindowIds.Log => StockUiWindowIds.ChatInput,
+                StockUiWindowIds.ChatInput => StockUiWindowIds.Log,
+                _ => null,
+            };
             switch (parts[1].ToLowerInvariant())
             {
                 case "hide":
                     layout.SetHidden(window, true);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, true);
                     return PlayerActionResult.Ok($"Stock {window} window hidden.", Kind);
                 case "show":
                     layout.SetHidden(window, false);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, false);
                     return PlayerActionResult.Ok($"Stock {window} window shown.", Kind);
                 case "reset":
                     layout.Reset(window);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, false);
                     return PlayerActionResult.Ok($"Stock {window} window restored to its retail placement.", Kind);
                 case "scale" when parts.Length == 3:
                     if (parts[2].Equals("default", StringComparison.OrdinalIgnoreCase))

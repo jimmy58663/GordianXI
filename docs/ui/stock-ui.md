@@ -83,6 +83,10 @@ The config rows table feeds the list pages (`ConfigRowText`), the help table the
 - **Left as they are, on purpose:** the Key Items Examine prompt (`evitem01`, the question in the log font with text Yes / No, from its retail captures) and the lobby prompts (`ptc*`) differ from the menu `comyn` prompt in their DAT frames and captures, so they keep their own drawing; the Magic / Abilities list rows (log font, spell icons) differ from item rows; Equipment keeps the slot labels under its icons and the check window hides them, as each was checked against retail.
 - *Checked:* `StockUiMenuControllerTests.Shop_DescribesTheRowLikeEveryItemInfoWindow_AndXPagesIt`, `EquipInspectPacketTests` (paging through `NextItemPage`), `StockUiWindowPlacementTests`, and the offscreen D3D11 renders of every window above (`GORDIAN_UI_DUMP`).
 
+## Hiding the chat window
+
+`/uilayout chat hide` and `/uilayout log hide` hide the whole chat window, the log and its input line, and `show` or `reset` on either brings both back (`ApplyUiLayoutCommand`; round 2 of the 2026-11-03 test). Until then `chat` was only the input line's id, so the log stayed up. `chat` and `log` keep separate positions and scales, and the keyboard still opens the unseen input line, so `/uilayout chat show` can be typed. `/stockui hide chat` is the run-time hide and takes no keys.
+
 ## Confirm windows
 
 `comyn` (with a message) and `yesno` stand on Window 1's top edge whatever its line count, at their DAT offset from its left edge, and move with the log (`StockUiWindowPlacement.OnLog`, `StockUiHud.DrawMenus`; round 1 of the 2026-11-03 test). The DAT authors them only for the eight-line log (`comyn` 130,208, 252 x 88, bottom left: 114 px right of the log, beside the compass). The shop, Auction House, Blue Magic and macro windows' prompts keep their own places; with the log hidden, the DAT's.
