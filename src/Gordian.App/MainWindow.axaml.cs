@@ -39,6 +39,11 @@ namespace Gordian.App
             _viewModel = new MainWindowViewModel();
             DataContext = _viewModel;
 
+            if (Services.DevLaunchOptions.Current.ProfileName is { } launchProfile)
+            {
+                Opened += (s, e) => _viewModel.LaunchProfileByName(launchProfile);
+            }
+
             _viewModel.Chat.RequestScrollToEnd += (s, e) =>
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
