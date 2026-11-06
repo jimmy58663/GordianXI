@@ -689,5 +689,27 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Equal(0x0Bu, _actionService.CurrentTarget?.ServerId);
             Assert.False(_actionService.SetTargetByPartySlot(3));
         }
+
+        [Fact]
+        public async Task ScreenshotGoesToTheViewportAndPrintsNothingInTheFrame()
+        {
+            ScreenshotRequest? taken = null;
+            _actionService.ScreenshotHandler = request => { taken = request; return true; };
+
+            var res = await _actionService.ExecuteCommandAsync("/screenshot hide noon");
+
+            Assert.True(res.Success);
+            Assert.Empty(res.Message);
+            Assert.Equal(new ScreenshotRequest(true, "noon"), taken);
+        }
+
+        [Fact]
+        public async Task ScreenshotWithNoViewportWarns()
+        {
+            var res = await _actionService.ExecuteCommandAsync("/screenshot");
+
+            Assert.False(res.Success);
+            Assert.Equal("A screenshot can't be taken right now.", res.Message);
+        }
     }
 }

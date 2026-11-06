@@ -133,6 +133,8 @@ namespace Gordian.Core.Network
         Logout,
         /// <summary><c>/shutdown [on|off]</c>: asks to shut down (C2S 0x0E7 kind 3); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         Shutdown,
+        /// <summary><c>/screenshot [hide] [name]</c>: saves the next frame to a PNG; <see cref="ChatCommandResult.ActionParam"/> is 1 to hide the UI, <see cref="ChatCommandResult.Message"/> holds the name.</summary>
+        Screenshot,
         /// <summary><c>/macro book &lt;1-40&gt;</c> / <c>/macro set &lt;1-10&gt;</c>: changes the current macro book or set (#339, #362); <see cref="ChatCommandResult.Message"/> is the arguments.</summary>
         Macro,
         /// <summary><c>/wait [n]</c>: a macro's pause (the macro runner takes it); typed, it does nothing.</summary>
@@ -288,6 +290,7 @@ namespace Gordian.Core.Network
                     "sitchair" => ParseSitChair(args),
                     "logout" => ParseRest(ChatCommandResultKind.Logout, "logout", args),
                     "shutdown" => ParseRest(ChatCommandResultKind.Shutdown, "shutdown", args),
+                    "screenshot" => ParseScreenshot(args),
                     "random" or "rand" => new ChatCommandResult { Kind = ChatCommandResultKind.Random, Message = args },
                     "nominate" or "propose" => ParsePropose(args, defaultSpeechKind),
                     "vote" => ParseVote(args),
@@ -385,6 +388,30 @@ namespace Gordian.Core.Network
                 return new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = $"Usage: /{verb} [on|off]" };
             }
             return new ChatCommandResult { Kind = kind, Rest = mode };
+        }
+
+        /// <summary>
+        /// <c>/screenshot [hide] [name]</c>: the name may use letters, digits, <c>-</c>, <c>_</c> and <c>.</c> only, so it
+        /// can't leave the screenshots folder; a trailing <c>.png</c> is dropped.
+        /// </summary>
+        private static ChatCommandResult ParseScreenshot(string args)
+        {
+            var usage = new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /screenshot [hide] [name]" };
+            bool hide = false;
+            string name = string.Empty;
+            foreach (string part in args.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (part.Equals("hide", StringComparison.OrdinalIgnoreCase) && !hide) hide = true;
+                else if (name.Length == 0) name = part;
+                else return usage;
+            }
+            if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
+            if (name.StartsWith('.')) return usage;
+            foreach (char c in name)
+            {
+                if (!char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_' or '.')) return usage;
+            }
+            return new ChatCommandResult { Kind = ChatCommandResultKind.Screenshot, ActionParam = (ushort)(hide ? 1 : 0), Message = name };
         }
 
         /// <summary><c>/jobmasterdisp on|off</c>: the mode is required (the client does not know the current setting).</summary>

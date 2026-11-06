@@ -17,6 +17,7 @@ namespace Gordian.Core.Config
         private const string AddonsFolderName = "addons";
         private const string ScriptsFolderName = "scripts";
         private const string LogsFolderName = "logs";
+        private const string ScreenshotsFolderName = "screenshots";
 
         private static string? _customRootDirectory;
         private static string? _customProfilesDirectory;
@@ -182,6 +183,22 @@ namespace Gordian.Core.Config
             get
             {
                 string path = Path.Combine(RootDataDirectory, ScriptsFolderName);
+                if (!Directory.Exists(path))
+                {
+                    Directory.CreateDirectory(path);
+                }
+                return path;
+            }
+        }
+
+        /// <summary>
+        /// Gets the dedicated directory for saved screenshots.
+        /// </summary>
+        public static string ScreenshotsDirectory
+        {
+            get
+            {
+                string path = Path.Combine(RootDataDirectory, ScreenshotsFolderName);
                 if (!Directory.Exists(path))
                 {
                     Directory.CreateDirectory(path);
