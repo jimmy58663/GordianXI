@@ -80,6 +80,15 @@ namespace Gordian.Core.World
         public Collision.ZoneCollisionMesh? ZoneCollision => _collision;
 
         /// <summary>
+        /// The mesh characters drawn in the zone of <paramref name="zone"/> stand on: <see cref="Collision"/>, with the interiors
+        /// near the player, when that is this world's zone, else <paramref name="zone"/> itself (a viewport still showing the
+        /// last zone). The closed building's floor in the zone's own mesh can lie under the room's: Northern San d'Oria's
+        /// Woodworking guild is 12 in the zone and 11 in interior 349, and Andreas was drawn a yalm into the floor.
+        /// </summary>
+        public Collision.ZoneCollisionMesh? CollisionFor(Collision.ZoneCollisionMesh? zone) =>
+            ReferenceEquals(zone, _collision) ? _subAreaCollision ?? zone : zone;
+
+        /// <summary>
         /// Puts the zone's mesh with interiors added in front of it (<see cref="SubAreaTracker"/>); ignored when the zone's
         /// mesh has changed since the merge started, null to drop it.
         /// </summary>

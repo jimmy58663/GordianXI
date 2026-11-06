@@ -147,6 +147,9 @@ namespace Gordian.App.Graphics
         public SkyDomeRenderer? SkyDomeRenderer => _skyDomeRenderer;
         public ZoneGeometry? LoadedZone { get; private set; }
 
+        /// <summary>The collision characters are drawn on: the loaded zone's, with the interiors near the player.</summary>
+        private ZoneCollisionMesh? ActorCollision => World != null ? World.CollisionFor(LoadedZone?.Collision) : LoadedZone?.Collision;
+
         // The resident zone's GPU submeshes (shared with other windows; never modified here).
         private List<GpuSubmesh> _zoneSubmeshes = new();
         private List<GpuWeatherSkySubmesh> _weatherSkySubmeshes = new();
@@ -1531,7 +1534,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
-                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, LoadedZone?.Collision, _platformHeights, LoadedZone, _subEnvironmentActorLights, LocalPlayerRidingPlatformId);
+                _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, ActorCollision, _platformHeights, LoadedZone, _subEnvironmentActorLights, LocalPlayerRidingPlatformId);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;
                 culled += _entityRenderer.CulledEntities;

@@ -171,6 +171,38 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(8f, floor.Height, 0.01f);
         }
 
+        /// <summary>
+        /// Northern San d'Oria's Woodworking guild (round 2): the zone's closed building has its floor at 12, the room (interior
+        /// 349) at 11. Andreas stands at 11, and the entity pass grounded him on the zone's mesh, a yalm into the room's floor.
+        /// </summary>
+        [Fact]
+        public void WoodworkingGuild_CharactersStandOnTheRoomsFloor()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var zone = rm.TryLoadZoneCollision(231)!;
+            var merged = ZoneCollisionMesh.Merge(zone, new[] { rm.TryLoadSubAreaCollision(349)! });
+            var andreas = new Vector3(-189.282f, 10.999f, 262.626f);
+            Assert.Equal(12f, EntityGrounding.GetDisplayHeight(andreas, zone), 0.01f);
+            Assert.Equal(11f, EntityGrounding.GetDisplayHeight(andreas, merged), 0.01f);
+        }
+
+        [Fact]
+        public void CollisionFor_AddsTheInteriorsOnlyForTheWorldsOwnZone()
+        {
+            var zone = Floor(-10, -10, 10, 10);
+            var merged = Floor(-10, -10, 10, 10, 1f);
+            var otherZone = Floor(-10, -10, 10, 10, 2f);
+            var world = new WorldState { Collision = zone };
+
+            Assert.Same(zone, world.CollisionFor(zone));
+            world.SetSubAreaCollision(zone, merged);
+            Assert.Same(merged, world.CollisionFor(zone));
+            Assert.Same(otherZone, world.CollisionFor(otherZone));
+            Assert.Null(world.CollisionFor(null));
+        }
+
         [Fact]
         public void LowerJeuno_StablesRoom_HasNoZoneWallWhereTheMaintainerWasBlocked()
         {

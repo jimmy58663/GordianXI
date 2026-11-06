@@ -132,7 +132,7 @@ namespace Gordian.App.Graphics
                 ClearFootEffects();
             }
 
-            var collision = LoadedZone?.Collision;
+            var collision = ActorCollision;
             if (entities != null && resourceManager != null && collision != null)
             {
                 bool wet = ZoneSoundTable.IsWetWeather(environment.WeatherId);

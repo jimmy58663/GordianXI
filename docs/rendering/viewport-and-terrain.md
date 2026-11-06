@@ -205,7 +205,8 @@ Format: xi-tools `docs/zone/subareas.md` (after xim `SubAreaManager`), in [dat-f
 - *Lighting (round 1: the tavern was bright and grey where retail is dark and warm).* An interior's placements link its own sub-environment (`ev10`, keyframes under `r_3j/ev10/*`): each interior gets its own scene uniforms filled from its DAT's environment. Its light table (`l_01`-`l_03` in the food shop) is moved past the zone's in-use slots, its light generators run as emitters of their own, and its placements' light references are shifted to match (`ZoneTerrainRenderer.SubAreas.cs`). Characters inside are still lit by the zone's environment.
 - *Shadows.* An actor's shadow light eases over `ShadowLightEaseSeconds` (0.6 s) instead of snapping when its light changes at a doorway (round 1).
 - *Effects (#428).* An interior runs all its generators, not only its lights, and draws them with the zone's effects: the Meadhouse's lamp halos `ltcu` ([lighting.md](lighting.md#lamp-flames-and-glows)).
-- *Not done:* interiors' own doors, actor lighting inside, remote entities inside interiors (grounded on the merged mesh only when the local player is near).
+- *Characters inside.* The entity pass and the foot effects draw on the merged mesh (`WorldState.CollisionFor`), so a character inside stands on the room's floor while the local player is near it; farther off it is grounded on the zone's mesh, out of sight. They used the zone's own mesh until 2026-11-05: Northern San d'Oria's Woodworking guild has the zone's floor at 12 and interior 349's at 11, and Andreas (reported height 10.999) was drawn a yalm into the floor, which looked like sitting in it (round 2).
+- *Not done:* interiors' own doors, actor lighting inside.
 
 *Verification:* `dotnet test --filter SubAreaTests`; offscreen in Lower Jeuno at (-38, -1, -61) facing the food shop (no change from the street) and inside it at (-22, -1, -60) (the tavern with the street door behind).
 
