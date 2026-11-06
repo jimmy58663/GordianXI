@@ -74,11 +74,11 @@ namespace Gordian.Engine.Ui
         /// <paramref name="parent"/> the list opens on its own (<c>/sea</c>, #495). Call under the lock.
         /// </summary>
         private StockUiOpenMenu? OpenPeopleList(StockUiPeoplePurpose purpose, IReadOnlyList<StockUiPerson> people, StockUiOpenMenu? parent,
-            string menuName = StockUiPeople.ResultsMenu)
+            string menuName = StockUiPeople.ResultsMenu, bool opensEmpty = false)
         {
             // The friend list and the messages open empty, as retail's do ("No friends registered.", image-39; the message
-            // list's column bar, image-40); the others post why there is nothing to list.
-            bool opensEmpty = purpose is StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Messages;
+            // list's column bar, image-40), and so does /sea (its "[0]" bar, 2026-11-06); the others post why there is nothing to list.
+            opensEmpty |= purpose is StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Messages;
             if (people.Count == 0 && !opensEmpty)
             {
                 NoticePosted?.Invoke(StockUiPeople.EmptyNotice(purpose));

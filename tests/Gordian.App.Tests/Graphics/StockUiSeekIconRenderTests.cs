@@ -25,7 +25,7 @@ namespace Gordian.App.Tests.Graphics
                     if (Differs(screen.Pixel(plain, cell.X + x, cell.Y + y), screen.Pixel(seeker, cell.X + x, cell.Y + y))) changed++;
                     if (Differs(screen.Pixel(plain, cell.X + x, cell.NextY + y), screen.Pixel(seeker, cell.X + x, cell.NextY + y))) otherRow++;
                 }
-            Assert.True(changed > 60, $"no icon on the seeker's row: {changed} pixels changed");
+            Assert.True(changed > 40, $"no icon on the seeker's row: {changed} pixels changed");
             Assert.Equal(0, otherRow);
         }
 

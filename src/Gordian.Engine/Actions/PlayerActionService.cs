@@ -2098,7 +2098,7 @@ namespace Gordian.Engine.Actions
         /// <c>/sea</c>, not case-sensitive (the maintainer's grammar, #495 round 1): searches players on the search server in
         /// the current zone, a named zone, or every zone with <c>all</c>. Filters combine (<see cref="ParseSearchQuery"/>):
         /// <c>/sea all inv brd 24-35</c>. With the stock menus wired (<see cref="StockUiMenuController.Social"/>) the results
-        /// open in the Search menu's results window and nothing is printed but "No players found." and errors; without them
+        /// open in the Search menu's results window and nothing is printed but <see cref="NobodyFound"/> and errors; without them
         /// the message lists the first names. The full result is in <c>SearchService.State.LastSearch</c>.
         /// </summary>
         public async Task<PlayerActionResult> PlayerSearchAsync(string arguments)
@@ -2107,17 +2107,17 @@ namespace Gordian.Engine.Actions
             var service = SearchService;
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
-            if (SearchTargetName(ref arguments, out string? targetName) is { } stopped) return stopped;
+            bool nobody = !SearchTargetName(ref arguments, out string? targetName);
             var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName);
             if (targetName != null) query.Name = targetName;
             if (Menus.Social is { } social)
             {
                 try
                 {
-                    var people = await social.SearchAsync(query).ConfigureAwait(false);
+                    var people = nobody ? new StockUiPeopleResult(Array.Empty<StockUiPerson>()) : await social.SearchAsync(query).ConfigureAwait(false);
                     if (people.Error is { Length: > 0 } error) return PlayerActionResult.Warn(error, Kind);
-                    if (people.People.Count == 0) return PlayerActionResult.Info("No players found.", Kind);
                     Menus.OpenSearchResults(people.People);
+                    if (people.People.Count == 0) return PlayerActionResult.Info(NobodyFound(query), Kind);
                     return PlayerActionResult.Info(string.Empty, Kind);
                 }
                 catch (Exception ex)
@@ -2126,13 +2126,14 @@ namespace Gordian.Engine.Actions
                     return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
                 }
             }
+            if (nobody) return PlayerActionResult.Info(NobodyFound(query), Kind);
             try
             {
                 var result = await service.SearchAsync(query).ConfigureAwait(false);
                 if (result.Players.Count == 0)
                 {
                     return result.Complete
-                        ? PlayerActionResult.Info("No players found.", Kind)
+                        ? PlayerActionResult.Info(NobodyFound(query), Kind)
                         : PlayerActionResult.Warn("The search server did not answer.", Kind);
                 }
 
@@ -2150,15 +2151,24 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// <c>/sea &lt;t&gt;</c> (#495 round 2): a placeholder is the player's name, as <c>/sea Cybin</c>. It leaves the arguments,
-        /// so a name that reads as a zone or a job stays a name. Returns the answer when there is nobody to search for.
+        /// The log line of a search that finds nobody: "Search result: 0 people found in this area." (retail client on local LSB,
+        /// 2026-11-06, Sea_Target_Nothing_Targeted.png). PROVISIONAL: "in all known areas" for <c>all</c>, the wording of the
+        /// same line with people found.
         /// </summary>
-        private PlayerActionResult? SearchTargetName(ref string arguments, out string? name)
+        private static string NobodyFound(SearchQuery query) =>
+            $"Search result: 0 people found in {(query.AllAreas ? "all known areas" : "this area")}.";
+
+        /// <summary>
+        /// <c>/sea &lt;t&gt;</c> (#495 round 2): a placeholder is the player's name, as <c>/sea Cybin</c>. It leaves the arguments,
+        /// so a name that reads as a zone or a job stays a name. False when it names nobody to search for: retail then opens
+        /// the empty window with nothing targeted (2026-11-06). PROVISIONAL: a target that is no player, taken the same way.
+        /// </summary>
+        private bool SearchTargetName(ref string arguments, out string? name)
         {
-            const ChatCommandResultKind Kind = ChatCommandResultKind.PlayerSearch;
             name = null;
             var words = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (!Array.Exists(words, ChatCommandRouter.IsTargetToken)) return null;
+            if (!Array.Exists(words, ChatCommandRouter.IsTargetToken)) return true;
+            bool found = true;
             var rest = new List<string>(words.Length);
             foreach (string word in words)
             {
@@ -2167,13 +2177,11 @@ namespace Gordian.Engine.Actions
                     rest.Add(word);
                     continue;
                 }
-                var entity = ResolveTargetToken(word[1..^1].ToLowerInvariant(), out string? problem);
-                if (entity == null) return PlayerActionResult.Warn(problem ?? $"{word}: nobody to search for.", Kind);
-                if (entity.Type != EntityType.Player) return PlayerActionResult.Info("No players found.", Kind);
-                name = entity.Name;
+                if (ResolveTargetToken(word[1..^1].ToLowerInvariant(), out _) is { Type: EntityType.Player } entity) name = entity.Name;
+                else found = false;
             }
             arguments = string.Join(' ', rest);
-            return null;
+            return found;
         }
 
         /// <summary>

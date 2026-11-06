@@ -35,7 +35,7 @@ namespace Gordian.App.Graphics
         /// <summary>The comment dot: 6 px, its left 2 px before the name, 4 px below the row's top (image-54).</summary>
         private const float CommentDotSize = 6, CommentDotX = NameX - 6, CommentDotY = 4;
         private const float HeaderTitleX = 9, HeaderCountX = 157, HeaderMoreX = 281;
-        private const float IconX = 3, IconSize = 16, IconClipInset = 2;
+        private const float IconX = 3, IconSize = 16, IconClipInset = 2, SeekIconX = 7, SeekIconScale = 0.7f;
 
         /// <summary>The names' colours (half scale): yellow leader, cyan party (round 1 image-28: about FFE070 and 90E8FF).</summary>
         private static readonly UiColor LeaderTint = new(0x80, 0x70, 0x38, 0x80), PartyTint = new(0x48, 0x74, 0x80, 0x80);
@@ -138,7 +138,7 @@ namespace Gordian.App.Graphics
                     var (r, g, b) = StockUiLinkshellColors.Rgb(person.LinkshellColor);
                     StockUiMenuWindow.DrawItemIcon(renderer, menu, item, areaX + IconX * s, ry, IconSize * s, StockUiNamePlates.PearlTint(r, g, b));
                 }
-                if (person.IsSeeking) DrawSeekIcon(renderer, font, areaX + IconX * s, ry + (firstRow.Height - IconSize) * 0.5f * s, s);
+                if (person.IsSeeking) DrawSeekIcon(renderer, font, areaX + SeekIconX * s, ry + (firstRow.Height - IconSize * SeekIconScale) * 0.5f * s, s * SeekIconScale);
                 if (person.Jobs is { Length: > 0 } jobs)
                 {
                     if (logFont != null)
@@ -193,7 +193,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The Seek Party icon (the name plate's, <see cref="StockUiPartyWindow.SeekPartyIconIndex"/>) in the space left of the
-        /// jobs (round 2 of the 2026-11-03 test). PROVISIONAL: its size, 16 px as the linkshell lists' icons at the same place.
+        /// jobs (round 2 of the 2026-11-03 test): about 11 px, 7 px into the frame (retail client on local LSB, 2026-11-06,
+        /// Search_Results_Seek_Icon.png).
         /// </summary>
         private static void DrawSeekIcon(StockUiRenderer renderer, UiFont font, float x, float y, float s)
         {

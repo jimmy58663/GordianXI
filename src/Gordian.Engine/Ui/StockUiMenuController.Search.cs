@@ -228,7 +228,7 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public void OpenSearchResults(IReadOnlyList<StockUiPerson> people)
         {
-            lock (_sync) OpenPeopleList(StockUiPeoplePurpose.SearchResults, people, Top);
+            lock (_sync) OpenPeopleList(StockUiPeoplePurpose.SearchResults, people, Top, opensEmpty: true);
         }
 
         private void Search(StockUiOpenMenu from, SearchQuery query)

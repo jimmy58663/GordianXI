@@ -843,14 +843,20 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Fact]
-        public async Task SeaCommand_ATargetThatIsNoPlayer_SearchesNothing()
+        public async Task SeaCommand_ATargetThatIsNoPlayer_OpensTheEmptyWindow()
         {
+            // Retail client on local LSB, 2026-11-06: nothing targeted opens the "[0]" window with this line.
             var (session, social) = SeaSession();
 
-            Assert.Equal("Nothing is targeted.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+            Assert.Equal("Search result: 0 people found in this area.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+            var window = session.Actions.Menus.Top!;
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeoplePurpose.SearchResults, window.PeoplePurpose);
+            Assert.Empty(window.People);
+            Assert.Equal("[0]", window.Rows[0].Value);
+            session.Actions.Menus.CloseAll();
 
             session.Actions.SetTargetByName("Forest_Hare");
-            Assert.Equal("No players found.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+            Assert.Equal("Search result: 0 people found in all known areas.", (await session.Actions.PlayerSearchAsync("all <t>")).Message);
             Assert.Null(social.LastQuery);
         }
 
