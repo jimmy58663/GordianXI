@@ -652,6 +652,9 @@ namespace Gordian.Core.Resources.Graphics
                     def.FootMark = true;
                     break;
 
+                case 0x43: // xi-tools names it DeferredBlendFunc. Value 0x48 reads as the ground-coloured lift (particles.md, Waypoint)
+                    if (opPayload.Length >= 8 && opPayload[4] == 0x48) def.GroundColored = true;
+                    break;
                 case 0x8F: // ground colour (no reference names it; see GroundColored)
                     def.GroundColored = true;
                     break;
