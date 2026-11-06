@@ -378,9 +378,9 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
-        public void CommandMenuTrust_HasTheOptionsWindow_TheOtherMagicListsDoNot()
+        public void CommandMenuMagicLists_HaveTheOptionsWindow()
         {
-            // #476 round 1: Options did not show from the command menu's Trust; image-14's magic list has none.
+            // #476: round 1 asked for it on Trust, round 2 on the others too, though image-14's magic list has none.
             LoadMenus();
             Learn(TestCatalog.Cure, TestCatalog.Shantotto);
             var menus = _service.Menus;
@@ -396,8 +396,9 @@ namespace Gordian.Engine.Tests.Actions
             menus.CloseTop();
 
             var magic = menus.OpenActionList(StockUiActionList.Spells, 0, command)!;
-            Assert.False(magic.ShowsActionOptions);
-            Assert.False(menus.ToggleActionOptions());
+            Assert.True(magic.ShowsActionOptions);
+            Assert.True(menus.ToggleActionOptions());
+            Assert.True(menus.Top!.IsActionOptions);
         }
 
         [Fact]
@@ -461,7 +462,7 @@ namespace Gordian.Engine.Tests.Actions
             menus.Move(InputAction.MenuDown);
             menus.Activate();
             var list = menus.Top!;
-            Assert.Equal((StockUiActionList.Spells, 0, false), (list.ActionList, list.ActionCategory, list.ShowsActionOptions));
+            Assert.Equal((StockUiActionList.Spells, 0, true), (list.ActionList, list.ActionCategory, list.ShowsActionOptions));
             Assert.Equal(new[] { "Cure" }, list.ActionRows.Select(r => r.Name)); // no Fire (BLM), no Shantotto (Trust)
             menus.CloseTop();
             menus.Move(InputAction.MenuRight); // the categories

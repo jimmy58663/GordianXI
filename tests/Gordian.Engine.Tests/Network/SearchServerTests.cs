@@ -809,6 +809,51 @@ namespace Gordian.Engine.Tests.Network
             Assert.Contains("2 player(s)", result.Message);
         }
 
+        private static (Session Session, Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial Social) SeaSession()
+        {
+            var session = NewSession(_ => Array.Empty<(byte[], int)>());
+            session.Actions.SearchService = session.Parser.Search;
+            var social = new Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial
+            {
+                SearchResult = new(new[] { new Gordian.Engine.Ui.StockUiPerson("Cybin", CharacterId: 7) }),
+            };
+            var menus = session.Actions.Menus;
+            menus.Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.SharedMenus());
+            menus.Social = social;
+            session.Parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(0x100, 1, Gordian.Core.World.EntityType.Player) { Name = "Selbina" });
+            session.Parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(0x101, 2, Gordian.Core.World.EntityType.Monster) { Name = "Forest_Hare" });
+            return (session, social);
+        }
+
+        [Theory]
+        [InlineData("<t>", false)]
+        [InlineData("<T>", false)]
+        [InlineData("all <t>", true)]
+        public async Task SeaCommand_TheTargetPlaceholderIsThePlayersName(string arguments, bool all)
+        {
+            // Round 2: /sea <t> is /sea Cybin. A name that reads as a zone ("Selbina") stays a name.
+            var (session, social) = SeaSession();
+            session.Actions.SetTargetByName("Selbina");
+
+            var result = await session.Actions.PlayerSearchAsync(arguments);
+
+            Assert.True(string.IsNullOrEmpty(result.Message));
+            Assert.Equal("Selbina", social.LastQuery!.Name);
+            Assert.Equal(all, social.LastQuery.AllAreas);
+        }
+
+        [Fact]
+        public async Task SeaCommand_ATargetThatIsNoPlayer_SearchesNothing()
+        {
+            var (session, social) = SeaSession();
+
+            Assert.Equal("Nothing is targeted.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+
+            session.Actions.SetTargetByName("Forest_Hare");
+            Assert.Equal("No players found.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+            Assert.Null(social.LastQuery);
+        }
+
         [Fact]
         public async Task SeaCommand_OpensTheSearchResultsWindow()
         {

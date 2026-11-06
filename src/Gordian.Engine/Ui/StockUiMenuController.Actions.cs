@@ -43,10 +43,10 @@ namespace Gordian.Engine.Ui
         public bool IsActionOptions { get; init; }
 
         /// <summary>
-        /// Whether this spell list shows the Options window at the top right: every list from the main menu, and the Trust
-        /// list from the command menu too (#476 round 1); the command menu's other magic lists have none (image-14).
+        /// Whether this spell list shows the Options window at the top right: every list, from the main menu or the command
+        /// menu. Retail's command menu magic lists have none (image-14); the maintainer wants them anyway (#476 round 2).
         /// </summary>
-        public bool ShowsActionOptions => ActionList == StockUiActionList.Spells && (ActionTarget == null || ActionCategory == StockUiActionMenu.TrustKind);
+        public bool ShowsActionOptions => ActionList == StockUiActionList.Spells;
     }
 
     public sealed partial class StockUiMenuController

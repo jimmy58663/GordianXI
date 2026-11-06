@@ -229,6 +229,9 @@ void main()
         /// </summary>
         public IReadOnlyList<(float X, float Y, float Width, float Height)> DrawnWindows => _drawnWindows;
 
+        /// <summary>Drops the windows drawn since <see cref="DrawnWindows"/> had <paramref name="count"/> entries: they do not hide the compass.</summary>
+        public void ForgetDrawnWindows(int count) => _drawnWindows.RemoveRange(count, _drawnWindows.Count - count);
+
         /// <summary>
         /// How many help bars (<see cref="StockUiHelpBar"/>) were drawn this frame: the HUD draws the generic one for an open
         /// menu only when no window drew its own (#313).

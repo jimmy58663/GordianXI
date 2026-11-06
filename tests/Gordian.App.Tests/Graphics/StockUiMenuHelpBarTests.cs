@@ -61,6 +61,15 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void SpellOptionsWindow_KeepsItsPlace_NotTheCommandMenusOffset()
+        {
+            // Round 2 of the 2026-11-03 test: the Options window slid down by the log's line count when + / Y opened it.
+            var frame = new Gordian.Core.Resources.Ui.UiMenuDefinition { Name = "mgcsort", Frame = new Gordian.Core.Resources.Ui.UiMenuFrame { Width = 100, Height = 50 } };
+            Assert.True(StockUiWindowPlacement.KeepsOwnPlace(new StockUiOpenMenu(frame, null, Array.Empty<string>(), null) { IsActionOptions = true }));
+            Assert.False(StockUiWindowPlacement.KeepsOwnPlace(new StockUiOpenMenu(frame, null, Array.Empty<string>(), null)));
+        }
+
+        [Fact]
         public void LongHelpLine_WaitsScrollsWaitsAndJumpsBack()
         {
             const float overflow = 60;

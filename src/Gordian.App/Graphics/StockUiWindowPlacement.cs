@@ -45,6 +45,16 @@ namespace Gordian.App.Graphics
         public static bool HasScreen(StockUiScreen screen) => screen.Height > 0 || screen.Window1Top != null;
 
         /// <summary>
+        /// Whether a sub-window stays at its authored place rather than following the root window: the shop's list and quantity
+        /// prompt, the Treasure Pool, Items / Equipment, Auction House, Blue Magic and macro windows, and a spell list's Options.
+        /// The Options window is shown at its authored place until + / Y opens it, so following the command menu, which rides
+        /// on the log's line count, made it slide down when opened (round 2 of the 2026-11-03 test).
+        /// </summary>
+        public static bool KeepsOwnPlace(StockUiOpenMenu menu) =>
+            menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow || menu.IsActionOptions
+            || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
+
+        /// <summary>
         /// Where a window goes with its bottom on Window 1 top edge and its authored offset from the log left edge (the confirm
         /// windows): it moves with the log and follows its line count.
         /// </summary>

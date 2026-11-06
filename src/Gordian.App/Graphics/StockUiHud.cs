@@ -757,10 +757,7 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
-                    // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
-                        || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
+                    bool shopWindow = StockUiWindowPlacement.KeepsOwnPlace(menu);
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
@@ -808,8 +805,12 @@ namespace Gordian.App.Graphics
                 }
                 // A View House list with the cursor on the inventory draws at the inventory's place, the storage beside it (#23).
                 if (menu.StorageInventorySide) placement = placement with { X = placement.X + (StockUiViewHouse.InventoryX - menu.Menu.Frame.X) * placement.Scale };
+                int drawnBefore = renderer.DrawnWindows.Count;
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
                     screen: new StockUiScreen(width, height, _window1Top));
+                // A confirm window beside the compass leaves it up (round 2 of the 2026-11-03 test: it only reaches the E's edge).
+                if (menu.IsPrompt && !StockUiWindowPlacement.KeepsOwnPlace(menu) && StockUiCompass.ClearsDial(placement.X, placement.Scale))
+                    renderer.ForgetDrawnWindows(drawnBefore);
                 if (menu.IsTreasureList && !open.Any(m => m.IsTreasureDone) && library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var spoils))
                 {
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.

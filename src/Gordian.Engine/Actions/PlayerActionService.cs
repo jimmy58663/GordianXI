@@ -2099,7 +2099,9 @@ namespace Gordian.Engine.Actions
             var service = SearchService;
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
+            if (SearchTargetName(ref arguments, out string? targetName) is { } stopped) return stopped;
             var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName);
+            if (targetName != null) query.Name = targetName;
             if (Menus.Social is { } social)
             {
                 try
@@ -2137,6 +2139,33 @@ namespace Gordian.Engine.Actions
                 GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
             }
+        }
+
+        /// <summary>
+        /// <c>/sea &lt;t&gt;</c> (#495 round 2): a placeholder is the player's name, as <c>/sea Cybin</c>. It leaves the arguments,
+        /// so a name that reads as a zone or a job stays a name. Returns the answer when there is nobody to search for.
+        /// </summary>
+        private PlayerActionResult? SearchTargetName(ref string arguments, out string? name)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.PlayerSearch;
+            name = null;
+            var words = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (!Array.Exists(words, ChatCommandRouter.IsTargetToken)) return null;
+            var rest = new List<string>(words.Length);
+            foreach (string word in words)
+            {
+                if (!ChatCommandRouter.IsTargetToken(word))
+                {
+                    rest.Add(word);
+                    continue;
+                }
+                var entity = ResolveTargetToken(word[1..^1].ToLowerInvariant(), out string? problem);
+                if (entity == null) return PlayerActionResult.Warn(problem ?? $"{word}: nobody to search for.", Kind);
+                if (entity.Type != EntityType.Player) return PlayerActionResult.Info("No players found.", Kind);
+                name = entity.Name;
+            }
+            arguments = string.Join(' ', rest);
+            return null;
         }
 
         /// <summary>
