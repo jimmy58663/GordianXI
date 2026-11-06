@@ -46,10 +46,10 @@ namespace Gordian.App.Graphics
         public PerformanceOverlayMode PerformanceOverlay { get; set; } = PerformanceOverlayMode.Hidden;
 
         /// <summary>
-        /// Draw terrain as bright as the retail client, whose noon sand clips to white (#7). Off by default: GordianXI
-        /// tones terrain highlights down (see <see cref="ZoneTerrainRenderer.TerrainHighlightKnee"/>).
+        /// Tone terrain highlights down (see <see cref="ZoneTerrainRenderer.TerrainHighlightKnee"/>). Off by default: terrain
+        /// is as bright as the retail client's, whose noon sand clips to white (#7, #478).
         /// </summary>
-        public bool RetailTerrainBrightness { get; set; }
+        public bool SoftTerrainHighlights { get; set; }
 
         public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "viewport_settings.json");
 

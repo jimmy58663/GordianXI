@@ -232,8 +232,9 @@ namespace Gordian.App.Graphics
         /// modulate-2x) is above this knee, that channel is compressed smoothly toward <see cref="TerrainHighlightCeiling"/>
         /// (excess e becomes e / (1 + e / (ceiling - knee))) and the other channels scale with it, instead of clipping at
         /// white. Retail clips: at noon Valkurm Dunes' sand saturates to pure white across the frame (maintainer capture
-        /// <c>Bright_Sand.png</c>, 2026-10-17, about 13:17, clear). The maintainer chose a toned-down default over that
-        /// parity. Valkurm's noon sand reaches about 1.5 before the clamp and now draws at about 0.89.
+        /// <c>Bright_Sand.png</c>, 2026-10-17, about 13:17, clear). Valkurm's noon sand reaches about 1.5 before the clamp and
+        /// draws at about 0.89 with the shoulder on. Opt-in since #478 (<see cref="SoftTerrainHighlights"/>): it flattened the
+        /// sand's shading and grain, and the maintainer chose plain retail.
         /// *Round 1 of 2026-10-29:* retail's Eastern Altepa sand at 10:41-11:20 (image-14 to -17: none, sunshine, clouds,
         /// hot spell) matches our untoned output within 5% per channel, red 0.78-0.88. The old per-channel shoulder from
         /// 0.65 pulled red down and left green and blue alone, so that sand came out pale yellow instead of orange
@@ -245,15 +246,15 @@ namespace Gordian.App.Graphics
         public float TerrainHighlightCeiling { get; set; } = 0.9f;
 
         /// <summary>
-        /// Draws terrain with the retail client's plain clamp, so bright sand at noon clips to white (#7); off by default
-        /// (<see cref="ViewportRenderSettings.RetailTerrainBrightness"/>).
+        /// Rolls terrain highlights off (#7). Off by default, for the retail client's plain clamp: bright sand at noon clips
+        /// to white (#478; <see cref="ViewportRenderSettings.SoftTerrainHighlights"/>).
         /// </summary>
-        public bool RetailTerrainBrightness { get; set; }
+        public bool SoftTerrainHighlights { get; set; }
 
         /// <summary>The terrain shaders' highlight shoulder for this frame (zero: plain clamp).</summary>
-        internal Vector4 TerrainTone => RetailTerrainBrightness || TerrainHighlightCeiling <= TerrainHighlightKnee
-            ? Vector4.Zero
-            : new Vector4(TerrainHighlightKnee, TerrainHighlightCeiling, 0.0f, 0.0f);
+        internal Vector4 TerrainTone => SoftTerrainHighlights && TerrainHighlightCeiling > TerrainHighlightKnee
+            ? new Vector4(TerrainHighlightKnee, TerrainHighlightCeiling, 0.0f, 0.0f)
+            : Vector4.Zero;
         private Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
         private ZoneRoutinePlayer? _mapRoutines;
@@ -1316,7 +1317,8 @@ namespace Gordian.App.Graphics
                                 vesselZone.Routes.Find(r => r.Name == pinned.Route) is { } pinnedRoute
                 ? VoyageSchedule.SceneryTransform(new VoyagePosition(pinnedRoute, pinned.Progress, pinned.Reversed))
                 : LoadedZone?.Vessel is { IsVoyage: true }
-                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
+                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow),
+                    VoyageClockOverride == null ? World?.ZoneLoginInfo?.ShipRun : null)
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
