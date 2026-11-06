@@ -133,6 +133,36 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void TheVesselMovesAtConstantSpeedAlongItsPath()
+        {
+            // The second stretch is nine times the first, in the same key time.
+            var route = new CameraRoute
+            {
+                Name = "c000",
+                Keys = new[]
+                {
+                    new CameraKey(Vector3.Zero, 0, Vector3.UnitZ, 0, 0f),
+                    new CameraKey(new Vector3(10, 0, 0), 0, new Vector3(10, 0, 1), 0, 0.5f),
+                    new CameraKey(new Vector3(100, 0, 0), 0, new Vector3(100, 0, 1), 0, 1f),
+                },
+            };
+            float length = 0;
+            var last = route.Evaluate(0).Eye;
+            for (int i = 1; i <= 1000; i++) { var eye = route.Evaluate(i / 1000f).Eye; length += (eye - last).Length(); last = eye; }
+
+            foreach (float fraction in new[] { 0.25f, 0.5f, 0.75f })
+            {
+                float walked = 0;
+                var previous = route.Evaluate(0).Eye;
+                float progress = route.ProgressAtDistance(fraction);
+                for (int i = 1; i <= 1000; i++) { var eye = route.Evaluate(progress * i / 1000f).Eye; walked += (eye - previous).Length(); previous = eye; }
+                Assert.InRange(walked / length, fraction - 0.005f, fraction + 0.005f);
+            }
+            Assert.Equal(0f, route.ProgressAtDistance(0f));
+            Assert.Equal(1f, route.ProgressAtDistance(1f));
+        }
+
+        [Fact]
         public void ZonesWithoutAVoyage_KeepTheirScenery()
         {
             Assert.True(VoyageSchedule.GetSceneryTransform(new ZoneGeometry { ZoneId = 230 }, 1000).IsIdentity);

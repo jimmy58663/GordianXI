@@ -31,7 +31,8 @@ namespace Gordian.Core.World
     /// every ride, and progress is the time since the start over the length (XiPackets world/server/0x000A,
     /// <c>FUNC_ShipInit</c>, https://github.com/atom0s/XiPackets; the Route and direction bits **Beyond XiPackets**, see
     /// <see cref="Gordian.Core.Network.Packets.ZoneLoginInfo"/>). LandSandBoat sends none, so the timetables below stand in.
-    /// A zone with neither holds the vessel halfway along its first Route.
+    /// A zone with neither holds the vessel halfway along its first Route. Progress is a fraction of the path's length, not
+    /// of its key times: retail's ride videos match renders that way (on South -> Central the rope bridge shows at 50 %).
     /// </para>
     /// <para>
     /// The timetables are retail's runs, from nine rides' S2C 0x00A on 2026-11-05
@@ -150,7 +151,7 @@ namespace Gordian.Core.World
         public static Matrix4x4 SceneryTransform(VoyagePosition position)
         {
             float along = position.Reversed ? 1f - position.Progress : position.Progress;
-            var pose = position.Route.Evaluate(along);
+            var pose = position.Route.Evaluate(position.Route.ProgressAtDistance(along));
             // The heading: towards the look-at, or away from it when the Route runs backwards. Routes are flat (y constant).
             var heading = position.Reversed ? pose.Eye - pose.LookAt : pose.LookAt - pose.Eye;
             heading.Y = 0;
