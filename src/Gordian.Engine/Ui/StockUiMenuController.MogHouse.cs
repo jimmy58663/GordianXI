@@ -12,6 +12,15 @@ namespace Gordian.Engine.Ui
 {
     public sealed partial class StockUiOpenMenu
     {
+        /// <summary>The mannequin the Mannequin window (<c>inspect</c>, image-49) dresses; null for other windows.</summary>
+        public FurniturePlacement? Mannequin { get; init; }
+
+        public bool IsMannequinWindow => Mannequin != null;
+
+        /// <summary>The item a mannequin wears in the slot a grid button shows (0 when empty).</summary>
+        public ushort MannequinItemIn(int buttonId) =>
+            Mannequin is { } mannequin && ItemOwner != null && StockUiCheck.TryGetSlot(buttonId, out var slot) ? ItemOwner.MannequinItem(mannequin, slot) : (ushort)0;
+
         /// <summary>Help lines that replace a button's own (the main menu's Mog House); null for none.</summary>
         public IReadOnlyDictionary<int, int>? HelpOverrides { get; internal set; }
 
@@ -102,6 +111,28 @@ namespace Gordian.Engine.Ui
                     : StockUiOpenMenu.NoLabelImages;
                 menu.SetGreyed(open ? new HashSet<int> { StockUiMogHouse.LayoutButton, StockUiMogHouse.RemodelButton } : null);
             }
+            else if (menu.Name.Equals(StockUiMogHouse.SafeMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                menu.SetGreyed(Safe2Locked ? new HashSet<int> { StockUiMogHouse.SafeMenuSafe2Button } : null);
+            }
+        }
+
+        /// <summary>Whether Mog Safe 2 is open to the character; set by the session.</summary>
+        public Func<bool>? MogSafe2Unlocked { get; set; }
+
+        private bool Safe2Locked => MogSafe2Unlocked?.Invoke() == false;
+
+        /// <summary>The mannequin the open Mannequin window dresses, or null: the camera turns to it and it spins.</summary>
+        public FurniturePlacement? OpenMannequin
+        {
+            get
+            {
+                foreach (var menu in _open)
+                {
+                    if (menu.Mannequin is { } mannequin) return mannequin;
+                }
+                return null;
+            }
         }
 
         /// <summary>A Mog House menu entry (#93).</summary>
@@ -159,29 +190,37 @@ namespace Gordian.Engine.Ui
                     break;
                 case StockUiMogHouseAction.ClearAway when piece is { } cleared:
                     CloseAll();
-                    ClearAway(house, cleared);
+                    if (!ClearAway(house, cleared)) NoticePosted?.Invoke(StockUiMogHouse.StorageFullNotice);
                     break;
                 case StockUiMogHouseAction.ClearAllConfirm:
                     CloseAll();
-                    foreach (var shown in layout.Pieces.Where(layout.IsShown).ToList()) ClearAway(house, shown);
+                    bool refused = false;
+                    foreach (var shown in layout.Pieces.Where(layout.IsShown).ToList()) refused |= !ClearAway(house, shown);
+                    if (refused) NoticePosted?.Invoke(StockUiMogHouse.StorageFullNotice);
                     break;
                 case StockUiMogHouseAction.Return:
                     CloseMenu(from);
                     break;
                 case StockUiMogHouseAction.Mannequin when piece is { } mannequin && MogHouseFurniture.IsMannequin(mannequin.ItemId):
-                    OpenMannequin(house, mannequin);
+                    OpenMannequinWindow(mannequin);
                     break;
             }
         }
 
-        /// <summary>C2S 0x0FB, and the piece leaves the room at once; the cursor goes to another piece.</summary>
-        private void ClearAway(IStockUiMogHouse house, FurniturePlacement piece)
+        /// <summary>
+        /// C2S 0x0FB, and the piece leaves the room at once; the cursor goes to another piece. False, with nothing sent, when the
+        /// Storage could not shrink (LandSandBoat's 0x0FB refuses that without a word, so the client checks first).
+        /// </summary>
+        private bool ClearAway(IStockUiMogHouse house, FurniturePlacement piece)
         {
             var layout = MogHouseLayout;
+            int used = Inventory?.SnapshotItems(ContainerId.Storage).Count(i => i.ItemId != 0) ?? 0;
+            if (!layout.StorageAllowsRemoving(piece, used, id => ItemLookup?.Invoke(id)?.FurnitureStorage ?? 0)) return false;
             layout.UpdatePiece(piece with { Installed = false });
             if (layout.Selected == null) layout.SelectFirst();
             Changed?.Invoke();
             _ = SendMogHouseAsync(() => house.ClearAwayAsync(piece), "Remove");
+            return true;
         }
 
         /// <summary>Layout: the menus close, the camera goes up and the cursor goes on the first placed piece.</summary>
@@ -346,17 +385,27 @@ namespace Gordian.Engine.Ui
         {
             var layout = MogHouseLayout;
             RefreshFurniture();
-            var picker = new StockUiItemPicker(
-                _ =>
-                {
-                    var slots = new HashSet<byte>(layout.Unplaced(safe).Select(p => p.Slot));
-                    return OrderedRows(safe).Where(r => slots.Contains(r.Slot)).ToList();
-                },
-                _ => 1,
-                (row, _) => HoldFromSafe(row),
-                title,
-                Count: safe);
+            var picker = new StockUiItemPicker(_ => SafeRows(safe), _ => 1, (row, _) => HoldFromSafe(row), title, Count: safe);
             OpenItemPicker(from, SafeListX, picker);
+        }
+
+        /// <summary>
+        /// A Mog Safe's furnishings for Layout: placed ones in green, as equipped items are (round 2), and picking one takes it
+        /// up as Rearrange does; a piece on the other floor is greyed, and flowerpots on a second floor (LandSandBoat refuses them).
+        /// </summary>
+        private List<StockUiItemRow> SafeRows(ContainerId safe)
+        {
+            var layout = MogHouseLayout;
+            var rows = new List<StockUiItemRow>();
+            foreach (var row in OrderedRows(safe))
+            {
+                var piece = layout.Pieces.FirstOrDefault(p => p.Container == safe && p.Slot == row.Slot);
+                if (piece.ItemId == 0) continue;
+                bool otherFloor = piece.Installed && piece.SecondFloor != layout.SecondFloor;
+                bool pot = !piece.Installed && layout.SecondFloor && (layout.InfoFor(piece.ItemId).Flags & Gordian.Core.Resources.Tables.FurnitureFlags.Flowerpot) != 0;
+                rows.Add(row with { Equipped = piece.Installed, Greyed = otherFloor || pot, GreyedReason = otherFloor ? StockUiMogHouse.OtherFloorNotice : pot ? StockUiMogHouse.CellNotUsableNotice : null });
+            }
+            return rows;
         }
 
         private void HoldFromSafe(StockUiItemRow row)
@@ -365,6 +414,13 @@ namespace Gordian.Engine.Ui
             var piece = layout.Pieces.FirstOrDefault(p => p.Container == row.Container && p.Slot == row.Slot);
             CloseAll();
             if (piece.ItemId == 0) return;
+            if (piece.Installed)
+            {
+                layout.SelectedKey = (piece.Container, piece.Slot);
+                layout.Hold(piece, piece.X, piece.Z, piece.Rotation);
+                Changed?.Invoke();
+                return;
+            }
             if (layout.InfoFor(piece.ItemId).IsWall)
             {
                 int slot = 0;
@@ -413,69 +469,132 @@ namespace Gordian.Engine.Ui
             }, styles.Count);
         }
 
-        private string ItemName(ushort itemId) => ItemLookup?.Invoke(itemId)?.Name is { Length: > 0 } name ? name : $"Item {itemId}";
-
         /// <summary>
-        /// The mannequin's equipment (<c>rmlo4</c> Equip): its eight slots with what each wears (from the Storage), then
-        /// Remove all. A slot lists the Storage's equipment for it (Remove first when it wears something); the pick is
-        /// C2S 0x03B. The retail window is not captured yet: the lists are queries, <b>provisional</b>.
+        /// The Mannequin window (<c>rmlo4</c> Equip; the maintainer's image-49): the DAT's <c>inspect</c> frame at the top left, its
+        /// grid's eight mannequin slots lit and the rest dim, Unequip All under it, the Storage's equipment beside it, the item
+        /// under the cursor below; the view turns to the mannequin, which spins. Confirm on a slot lists what fits it.
         /// </summary>
-        private void OpenMannequin(IStockUiMogHouse house, FurniturePlacement mannequin)
+        private void OpenMannequinWindow(FurniturePlacement mannequin)
         {
-            var gear = MannequinGearOf(mannequin);
-            var slots = StockUiMogHouse.MannequinSlots;
-            var options = new List<StockUiQueryOption>(slots.Count + 1);
-            for (int i = 0; i < slots.Count; i++)
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiMogHouse.MannequinMenu, out var definition)) return;
+            CloseAll();
+            var window = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
             {
-                string worn = gear[i] != 0 && StorageItem(gear[i]) is { } item ? ItemName(item.ItemId) : StockUiMogHouse.EmptySlotText;
-                options.Add(new StockUiQueryOption(i + 1, $"{slots[i].Name}: {worn}"));
+                Mannequin = mannequin,
+                Inventory = Inventory,
+                ItemLookup = ItemLookup,
+                ItemOwner = this,
+            };
+            var greyed = new HashSet<int>();
+            for (int button = 1; button < StockUiMogHouse.UnequipAllButton; button++)
+            {
+                if (StockUiCheck.TryGetSlot(button, out var slot) && StockUiMogHouse.MannequinIndex(slot) < 0) greyed.Add(button);
             }
-            options.Add(new StockUiQueryOption(slots.Count + 1, StockUiMogHouse.RemoveAllRow));
-            OpenQuery(new[] { StockUiMogHouse.MannequinQuestion }, options, 0, answer =>
+            window.SetGreyed(greyed);
+            window.LabelImages = new Dictionary<int, UiShapeReference>
             {
-                if (answer == slots.Count + 1)
-                {
-                    CloseAll();
-                    _ = SendMogHouseAsync(() => house.MannequinAsync(SubcontainerKind.UnequipAll, mannequin, SubcontainerSlotIndex.MainWeapon, 0), "Mannequin");
-                }
-                else if (answer >= 1 && answer <= slots.Count) OpenMannequinSlot(house, mannequin, answer - 1, gear[answer - 1]);
-            }, 8);
+                [StockUiMogHouse.UnequipAllButton] = new(0, StockUiMogHouse.UnequipAllImage, StockUiParty.LabelGroup),
+            };
+            window.SelectedButtonId = 1;
+            lock (_sync)
+            {
+                window.CompanionRows = MannequinRows(mannequin, null);
+                PushOpen(window);
+            }
+            Changed?.Invoke();
         }
 
-        private void OpenMannequinSlot(IStockUiMogHouse house, FurniturePlacement mannequin, int index, byte worn)
+        /// <summary>
+        /// The Storage's equipment for the window's list, for one slot or (null) all of it. What this mannequin wears there is green
+        /// and Confirm takes it off; what another mannequin wears is locked (the item's lock flag) and greyed.
+        /// </summary>
+        private List<StockUiItemRow> MannequinRows(FurniturePlacement mannequin, EquipSlotId? slot)
         {
-            var (slot, name, bit) = StockUiMogHouse.MannequinSlots[index];
-            var choices = new List<byte>();
-            var options = new List<StockUiQueryOption>();
-            if (worn != 0)
+            var rows = new List<StockUiItemRow>();
+            if (Inventory is not { } inventory) return rows;
+            var gear = MannequinGearOf(mannequin);
+            int index = slot is { } s ? StockUiMogHouse.MannequinIndex(s) : -1;
+            byte worn = index >= 0 ? gear[index] : (byte)0;
+            var items = inventory.SnapshotItems(ContainerId.Storage);
+            Array.Sort(items, (a, b) => a.Slot.CompareTo(b.Slot));
+            foreach (var item in items)
             {
-                choices.Add(0);
-                options.Add(new StockUiQueryOption(1, StockUiMogHouse.RemoveRow));
+                if (item.ItemId == 0 || ItemLookup?.Invoke(item.ItemId) is not { } record || !StockUiItems.IsEquipment(record) || record.EquipSlotsMask == 0) continue;
+                if (slot is { } fit ? !StockUiItems.FitsSlot(record, fit) : !StockUiMogHouse.MannequinSlots.Any(m => StockUiItems.FitsSlot(record, (EquipSlotId)m.EquipBit))) continue;
+                bool here = worn != 0 && item.Slot == worn;
+                bool locked = item.LockFlag != ItemLockFlag.Normal && !here;
+                rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, ContainerId.Storage, item.Slot, Math.Max(1, (int)record.StackSize),
+                    Equipped: here || item.LockFlag == ItemLockFlag.Mannequin, Greyed: slot != null && locked, GreyedReason: locked ? StockUiMogHouse.LockedGearNotice : null));
             }
-            if (Inventory is { } inventory)
+            return rows;
+        }
+
+        /// <summary>Confirm in the Mannequin window: Unequip All, or a lit slot's list beside the grid.</summary>
+        private void ActivateMannequinWindow(StockUiOpenMenu window, UiMenuButton button)
+        {
+            if (window.Mannequin is not { } mannequin || MogHouse is not { } house) return;
+            if (button.ButtonId == StockUiMogHouse.UnequipAllButton)
             {
-                foreach (var item in inventory.SnapshotItems(ContainerId.Storage))
-                {
-                    if (item.ItemId == 0 || ItemLookup?.Invoke(item.ItemId) is not { } record || !record.CanEquipSlot(bit)) continue;
-                    choices.Add(item.Slot);
-                    // An item another mannequin wears is locked (S2C 0x01F/0x020 lock flag Mannequin).
-                    options.Add(new StockUiQueryOption(options.Count + 1, ItemName(item.ItemId), Greyed: item.LockFlag != ItemLockFlag.Normal && item.Slot != worn));
-                }
-            }
-            if (options.Count == 0)
-            {
-                NoticePosted?.Invoke($"You have no equipment for the {name.ToLowerInvariant()} slot in your Storage.");
+                _ = SendMogHouseAsync(() => house.MannequinAsync(SubcontainerKind.UnequipAll, mannequin, SubcontainerSlotIndex.MainWeapon, 0), "Mannequin");
                 return;
             }
-            OpenQuery(new[] { $"{StockUiMogHouse.MannequinQuestion} ({name})" }, options, 0, answer =>
+            if (!StockUiCheck.TryGetSlot(button.ButtonId, out var slot) || window.IsGreyed(button.ButtonId)) return;
+            int index = StockUiMogHouse.MannequinIndex(slot);
+            if (index < 0) return;
+            var subSlot = StockUiMogHouse.MannequinSlots[index].Slot;
+            var picker = new StockUiItemPicker(_ => MannequinRows(mannequin, slot), _ => 1, (row, count) =>
             {
-                if (answer < 1 || answer > choices.Count) return;
-                byte storageSlot = choices[answer - 1];
-                CloseAll();
-                _ = storageSlot == 0
-                    ? SendMogHouseAsync(() => house.MannequinAsync(SubcontainerKind.Unequip, mannequin, slot, worn), "Mannequin")
-                    : SendMogHouseAsync(() => house.MannequinAsync(SubcontainerKind.Equip, mannequin, slot, storageSlot), "Mannequin");
-            }, 8);
+                byte worn = MannequinGearOf(mannequin)[index];
+                var close = Top;
+                if (close != null && close.Picker != null) CloseMenu(close);
+                _ = SendMogHouseAsync(() => house.MannequinAsync(row.Slot == worn ? SubcontainerKind.Unequip : SubcontainerKind.Equip, mannequin, subSlot, row.Slot), "Mannequin");
+            }, StockUiMogHouse.LayoutTitle, HelpTextId: StockUiMogHouse.MannequinHelp);
+            OpenItemPicker(window, StockUiMogHouse.MannequinListX, picker);
+        }
+
+        /// <summary>The cursor in the Mannequin window passes over the dim slots to the next lit one. Call under the lock.</summary>
+        private bool TryMoveMannequin(InputAction direction)
+        {
+            if (_open.Length == 0 || _open[^1] is not { IsMannequinWindow: true } window || window.SelectedButton is not { } from) return false;
+            var at = from;
+            for (int step = 0; step < 4; step++)
+            {
+                int next = direction switch
+                {
+                    InputAction.MenuUp => at.NavUp, InputAction.MenuDown => at.NavDown, InputAction.MenuLeft => at.NavLeft, _ => at.NavRight,
+                };
+                if (next <= 0 || next == at.ButtonId || window.Menu.FindButton(next) is not { } button) break;
+                at = button;
+                if (window.IsGreyed(next)) continue;
+                window.SelectedButtonId = next;
+                SoundCue?.Invoke(StockUiSoundCue.CursorMove);
+                break;
+            }
+            return true;
+        }
+
+        /// <summary>What a mannequin wears in an equipment slot, by item id.</summary>
+        internal ushort MannequinItem(FurniturePlacement mannequin, EquipSlotId slot)
+        {
+            int index = StockUiMogHouse.MannequinIndex(slot);
+            byte storageSlot = index >= 0 ? MannequinGearOf(mannequin)[index] : (byte)0;
+            return storageSlot != 0 && StorageItem(storageSlot) is { } item ? item.ItemId : (ushort)0;
+        }
+
+        /// <summary>Greys the Mog Safes' placed furniture in a View House list: it cannot leave the safe while it stands in the room (round 2).</summary>
+        private void GreyPlacedFurniture(List<StockUiItemRow> rows)
+        {
+            if (Inventory is not { } inventory) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                if (row.Container is not (ContainerId.MogSafe or ContainerId.MogSafe2) || !MogHouseFurniture.IsFurniture(row.ItemId, ItemLookup)) continue;
+                if (inventory.GetContainer(row.Container).TryGetItem(row.Slot, out var item) && FurniturePlacement.Read(item).Installed)
+                {
+                    rows[i] = row with { Greyed = true, GreyedReason = StockUiMogHouse.PlacedNotice };
+                }
+            }
         }
 
         private MannequinGear MannequinGearOf(FurniturePlacement mannequin) =>

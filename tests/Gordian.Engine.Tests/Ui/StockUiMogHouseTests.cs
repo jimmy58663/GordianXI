@@ -20,15 +20,15 @@ namespace Gordian.Engine.Tests.Ui
 
         private static readonly Dictionary<ushort, ItemRecord> Records = new()
         {
-            [SimpleBed] = new ItemRecord { ItemId = SimpleBed, Name = "Simple Bed", ItemType = MogHouseFurniture.FurnishingItemType },
+            [SimpleBed] = new ItemRecord { ItemId = SimpleBed, Name = "Simple Bed", ItemType = MogHouseFurniture.FurnishingItemType, EquipSlotsMask = 2 },
             [OakBed] = new ItemRecord { ItemId = OakBed, Name = "Oak Bed", ItemType = MogHouseFurniture.FurnishingItemType },
             [OakTable] = new ItemRecord { ItemId = OakTable, Name = "Oak Table", ItemType = MogHouseFurniture.FurnishingItemType },
             [Vase] = new ItemRecord { ItemId = Vase, Name = "Vase", ItemType = MogHouseFurniture.FurnishingItemType },
             [Flag] = new ItemRecord { ItemId = Flag, Name = "San d'Orian Flag", ItemType = MogHouseFurniture.FurnishingItemType },
             [BrassFlowerpot] = new ItemRecord { ItemId = BrassFlowerpot, Name = "Brass Flowerpot", ItemType = MogHouseFurniture.FlowerpotItemType },
-            [HumeMannequin] = new ItemRecord { ItemId = HumeMannequin, Name = "H Mannequin", ItemType = MogHouseFurniture.MannequinItemType },
-            [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", EquipSlotsMask = 1 << (int)EquipSlotId.Head },
-            [LeatherVest] = new ItemRecord { ItemId = LeatherVest, Name = "Leather Vest", EquipSlotsMask = 1 << (int)EquipSlotId.Body },
+            [HumeMannequin] = new ItemRecord { ItemId = HumeMannequin, Name = "H Mannequin", ItemType = MogHouseFurniture.MannequinItemType, EquipSlotsMask = 28 },
+            [BronzeCap] = new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", ItemType = 5, EquipSlotsMask = 1 << (int)EquipSlotId.Head },
+            [LeatherVest] = new ItemRecord { ItemId = LeatherVest, Name = "Leather Vest", ItemType = 5, EquipSlotsMask = 1 << (int)EquipSlotId.Body },
         };
 
         private static readonly Dictionary<ushort, FurnitureInfo> Furniture = new()
@@ -56,6 +56,23 @@ namespace Gordian.Engine.Tests.Ui
             return new UiMenuDefinition { Name = name, Frame = new UiMenuFrame { X = x, Y = y, Width = 112, Height = (short)(8 + 16 * count) }, Buttons = buttons };
         }
 
+        /// <summary><c>inspect</c> as the DAT authors it: the 4 x 4 grid by columns, button 17 under it.</summary>
+        private static UiMenuDefinition MannequinFrame()
+        {
+            var buttons = new List<UiMenuButton>();
+            for (int i = 1; i <= 16; i++)
+            {
+                int c = (i - 1) / 4, r = (i - 1) % 4;
+                buttons.Add(new UiMenuButton
+                {
+                    ButtonId = (short)i, X = (short)(24 + 34 * c), Y = (short)(11 + 34 * r), Width = 32, Height = 32,
+                    NavUp = (sbyte)(r == 0 ? 17 : i - 1), NavDown = (sbyte)(r == 3 ? 17 : i + 1), NavLeft = (sbyte)(c == 0 ? i + 12 : i - 4), NavRight = (sbyte)(c == 3 ? i - 12 : i + 4),
+                });
+            }
+            buttons.Add(new UiMenuButton { ButtonId = 17, X = 48, Y = 148, Width = 88, Height = 16, NavUp = 4, NavDown = 1, NavLeft = 17, NavRight = 17 });
+            return new UiMenuDefinition { Name = StockUiCheck.MenuName, Frame = new UiMenuFrame { X = 16, Y = 48, Width = 182, Height = 190 }, Buttons = buttons };
+        }
+
         private static UiMenuDefinition ItemList() => new()
         {
             Name = StockUiItems.ListMenu,
@@ -73,6 +90,7 @@ namespace Gordian.Engine.Tests.Ui
             List(StockUiMogHouse.AwayMoogleMenu, 16, 272, 3),
             List(StockUiMenuEntries.MainMenu, 384, 48, 12),
             List(StockUiMogHouse.SafeMenu, 384, 48, 2),
+            MannequinFrame(),
             ItemList(),
             List(StockUiMogHouse.LayoutFloorMenu, 16, 240, 3),
             List(StockUiMogHouse.LayoutPieceMenu, 16, 224, 4),
@@ -254,8 +272,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(StockUiMogHouse.LayoutPieceMenu, h.Menus.Top!.Name);
             h.Choose(3); // Layout
             Assert.Equal(StockUiMogHouse.SafeMenu, h.Menus.Top!.Name);
-            h.Choose(1); // Mog Safe: what is not placed in it
-            Assert.Equal(new ushort[] { OakBed }, h.Menus.Top!.ItemRows.Select(r => r.ItemId));
+            h.Choose(1); // Mog Safe
             h.Pick(OakBed);
             Assert.Empty(h.Menus.OpenMenus);
             Assert.Equal(OakBed, layout.Held?.ItemId);
@@ -374,6 +391,8 @@ namespace Gordian.Engine.Tests.Ui
         public void Layout_RemoveAll_ClearsEveryPieceOnTheFloor()
         {
             var h = new Harness();
+            h.Inventory.RemoveItem(ContainerId.Storage, 3); // nothing in the Storage: the room may lose all its slots
+            h.Inventory.RemoveItem(ContainerId.Storage, 4);
             h.Moogle(5);
             h.Menus.ConfirmLayoutCell();
             h.Choose(4); // rmlo2 Remove All
@@ -402,7 +421,7 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.ConfirmLayoutCell();
             h.Choose(1);
             h.Choose(2); // Mog Safe 2: only the flowerpot, which the second floor refuses
-            Assert.Empty(h.Menus.Top!.ItemRows);
+            Assert.True(h.Menus.Top!.ItemRows.Single().Greyed);
         }
 
         [Fact]
@@ -424,38 +443,151 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void Mannequin_EquipsFromTheStorage_AndRemoves()
+        public void Mannequin_WindowDressesItFromTheStorage()
         {
             var h = new Harness();
             h.Moogle(5);
             h.Menus.MoveLayoutCursor(1, 0);
             h.Menus.ConfirmLayoutCell();
             Assert.Equal(StockUiMogHouse.LayoutMannequinMenu, h.Menus.Top!.Name);
-            h.Choose(1);
-            var slots = h.Menus.Top!;
-            Assert.Equal("Head: Bronze Cap", slots.Rows[3].Text);
-            Assert.Equal("Body: -", slots.Rows[4].Text);
-            Assert.Equal(StockUiMogHouse.RemoveAllRow, slots.Rows[8].Text);
+            h.Choose(1); // Equip
+            var window = h.Menus.Top!;
+            Assert.True(window.IsMannequinWindow);
+            Assert.Single(h.Menus.OpenMenus);
+            Assert.Equal(HumeMannequin, h.Menus.OpenMannequin?.ItemId);
+            Assert.Equal(StockUiMogHouse.UnequipAllImage, window.LabelImages[StockUiMogHouse.UnequipAllButton].ImageIndex);
+            Assert.Equal(new ushort[] { BronzeCap, LeatherVest }, window.CompanionRows.Select(r => r.ItemId));
+            Assert.True(window.IsGreyed(13)); // Ammo: dim
+            Assert.False(window.IsGreyed(1));
+            Assert.Equal(BronzeCap, window.MannequinItemIn(2)); // Head, worn from Storage slot 3
 
-            // Body: the Storage's body armour.
-            h.Answer(5);
-            Assert.Equal(new[] { "Leather Vest" }, h.Menus.Top!.Rows.Select(r => r.Text));
-            h.Answer(1);
+            // The cursor passes the dim slots: Main to Sub, Ranged, then past Ammo round to Main.
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal(5, window.SelectedButtonId);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal(9, window.SelectedButtonId);
+            h.Menus.Move(Gordian.Engine.Input.InputAction.MenuRight);
+            Assert.Equal(1, window.SelectedButtonId);
+
+            // Body: what fits, from the Storage, beside the grid; the pick goes out and the window stays.
+            h.Choose(3);
+            Assert.Equal(new ushort[] { LeatherVest }, h.Menus.Top!.ItemRows.Select(r => r.ItemId));
+            h.Pick(LeatherVest);
+            Assert.Same(window, h.Menus.Top);
             Assert.Equal($"0x03B Equip {(byte)ContainerId.MogSafe}:2 Body 4", h.House.Sent.Last());
 
-            // Head: Remove first.
-            h.Menus.ConfirmLayoutCell();
-            h.Choose(1);
-            h.Answer(4);
-            Assert.Equal(StockUiMogHouse.RemoveRow, h.Menus.Top!.Rows[0].Text);
-            h.Answer(1);
+            // Confirm on what a slot wears takes it off.
+            h.Choose(2);
+            Assert.True(h.Menus.Top!.ItemRows[0].Equipped);
+            h.Pick(BronzeCap);
             Assert.Equal($"0x03B Unequip {(byte)ContainerId.MogSafe}:2 Head 3", h.House.Sent.Last());
 
-            // Remove all.
-            h.Menus.ConfirmLayoutCell();
-            h.Choose(1);
-            h.Answer(9);
+            h.Choose(StockUiMogHouse.UnequipAllButton);
+            for (int i = 0; i < 200 && !h.House.Sent.Last().Contains("UnequipAll"); i++) Task.Delay(5).Wait();
             Assert.Equal($"0x03B UnequipAll {(byte)ContainerId.MogSafe}:2 MainWeapon 0", h.House.Sent.Last());
+
+            h.Menus.CloseTop();
+            Assert.Null(h.Menus.OpenMannequin);
+            Assert.True(h.Menus.MogHouseLayout.Active);
+        }
+
+        [Fact]
+        public void Mannequins_AreEntitiesInTheRoom()
+        {
+            var h = new Harness();
+            h.Moogle(5);
+            var world = new WorldState();
+            var mannequins = new MogHouseMannequins(world, h.Inventory, h.Menus.MogHouseLayout);
+            mannequins.Sync(inRoom: true);
+            var shown = world.Entities.Single();
+            Assert.Equal(string.Empty, shown.Name); // nothing targets it
+            Assert.Equal((1 << 8) | MogHouseMannequins.FaceModel, shown.Appearance.FaceModel);
+            Assert.Equal(0x1000, shown.Appearance.Head);
+
+            // The server's look replaces the bare one; a turn of the spin comes round.
+            h.Inventory.SetMannequinLook(ContainerId.MogSafe, 2, new MannequinLook(0x1012, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000, 0x8000, 3, 0));
+            mannequins.Sync(inRoom: true);
+            Assert.Equal(0x1012, shown.Appearance.Head);
+            Assert.Equal((3 << 8) | MogHouseMannequins.FaceModel, shown.Appearance.FaceModel);
+            byte facing = shown.Direction;
+            mannequins.Spin(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin), MogHouseMannequins.SpinSecondsPerTurn / 4);
+            Assert.Equal((byte)(facing + 64), shown.Direction);
+
+            mannequins.Sync(inRoom: false);
+            Assert.Empty(world.Entities);
+        }
+
+        [Fact]
+        public void Safe2_IsGreyedUntilUnlocked_AndReadsSafe2()
+        {
+            var h = new Harness();
+            h.Menus.MogSafe2Unlocked = () => false;
+            h.Moogle(5);
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(3);
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.SafeMenuSafe2Button));
+            h.Menus.CloseAll();
+            h.Menus.MogSafe2Unlocked = () => true;
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(3);
+            Assert.False(h.Menus.Top!.IsGreyed(StockUiMogHouse.SafeMenuSafe2Button));
+
+            h.Menus.CloseAll();
+            h.Menus.CancelLayout();
+            h.Menus.CloseAll();
+            h.Menus.MogSafe2Unlocked = () => false;
+            h.Moogle(1); // Storage: mogcont
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.ViewHouseSafe2Button));
+            Assert.Equal("Safe 2", StockUiViewHouse.Title(ContainerId.MogSafe2));
+        }
+
+        [Fact]
+        public void SafeList_ShowsPlacedPiecesGreen_AndPickingOneTakesItUp()
+        {
+            var h = new Harness();
+            h.Moogle(5);
+            var layout = h.Menus.MogHouseLayout;
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(3);
+            h.Choose(1);
+            var rows = h.Menus.Top!.ItemRows;
+            Assert.Equal(new ushort[] { SimpleBed, HumeMannequin, OakBed }, rows.Select(r => r.ItemId).OrderBy(i => i == SimpleBed ? 0 : i == HumeMannequin ? 1 : 2));
+            Assert.True(rows.Single(r => r.ItemId == SimpleBed).Equipped);
+            Assert.False(rows.Single(r => r.ItemId == OakBed).Equipped);
+            h.Pick(SimpleBed);
+            Assert.Equal(SimpleBed, layout.Held?.ItemId);
+            Assert.Equal((2, 16), (layout.HeldX, layout.HeldZ));
+        }
+
+        [Fact]
+        public void ViewHouse_GreysPlacedFurniture()
+        {
+            var h = new Harness();
+            h.Moogle(1);
+            h.Choose(1); // Mog Safe
+            var rows = h.Menus.Top!.ItemRows;
+            Assert.True(rows.Single(r => r.ItemId == SimpleBed).Greyed);
+            Assert.False(rows.Single(r => r.ItemId == OakBed).Greyed);
+        }
+
+        [Fact]
+        public void Remove_IsRefusedWhenTheStorageCouldNotShrink()
+        {
+            // The bed gives 2 slots, the mannequin 28: the Storage's 2 items need the mannequin, not the bed.
+            var h = new Harness();
+            h.Moogle(5);
+            var layout = h.Menus.MogHouseLayout;
+            for (byte slot = 10; slot < 38; slot++) h.Inventory.SetItemAttributes(ContainerId.Storage, slot, LeatherVest, 1, 0, ItemLockFlag.Normal, ReadOnlySpan<byte>.Empty);
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(2); // Remove the bed: 30 items, 28 slots left
+            Assert.Equal(StockUiMogHouse.StorageFullNotice, h.Notices.Last());
+            Assert.Empty(h.House.Sent);
+            Assert.Equal(SimpleBed, layout.Selected?.ItemId);
+
+            for (byte slot = 12; slot < 38; slot++) h.Inventory.RemoveItem(ContainerId.Storage, slot);
+            h.Menus.ConfirmLayoutCell();
+            h.Choose(2);
+            Assert.Equal(new[] { $"0x0FB {SimpleBed} {(byte)ContainerId.MogSafe}:1" }, h.House.Sent);
         }
 
         [Fact]

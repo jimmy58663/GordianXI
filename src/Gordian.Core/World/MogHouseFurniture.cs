@@ -98,6 +98,9 @@ namespace Gordian.Core.World
 
         public static int Rows(bool secondFloor) => secondFloor ? SecondFloorRows : FirstFloorRows;
 
+        /// <summary>The Storage's size limit (LandSandBoat <c>ITEM_MAX</c> for the container).</summary>
+        public const int MaxStorage = 80;
+
         /// <summary>A grid cell's side in yalms.</summary>
         public const float CellSize = 0.6f;
 

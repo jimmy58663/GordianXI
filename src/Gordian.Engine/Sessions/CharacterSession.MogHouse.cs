@@ -1,4 +1,5 @@
 // src/Gordian.Engine/Sessions/CharacterSession.MogHouse.cs
+using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -18,6 +19,10 @@ namespace Gordian.Engine.Sessions
         {
             var menus = ActionService.Menus;
             menus.MogHouse = new MogHouseActions(this);
+            menus.MogSafe2Unlocked = () => MogSafe2Unlocked;
+            _mannequins = new MogHouseMannequins(World, Inventory, menus.MogHouseLayout);
+            menus.Changed += SyncMannequins;
+            Inventory.MannequinLooksChanged += SyncMannequins;
             Progression.MogMenuOpened += () => menus.OpenMoogleMenu();
             Progression.MyRoomOperationReceived += _ => menus.OnMogHouseFurnitureChanged();
             Inventory.ItemChanged += (container, _, _) =>
@@ -27,6 +32,29 @@ namespace Gordian.Engine.Sessions
             World.ZoneChanged += _ => menus.OnMogHouseZoneChanged();
             // Into or out of a room the zone id stays the city's: the room's own change reads the furniture for its floor.
             World.MapZoneChanged += _ => menus.OnMogHouseFurnitureChanged();
+        }
+
+        private MogHouseMannequins? _mannequins;
+
+        private void SyncMannequins() => _mannequins?.Sync(World.MogHouseRoom != 0);
+
+        /// <summary>
+        /// Whether Mog Safe 2 is open. The server does not say: LandSandBoat gives every character the container, and the flag
+        /// (<c>mhflag</c> 0x20) that the unlock cutscene sets never reaches the client. So: the three quests done (the cutscene follows
+        /// at home), or the safe in use, or the second floor.
+        /// </summary>
+        private bool MogSafe2Unlocked =>
+            StockUiMogHouse.Safe2Quests.All(q => Progression.IsQuestComplete(q.Area, q.Quest))
+            || ActionService.Menus.MogHouseLayout.SecondFloor
+            || Inventory.SnapshotItems(ContainerId.MogSafe2).Any(i => i.ItemId != 0);
+
+        /// <summary>A frame of the Mog House view: the Layout's camera, and the mannequin spinning while its window is open.</summary>
+        public void UpdateMogHouseView(float seconds)
+        {
+            var menus = ActionService.Menus;
+            var open = menus.OpenMannequin;
+            menus.MogHouseCamera.Update(menus.MogHouseLayout, seconds, open is { } piece ? menus.MogHouseLayout.CenterOf(piece) : null);
+            _mannequins?.Spin(open, seconds);
         }
 
         private sealed class MogHouseActions : IStockUiMogHouse

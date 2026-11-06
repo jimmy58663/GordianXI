@@ -1298,7 +1298,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction) || TryMoveMannequin(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();

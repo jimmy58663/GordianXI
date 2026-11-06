@@ -67,6 +67,14 @@ namespace Gordian.Engine.Tests.Ui
             h.Actions.Menus.MogHouseLayout.Active = true;
             h.Controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.True(h.Input.MenuContext);
+
+            // Round 2: the character stays put, whichever key is down.
+            Assert.True(h.World.TryGetByServerId(0x100, out var self));
+            var before = self!.Position;
+            h.Input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 10; i++) h.Controller.Update(TimeSpan.FromMilliseconds(16));
+            h.Input.SetKeyUp(GordianKey.W);
+            Assert.Equal(before, self.Position);
             h.Actions.Menus.MogHouseLayout.Active = false;
             h.Controller.Update(TimeSpan.FromMilliseconds(16));
             Assert.False(h.Input.MenuContext);

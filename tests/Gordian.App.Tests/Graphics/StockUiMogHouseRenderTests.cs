@@ -76,6 +76,31 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(changed > 2000, $"only {changed} pixels of grid drawn");
             menus.CancelLayout();
 
+            // The Mannequin window (image-49): the inspect frame, dim slots, Unequip All, the list beside it, the item window below.
+            var mannequinExt = new byte[24];
+            mannequinExt[1] = 0x40;
+            mannequinExt[6] = 15;
+            mannequinExt[8] = 4;
+            inventory.SetItemAttributes(ContainerId.MogSafe, 2, 256, 1, 0, ItemLockFlag.Normal, mannequinExt);
+            inventory.SetContainerSizes(ContainerId.Storage, 80, 80);
+            inventory.SetItemAttributes(ContainerId.Storage, 1, 12448, 1, 0, ItemLockFlag.Normal, ReadOnlySpan<byte>.Empty); // Bronze Cap
+            menus.OnMogHouseFurnitureChanged();
+            Assert.True(menus.OpenMoogleMenu());
+            menus.Top!.SelectedButtonId = 5;
+            menus.Activate();
+            menus.MoveLayoutCursor(1, 0);
+            menus.ConfirmLayoutCell();
+            Assert.Equal(StockUiMogHouse.LayoutMannequinMenu, menus.Top!.Name);
+            menus.Top!.SelectedButtonId = 1;
+            menus.Activate();
+            var window = menus.Top!;
+            Assert.True(window.IsMannequinWindow);
+            var wf = window.Menu.Frame;
+            var windowAt = StockUiLayout.Place(wf.Anchor, wf.X, wf.Y, wf.Width, wf.Height, 1, screen.Width, screen.Height);
+            screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, window, windowAt, 0, logFont: screen.LogFont, screen: layout), "gpu_moghouse_mannequin.png");
+            menus.CloseAll();
+            menus.CancelLayout();
+
             // The other layout menus and the away menu, each over its authored place.
             menus.CloseAll();
             foreach (string name in new[] { StockUiMogHouse.LayoutFloorMenu, StockUiMogHouse.ClearAllMenu, StockUiMogHouse.LayoutMannequinMenu, StockUiMogHouse.AwayMoogleMenu, StockUiMogHouse.SafeMenu, StockUiMenuEntries.MainMenu })

@@ -1335,7 +1335,7 @@ namespace Gordian.App.Graphics
             // The Mog House Layout's camera (#93) eases up from the view just worked out and back down to it.
             if (session?.ActionService.Menus is { } layoutMenus)
             {
-                if (!IsThumbnail) layoutMenus.MogHouseCamera.Update(layoutMenus.MogHouseLayout, deltaSeconds);
+                if (!IsThumbnail) session.UpdateMogHouseView(deltaSeconds);
                 if (layoutMenus.MogHouseCamera.InUse)
                 {
                     var (eye, target, up) = layoutMenus.MogHouseCamera.View(camera.Position, camera.Target);

@@ -86,6 +86,11 @@ namespace Gordian.App.Graphics
                             if (!IsGlyph(part)) renderer.DrawPart(part, bx, by, s);
                         }
                     }
+                    else if (menu.IsMannequinWindow && menu.IsGreyed(button.ButtonId))
+                    {
+                        // The slots a mannequin does not wear are dim (image-49).
+                        renderer.DrawImage(label, bx, by, s, DimLabel);
+                    }
                     else if (!isSelected)
                     {
                         renderer.DrawImage(label, bx, by, s);
@@ -164,6 +169,10 @@ namespace Gordian.App.Graphics
             else if (font != null && menu.IsEquipment)
             {
                 StockUiItemWindow.DrawEquipment(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
+            }
+            else if (font != null && menu.IsMannequinWindow)
+            {
+                StockUiItemWindow.DrawMannequin(renderer, library, font, logFont, menu, placement, timestamp, screen ?? default);
             }
             else if (font != null && menu.IsMacroWindow)
             {
@@ -325,7 +334,7 @@ namespace Gordian.App.Graphics
             var selected = menu.SelectedButton;
             // The check window's View Wares takes the plain arrow, not the grid's slot box (retail screenshot, 2026-10-07).
             // So does the trade window's gil field (round 1 of the 2026-10-31 test, image-25).
-            string? cursorGroup = (menu.IsCheck && selected?.ButtonId == StockUiCheck.ViewWaresButton) || (menu.IsTradeWindow && selected?.ButtonId == StockUiTrade.GilButton)
+            string? cursorGroup = ((menu.IsCheck || menu.IsMannequinWindow) && selected?.ButtonId == StockUiCheck.ViewWaresButton) || (menu.IsTradeWindow && selected?.ButtonId == StockUiTrade.GilButton)
                 ? DefaultCursorGroup : null;
             if (selected != null) DrawMenuCursor(renderer, library, frame, selected, placement, timestamp, cursorGroup);
         }
@@ -685,6 +694,8 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// A button's label image: its kind-4 alternate when it is greyed and the DAT has one, else its kind-0 image.
         /// </summary>
+        private static readonly UiColor DimLabel = new(0x80, 0x80, 0x80, 0x28);
+
         private static bool TryGetLabel(UiResourceLibrary library, UiMenuButton button, bool greyed, out UiImage image)
         {
             if (greyed)

@@ -878,8 +878,9 @@ namespace Gordian.Engine.Input
                 _inputState.AutorunActive = false;
             }
 
-            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops.
-            if (InputBlocked)
+            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops. The Mog House Layout
+            // has the keys and the view too (#93).
+            if (InputBlocked || _actionService?.Menus.MogHouseLayout.Active == true)
             {
                 _inputState.AutorunActive = false;
                 localEnt.Speed = 0;

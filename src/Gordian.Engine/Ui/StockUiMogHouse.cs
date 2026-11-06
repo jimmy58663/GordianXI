@@ -73,7 +73,7 @@ namespace Gordian.Engine.Ui
     /// <item><c>bankmenu</c> (384,48): Mog Safe (938), Mog Safe 2 (939), then the item list ("Mog Safe 21/80", "Select an item.",
     /// the retail video at 0:31). <c>roomlist</c> (366 x 88 at 16,208, help 937 "Select house style.") has the query's own frame and
     /// opens as a query window (Remodel passed round 1).</item>
-    /// <item>In the Mog House the main menu's Map (button 12) reads Mog House (windowps #433, help 41) and opens <c>myroom</c>
+    /// <item>In the Mog House the main menu's Map (button 12) reads Mog House (windowps #44, help 41) and opens <c>myroom</c>
     /// (the maintainer's image-29). While the house is open to visitors Open Mog reads Close Mog (windowps #608, its kind-1 shape)
     /// and Layout and Remodel are greyed (their kind-4 shapes).</item>
     /// </list>
@@ -88,9 +88,53 @@ namespace Gordian.Engine.Ui
         public const int LayoutButton = 5, OpenHouseButton = 6, RemodelButton = 7;
 
         /// <summary>The main menu button that reads Mog House in the Mog House, its label image and help; Close Mog's label.</summary>
-        public const int MainMenuButton = 12, MogHouseLabelImage = 433, MogHouseHelp = 41, CloseMogLabelImage = 608;
+        public const int MainMenuButton = 12, MogHouseLabelImage = 44, MogHouseHelp = 41, CloseMogLabelImage = 608;
 
         public const string SafeTitle = "Mog Safe", Safe2Title = "Safe 2";
+
+        /// <summary><c>bankmenu</c>'s Mog Safe 2 button; <c>mogcont</c>'s is 8.</summary>
+        public const int SafeMenuSafe2Button = 2, ViewHouseSafe2Button = 8;
+
+        /// <summary>
+        /// The Quests that open Mog Safe 2 and the second floor: Growing Flowers (San d'Oria 58), A Lady's Heart (Bastok 50) and
+        /// Flower Child (Windurst 65); returning home then plays a cutscene (LandSandBoat <c>moghouse.lua</c>; the maintainer, round 2).
+        /// </summary>
+        public static readonly IReadOnlyList<(QuestLogArea Area, int Quest)> Safe2Quests = new[]
+        {
+            (QuestLogArea.SandOria, 58), (QuestLogArea.Bastok, 50), (QuestLogArea.Windurst, 65),
+        };
+
+        /// <summary>The menus that stand on the log window, as the command menu does (round 2).</summary>
+        public static bool StandsOnLog(string menuName) =>
+            menuName is MoogleMenu or AwayMoogleMenu or LayoutFloorMenu or LayoutPieceMenu or ClearAllMenu or LayoutMannequinMenu;
+
+        /// <summary>The Mannequin window (<see cref="StockUiOpenMenu.Mannequin"/>): the Check window's frame and grid, the DAT's <c>inspect</c>.</summary>
+        public const string MannequinMenu = StockUiCheck.MenuName;
+
+        /// <summary><c>inspect</c>'s button under the grid (View Wares there) reads Unequip All here (windowps #545).</summary>
+        public const int UnequipAllButton = StockUiCheck.ViewWaresButton, UnequipAllImage = 545;
+
+        /// <summary>The Storage list's place beside the grid (image-49: the frame's 16 + its 182 width).</summary>
+        public const int MannequinListX = 198;
+
+        /// <summary>"Change the equipment on your mannequin." (ROM/165/75 604), under "Layout" (image-49).</summary>
+        public const int MannequinHelp = 604;
+        public const string LayoutTitle = "Layout";
+
+        public const string StorageFullNotice = "You must take items out of your Storage before removing that.";
+        public const string LockedGearNotice = "Another mannequin is wearing that.";
+        public const string OtherFloorNotice = "That is placed on the other floor.";
+        public const string PlacedNotice = "That is placed in your Mog House.";
+
+        /// <summary>The mannequin slot index of an equipment slot, or -1 for one a mannequin does not wear.</summary>
+        public static int MannequinIndex(EquipSlotId slot)
+        {
+            for (int i = 0; i < MannequinSlots.Count; i++)
+            {
+                if (MannequinSlots[i].EquipBit == (int)slot) return i;
+            }
+            return -1;
+        }
 
         /// <summary>The house styles of C2S 0x0CB Remodel's <c>Param2</c> (LandSandBoat <c>GP_CLI_COMMAND_MYROOM_IS_PARAM2</c>).</summary>
         public static readonly IReadOnlyList<(ushort Style, string Name)> HouseStyles = new (ushort, string)[]
@@ -113,10 +157,6 @@ namespace Gordian.Engine.Ui
         public const string HouseClosedNotice = "Your Mog House is now closed to visitors.";
         public const string CellNotUsableNotice = "You cannot place furniture there.";
         public const string StyleQuestion = "Select house style.";
-        public const string MannequinQuestion = "Change the equipment on your mannequin.";
-        public const string RemoveAllRow = "Remove all.";
-        public const string RemoveRow = "Remove.";
-        public const string EmptySlotText = "-";
 
         public static StockUiMenuEntry Entry(string label, StockUiMogHouseAction action) =>
             new(label, Command: StockUiMenuCommand.MogHouseAction, Argument: (int)action);
@@ -209,6 +249,20 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The held piece's rules.</summary>
         public FurnitureInfo? HeldInfo => Held is { } held ? InfoFor(held.ItemId) : null;
+
+        /// <summary>
+        /// Whether a piece can leave the room: LandSandBoat's 0x0FB refuses (and tells the client nothing) when the Storage, which
+        /// is as big as the first floor's furniture makes it (at most 80), would be smaller than what it holds.
+        /// </summary>
+        public bool StorageAllowsRemoving(FurniturePlacement piece, int storageUsed, Func<ushort, int> storageOf)
+        {
+            int total = 0;
+            foreach (var placed in Pieces)
+            {
+                if (placed.Installed && !placed.SecondFloor) total += storageOf(placed.ItemId);
+            }
+            return storageUsed <= Math.Min(MogHouseFurniture.MaxStorage, Math.Max(0, total - storageOf(piece.ItemId)));
+        }
 
         /// <summary>Whether a piece stands on the floor shown.</summary>
         public bool IsShown(FurniturePlacement piece) => piece.Installed && piece.SecondFloor == SecondFloor;
@@ -415,6 +469,12 @@ namespace Gordian.Engine.Ui
     {
         public const float Height = 9.16f, EyeNorth = 0.53f, BoxX = 4.0f, BoxZ = 2.0f, BlendSeconds = 0.6f, PanRate = 6.0f;
 
+        /// <summary>The Mannequin window's view (image-49, <b>provisional</b>): from the room side, this far away and this high, at the mannequin's chest.</summary>
+        public const float MannequinDistance = 3.0f, MannequinEyeHeight = 1.3f, MannequinLookHeight = 1.1f;
+
+        private Vector3? _mannequin;
+        private float _mannequinBlend;
+
         private Vector3 _focus, _goal;
         private float _blend;
         private bool _hasFocus;
@@ -423,10 +483,12 @@ namespace Gordian.Engine.Ui
         public bool InUse => _blend > 0f;
 
         /// <summary>Advances the view toward the piece under the cursor or in hand.</summary>
-        public void Update(MogHouseLayoutState layout, float seconds)
+        public void Update(MogHouseLayoutState layout, float seconds, Vector3? mannequin = null)
         {
             float step = seconds / BlendSeconds;
             _blend = Math.Clamp(_blend + (layout.Active ? step : -step), 0f, 1f);
+            if (mannequin != null) _mannequin = mannequin;
+            _mannequinBlend = Math.Clamp(_mannequinBlend + (mannequin != null ? step : -step), 0f, 1f);
             if (!layout.Active)
             {
                 if (_blend == 0f) _hasFocus = false;
@@ -452,7 +514,15 @@ namespace Gordian.Engine.Ui
         {
             float t = _blend * _blend * (3f - 2f * _blend);
             var topEye = _focus + new Vector3(0f, Height, EyeNorth);
-            return (Vector3.Lerp(eye, topEye, t), Vector3.Lerp(target, _focus, t), Vector3.Normalize(Vector3.Lerp(Vector3.UnitY, Vector3.UnitZ, MathF.Max(t, 0.05f))));
+            var view = (Eye: Vector3.Lerp(eye, topEye, t), Target: Vector3.Lerp(target, _focus, t), Up: Vector3.Normalize(Vector3.Lerp(Vector3.UnitY, Vector3.UnitZ, MathF.Max(t, 0.05f))));
+            if (_mannequinBlend <= 0f || _mannequin is not { } at) return view;
+            float m = _mannequinBlend * _mannequinBlend * (3f - 2f * _mannequinBlend);
+            // From the room's middle side, so the eye stays inside the walls.
+            var away = new Vector3(-at.X, 0f, -at.Z);
+            away = away.LengthSquared() > 0.01f ? Vector3.Normalize(away) : Vector3.UnitZ;
+            var close = at + away * MannequinDistance + new Vector3(0f, MannequinEyeHeight, 0f);
+            var look = at + new Vector3(0f, MannequinLookHeight, 0f);
+            return (Vector3.Lerp(view.Eye, close, m), Vector3.Lerp(view.Target, look, m), Vector3.Normalize(Vector3.Lerp(view.Up, Vector3.UnitY, m)));
         }
     }
 }

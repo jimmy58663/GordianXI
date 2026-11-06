@@ -62,6 +62,9 @@ namespace Gordian.Core.Resources.Models
         public byte[]? IconRgbaPixels { get; set; }
         #endregion
 
+        /// <summary>A furnishing's Storage slots while placed on the first floor: the field equipment uses for its slots (retail item DAT +0x12; Jeunoan Armoire 30, as LandSandBoat's table).</summary>
+        public int FurnitureStorage => EquipSlotsMask;
+
         public bool CanEquipSlot(int slotIndex) => (EquipSlotsMask & (1 << slotIndex)) != 0;
         public bool CanEquipJob(int jobIndex) => (JobsMask & (1 << jobIndex)) != 0;
         public bool CanEquipRace(int raceIndex) => (RacesMask & (1 << raceIndex)) != 0;
