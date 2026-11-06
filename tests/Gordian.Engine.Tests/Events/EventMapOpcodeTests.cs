@@ -117,6 +117,13 @@ namespace Gordian.Engine.Tests.Events
             Assert.Equal(141, state.Focus(2)!.Zone);
             // Pso'Xja's home point stands on a floor without a map: retail writes "There is no map for this area.".
             Assert.Equal(EventMapFocus.NoMap, state.Focus(3)!.MapNumber);
+            // Its chat line comes once each time the cursor reaches it, not every frame.
+            int? shown = null;
+            Assert.False(state.CameToNoMap(2, ref shown));
+            Assert.True(state.CameToNoMap(3, ref shown));
+            Assert.False(state.CameToNoMap(3, ref shown));
+            Assert.False(state.CameToNoMap(2, ref shown));
+            Assert.True(state.CameToNoMap(3, ref shown));
         }
 
         [Fact]

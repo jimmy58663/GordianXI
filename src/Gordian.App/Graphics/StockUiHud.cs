@@ -461,7 +461,6 @@ namespace Gordian.App.Graphics
             if (focus.MapNumber == Gordian.Engine.Events.EventMapFocus.NoMap)
             {
                 _eventMap.Reset();
-                StockUiEventMapWindow.DrawNoMap(renderer, font, _logFont, Layout.Scale, width, height);
                 return;
             }
             int mapNumber = Gordian.Core.Resources.Tables.ZoneMapFiles.Resolve(focus.Zone, focus.MapNumber);

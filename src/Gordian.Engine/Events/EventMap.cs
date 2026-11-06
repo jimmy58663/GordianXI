@@ -43,7 +43,7 @@ namespace Gordian.Engine.Events
     /// </summary>
     public sealed record EventMapFocus(int Zone, int MapNumber, float? X, float? Z, IReadOnlyList<EventMapMarker> Markers, EventMapPin Pin)
     {
-        /// <summary><see cref="MapNumber"/> of a point retail has no map for: <see cref="NoMapText"/> shows instead of a map.</summary>
+        /// <summary><see cref="MapNumber"/> of a point retail has no map for: no map shows, and <see cref="NoMapText"/> goes to the chat log.</summary>
         public const int NoMap = -2;
 
         /// <summary>Retail's red text (round 1 of the 2026-11-03 test, Pso'Xja's home point). In no string table of the install.</summary>
@@ -108,6 +108,17 @@ namespace Gordian.Engine.Events
         {
             var entries = new Dictionary<int, EventQueryMapEntry>(QueryEntries) { [option] = entry };
             return new EventMapState(IsOpen, Zone, MapNumber, Markers, IsQueryMap, entries);
+        }
+
+        /// <summary>
+        /// Whether the cursor has just come to an option retail has no map for: <paramref name="option"/> differs from
+        /// <paramref name="shown"/>, the option last looked at, and has no map. Updates <paramref name="shown"/>.
+        /// </summary>
+        public bool CameToNoMap(int? option, ref int? shown)
+        {
+            if (option == shown) return false;
+            shown = option;
+            return Focus(option)?.MapNumber == EventMapFocus.NoMap;
         }
 
         public EventMapState WithQueryMap() => new(IsOpen, Zone, MapNumber, Markers, true, QueryEntries);

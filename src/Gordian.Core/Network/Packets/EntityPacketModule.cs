@@ -219,7 +219,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 player.Hpp = pc.Hpp;
-                player.AnimationState = pc.ServerStatus;
+                if (pc.UniqueNo != _localPlayer.ServerId || !_localPlayer.IsVanishing) player.AnimationState = pc.ServerStatus;
                 // The mount (#87): the status says whether they ride, Flags6 which mount (kept after a dismount). Only a General
                 // update that carries Flags6 says which (round 6: a short one, read as "mount 0", drew everyone as a chocobo);
                 // without it the last known mount number stands.
