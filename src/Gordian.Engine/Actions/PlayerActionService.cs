@@ -713,6 +713,11 @@ namespace Gordian.Engine.Actions
         public event Action? MogHouseExitRequested;
 
         /// <summary>
+        /// Set by the viewport showing this character: takes a <c>/screenshot</c>, false if it can't start one now.
+        /// </summary>
+        public Func<ScreenshotRequest, bool>? ScreenshotHandler { get; set; }
+
+        /// <summary>
         /// Talks to the current target (Confirm on a targeted NPC or door): sends the 0x01A interaction, after which
         /// the server starts the NPC's event or prints its line.
         /// </summary>
@@ -1597,6 +1602,8 @@ namespace Gordian.Engine.Actions
                         return "Usage: /logout [on|off] - Log out to the character select screen after 30 seconds; again (or off) cancels.";
                     case "shutdown":
                         return "Usage: /shutdown [on|off] - Shut down after 30 seconds, closing the session; again (or off) cancels.";
+                    case "screenshot":
+                        return "Usage: /screenshot [hide] [name] - Save the next frame as a PNG in the screenshots folder; hide leaves out the UI.";
                     case "sitchair":
                         return "Usage: /sitchair [chair 0-20] [on|off] - Sit in a chair (0 is the plain chair; 1-11 need the matching key item).";
                     case "random" or "rand":
@@ -1682,6 +1689,7 @@ namespace Gordian.Engine.Actions
             sb.AppendLine("  /heal [on|off]            - Rest to recover HP and MP; again to stand");
             sb.AppendLine("  /sit [on|off]             - Sit down or stand up");
             sb.AppendLine("  /sitchair [n] [on|off]    - Sit in a chair (0 plain, 1-11 unlocked chairs)");
+            sb.AppendLine("  /screenshot [hide] [name] - Save the next frame as a PNG");
             sb.AppendLine("  /random                   - Roll the dice (0-999), shown to everyone near");
             sb.AppendLine("  /nominate [scope] \"question\" \"option\" ... - Start a vote (/propose); /vote <n> [proposer] to answer");
             sb.AppendLine("  /widescan, /track [target|off] - Wide Scan (Ranger, Beastmaster) and tracking");
@@ -2851,6 +2859,12 @@ namespace Gordian.Engine.Actions
 
                 case ChatCommandResultKind.Shutdown:
                     return await RequestLogoutAsync(shutdown: true, cmd.Rest).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Screenshot:
+                    // The viewport reports the saved file; a line printed here would land in the frame being saved.
+                    return ScreenshotHandler?.Invoke(new ScreenshotRequest(cmd.ActionParam == 1, cmd.Message.Length == 0 ? null : cmd.Message)) == true
+                        ? PlayerActionResult.Info(string.Empty, cmd.Kind)
+                        : PlayerActionResult.Warn("A screenshot can't be taken right now.", cmd.Kind);
 
                 case ChatCommandResultKind.SitChair:
                     return await SitChairAsync(cmd.ActionParam, cmd.Rest).ConfigureAwait(false);

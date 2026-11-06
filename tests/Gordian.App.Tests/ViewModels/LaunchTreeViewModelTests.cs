@@ -43,6 +43,27 @@ namespace Gordian.App.Tests.ViewModels
         }
 
         [Fact]
+        public void LaunchProfileByName_UnknownProfile_ReportsItAndStartsNothing()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+
+            vm.LaunchProfileByName("Nobody");
+
+            Assert.Equal("Launch option: no profile named Nobody.", vm.StatusMessage);
+        }
+
+        [Fact]
+        public void LaunchProfileByName_RetailProfile_IsRefused()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.Profiles.Add(new ProfileItemViewModel(new AccountProfile { ProfileName = "RetailOnly" }, _testRegistry));
+
+            vm.LaunchProfileByName("RetailOnly");
+
+            Assert.Equal("Launch option: RetailOnly is not a private server profile.", vm.StatusMessage);
+        }
+
+        [Fact]
         public void CreateFolder_WindowsExplorerStyle_AutoNamesAndEntersRename()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
