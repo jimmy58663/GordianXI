@@ -1287,6 +1287,33 @@ namespace Gordian.App.ViewModels
                 return;
             }
 
+            LaunchProfiles(targetsToLaunch);
+        }
+
+        /// <summary>
+        /// Logs in one saved private server profile by name, for the <c>--profile</c> launch option. A retail profile is
+        /// refused, because launching one stages the proxy DLL in the game folder.
+        /// </summary>
+        public void LaunchProfileByName(string profileName)
+        {
+            var profile = Profiles.Select(vm => vm.Profile)
+                .FirstOrDefault(p => string.Equals(p.ProfileName, profileName, StringComparison.OrdinalIgnoreCase));
+            if (profile == null)
+            {
+                StatusMessage = $"Launch option: no profile named {profileName}.";
+                return;
+            }
+            if (!IsLsbProfile(profile))
+            {
+                StatusMessage = $"Launch option: {profileName} is not a private server profile.";
+                return;
+            }
+
+            LaunchProfiles([profile]);
+        }
+
+        private void LaunchProfiles(List<AccountProfile> targetsToLaunch)
+        {
             // Separate private server profiles (direct native LsbLoginClient) from retail profiles
             var directLsbProfiles = new List<AccountProfile>();
             var retailProfiles = new List<AccountProfile>();
