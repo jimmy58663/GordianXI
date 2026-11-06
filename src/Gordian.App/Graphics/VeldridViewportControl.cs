@@ -141,6 +141,7 @@ namespace Gordian.App.Graphics
         // The session drawn, and the one the window asked for: a switch to a character in a zone that is not on the GPU
         // waits (at most DeferredSwitchTimeout) while the zone uploads in the background, showing the old view (#322).
         private CharacterSession? _activeSession;
+        private readonly ViewportScreenshot _screenshot = new();
         private CharacterSession? _requestedSession;
         private long _deferredSince;
         private ZoneTerrainRenderer.ResidentZone? _preparedZone;
@@ -189,6 +190,7 @@ namespace Gordian.App.Graphics
                 {
                     if (_activeSession != null)
                     {
+                        if (!IsThumbnail) _activeSession.ActionService.ScreenshotHandler = null;
                         _activeSession.World.MapZoneChanged -= OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
@@ -209,6 +211,12 @@ namespace Gordian.App.Graphics
                     if (_activeSession != null)
                     {
                         _activeSession.IsRendering3D = true;
+                        if (!IsThumbnail)
+                        {
+                            var chat = _activeSession.Chat;
+                            _screenshot.Report = line => chat.Log.Add(Gordian.Engine.Ui.ChatLogChannel.System, line);
+                            _activeSession.ActionService.ScreenshotHandler = _screenshot.Request;
+                        }
                         _activeSession.World.MapZoneChanged += OnWorldZoneChanged;
                         if (_activeSession.Locomotion != null)
                         {
@@ -747,6 +755,7 @@ namespace Gordian.App.Graphics
                 DisposeOverlays();
                 _blackCommands?.Dispose();
                 _blackCommands = null;
+                _screenshot.Dispose();
 
                 // This window's swapchain; the last window to close also disposes the shared device.
                 _deviceManager.Dispose();
@@ -1045,6 +1054,7 @@ namespace Gordian.App.Graphics
                             }
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
+                            _screenshot.CollectIfReady(_deviceManager.Device!);
                             BeginPerformancePasses();
                             _renderer.Render(
                                 Camera,
@@ -1062,6 +1072,7 @@ namespace Gordian.App.Graphics
                                 targetFramebuffer: _deviceManager.Framebuffer);
 
                             EndPerformancePass(ViewportPass.Scene);
+                            _screenshot.CaptureIfDue(_deviceManager.Device!, _deviceManager.Framebuffer!, uiDrawn: false);
 
                             // Tier 2: Stock FFXI 2D UI Pass (gated by StockUiVisibilityState); a thumbnail shows the scene only
                             if (!IsThumbnail) RenderTier2_StockUi();
@@ -1071,6 +1082,7 @@ namespace Gordian.App.Graphics
                             if (!IsThumbnail) RenderTier3_ImGuiOverlays();
                             EndPerformancePass(ViewportPass.Overlay);
                             EndPerformanceFrame();
+                            _screenshot.CaptureIfDue(_deviceManager.Device!, _deviceManager.Framebuffer!, uiDrawn: true);
 
                             // Final composite present
                             _deviceManager.Present();
