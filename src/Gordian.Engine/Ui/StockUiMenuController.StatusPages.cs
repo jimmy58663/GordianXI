@@ -156,10 +156,11 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private StockUiOpenMenu? OpenStatusList(StockUiStatusPage page, string menuName, StockUiOpenMenu from, IReadOnlyList<StockUiListRow> rows,
             IReadOnlyList<int> help, int cursor, int group = -1, StockUiProgressionList progression = StockUiProgressionList.None, int key = -1,
-            IReadOnlyList<int>? keys = null)
+            IReadOnlyList<int>? keys = null, UiMenuDefinition? listWindow = null)
         {
             var library = _library;
-            if (library == null || !library.TryGetMenu(menuName, out var window))
+            UiMenuDefinition? window = listWindow;
+            if (window == null && (library == null || !library.TryGetMenu(menuName, out window)))
             {
                 NoticePosted?.Invoke("Status: this page is not available in this session.");
                 return null;

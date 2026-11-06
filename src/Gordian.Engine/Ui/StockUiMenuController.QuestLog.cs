@@ -24,6 +24,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Region Info's Conquest map (<see cref="StockUiConquestView"/>).</summary>
         Conquest,
+
+        /// <summary>A Records of Eminence objective's detail page (<see cref="StockUiRoeDetail"/>, #493).</summary>
+        RoeDetail,
     }
 
     public sealed partial class StockUiOpenMenu
@@ -118,6 +121,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The window title the help bar shows: "Missions", "Quests" or "Region Info".</summary>
         public string QuestLogTitle => QuestLogView == StockUiQuestLogView.Conquest ? StockUiConquest.Title
+            : QuestLogView == StockUiQuestLogView.RoeDetail ? StockUiRecordsOfEminence.HelpTitle
             : IsQuestsWindow ? StockUiQuestLog.QuestsTitle : StockUiQuestLog.MissionsTitle;
     }
 

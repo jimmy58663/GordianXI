@@ -51,7 +51,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             Assert.Equal(75, StockUiProgression.CategoryMax("Adjust your maximum HP and MP.\nMax. total ability increases: 75"));
             Assert.Equal(20, StockUiProgression.CategoryMax("Adjust various abilities for WAR lv.75 or above.\nGroup 1 max. total ability increases: 10\nGroup 2 max. total ability increases: 10"));
-            Assert.Equal(0, StockUiProgression.CategoryMax("Adjust weapon skills for levels 96 and above. Total ability increases: 15."));
+            Assert.Equal(15, StockUiProgression.CategoryMax("Adjust weapon skills for levels 96 and above. Total ability increases: 15."));
             Assert.Equal(0, StockUiProgression.CategoryMax(null));
         }
 
@@ -62,16 +62,16 @@ namespace Gordian.Engine.Tests.Ui
             var text = MeritText();
             var categories = StockUiProgression.MeritCategories(text);
             Assert.Equal(new[] { 1, 6 }, categories);
-            var rows = StockUiProgression.MeritCategoryRows(categories, merits, text);
-            Assert.Equal(("HP/MP", "19/75"), (rows[0].Text, rows[0].Value));
-            Assert.Equal(("Warrior", "3/20"), (rows[1].Text, rows[1].Value));
+            var rows = StockUiProgression.MeritCategoryRows(categories, text);
+            Assert.Equal(("HP/MP", (string?)null), (rows[0].Text, rows[0].Value));
+            Assert.Equal(19, StockUiProgression.CategoryTotal(1, merits));
             var hp = StockUiProgression.MeritsOf(1, merits, text);
             Assert.Equal(new[] { 0x40, 0x42 }, hp.Select(m => m.Id));
             var meritRows = StockUiProgression.MeritRows(hp, text);
             Assert.Equal(("Max HP", "4/15", (UiColor?)null), (meritRows[0].Text, meritRows[0].Value, meritRows[0].Color));
-            Assert.Equal("NEXT 3", meritRows[0].Note);
+            Assert.Equal("NEXT 3 P", meritRows[0].Note);
             Assert.Equal(StockUiProgression.Greyed, meritRows[1].Color);
-            Assert.Equal("NEXT --", meritRows[1].Note);
+            Assert.Null(meritRows[1].Note);
             Assert.Equal(new[] { 384, 2048 }, StockUiProgression.MeritsOf(6, merits, text).Select(m => m.Id));
         }
 
@@ -84,18 +84,39 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(StockUiProgression.HasMeritGroups(1));
             Assert.False(StockUiProgression.HasMeritGroups(StockUiProgression.WeaponSkillsCategory));
             Assert.Equal((1, 2), (StockUiProgression.MeritGroupOf(384), StockUiProgression.MeritGroupOf(2048)));
-            Assert.Equal((6, 2), StockUiProgression.MeritListParts(StockUiProgression.MeritListKey(6, 2)));
+            Assert.Equal((1, 20, 21, 22), (StockUiProgression.JobOfCategory(6), StockUiProgression.JobOfCategory(25), StockUiProgression.JobOfCategory(27), StockUiProgression.JobOfCategory(28)));
             Assert.Equal(new[] { 2048 }, StockUiProgression.MeritsOf(6, merits, _ => "Merit", 2).Select(m => m.Id));
             Assert.Equal(10, StockUiProgression.GroupMax("Adjust.\nGroup 1 max. total ability increases: 10\nGroup 2 max. total ability increases: 10", 2));
-            var (rows, keys) = StockUiProgression.MeritGroupRows(6, merits, text);
-            Assert.Equal(new[] { 1, 2 }, keys);
-            Assert.Equal(new[] { "Group 1", "Group 2" }, rows.Select(r => r.Text));
-            Assert.Equal("3/", rows[0].Value![..2]);
-            Assert.Equal("1/", rows[1].Value![..2]);
+            Func<int, string?> names = id => id switch
+            {
+                13 => "Group 1 max. total ability increases: 10\nGroup 2 max. total ability increases: 10",
+                384 => "Berserk Recast", 386 => "Defender Recast", 2048 => "Warrior's Charge", _ => null,
+            };
+            var (rows, keys) = StockUiProgression.MeritListRows(6, merits, names, "NEXT", mainJob: 1);
+            Assert.Equal(new[] { 0, 384, 386, 0, 2048 }, keys);
+            Assert.Equal(new[] { "Group1", "Berserk Recast", "Defender Recast", "Group2", "Warrior's Charge" }, rows.Select(r => r.Text));
+            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, rows.Select(r => r.ButtonId));
+            Assert.True(rows[0].Header);
+            Assert.Equal("(Max.total ability increases:  10 )", rows[3].Note);
+            Assert.Null(rows[1].Color);
+            Assert.Equal(StockUiProgression.GroupYellow, rows[4].Color);
+            // Another job's merits are grey, NEXT kept.
+            var (other, _) = StockUiProgression.MeritListRows(6, merits, names, "NEXT", mainJob: 10);
+            Assert.Equal((StockUiProgression.Greyed, "NEXT 1 P"), (other[1].Color!.Value, other[1].Note));
         }
 
         [Fact]
-        public void JobCategory_OpensItsGroups_ThenTheGroupsMerits()
+        public void MeritAtItsMost_HasNoNext_EvenWhenTheServerSendsACost()
+        {
+            var atMost = new StockUiMerit(0x40, 9, 15);
+            Assert.Equal(0, StockUiProgression.NextCost(atMost));
+            var row = StockUiProgression.MeritRows(new[] { atMost }, _ => "Max HP").Single();
+            Assert.Equal(("15/15", (string?)null, (UiColor?)StockUiProgression.Greyed), (row.Value, row.Note, row.Color));
+            Assert.Equal(15, StockUiProgression.CategoryMax("Adjust weapon skills. Total ability increases: 15."));
+        }
+
+        [Fact]
+        public void JobCategory_ListsItsGroupsUnderHeaders()
         {
             var h = new Harness { Merits = new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(384, 1, 2), new StockUiMerit(2048, 3, 1) } };
             h.Menus.MeritText = id => id switch { 2 => "HP/MP", 12 => "Warrior", 13 => "Group 1 max. total ability increases: 10", 64 => "Max HP", 384 => "Berserk Recast", 2048 => "Warrior's Charge", _ => null };
@@ -103,17 +124,16 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             h.Menus.Move(InputAction.MenuDown); // Warrior
             h.Menus.Activate();
-            var groups = h.Menus.Top!;
-            Assert.Equal((StockUiProgressionList.MeritGroups, 6), (groups.ProgressionList, groups.ProgressionKey));
-            h.Menus.Move(InputAction.MenuDown); // Group 2
-            h.Menus.Activate();
             var list = h.Menus.Top!;
-            Assert.Equal(StockUiProgressionList.Merits, list.ProgressionList);
-            Assert.Equal(new[] { "Warrior's Charge" }, list.Rows.Select(r => r.Text));
-            Assert.Equal("NEXT 3", list.Rows[0].Note);
+            Assert.Equal((StockUiProgressionList.Merits, 6), (list.ProgressionList, list.ProgressionKey));
+            Assert.Equal(new[] { "Group1", "Berserk Recast", "Group2", "Warrior's Charge" }, list.Rows.Select(r => r.Text));
+            h.InMogHouse = true;
+            h.Menus.Activate(); // the header: nothing
+            Assert.Same(list, h.Menus.Top);
+            Assert.Equal("NEXT 3 P", list.Rows[3].Note);
             h.Merits = new[] { new StockUiMerit(2048, 4, 2) };
             h.Menus.OnStatusPointsChanged();
-            Assert.Equal(("2/5", "NEXT 4"), (list.Rows[0].Value, list.Rows[0].Note));
+            Assert.Equal(("2/5", "NEXT 4 P"), (list.Rows[^1].Value, list.Rows[^1].Note));
         }
 
         [Fact]
@@ -125,11 +145,10 @@ namespace Gordian.Engine.Tests.Ui
             };
             var categories = StockUiProgression.MeritCategories(text);
             Assert.Equal(new[] { 1, 2, 3, 4, 5, 26, 6 }, categories);
-            var merits = new[] { new StockUiMerit(26 * 64, 20, 2) };
-            var locked = StockUiProgression.MeritCategoryRows(categories, merits, text, weaponSkillsOpen: false);
-            Assert.Equal(("Weapon Skills", "2/15", (UiColor?)StockUiProgression.Greyed), (locked[5].Text, locked[5].Value, locked[5].Color));
+            var locked = StockUiProgression.MeritCategoryRows(categories, text, weaponSkillsOpen: false);
+            Assert.Equal(("Weapon Skills", (UiColor?)StockUiProgression.Greyed), (locked[5].Text, locked[5].Color));
             Assert.Null(locked[4].Color);
-            Assert.Null(StockUiProgression.MeritCategoryRows(categories, merits, text)[5].Color);
+            Assert.Null(StockUiProgression.MeritCategoryRows(categories, text)[5].Color);
         }
 
         [Theory]
@@ -242,8 +261,8 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(("Vanquish Multiple Enemies I", "37/200"), (current.Single().Text, current.Single().Value));
             Assert.Equal(0xE00C, currentKeys.Single());
 
-            string? line = StockUiRecordsOfEminence.HelpLine(tables.Objective(12), state, null);
-            Assert.Equal("Number Completed 37/200  Rewards: 1,000 Spa. 5,000 EXP 100 Unity Accolades", line);
+            Assert.Equal("1000 Spa.  5000 EXP  100 Acc.", StockUiRecordsOfEminence.RewardLine(tables.Objective(12)!, null));
+            Assert.Equal(1, StockUiRecordsOfEminence.ActiveCount(state));
         }
 
         [Fact]
@@ -296,26 +315,35 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal((StockUiProgressionList.Merits, 1), (list.ProgressionList, list.ProgressionKey));
             Assert.Equal(new[] { "Max HP", "Max MP" }, list.Rows.Select(r => r.Text));
 
-            // Outside the Mog House: a notice, nothing sent.
+            // Outside the Mog House: the client's line, nothing opens.
             h.Menus.Activate();
-            Assert.Equal(StockUiProgression.MeritEditMenu, h.Menus.Top!.Name);
-            h.Menus.Activate(); // Raise
-            Assert.Contains(h.Notices, n => n.Contains("Mog House", StringComparison.Ordinal));
+            Assert.Contains(StockUiProgression.OutsideMogHouse, h.Notices);
             Assert.Same(list, h.Menus.Top);
 
             h.InMogHouse = true;
             h.Menus.Activate();
-            h.Menus.Activate(); // Raise
+            var edit = h.Menus.Top!;
+            Assert.Equal(StockUiProgression.MeritEditMenu, edit.Name);
+            h.Menus.Activate(); // Raise: the bare Yes / No, the cursor on No; merit3 stays
             Assert.True(h.Menus.Top!.IsPrompt);
-            Assert.Equal("Raise Max HP?", h.Menus.Top!.Message);
+            Assert.Null(h.Menus.Top!.Message);
+            Assert.Equal(2, h.Menus.Top!.SelectedButtonId);
+            h.Menus.Activate(); // No
+            Assert.Same(edit, h.Menus.Top);
+            Assert.False(h.MeritSent.Task.IsCompleted);
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate(); // Yes
             Assert.Equal((0x40, true), h.MeritSent.Task.Wait(10000) ? h.MeritSent.Task.Result : default);
+            h.Menus.CloseTop();
+            Assert.Same(list, h.Menus.Top);
 
             // Max MP has no next cost (at its most): Raise posts a notice.
             h.Menus.Move(InputAction.MenuDown);
             h.Menus.Activate();
             h.Menus.Activate();
             Assert.Contains(h.Notices, n => n == "Max MP cannot be raised any further.");
+            h.Menus.CloseTop();
 
             // S2C 0x08C: the open lists follow, the cursor kept.
             h.Merits = new[] { new StockUiMerit(0x40, 4, 5), new StockUiMerit(0x42, 0, 15) };
@@ -402,16 +430,28 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate(); // Tutorial
             var objectives = h.Menus.Top!;
             Assert.Equal(StockUiProgressionList.RoeObjectives, objectives.ProgressionList);
-            h.Menus.Activate(); // First Step Forward
-            Assert.Contains("This objective cannot be undertaken again.", h.Notices);
+            Assert.Equal("Tutorial", objectives.RoeListTitle);
+            h.Menus.Activate(); // First Step Forward: its page, no question
+            Assert.Equal((StockUiQuestLogView.RoeDetail, true), (h.Menus.Top!.QuestLogView, h.Menus.Top!.RoeDetail!.Done));
+            h.Menus.CloseTop();
+            Assert.Same(objectives, h.Menus.Top);
+
+            // Right: the category beside it; Left comes back.
+            h.Menus.Move(InputAction.MenuRight);
+            Assert.Equal("Combat (Wide Area)", objectives.RoeListTitle);
+            h.Menus.Move(InputAction.MenuLeft);
+            Assert.Equal("Tutorial", objectives.RoeListTitle);
 
             h.Completed.Clear();
             h.Menus.OnStatusPointsChanged();
             h.Menus.Activate();
             Assert.Equal("Set objective?", h.Menus.Top!.Message);
+            Assert.Equal(1, h.Menus.Top!.SelectedButtonId); // the cursor on Yes
             h.Menus.Activate(); // Yes
             Assert.True(h.RoeStarted.Task.Wait(10000));
             Assert.Equal(1, h.RoeStarted.Task.Result);
+            for (int i = 0; i < 1000 && !ReferenceEquals(h.Menus.Top, objectives); i++) System.Threading.Thread.Sleep(10);
+            Assert.Same(objectives, h.Menus.Top);
 
             // S2C 0x111 lists it: the row shows its progress; Confirm now asks to remove it.
             h.Slots = new[] { new StockUiRoeSlot(0, 1, 0) };
@@ -419,9 +459,11 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal("0/1", objectives.Rows[0].Value);
             Assert.Equal("1/30", kind.Rows[2].Value);
             h.Menus.Activate();
-            Assert.StartsWith("Remove objective?", h.Menus.Top!.Message, StringComparison.Ordinal);
-            h.Menus.Activate(); // default No
+            Assert.Equal("Remove objective?", h.Menus.Top!.Message);
+            h.Menus.Activate(); // default No: the page stays
             Assert.False(h.RoeRemoved.Task.IsCompleted);
+            Assert.Equal(StockUiQuestLogView.RoeDetail, h.Menus.Top!.QuestLogView);
+            h.Menus.CloseTop();
             h.Menus.Activate();
             h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate(); // Yes
@@ -581,6 +623,7 @@ namespace Gordian.Engine.Tests.Ui
             Window(StockUiStatusPages.JobPointMenu, 16, 48, 10, rowWidth: 356),
             Window(StockUiQuestLog.QuestKindMenu, 16, 48, 5, height: 248, rowWidth: 320),
             Window(StockUiMenuEntries.MessageYesNoMenu, 16, 208, 2, 366, 88),
+            Window(StockUiMenuEntries.YesNoMenu, 384, 96, 2, 112, 42),
         });
 
         private sealed class Harness

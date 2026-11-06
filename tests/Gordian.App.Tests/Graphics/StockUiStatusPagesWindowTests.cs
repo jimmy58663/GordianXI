@@ -85,7 +85,13 @@ namespace Gordian.App.Tests.Graphics
             JobPointText = id => screen.Resources.TryGetString(DMsgCategory.JobPointStrings, id, out var t) ? t : null,
             AlterEgoText = id => screen.Resources.TryGetString(DMsgCategory.AlterEgoStrings, id, out var t) ? t : null,
             MeritText = id => screen.Resources.TryGetString(DMsgCategory.MeritStrings, id, out var t) ? t : null,
-            Merits = () => new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(0x42, 2, 1), new StockUiMerit(0x80, 9, 3) },
+            Merits = () => new[]
+            {
+                new StockUiMerit(0x40, 3, 4), new StockUiMerit(0x42, 2, 1), new StockUiMerit(0x80, 9, 3),
+                new StockUiMerit(23 * 64, 1, 0), new StockUiMerit(23 * 64 + 2, 1, 2), new StockUiMerit(0x800 + 17 * 64, 3, 0),
+            },
+            MeritChanged = (_, _) => System.Threading.Tasks.Task.CompletedTask,
+            InMogHouse = () => true,
             JobPointLevel = (job, k) => new StockUiJobPointCategory(k == 0 ? 7 : k == 1 ? 20 : 0, k == 0 ? 8 : 1),
             JobGiftText = i => screen.Resources.TryGetString(DMsgCategory.JobGiftStrings, i, out var t) ? t : null,
             UnityInfo = () => new StockUiUnityInfo(8, 120, 340, new uint[11], new uint[] { 5, 0, 0, 0, 0, 0, 0, 90, 0, 0, 40 }),
@@ -157,11 +163,11 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal((byte)1, mode);
             Assert.Equal(StockUiStatusPages.MeritMenu, menus.Top!.Name);
 
-            // Categories (#491): meritcat with each category's upgrades, meritinf in the level box's place; HP/MP's merits.
+            // Categories (#491): meritcat, names alone, meritinf in the level box's place; HP/MP's merits.
             menus.Move(InputAction.MenuUp); // Categories
             menus.Activate();
             Assert.Equal(StockUiProgressionList.MeritCategories, menus.Top!.ProgressionList);
-            Assert.Equal(("HP/MP", "5/75"), (menus.Top!.Rows[0].Text, menus.Top!.Rows[0].Value));
+            Assert.Equal(("HP/MP", (string?)null), (menus.Top!.Rows[0].Text, menus.Top!.Rows[0].Value));
             Assert.Equal(StockUiProgression.MeritInfoBox, StockUiStatusPagesWindow.BoxOf(menus.OpenMenus));
             shot = RenderOpen(screen, menus, "gpu_status_merit_categories.png");
             Assert.True(screen.HasLightPixel(shot, 16 + 50, 16 + 106, 240 + 16 + 6, threshold: 150), "no merit points in meritinf");
@@ -172,6 +178,24 @@ namespace Gordian.App.Tests.Graphics
             menus.Activate(); // Max HP: merit3
             Assert.Equal(StockUiProgression.MeritEditMenu, menus.Top!.Name);
             RenderOpen(screen, menus, "gpu_status_merit_edit.png");
+            menus.Activate(); // Raise: the bare Yes / No, the cursor on No
+            Assert.True(menus.Top!.IsPrompt);
+            Assert.Equal(2, menus.Top!.SelectedButtonId);
+            RenderOpen(screen, menus, "gpu_status_merit_question.png");
+            menus.Activate(); // No
+            Assert.Equal(StockUiProgression.MeritEditMenu, menus.Top!.Name);
+            menus.CloseTop();
+            menus.CloseTop();
+            // A job's merits under their group headers: Puppetmaster, the main job here.
+            for (int i = 0; i < 23; i++) menus.Move(InputAction.MenuDown);
+            Assert.Equal(23, menus.Top!.SelectedRowKey);
+            menus.Activate();
+            Assert.True(menus.Top!.Rows[0].Header);
+            Assert.Equal("Group1", menus.Top!.Rows[0].Text);
+            RenderOpen(screen, menus, "gpu_status_merit_job_header.png");
+            menus.Move(InputAction.MenuDown);
+            shot = RenderOpen(screen, menus, "gpu_status_merit_job.png");
+            Assert.True(screen.HasLightPixel(shot, 130 + 4, 130 + 100, 240 + 4 + 6, threshold: 150), "no merit info");
 
             // Job Points: the job names, the cursor on the main job, its capacity and job points in the box, its line in the info box.
             OpenStatusEntry(menus, StockUiStatus.JobPointsButton);

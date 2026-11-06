@@ -36,10 +36,7 @@ namespace Gordian.Engine.Ui
         None = 0,
         MeritCategories,
 
-        /// <summary>A job category's two merit groups (Key: the category).</summary>
-        MeritGroups,
-
-        /// <summary>A category's merits (Key: <see cref="StockUiProgression.MeritListKey"/>).</summary>
+        /// <summary>A category's merits (Key: the category), a job's under its Group1 and Group2 headers.</summary>
         Merits,
         JobPointCategories,
 
@@ -73,11 +70,12 @@ namespace Gordian.Engine.Ui
     /// <list type="bullet">
     /// <item>Merit Points > Categories: <c>meritcat</c> (366 x 190 at 16,48, title 130 "Categories", 11 rows, help 609) lists
     /// the categories with their upgrades and most ("12/75"); Confirm lists the category's merits in <c>merit2ca</c> (the same
-    /// frame) with each merit's upgrades and NEXT, the merit points the next upgrade costs; a job category first lists its
-    /// Group 1 and Group 2 (each with its own limit: its line in the table, XiPackets 0x008C's tables). <c>meritinf</c> (16,240:
-    /// "Merit Points", "Combo Total/Max" baked in) shows the merit points held and the category's or group's total. No retail
-    /// capture of these lists: the group list and NEXT's place are PROVISIONAL. Confirm on a merit opens <c>merit3</c> (Raise, help 612 / Lower, help 613), each
-    /// asking first, then sends C2S 0x0BE kind 3 (Param1 1 raise / 0 lower, Param2 the merit id / 2: LandSandBoat shifts it
+    /// frame) with each merit's upgrades and "NEXT 1 P", the merit points the next upgrade costs; a job's list has a header row
+    /// over each group, "Group1 (Max.total ability increases: 10)", on which the cursor can rest. <c>meritinf</c> (16,240: "Merit
+    /// Points", "Combo Total/Max" baked in) shows the merit points held ("15 P") and the category's total, or a job's two groups'
+    /// ("0/10  0/10"). Checked against the retail client on local LandSandBoat, 2026-11-06 (Retail Captures, <c>Merits_*</c>; the
+    /// figures are LSB's). Confirm on a merit opens <c>merit3</c> (Raise, help 612 / Lower, help 613, greyed at 0 upgrades), each
+    /// asking in the bare <c>yesno</c> box, the cursor on No, then sends C2S 0x0BE kind 3 (Param1 1 raise / 0 lower, Param2 the merit id / 2: LandSandBoat shifts it
     /// back). LandSandBoat allows it in a Mog House only and sends each merit's next cost as 0 elsewhere.</item>
     /// <item>Job Points: Confirm on a job lists its ten categories (ROM/314/62 at job x 64 + 2 k) with "level/20" in
     /// <c>jbpcat</c> under a "Job Points" title bar with page arrows, <c>levmeri2</c> below (retail image-30); Confirm asks,
@@ -115,9 +113,6 @@ namespace Gordian.Engine.Ui
         /// <summary>The key item that opens Weapon Skills ("Heart of the Bushin", LandSandBoat <c>HEART_OF_THE_BUSHIN</c>); greyed without it.</summary>
         public const ushort WeaponSkillsKeyItem = 2059;
 
-        /// <summary>Weapon Skills' most upgrades, which its table line does not name (LandSandBoat <c>data/merits.yaml</c>).</summary>
-        private const int WeaponSkillsMax = 15;
-
         /// <summary>The Maximum Merit Points merit, the one merit of HP/MP with its own limit.</summary>
         private const int MaxMeritPointsMerit = 0x44;
 
@@ -150,14 +145,15 @@ namespace Gordian.Engine.Ui
         /// <summary>A job merit's group: 2 from the second group's base on, else 1.</summary>
         public static int MeritGroupOf(int meritId) => (meritId & ~63) >= SecondGroupBase ? 2 : 1;
 
-        /// <summary>The merits list's key: the category, and its group (0: all its merits) above it.</summary>
-        public static int MeritListKey(int category, int group) => category | group << 8;
+        /// <summary>The job a job category adjusts (1 Warrior ... 22 Rune Fencer; Weapon Skills stands between Scholar and Geomancer), or 0.</summary>
+        public static int JobOfCategory(int category) =>
+            !HasMeritGroups(category) ? 0 : category < WeaponSkillsCategory ? category - FirstJobCategory + 1 : category - FirstJobCategory;
 
-        /// <summary>A merits list key's category and group.</summary>
-        public static (int Category, int Group) MeritListParts(int key) => (key & 0xFF, key >> 8);
+        /// <summary>A job's list as the retail client draws it: its header rows read so ("Group1", "(Max.total ability increases:  10 )").</summary>
+        public const string MeritGroupName = "Group", MeritGroupLimit = "(Max.total ability increases:";
 
-        /// <summary>The group rows' names. The client's strings have none but the category's line ("Group 1 max. total ability increases: 10").</summary>
-        public const string MeritGroupName = "Group";
+        /// <summary>What the client prints on Confirm on a merit outside a Mog House (retail client, 2026-11-06); it opens no window.</summary>
+        public const string OutsideMogHouse = "That command cannot be used outside of your Mog House.";
 
         /// <summary>Which category a merit id belongs to (its first or second group), or 0.</summary>
         public static int CategoryOfMerit(int meritId)
@@ -172,11 +168,11 @@ namespace Gordian.Engine.Ui
         public static bool IsPlaceholder(string? name) =>
             string.IsNullOrWhiteSpace(name) || name.StartsWith("MeripoName", StringComparison.Ordinal) || name[0] > 0x2FFF;
 
-        private static readonly Regex MaxIncreases = new(@"max\. total ability increases: (\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex MaxIncreases = new(@"total ability increases: (\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// A category's most upgrades, read from its line in ROM/169/75 ("Max. total ability increases: 75"; a job's two
-        /// groups add up: "Group 1 ... 10", "Group 2 ... 10"); 0 when the line names none (Weapon Skills).
+        /// A category's most upgrades, read from its line in ROM/169/75 ("Max. total ability increases: 75"; Weapon Skills' "Total
+        /// ability increases: 15."; a job's two groups add up: "Group 1 ... 10", "Group 2 ... 10"); 0 when the line names none.
         /// </summary>
         public static int CategoryMax(string? help)
         {
@@ -205,18 +201,6 @@ namespace Gordian.Engine.Ui
             return total;
         }
 
-        /// <summary>A job category's group rows ("Group 1", "3/10") and their keys (1, 2).</summary>
-        public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) MeritGroupRows(int category, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
-        {
-            var rows = new List<StockUiListRow>(2);
-            for (int group = 1; group <= 2; group++)
-            {
-                string value = string.Create(CultureInfo.InvariantCulture, $"{GroupTotal(category, group, merits)}/{GroupMax(text?.Invoke(category * 2 + 1), group)}");
-                rows.Add(new StockUiListRow(group, string.Create(CultureInfo.InvariantCulture, $"{MeritGroupName} {group}"), false, Value: value));
-            }
-            return (rows, new[] { 1, 2 });
-        }
-
         /// <summary>The categories that have a name in the table, in table order but Weapon Skills after Others (HP/MP ... Rune Fencer).</summary>
         public static IReadOnlyList<int> MeritCategories(Func<int, string?>? text)
         {
@@ -240,25 +224,16 @@ namespace Gordian.Engine.Ui
             return total;
         }
 
-        /// <summary>A category's most upgrades: its table line's, or Weapon Skills' own.</summary>
-        public static int CategoryMostOf(int category, Func<int, string?>? text) =>
-            category == WeaponSkillsCategory ? WeaponSkillsMax : CategoryMax(text?.Invoke(category * 2 + 1));
-
         /// <summary>
-        /// The categories list's rows: the name and "total/most" ("12/75"; the total alone when no most is known); Weapon Skills
-        /// is greyed without <paramref name="weaponSkillsOpen"/>.
+        /// The categories list's rows: the names alone (the retail list has no figures, <c>meritinf</c> shows the one under the
+        /// cursor); Weapon Skills is greyed without <paramref name="weaponSkillsOpen"/>.
         /// </summary>
-        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text,
-            bool weaponSkillsOpen = true)
+        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, Func<int, string?>? text, bool weaponSkillsOpen = true)
         {
             var rows = new List<StockUiListRow>(categories.Count);
             foreach (int c in categories)
             {
-                int max = CategoryMostOf(c, text);
-                int total = CategoryTotal(c, merits);
-                string value = max > 0 ? string.Create(CultureInfo.InvariantCulture, $"{total}/{max}") : total.ToString(CultureInfo.InvariantCulture);
-                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false,
-                    c == WeaponSkillsCategory && !weaponSkillsOpen ? Greyed : null, value));
+                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false, c == WeaponSkillsCategory && !weaponSkillsOpen ? Greyed : null));
             }
             return rows;
         }
@@ -275,26 +250,75 @@ namespace Gordian.Engine.Ui
             return list;
         }
 
-        /// <summary>ROM/165/77's "NEXT", the level box's; "--" (434) when there is no next upgrade or S2C 0x08C sends no cost (LandSandBoat outside a Mog House).</summary>
+        /// <summary>The merit question's box: the bare <c>yesno</c> under <c>merit3</c> at the top right, titled as the main menu (retail client, 2026-11-06).</summary>
+        public const int MeritPromptX = 384, MeritPromptY = 124;
+
+        /// <inheritdoc cref="MeritPromptX"/>
+        public const string MeritPromptTitle = "Commands";
+
+        /// <summary>ROM/165/77's "NEXT", the level box's.</summary>
         public const int NextLabel = 90;
 
-        /// <summary>The right edge of a merit's "upgrades/most", left of its NEXT (PROVISIONAL).</summary>
-        public const int MeritValueRight = 250;
+        /// <summary>The right edge of a merit's upgrades and the left edge of its NEXT (retail client, 2026-11-06).</summary>
+        public const int MeritValueRight = 238, MeritNoteX = 260;
+
+        /// <summary>The pale yellow of a job's Group2 rows and of <c>meritinf</c>'s first figure (retail client, 2026-11-06), half scale.</summary>
+        public static readonly Gordian.Core.Resources.Ui.UiColor GroupYellow = new(0x80, 0x80, 0x50, 0x80);
 
         /// <summary>
-        /// The merits list's rows: the name, "upgrades/most" ("2/15") and "NEXT 5", the merit points the next upgrade costs (S2C
-        /// 0x08C <c>next</c>); a merit that cannot be raised now (no next cost) is greyed.
+        /// The merit points a merit's next upgrade costs, 0 when it has none. A merit at its most has none: LandSandBoat keeps sending
+        /// its last cost there and ignores the raise. PROVISIONAL: no merit at its most has been seen on the retail client.
         /// </summary>
-        public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text, string nextLabel = "NEXT")
+        public static int NextCost(StockUiMerit merit) => merit.Count >= MeritMax(merit.Id) ? 0 : merit.Next;
+
+        /// <summary>
+        /// The merits rows: the name, "upgrades/most" ("2/15"; the most is the maintainer's addition, retail shows the upgrades
+        /// alone) and "NEXT 5 P", the merit points the next upgrade costs (S2C 0x08C <c>next</c>). As the retail client does, a
+        /// merit with no next cost is greyed with no NEXT (outside a Mog House LandSandBoat sends 0); <paramref name="otherJob"/>
+        /// greys another job's merits but keeps the NEXT, and a job's Group2 is yellow.
+        /// </summary>
+        public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text, string nextLabel = "NEXT", bool otherJob = false)
         {
             var rows = new List<StockUiListRow>(merits.Count);
             foreach (var m in merits)
             {
-                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(m.Id) ?? string.Empty, false, m.Next == 0 ? Greyed : null,
+                int next = NextCost(m);
+                var color = otherJob || next == 0 ? Greyed : m.Id >= SecondGroupBase ? GroupYellow : (Gordian.Core.Resources.Ui.UiColor?)null;
+                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(m.Id) ?? string.Empty, false, color,
                     string.Create(CultureInfo.InvariantCulture, $"{m.Count}/{MeritMax(m.Id)}"),
-                    Note: m.Next > 0 ? string.Create(CultureInfo.InvariantCulture, $"{nextLabel} {m.Next}") : nextLabel + " --"));
+                    Note: next > 0 ? string.Create(CultureInfo.InvariantCulture, $"{nextLabel} {next} P") : null));
             }
             return rows;
+        }
+
+        /// <summary>
+        /// A category's merits list and what each row stands for (a merit id; 0 for a header): a job's two groups each under its
+        /// header row, a job other than <paramref name="mainJob"/> greyed (retail client, 2026-11-06: Warrior's rows on a Bard).
+        /// </summary>
+        public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) MeritListRows(int category, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text,
+            string nextLabel, int mainJob)
+        {
+            var rows = new List<StockUiListRow>();
+            var keys = new List<int>();
+            void Add(IReadOnlyList<StockUiMerit> list, bool otherJob)
+            {
+                foreach (var row in MeritRows(list, text, nextLabel, otherJob)) rows.Add(row with { ButtonId = rows.Count + 1 });
+                foreach (var m in list) keys.Add(m.Id);
+            }
+            if (!HasMeritGroups(category))
+            {
+                Add(MeritsOf(category, merits, text), false);
+                return (rows, keys);
+            }
+            bool other = JobOfCategory(category) != mainJob;
+            for (int group = 1; group <= 2; group++)
+            {
+                string limit = string.Create(CultureInfo.InvariantCulture, $"{MeritGroupLimit}  {GroupMax(text?.Invoke(category * 2 + 1), group)} )");
+                rows.Add(new StockUiListRow(rows.Count + 1, string.Create(CultureInfo.InvariantCulture, $"{MeritGroupName}{group}"), false, Note: limit, Header: true));
+                keys.Add(0);
+                Add(MeritsOf(category, merits, text, group), other);
+            }
+            return (rows, keys);
         }
 
         /// <summary>The lists' greyed rows' colour: the lavender grey of a greyed magic or ability row (half scale).</summary>

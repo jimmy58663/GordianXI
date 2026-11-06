@@ -63,6 +63,7 @@ namespace Gordian.App.Graphics
                 frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null);
 
             if (font != null) StockUiStatusPagesWindow.DrawJobPointTitle(renderer, library, font, menu, placement);
+            if (font != null && menu.IsRoeList) StockUiQuestLogWindow.DrawRoeTitle(renderer, library, font, logFont, menu, placement);
 
             foreach (var button in definition.Buttons)
             {
@@ -234,8 +235,20 @@ namespace Gordian.App.Graphics
                         // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
                         // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
                         // A greyed row (#491: a merit that cannot be raised; #493: an objective done for good) keeps its colour.
-                        bool jobPointPage = menu.ProgressionList is StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts;
-                        UiColor? tint = i == selectedEntry ? (jobPointPage ? StockUiProgression.SelectedPink : SelectedGlyphTint) : row.Color;
+                        if (menu.IsRoeList)
+                        {
+                            StockUiQuestLogWindow.DrawRoeRow(renderer, font, logFont, row, i == selectedEntry, placement, ry, firstRow.Height);
+                            continue;
+                        }
+                        // The merit and job point lists (retail client): upright names, pink under the cursor, a job's group headers.
+                        bool uprightRow = menu.ProgressionList is StockUiProgressionList.MeritCategories or StockUiProgressionList.Merits
+                            or StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts;
+                        if (row.Header)
+                        {
+                            StockUiStatusPagesWindow.DrawGroupHeader(renderer, font, row, placement, ry, firstRow.Height);
+                            continue;
+                        }
+                        UiColor? tint = i == selectedEntry ? (uprightRow ? StockUiProgression.SelectedPink : SelectedGlyphTint) : row.Color;
                         bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
@@ -245,6 +258,8 @@ namespace Gordian.App.Graphics
                             logFont.Draw(renderer, row.Text, areaX + MapRowTextInset * s, ry + (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, White);
                             tint = null;
                         }
+                        else if (uprightRow && logFont != null)
+                            logFont.Draw(renderer, row.Text, areaX + AssignRowTextInset * s, ry + (firstRow.Height - StockUiLogFont.CellHeight) * 0.5f * s, s, tint ?? White);
                         else renderer.DrawText(font, row.Text, areaX + (mapRow ? MapRowTextInset : AssignRowTextInset) * s, textY, s, tint);
                         if (row.Value is { Length: > 0 } value)
                         {
@@ -253,8 +268,7 @@ namespace Gordian.App.Graphics
                         }
                         if (row.Note is { Length: > 0 } note)
                         {
-                            float noteRight = placement.X + (frame.Width - AssignValueRightPad) * s;
-                            renderer.DrawText(font, note, noteRight - font.MeasureWidth(note) * s, textY, s, tint);
+                            renderer.DrawText(font, note, placement.X + StockUiProgression.MeritNoteX * s, textY, s, tint);
                         }
                         continue;
                     }
@@ -308,7 +322,20 @@ namespace Gordian.App.Graphics
                 renderer.DrawText(font, suffix, placement.X + menu.TitleSuffixX * s, placement.Y + TitleSuffixY * s, s);
             }
 
-            if (menu.Message is { Length: > 0 } message && font != null)
+            if (font != null && menu.PromptTitle is { Length: > 0 } promptTitle)
+            {
+                // The merit question's box: "Commands" over its top edge, as the main menu's (retail client, 2026-11-06).
+                float ts = s * StockUiPartyWindow.TextScale;
+                renderer.DrawText(font, promptTitle, placement.X + (frame.Width * s - font.MeasureWidth(promptTitle) * ts) * 0.5f, placement.Y - 7 * s, ts);
+            }
+
+            if (menu.Message is { Length: > 0 } leftMessage && menu.PromptTextLeft)
+            {
+                // The Records of Eminence question: upright, from the window's top left (retail client, 2026-11-06).
+                StockUiTextBoxes.DrawWrapped(renderer, font!, logFont, leftMessage, placement.X + PromptTextLeftX * s, placement.Y + PromptTextLeftY * s,
+                    frame.Width - 2 * PromptTextLeftX, frame.Height - 34, s, White);
+            }
+            else if (menu.Message is { Length: > 0 } message && font != null)
             {
                 // A prompt's message, centred at y 24. One wider than the window wraps at spaces onto more lines, each centred,
                 // kept between the frame's top and the buttons (round 3: the equipment set Paste prompt, "Performing this
@@ -823,6 +850,9 @@ namespace Gordian.App.Graphics
         ];
 
         /// <summary>Draws <see cref="MapRowBarShades"/> as horizontal strips filling the row from <paramref name="left"/> to <paramref name="right"/>.</summary>
+        /// <summary>Where a left-aligned prompt's text starts.</summary>
+        private const float PromptTextLeftX = 4, PromptTextLeftY = 6;
+
         internal static void DrawMapRowBar(StockUiRenderer renderer, float left, float top, float right, float height) =>
             DrawShades(renderer, MapRowBarShades, left, top, right, height);
 

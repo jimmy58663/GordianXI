@@ -34,6 +34,12 @@ namespace Gordian.Engine.Ui
         }
     }
 
+    /// <summary>
+    /// What an objective's detail page shows: the objective, its progress, and whether it is taken, done for good, or the
+    /// time-limited record (LandSandBoat's slot 63, which cannot be removed).
+    /// </summary>
+    public sealed record StockUiRoeDetail(RoeObjective Objective, int Progress, bool Taken, bool Done, bool LimitedTime);
+
     /// <summary>The figures of the Quests window's foot (image-34): objectives taken, S2C 0x110's sparks, deeds and plaudits, Unity accolades, S2C 0x112's count.</summary>
     public readonly record struct StockUiRoeTotals(int Active, long Sparks, long Accolades, int Deeds, int Plaudits, int Completed);
 
@@ -48,20 +54,26 @@ namespace Gordian.Engine.Ui
     /// <item>Main menu Quests (<c>quest00</c>; retail image-34) shows, under Current and Completed, the heading "Records of
     /// Eminence" over its Current ("11/30" objectives taken) and Objective List, then Vana'Bout, greyed (it is not active in
     /// retail, no packet for it is known), and the Plaudits, Sparks, Unity Accolades, Deeds and Number Completed figures.</item>
-    /// <item>Objective List walks the category
-    /// tree (the eleven top categories, then their subcategories, then the objectives), each level a list in <c>meritcat</c>'s
-    /// frame; an objective taken shows its progress ("37/200"), one completed that cannot be repeated is greyed and posts 112.
-    /// Confirm asks 111 and sends C2S 0x10C; on an objective taken it asks 115 and sends C2S 0x10D.</item>
-    /// <item>Current lists S2C 0x111's objectives in slot order with their progress; Confirm asks 115 / 116 and sends C2S 0x10D.</item>
+    /// <item>The lists, as the retail client draws them on local LandSandBoat (2026-11-06; Retail Captures, <c>RoE_*</c>; the
+    /// progress is LSB's): <c>quest00</c>'s frame, a title between red arrows ("Current 2/30", "Objective List", the category's
+    /// name), eight rows of 25 px. Objective List walks the category tree; Left / Right steps to the category beside it. A
+    /// category has a small bullet; an objective a green ball, its name and a bar with "progress/needed" under the row's right
+    /// end, teal when taken; one completed has a small bullet, a grey name and a full pink bar.</item>
+    /// <item>Confirm on an objective opens its detail page in the same frame (the name, the text, "Number Required :", "Rewards:",
+    /// "(Not Repeatable)"), with the question under it when there is one: 111 "Set objective?", the cursor on Yes, then C2S
+    /// 0x10C; 115 "Remove objective?", the cursor on No, then C2S 0x10D. A completed objective and the time-limited record ask
+    /// nothing. Answering No leaves the page up.</item>
+    /// <item>Current lists S2C 0x111's objectives in slot order.</item>
     /// <item>The server sends no list of what is on offer (S2C 0x112 carries only the completed bits): as retail must, the
     /// client decides from the category table's conditions (<see cref="RoeCondition"/>). A child shows when they all hold, and
     /// a category only when something under it shows.</item>
-    /// <item>PROVISIONAL: the lists' frames and the rows' look (no retail capture of them yet).</item>
+    /// <item>PROVISIONAL: 116, the warning on removing, is added when the objective has progress (seen only at 0, where it does
+    /// not show), and the page closing after Yes (Yes was not pressed).</item>
     /// </list>
     /// </summary>
     public static class StockUiRecordsOfEminence
     {
-        public const string ListMenu = "meritcat";
+        public const string ListMenu = "quest00";
 
         /// <summary>ROM/165/77 ids.</summary>
         public const int TitleText = 108, CurrentText = 109, ObjectiveListText = 110, SetPromptText = 111, NotAgainText = 112,
@@ -82,16 +94,31 @@ namespace Gordian.Engine.Ui
         /// <summary>ROM/165/77 ids of the Quests window's foot.</summary>
         public const int SparksLabel = 120, AccoladesLabel = 121, DeedsLabel = 122, PlauditsLabel = 521;
 
-        /// <summary>Current's figure: the objectives taken of the most ("11/30"; the time-limited record in slot 63 does not count).</summary>
-        public static int ActiveCount(StockUiRoeState? state)
+        /// <summary>Current's figure: the objectives taken of the most, the time-limited record among them (retail client: "2/30" with one of each).</summary>
+        public static int ActiveCount(StockUiRoeState? state) => state?.Slots.Count ?? 0;
+
+        /// <summary>The window title of a list.</summary>
+        public static string ListTitle(string current, int active) => string.Create(CultureInfo.InvariantCulture, $"{current}  {active}/{ActiveLimit}");
+
+        /// <summary>The lists' eight rows in <c>quest00</c>'s frame (retail client, 2026-11-06).</summary>
+        public const int ListRows = 8, ListRowY = 39, ListRowPitch = 25;
+
+        /// <summary>Where the question stands: <c>comyn</c>, under the detail page's foot (retail client, 2026-11-06).</summary>
+        public const int PromptX = 130, PromptY = 296;
+
+        /// <summary>The detail page's labels.</summary>
+        public const string NumberRequiredLabel = "Number Required :", NotRepeatableLabel = "(Not Repeatable)", LimitedTimeLabel = "[Limited-time Challenge]";
+
+        /// <summary>The rewards line ("300 Spa.  1500 EXP  300 Acc."; retail client, 2026-11-06).</summary>
+        public static string RewardLine(RoeObjective objective, Func<int, string?>? text)
         {
-            int count = 0;
-            if (state == null) return count;
-            foreach (var s in state.Slots)
-            {
-                if (s.Slot < ActiveLimit) count++;
-            }
-            return count;
+            string T(int id, string fallback) => text?.Invoke(id) is { Length: > 0 } s ? s : fallback;
+            var parts = new List<string>(3);
+            string N(int value) => value.ToString(CultureInfo.InvariantCulture);
+            if (objective.Sparks > 0) parts.Add(N(objective.Sparks) + T(SparksText, " Spa."));
+            if (objective.Experience > 0) parts.Add(N(objective.Experience) + T(ExpText, " EXP"));
+            if (objective.Accolades > 0) parts.Add(N(objective.Accolades) + " Acc.");
+            return string.Join("  ", parts);
         }
 
         private static bool Holds(RoeCondition c, StockUiRoeState state) => c.Kind switch
@@ -164,13 +191,14 @@ namespace Gordian.Engine.Ui
             return (rows, keys);
         }
 
-        /// <summary>An objective's row: its name, "progress/required" when taken, greyed when completed and not repeatable.</summary>
+        /// <summary>An objective's row: its name and "progress/required" (full when completed), marked when taken, greyed when completed and not repeatable.</summary>
         public static StockUiListRow ObjectiveRow(int buttonId, RoeObjective objective, StockUiRoeState? state)
         {
             var slot = state?.SlotOf(objective.Id);
-            string? value = slot is { } s ? string.Create(CultureInfo.InvariantCulture, $"{s.Progress}/{objective.Required}") : null;
-            bool done = state?.Completed(objective.Id) == true && !objective.Repeatable;
-            return new StockUiListRow(buttonId, objective.Name, slot != null, done && slot == null ? StockUiProgression.Greyed : null, value);
+            bool done = state?.Completed(objective.Id) == true && !objective.Repeatable && slot == null;
+            int progress = done ? objective.Required : slot?.Progress ?? 0;
+            return new StockUiListRow(buttonId, objective.Name, slot != null, done ? StockUiProgression.Greyed : null,
+                string.Create(CultureInfo.InvariantCulture, $"{progress}/{objective.Required}"));
         }
 
         /// <summary>Current's rows (the objectives taken, in S2C 0x111's slot order) and each one's record id.</summary>
@@ -189,22 +217,5 @@ namespace Gordian.Engine.Ui
             return (rows, keys);
         }
 
-        /// <summary>
-        /// The help bar's line for an objective: "Number Completed 37/200  Rewards: 1,000 Spa. 5,000 EXP" (the strings of
-        /// ROM/165/77; PROVISIONAL layout), or null for a category.
-        /// </summary>
-        public static string? HelpLine(RoeObjective? objective, StockUiRoeState? state, Func<int, string?>? text)
-        {
-            if (objective == null) return null;
-            string T(int id, string fallback) => text?.Invoke(id) is { Length: > 0 } s ? s : fallback;
-            int progress = state?.SlotOf(objective.Id)?.Progress ?? 0;
-            var line = new System.Text.StringBuilder();
-            line.Append(T(CompletedText, "Number Completed")).Append(' ').Append(progress.ToString(CultureInfo.InvariantCulture))
-                .Append('/').Append(objective.Required.ToString(CultureInfo.InvariantCulture)).Append("  ").Append(T(RewardsText, "Rewards:"));
-            if (objective.Sparks > 0) line.Append(' ').Append(StockUiStatus.Number(objective.Sparks)).Append(T(SparksText, " Spa."));
-            if (objective.Experience > 0) line.Append(' ').Append(StockUiStatus.Number(objective.Experience)).Append(T(ExpText, " EXP"));
-            if (objective.Accolades > 0) line.Append(' ').Append(StockUiStatus.Number(objective.Accolades)).Append(' ').Append(T(AccoladesText, "Unity Accolades"));
-            return line.ToString();
-        }
     }
 }

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Input;
 
 namespace Gordian.Engine.Ui
@@ -23,6 +24,18 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The key of the row under the cursor, or -1.</summary>
         public int SelectedRowKey => SelectedStatusRow is >= 0 and var row && row < RowKeys.Count ? RowKeys[row] : -1;
+
+        /// <summary>A Records of Eminence list's title (#493): "Current  2/30", "Objective List" or the category's name.</summary>
+        public string RoeListTitle { get; internal set; } = string.Empty;
+
+        /// <summary>What a Records of Eminence detail page shows.</summary>
+        public StockUiRoeDetail? RoeDetail { get; internal set; }
+
+        /// <summary>A title over a prompt's top edge ("Commands" on the merit question).</summary>
+        public string? PromptTitle { get; internal set; }
+
+        /// <summary>Whether a prompt's message is drawn upright from the top left (the Records of Eminence questions).</summary>
+        public bool PromptTextLeft { get; internal set; }
 
         /// <summary>The controller behind this window, for the Quests window's figures.</summary>
         public StockUiMenuController? Controller => ItemOwner;
@@ -121,7 +134,6 @@ namespace Gordian.Engine.Ui
         private static (string Menu, int Help, StockUiStatusPage Page) ProgressionWindow(StockUiProgressionList list) => list switch
         {
             StockUiProgressionList.MeritCategories => (StockUiProgression.MeritCategoryMenu, StockUiProgression.MeritCategoryHelp, StockUiStatusPage.MeritPoints),
-            StockUiProgressionList.MeritGroups => (StockUiProgression.MeritCategoryMenu, StockUiProgression.MeritCategoryHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.Merits => (StockUiProgression.MeritListMenu, StockUiProgression.MeritListHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts =>
                 (StockUiStatusPages.JobPointMenu, StockUiProgression.JobPointCategoryHelp, StockUiStatusPage.JobPoints),
@@ -139,18 +151,10 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.MeritCategories:
                 {
                     var categories = StockUiProgression.MeritCategories(MeritText);
-                    return (StockUiProgression.MeritCategoryRows(categories, CurrentMerits(), MeritText, WeaponSkillsOpen), categories);
+                    return (StockUiProgression.MeritCategoryRows(categories, MeritText, WeaponSkillsOpen), categories);
                 }
-                case StockUiProgressionList.MeritGroups:
-                    return StockUiProgression.MeritGroupRows(key, CurrentMerits(), MeritText);
                 case StockUiProgressionList.Merits:
-                {
-                    var (category, group) = StockUiProgression.MeritListParts(key);
-                    var merits = StockUiProgression.MeritsOf(category, CurrentMerits(), MeritText, group);
-                    var keys = new int[merits.Count];
-                    for (int i = 0; i < keys.Length; i++) keys[i] = merits[i].Id;
-                    return (StockUiProgression.MeritRows(merits, MeritText, ShortText(StockUiProgression.NextLabel, "NEXT")), keys);
-                }
+                    return StockUiProgression.MeritListRows(key, CurrentMerits(), MeritText, ShortText(StockUiProgression.NextLabel, "NEXT"), StatusPoints?.Invoke()?.MainJob ?? 0);
                 case StockUiProgressionList.JobPointCategories:
                 {
                     var categories = StockUiProgression.JobPointCategories(key, JobPointText);
@@ -180,10 +184,47 @@ namespace Gordian.Engine.Ui
         {
             var (menu, help, page) = ProgressionWindow(list);
             var (rows, keys) = ProgressionRows(list, key);
-            var open = OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys);
+            // The Records of Eminence lists: quest00's frame with rows of their own.
+            bool roe = list is StockUiProgressionList.RoeCategories or StockUiProgressionList.RoeObjectives or StockUiProgressionList.RoeCurrent;
+            var definition = roe ? QuestLogDefinition(StockUiRecordsOfEminence.ListMenu, StockUiRecordsOfEminence.ListRows, StockUiQuestLog.KindRowX - StockUiStatusPages.ListRowInset,
+                i => StockUiRecordsOfEminence.ListRowY + i * StockUiRecordsOfEminence.ListRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight, Array.Empty<int>()) : null;
+            var open = OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys, listWindow: definition);
+            if (open != null && roe) open.RoeListTitle = RoeTitle(list, key);
             if (open != null && list == StockUiProgressionList.JobPointCategories) open.StatusValueRight = StockUiProgression.JobPointValueRight;
             if (open != null && list == StockUiProgressionList.Merits) open.StatusValueRight = StockUiProgression.MeritValueRight;
             return open;
+        }
+
+        /// <summary>A Records of Eminence list's title.</summary>
+        private string RoeTitle(StockUiProgressionList list, int key)
+        {
+            if (list == StockUiProgressionList.RoeCurrent)
+                return StockUiRecordsOfEminence.ListTitle(ShortText(StockUiRecordsOfEminence.CurrentText, "Current"), StockUiRecordsOfEminence.ActiveCount(RoeState?.Invoke()));
+            if (list == StockUiProgressionList.RoeCategories) return ShortText(StockUiRecordsOfEminence.ObjectiveListText, "Objective List");
+            return RoeTables?.Invoke()?.Category(key)?.Name ?? string.Empty;
+        }
+
+        /// <summary>Left / Right on a category's list: the category beside it in the list it was opened from (retail client). Call under the lock.</summary>
+        private bool TryMoveRoeCategory(InputAction direction)
+        {
+            if (direction is not (InputAction.MenuLeft or InputAction.MenuRight) || Top is not { IsRoeList: true } top) return false;
+            if (top.ProgressionList != StockUiProgressionList.RoeObjectives || top.Parent is not { IsRoeList: true } parent) return true;
+            var siblings = new List<int>();
+            foreach (int key in parent.RowKeys)
+            {
+                if (key >= RecordsOfEminenceTables.FirstCategoryRecord) siblings.Add(key);
+            }
+            int at = siblings.IndexOf(top.ProgressionKey);
+            if (at < 0 || siblings.Count < 2) return true;
+            top.ProgressionKey = siblings[(at + (direction == InputAction.MenuRight ? 1 : siblings.Count - 1)) % siblings.Count];
+            var (rows, keys) = ProgressionRows(top.ProgressionList, top.ProgressionKey);
+            top.Rows = rows;
+            top.RowKeys = keys;
+            top.RoeListTitle = RoeTitle(top.ProgressionList, top.ProgressionKey);
+            top.FirstRow = 0;
+            top.ScrollFrom = 0;
+            top.SelectedButtonId = rows.Count > 0 ? 1 : 0;
+            return true;
         }
 
         /// <summary>Whether Weapon Skills can be opened: the character holds Heart of the Bushin.</summary>
@@ -216,18 +257,18 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.MeritCategories when rowKey == StockUiProgression.WeaponSkillsCategory && !WeaponSkillsOpen:
                     break;
                 case StockUiProgressionList.MeritCategories when rowKey > 0:
-                    lock (_sync)
-                    {
-                        if (StockUiProgression.HasMeritGroups(rowKey)) OpenProgressionList(StockUiProgressionList.MeritGroups, rowKey, list, 0);
-                        else OpenProgressionList(StockUiProgressionList.Merits, rowKey, list, 0);
-                    }
-                    Changed?.Invoke();
-                    break;
-                case StockUiProgressionList.MeritGroups when rowKey > 0:
-                    lock (_sync) OpenProgressionList(StockUiProgressionList.Merits, StockUiProgression.MeritListKey(list.ProgressionKey, rowKey), list, 0);
+                    lock (_sync) OpenProgressionList(StockUiProgressionList.Merits, rowKey, list, 0);
                     Changed?.Invoke();
                     break;
                 case StockUiProgressionList.Merits when rowKey > 0:
+                    // The retail client: outside a Mog House it says so and opens nothing. Another job's merits are greyed:
+                    // that Confirm does nothing there is PROVISIONAL (not tried on the retail client).
+                    if (InMogHouse?.Invoke() != true)
+                    {
+                        NoticePosted?.Invoke(StockUiProgression.OutsideMogHouse);
+                        break;
+                    }
+                    if (StockUiProgression.HasMeritGroups(list.ProgressionKey) && StockUiProgression.JobOfCategory(list.ProgressionKey) != StatusPoints?.Invoke()?.MainJob) break;
                     lock (_sync)
                     {
                         var edit = Push(StockUiProgression.MeritEditMenu, list, Array.Empty<string>(), null, null);
@@ -235,6 +276,13 @@ namespace Gordian.Engine.Ui
                         {
                             edit.StatusWindow = StockUiStatusPage.MeritPoints;
                             edit.ProgressionKey = rowKey;
+                            // Lower is greyed at 0 upgrades, and Confirm on it does nothing (retail client).
+                            int upgrades = 0;
+                            foreach (var m in CurrentMerits())
+                            {
+                                if (m.Id == rowKey) upgrades = m.Count;
+                            }
+                            if (upgrades == 0) edit.SetGreyed(new HashSet<int> { StockUiProgression.MeritLowerButton });
                         }
                     }
                     Changed?.Invoke();
@@ -264,6 +312,7 @@ namespace Gordian.Engine.Ui
             if (menu.ProgressionList == StockUiProgressionList.None) return false;
             if (menu.ProgressionList == StockUiProgressionList.JobGifts) menu.JobGiftsSpent = StockUiStatusPages.JobPointsOf(StatusPoints?.Invoke(), menu.ProgressionKey).Spent;
             var (rows, keys) = ProgressionRows(menu.ProgressionList, menu.ProgressionKey);
+            if (menu.IsRoeList) menu.RoeListTitle = RoeTitle(menu.ProgressionList, menu.ProgressionKey);
             int keep = menu.SelectedRowKey;
             menu.Rows = rows;
             menu.RowKeys = keys;
@@ -286,9 +335,8 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// <c>merit3</c>'s Raise or Lower: asks first, then sends C2S 0x0BE kind 3 and closes <c>merit3</c>. LandSandBoat takes it
-        /// in a Mog House only; raising needs the merit's next cost (0 when it is at its most or outside the Mog House) in
-        /// merit points held.
+        /// <c>merit3</c>'s Raise or Lower: asks in the bare <c>yesno</c> box beneath it, the cursor on No (retail client, 2026-11-06;
+        /// <c>merit3</c> stays open), then sends C2S 0x0BE kind 3. Raising needs the merit's next cost in merit points held.
         /// </summary>
         private void EditMerit(int meritId, bool raise, StockUiOpenMenu edit)
         {
@@ -299,24 +347,9 @@ namespace Gordian.Engine.Ui
             {
                 if (m.Id == meritId) merit = m;
             }
-            lock (_sync)
+            if (raise && merit is { } r && (StockUiProgression.NextCost(r) == 0 || (StatusPoints?.Invoke()?.MeritPoints ?? 0) < r.Next))
             {
-                if (_open.Length > 0 && ReferenceEquals(_open[^1], edit)) _open = _open[..^1];
-            }
-            Changed?.Invoke();
-            if (InMogHouse?.Invoke() != true)
-            {
-                NoticePosted?.Invoke("Merit points can only be allocated in your Mog House.");
-                return;
-            }
-            if (raise && merit is { } r && (r.Next == 0 || (StatusPoints?.Invoke()?.MeritPoints ?? 0) < r.Next))
-            {
-                NoticePosted?.Invoke(r.Next == 0 ? $"{name} cannot be raised any further." : $"You do not have enough merit points to raise {name}.");
-                return;
-            }
-            if (!raise && merit is { Count: 0 })
-            {
-                NoticePosted?.Invoke($"{name} has not been raised.");
+                NoticePosted?.Invoke(StockUiProgression.NextCost(r) == 0 ? $"{name} cannot be raised any further." : $"You do not have enough merit points to raise {name}.");
                 return;
             }
             if (MeritChanged is not { } send)
@@ -324,12 +357,11 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("Merit Points: this is not available in this session.");
                 return;
             }
-            // PROVISIONAL wording: retail's merityn question is not captured.
-            string question = raise ? $"Raise {name}?" : $"Lower {name}? Merit points will not be reimbursed.";
-            OpenYesNo(question, defaultYes: raise, answer =>
+            var prompt = OpenPlacedPrompt(StockUiMenuEntries.YesNoMenu, UiAnchor.TopRight, StockUiProgression.MeritPromptX, StockUiProgression.MeritPromptY, null, false, answer =>
             {
                 if (answer == true) _ = send(meritId, raise);
             });
+            if (prompt != null) prompt.PromptTitle = StockUiProgression.MeritPromptTitle;
         }
 
         /// <summary>
@@ -344,7 +376,7 @@ namespace Gordian.Engine.Ui
             int held = StockUiStatusPages.JobPointsOf(StatusPoints?.Invoke(), job).JobPoints;
             if (InMogHouse?.Invoke() != true)
             {
-                NoticePosted?.Invoke("Job points can only be allocated in your Mog House.");
+                NoticePosted?.Invoke(StockUiProgression.OutsideMogHouse);
                 return;
             }
             if (level.Level >= StockUiProgression.MaxJobPointLevel || cost == 0)
@@ -416,8 +448,9 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on a Records of Eminence list: a category opens its children; an objective taken asks to remove it (C2S
-        /// 0x10D), another asks to take it (C2S 0x10C) unless it is completed and cannot be repeated.
+        /// Confirm on a Records of Eminence list: a category opens its children; an objective opens its detail page, with the
+        /// question to remove it (C2S 0x10D) when taken or to take it (C2S 0x10C) otherwise; none when it is completed and cannot
+        /// be repeated, or is the time-limited record (retail client, 2026-11-06).
         /// </summary>
         private void ActivateRoe(StockUiOpenMenu list, int record)
         {
@@ -429,29 +462,105 @@ namespace Gordian.Engine.Ui
                 return;
             }
             int id = record - RecordsOfEminenceTables.FirstObjectiveRecord;
-            var objective = tables.Objective(id);
+            if (tables.Objective(id) is not { } objective) return;
             var state = RoeState?.Invoke();
-            if (state?.SlotOf(id) != null)
+            var slot = state?.SlotOf(id);
+            bool done = slot == null && !objective.Repeatable && state?.Completed(id) == true;
+            bool limited = slot is { Slot: >= StockUiRecordsOfEminence.ActiveLimit };
+            var detail = new StockUiRoeDetail(objective, done ? objective.Required : slot?.Progress ?? 0, slot != null, done, limited);
+            var page = OpenRoeDetail(detail);
+            if (page == null || done || limited) return;
+            if (slot is { } taken)
             {
                 if (RoeRemoved is not { } remove) return;
-                string question = ShortText(StockUiRecordsOfEminence.RemovePromptText, "Remove objective?") + " "
-                    + ShortText(StockUiRecordsOfEminence.RemoveWarningText, "Your progress will be reset if you cancel this objective. Are you sure?");
-                OpenYesNo(question, defaultYes: false, answer =>
+                string question = ShortText(StockUiRecordsOfEminence.RemovePromptText, "Remove objective?");
+                if (taken.Progress > 0) question += " " + ShortText(StockUiRecordsOfEminence.RemoveWarningText, "Your progress will be reset if you cancel this objective. Are you sure?");
+                OpenRoePrompt(question, defaultYes: false, () =>
                 {
-                    if (answer == true) _ = remove(id);
+                    CloseRoeDetail(page);
+                    _ = remove(id);
                 });
                 return;
             }
-            if (objective != null && !objective.Repeatable && state?.Completed(id) == true)
-            {
-                NoticePosted?.Invoke(ShortText(StockUiRecordsOfEminence.NotAgainText, "This objective cannot be undertaken again."));
-                return;
-            }
             if (RoeStarted is not { } start) return;
-            OpenYesNo(ShortText(StockUiRecordsOfEminence.SetPromptText, "Set objective?"), defaultYes: true, answer =>
+            OpenRoePrompt(ShortText(StockUiRecordsOfEminence.SetPromptText, "Set objective?"), defaultYes: true, () =>
             {
-                if (answer == true) _ = start(id);
+                CloseRoeDetail(page);
+                _ = start(id);
             });
+        }
+
+        /// <summary>The question under an objective's detail page: <c>comyn</c> at the page's foot, its text at the top left (retail client, 2026-11-06).</summary>
+        private void OpenRoePrompt(string question, bool defaultYes, Action yes)
+        {
+            var prompt = OpenPlacedPrompt(StockUiMenuEntries.MessageYesNoMenu, UiAnchor.TopLeft, StockUiRecordsOfEminence.PromptX, StockUiRecordsOfEminence.PromptY, question, defaultYes, answer =>
+            {
+                if (answer == true) yes();
+            });
+            if (prompt != null) prompt.PromptTextLeft = true;
+        }
+
+        /// <summary>
+        /// A yes / no window at a place of its own, not its DAT's: the retail client puts these two beside the window that asks.
+        /// <paramref name="answered"/> as <see cref="OpenYesNo"/>'s.
+        /// </summary>
+        private StockUiOpenMenu? OpenPlacedPrompt(string menuName, UiAnchor anchor, int x, int y, string? message, bool defaultYes, Action<bool?> answered)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(menuName, out var window)) return null;
+            var f = window.Frame;
+            var definition = new UiMenuDefinition
+            {
+                DatId = window.DatId, Category = window.Category, Name = window.Name, MenuType = window.MenuType, Buttons = window.Buttons,
+                Frame = new UiMenuFrame
+                {
+                    X = (short)x, Y = (short)y, Width = f.Width, Height = f.Height, AuthoredHeight = f.AuthoredHeight, CursorOffsetX = f.CursorOffsetX,
+                    CursorOffsetY = f.CursorOffsetY, DrawOffsetX = f.DrawOffsetX, DrawOffsetY = f.DrawOffsetY, Anchor = anchor, Shapes = f.Shapes,
+                    HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
+                },
+            };
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StockUiOpenMenu prompt;
+            lock (_sync)
+            {
+                prompt = new StockUiOpenMenu(definition, Top, Array.Empty<string>(), message) { Prompt = tcs };
+                prompt.SelectedButtonId = defaultYes ? 1 : 2;
+                PushOpen(prompt);
+            }
+            _ = tcs.Task.ContinueWith(t => answered(prompt.Cancelled ? null : t.Result), TaskScheduler.Default);
+            Changed?.Invoke();
+            return prompt;
+        }
+
+        /// <summary>An objective's detail page in <c>quest00</c>'s frame.</summary>
+        private StockUiOpenMenu? OpenRoeDetail(StockUiRoeDetail detail)
+        {
+            var definition = QuestLogDefinition(StockUiRecordsOfEminence.ListMenu, 0, 0, 0, 0, 0, 0);
+            if (definition == null) return null;
+            StockUiOpenMenu page;
+            lock (_sync)
+            {
+                page = new StockUiOpenMenu(definition, Top, Array.Empty<string>(), null)
+                {
+                    QuestLogView = StockUiQuestLogView.RoeDetail,
+                    IsQuestsWindow = true,
+                    RoeDetail = detail,
+                    ItemOwner = this,
+                };
+                PushOpen(page);
+            }
+            Changed?.Invoke();
+            return page;
+        }
+
+        /// <summary>Closes a detail page once its question is answered Yes (PROVISIONAL: Yes was not pressed on the retail client).</summary>
+        private void CloseRoeDetail(StockUiOpenMenu page)
+        {
+            lock (_sync)
+            {
+                if (_open.Length > 0 && ReferenceEquals(_open[^1], page)) _open = _open[..^1];
+            }
+            Changed?.Invoke();
         }
 
         /// <summary>The objective under a Records of Eminence list's cursor, or null.</summary>

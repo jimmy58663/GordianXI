@@ -71,6 +71,9 @@ namespace Gordian.App.Graphics
             }
             switch (menu.QuestLogView)
             {
+                case StockUiQuestLogView.RoeDetail:
+                    DrawRoeDetail(renderer, font, logFont, menu, placement);
+                    break;
                 case StockUiQuestLogView.Description:
                     DrawDescription(renderer, font, logFont, menu, placement);
                     break;
@@ -113,6 +116,82 @@ namespace Gordian.App.Graphics
                 if (row.Value is { Length: > 0 } value) Text(renderer, font, logFont, value, placement.X + KindValueX * s, ty, s, tint);
             }
             if (menu.Controller is { } menus) DrawRoeFigures(renderer, font, logFont, menus, placement);
+        }
+
+        /// <summary>The Records of Eminence lists' and detail page's places (retail client on local LandSandBoat, 2026-11-06, UI 1:1).</summary>
+        private const float RoeTitleX = 60, RoeTitleY = 11, RoeArrowLeft = 9, RoeArrowRight = 343, RoeArrowY = 11, RoeBallSize = 13, RoeBallInset = 1, RoeNameInset = 18,
+            RoeBarX = 284, RoeBarWidth = 72, RoeBarY = 19, RoeBarHeight = 5, RoeDetailBallX = 32, RoeDetailNameX = 51, RoeDetailNameY = 21, RoeDetailTextX = 40, RoeDetailTextY = 50,
+            RoeDetailRightPad = 12, RoeFootX = 20, RoeRequiredY = 181, RoeRequiredValueX = 181, RoeRewardsY = 201, RoeRewardLineY = 221, RoeNotRepeatableRight = 354;
+
+        /// <summary>A taken objective's name, the bars' track and a completed objective's bar (half scale, and the bar's strips).</summary>
+        private static readonly UiColor TakenTint = new(0x47, 0x74, 0x64, 0x80);
+        private static readonly (byte R, byte G, byte B)[] BarTrack = [(88, 96, 140), (70, 78, 120)];
+        private static readonly (byte R, byte G, byte B)[] BarFill = [(238, 160, 200), (214, 130, 176)];
+
+        /// <summary>A Records of Eminence list's title between the DAT's red arrows.</summary>
+        public static void DrawRoeTitle(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiPlacement at)
+        {
+            float s = at.Scale;
+            Text(renderer, font, logFont, menu.RoeListTitle, at.X + RoeTitleX * s, at.Y + RoeTitleY * s, s, White);
+            if (library.TryGetGroup("frames", out var frames) && frames.Images.Count > 26)
+            {
+                renderer.DrawImage(frames.Images[25], at.X + RoeArrowLeft * s, at.Y + RoeArrowY * s, s);
+                renderer.DrawImage(frames.Images[26], at.X + RoeArrowRight * s, at.Y + RoeArrowY * s, s);
+            }
+        }
+
+        /// <summary>
+        /// A Records of Eminence row: a category behind a bullet; an objective behind a green ball, teal when taken, with a bar
+        /// and "progress/needed" under the row's right end; one completed behind a bullet, grey, its bar full and pink.
+        /// </summary>
+        public static void DrawRoeRow(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiListRow row, bool selected, StockUiPlacement at, float y, float height)
+        {
+            float s = at.Scale, x = at.X + StockUiQuestLog.KindRowX * s;
+            bool objective = row.Value != null, done = row.Color != null;
+            if (objective && !done) Ball(renderer, x + RoeBallInset * s, y + (height - RoeBallSize) * 0.5f * s, RoeBallSize * s);
+            else Bullet(renderer, x, y, height, s);
+            var tint = selected ? SelectedTint : done ? StockUiProgression.Greyed : row.Marked ? TakenTint : White;
+            Text(renderer, font, logFont, row.Text, x + RoeNameInset * s, RowTextY(font, logFont, y, height, s), s, tint);
+            if (row.Value is not { } value) return;
+            float bx = at.X + RoeBarX * s, by = y + RoeBarY * s, bw = RoeBarWidth * s, bh = RoeBarHeight * s;
+            StockUiMenuWindow.DrawShades(renderer, BarTrack, bx, by, bx + bw, bh);
+            var parts = value.Split('/');
+            if (parts.Length == 2 && int.TryParse(parts[0], out int have) && int.TryParse(parts[1], out int need) && need > 0 && have > 0)
+                StockUiMenuWindow.DrawShades(renderer, BarFill, bx, by, bx + bw * Math.Min(1f, have / (float)need), bh);
+            float ts = s * StockUiPartyWindow.TextScale;
+            renderer.DrawText(font, value, bx + bw - font.MeasureWidth(value) * ts, by - 3 * s, ts, White);
+        }
+
+        /// <summary>The green ball of an objective: the bullet's ball drawn larger.</summary>
+        private static void Ball(StockUiRenderer renderer, float x, float y, float size) =>
+            renderer.DrawTextureRect(BulletTexture, BulletCellX, BulletCellY, BulletCell, BulletCell, x, y, size, size, BallTint);
+
+        private static readonly UiColor BallTint = new(0x80, 0x80, 0x60, 0x80);
+
+        /// <summary>An objective's detail page.</summary>
+        private static void DrawRoeDetail(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiPlacement at)
+        {
+            if (menu.RoeDetail is not { } d) return;
+            float s = at.Scale;
+            var frame = menu.Menu.Frame;
+            var nameTint = d.Done ? StockUiProgression.Greyed : d.Taken ? TakenTint : White;
+            if (d.Done) Bullet(renderer, at.X + RoeDetailBallX * s, at.Y + RoeDetailNameY * s, StockUiQuestLog.PickerRowHeight, s);
+            else Ball(renderer, at.X + RoeDetailBallX * s, at.Y + (RoeDetailNameY + 2) * s, RoeBallSize * s);
+            Text(renderer, font, logFont, d.Objective.Name, at.X + RoeDetailNameX * s, at.Y + RoeDetailNameY * s, s, nameTint);
+            string body = d.LimitedTime && !d.Objective.Description.StartsWith('[') ? StockUiRecordsOfEminence.LimitedTimeLabel + "\n" + d.Objective.Description : d.Objective.Description;
+            StockUiTextBoxes.DrawWrapped(renderer, font, logFont, body, at.X + RoeDetailTextX * s, at.Y + RoeDetailTextY * s,
+                frame.Width - RoeDetailTextX - RoeDetailRightPad, RoeRequiredY - RoeDetailTextY, s, White, keepBlankLines: true);
+            string progress = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{d.Progress}/{d.Objective.Required}");
+            Text(renderer, font, logFont, StockUiRecordsOfEminence.NumberRequiredLabel, at.X + RoeFootX * s, at.Y + RoeRequiredY * s, s, White);
+            Text(renderer, font, logFont, progress, at.X + RoeRequiredValueX * s, at.Y + RoeRequiredY * s, s, d.Done ? StockUiProgression.AtMost : White);
+            string rewards = menu.Controller?.MenuStringText?.Invoke(StockUiRecordsOfEminence.RewardsText) is { Length: > 0 } label ? label : "Rewards:";
+            Text(renderer, font, logFont, rewards, at.X + RoeFootX * s, at.Y + RoeRewardsY * s, s, White);
+            if (!d.Objective.Repeatable)
+            {
+                string once = StockUiRecordsOfEminence.NotRepeatableLabel;
+                Text(renderer, font, logFont, once, at.X + RoeNotRepeatableRight * s - StockUiTextBoxes.MeasureLine(font, logFont, once) * s, at.Y + RoeRewardsY * s, s, SelectedTint);
+            }
+            Text(renderer, font, logFont, StockUiRecordsOfEminence.RewardLine(d.Objective, menu.Controller?.MenuStringText), at.X + RoeFootX * s, at.Y + RoeRewardLineY * s, s, White);
         }
 
         /// <summary>Where <c>quest00</c>'s extras stand (image-34, UI 1:1): the heading, the row figure, the left and right figure columns.</summary>

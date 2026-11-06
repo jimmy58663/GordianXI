@@ -65,6 +65,7 @@ namespace Gordian.App.Tests.Graphics
             kind.SelectedButtonId = StockUiRecordsOfEminence.ObjectiveListButton;
             menus.Activate();
             Assert.Equal("Tutorial", menus.Top!.Rows[0].Text);
+            Assert.Equal("Objective List", menus.Top!.RoeListTitle);
             RenderOpen(screen, menus, "gpu_roe_categories.png");
             menus.Activate(); // Tutorial
             Assert.Equal("Basics", menus.Top!.Rows[0].Text);
@@ -75,8 +76,8 @@ namespace Gordian.App.Tests.Graphics
             objectives.SelectedButtonId = 3; // Vanquish One Enemy (after First Step Forward and All for One)
             Assert.NotNull(menus.SelectedRoeObjective(objectives));
             var shot = RenderOpen(screen, menus, "gpu_roe_objectives.png");
-            // The objective box (bluehelp, 130,240): its name.
-            Assert.True(screen.HasLightPixel(shot, 130 + 4, 130 + 120, 240 + 4 + 6, threshold: 150), "no objective box");
+            // The list's title in quest00's frame.
+            Assert.True(screen.HasLightPixel(shot, 16 + 60, 16 + 120, 48 + 11 + 6, threshold: 150), "no list title");
             menus.Activate();
             Assert.True(menus.Top!.IsPrompt);
             Assert.Equal("Set objective?", menus.Top!.Message);
