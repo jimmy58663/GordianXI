@@ -121,6 +121,7 @@ namespace Gordian.Engine.Ui
         private static (string Menu, int Help, StockUiStatusPage Page) ProgressionWindow(StockUiProgressionList list) => list switch
         {
             StockUiProgressionList.MeritCategories => (StockUiProgression.MeritCategoryMenu, StockUiProgression.MeritCategoryHelp, StockUiStatusPage.MeritPoints),
+            StockUiProgressionList.MeritGroups => (StockUiProgression.MeritCategoryMenu, StockUiProgression.MeritCategoryHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.Merits => (StockUiProgression.MeritListMenu, StockUiProgression.MeritListHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts =>
                 (StockUiStatusPages.JobPointMenu, StockUiProgression.JobPointCategoryHelp, StockUiStatusPage.JobPoints),
@@ -140,12 +141,15 @@ namespace Gordian.Engine.Ui
                     var categories = StockUiProgression.MeritCategories(MeritText);
                     return (StockUiProgression.MeritCategoryRows(categories, CurrentMerits(), MeritText, WeaponSkillsOpen), categories);
                 }
+                case StockUiProgressionList.MeritGroups:
+                    return StockUiProgression.MeritGroupRows(key, CurrentMerits(), MeritText);
                 case StockUiProgressionList.Merits:
                 {
-                    var merits = StockUiProgression.MeritsOf(key, CurrentMerits(), MeritText);
+                    var (category, group) = StockUiProgression.MeritListParts(key);
+                    var merits = StockUiProgression.MeritsOf(category, CurrentMerits(), MeritText, group);
                     var keys = new int[merits.Count];
                     for (int i = 0; i < keys.Length; i++) keys[i] = merits[i].Id;
-                    return (StockUiProgression.MeritRows(merits, MeritText), keys);
+                    return (StockUiProgression.MeritRows(merits, MeritText, ShortText(StockUiProgression.NextLabel, "NEXT")), keys);
                 }
                 case StockUiProgressionList.JobPointCategories:
                 {
@@ -178,6 +182,7 @@ namespace Gordian.Engine.Ui
             var (rows, keys) = ProgressionRows(list, key);
             var open = OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys);
             if (open != null && list == StockUiProgressionList.JobPointCategories) open.StatusValueRight = StockUiProgression.JobPointValueRight;
+            if (open != null && list == StockUiProgressionList.Merits) open.StatusValueRight = StockUiProgression.MeritValueRight;
             return open;
         }
 
@@ -211,7 +216,15 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.MeritCategories when rowKey == StockUiProgression.WeaponSkillsCategory && !WeaponSkillsOpen:
                     break;
                 case StockUiProgressionList.MeritCategories when rowKey > 0:
-                    lock (_sync) OpenProgressionList(StockUiProgressionList.Merits, rowKey, list, 0);
+                    lock (_sync)
+                    {
+                        if (StockUiProgression.HasMeritGroups(rowKey)) OpenProgressionList(StockUiProgressionList.MeritGroups, rowKey, list, 0);
+                        else OpenProgressionList(StockUiProgressionList.Merits, rowKey, list, 0);
+                    }
+                    Changed?.Invoke();
+                    break;
+                case StockUiProgressionList.MeritGroups when rowKey > 0:
+                    lock (_sync) OpenProgressionList(StockUiProgressionList.Merits, StockUiProgression.MeritListKey(list.ProgressionKey, rowKey), list, 0);
                     Changed?.Invoke();
                     break;
                 case StockUiProgressionList.Merits when rowKey > 0:

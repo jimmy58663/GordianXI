@@ -44,7 +44,7 @@ namespace Gordian.App.Graphics
                 if (menu.Name.Equals(StockUiProgression.MeritEditMenu, StringComparison.OrdinalIgnoreCase)) return StockUiProgression.MeritInfoBox;
                 switch (menu.ProgressionList)
                 {
-                    case StockUiProgressionList.MeritCategories or StockUiProgressionList.Merits: return StockUiProgression.MeritInfoBox;
+                    case StockUiProgressionList.MeritCategories or StockUiProgressionList.MeritGroups or StockUiProgressionList.Merits: return StockUiProgression.MeritInfoBox;
                 }
                 switch (menu.StatusWindow)
                 {
@@ -138,10 +138,10 @@ namespace Gordian.App.Graphics
                     // meritinf (#491): the merit points held under "Merit Points", the category's upgrades and most under
                     // "Combo Total/Max" (PROVISIONAL places: retail not captured).
                     Value(renderer, font, at, string.Create(inv, $"{points.MeritPoints}/{points.MaxMeritPoints} P"), InfoUpperValueY);
-                    if (MeritCategoryOf(open) is > 0 and var category && menus?.Merits?.Invoke() is { } merits)
+                    if (MeritCategoryOf(open) is ( > 0 and var category, var group) && menus?.Merits?.Invoke() is { } merits)
                     {
-                        int max = StockUiProgression.CategoryMostOf(category, menus.MeritText);
-                        int total = StockUiProgression.CategoryTotal(category, merits);
+                        int max = group > 0 ? StockUiProgression.GroupMax(menus.MeritText?.Invoke(category * 2 + 1), group) : StockUiProgression.CategoryMostOf(category, menus.MeritText);
+                        int total = group > 0 ? StockUiProgression.GroupTotal(category, group, merits) : StockUiProgression.CategoryTotal(category, merits);
                         Value(renderer, font, at, max > 0 ? string.Create(inv, $"{total}/{max}") : total.ToString(inv), InfoLowerValueY);
                     }
                     break;
@@ -189,15 +189,16 @@ namespace Gordian.App.Graphics
         /// <summary>The value tops in <c>meritinf</c> (112 x 56): under "Merit Points" and under "Combo Total/Max".</summary>
         private const float InfoUpperValueY = 16, InfoLowerValueY = 39;
 
-        /// <summary>The merit category the open windows show: the one under the categories' cursor, or the merits list's.</summary>
-        private static int MeritCategoryOf(IReadOnlyList<StockUiOpenMenu> open)
+        /// <summary>The merit category and job group (0: none) the open windows show: under the cursor of the categories or groups, or the merits list's.</summary>
+        private static (int Category, int Group) MeritCategoryOf(IReadOnlyList<StockUiOpenMenu> open)
         {
             for (int i = open.Count - 1; i >= 0; i--)
             {
-                if (open[i].ProgressionList == StockUiProgressionList.Merits) return open[i].ProgressionKey;
-                if (open[i].ProgressionList == StockUiProgressionList.MeritCategories) return open[i].SelectedRowKey;
+                if (open[i].ProgressionList == StockUiProgressionList.Merits) return StockUiProgression.MeritListParts(open[i].ProgressionKey);
+                if (open[i].ProgressionList == StockUiProgressionList.MeritGroups) return (open[i].ProgressionKey, open[i].SelectedRowKey);
+                if (open[i].ProgressionList == StockUiProgressionList.MeritCategories) return (open[i].SelectedRowKey, 0);
             }
-            return -1;
+            return (-1, 0);
         }
 
         /// <summary>Where a box goes: Unity's on top of the party window (when it is up), the rest at their DAT places.</summary>
@@ -228,6 +229,11 @@ namespace Gordian.App.Graphics
                 case StockUiProgressionList.MeritCategories when top.SelectedRowKey > 0:
                     menuName = StockUiStatusPages.InfoBox;
                     nameId = top.SelectedRowKey * 2;
+                    strings = menus.MeritText;
+                    break;
+                case StockUiProgressionList.MeritGroups:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = top.ProgressionKey * 2;
                     strings = menus.MeritText;
                     break;
                 case StockUiProgressionList.Merits when top.SelectedRowKey > 0:

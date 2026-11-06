@@ -69,8 +69,51 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { 0x40, 0x42 }, hp.Select(m => m.Id));
             var meritRows = StockUiProgression.MeritRows(hp, text);
             Assert.Equal(("Max HP", "4/15", (UiColor?)null), (meritRows[0].Text, meritRows[0].Value, meritRows[0].Color));
+            Assert.Equal("NEXT 3", meritRows[0].Note);
             Assert.Equal(StockUiProgression.Greyed, meritRows[1].Color);
+            Assert.Equal("NEXT --", meritRows[1].Note);
             Assert.Equal(new[] { 384, 2048 }, StockUiProgression.MeritsOf(6, merits, text).Select(m => m.Id));
+        }
+
+        [Fact]
+        public void JobCategories_SplitIntoTwoGroups()
+        {
+            var merits = new[] { new StockUiMerit(384, 1, 2), new StockUiMerit(386, 1, 1), new StockUiMerit(2048, 3, 1) };
+            var text = MeritText();
+            Assert.True(StockUiProgression.HasMeritGroups(6));
+            Assert.False(StockUiProgression.HasMeritGroups(1));
+            Assert.False(StockUiProgression.HasMeritGroups(StockUiProgression.WeaponSkillsCategory));
+            Assert.Equal((1, 2), (StockUiProgression.MeritGroupOf(384), StockUiProgression.MeritGroupOf(2048)));
+            Assert.Equal((6, 2), StockUiProgression.MeritListParts(StockUiProgression.MeritListKey(6, 2)));
+            Assert.Equal(new[] { 2048 }, StockUiProgression.MeritsOf(6, merits, _ => "Merit", 2).Select(m => m.Id));
+            Assert.Equal(10, StockUiProgression.GroupMax("Adjust.\nGroup 1 max. total ability increases: 10\nGroup 2 max. total ability increases: 10", 2));
+            var (rows, keys) = StockUiProgression.MeritGroupRows(6, merits, text);
+            Assert.Equal(new[] { 1, 2 }, keys);
+            Assert.Equal(new[] { "Group 1", "Group 2" }, rows.Select(r => r.Text));
+            Assert.Equal("3/", rows[0].Value![..2]);
+            Assert.Equal("1/", rows[1].Value![..2]);
+        }
+
+        [Fact]
+        public void JobCategory_OpensItsGroups_ThenTheGroupsMerits()
+        {
+            var h = new Harness { Merits = new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(384, 1, 2), new StockUiMerit(2048, 3, 1) } };
+            h.Menus.MeritText = id => id switch { 2 => "HP/MP", 12 => "Warrior", 13 => "Group 1 max. total ability increases: 10", 64 => "Max HP", 384 => "Berserk Recast", 2048 => "Warrior's Charge", _ => null };
+            Assert.True(h.Menus.Open(StockUiStatusPages.MeritMenu));
+            h.Menus.Activate();
+            h.Menus.Move(InputAction.MenuDown); // Warrior
+            h.Menus.Activate();
+            var groups = h.Menus.Top!;
+            Assert.Equal((StockUiProgressionList.MeritGroups, 6), (groups.ProgressionList, groups.ProgressionKey));
+            h.Menus.Move(InputAction.MenuDown); // Group 2
+            h.Menus.Activate();
+            var list = h.Menus.Top!;
+            Assert.Equal(StockUiProgressionList.Merits, list.ProgressionList);
+            Assert.Equal(new[] { "Warrior's Charge" }, list.Rows.Select(r => r.Text));
+            Assert.Equal("NEXT 3", list.Rows[0].Note);
+            h.Merits = new[] { new StockUiMerit(2048, 4, 2) };
+            h.Menus.OnStatusPointsChanged();
+            Assert.Equal(("2/5", "NEXT 4"), (list.Rows[0].Value, list.Rows[0].Note));
         }
 
         [Fact]

@@ -251,6 +251,11 @@ namespace Gordian.App.Graphics
                             float valueRight = placement.X + (menu.StatusValueRight ?? frame.Width - (mapRow ? MapValueRightPad : AssignValueRightPad)) * s;
                             renderer.DrawText(font, value, valueRight - font.MeasureWidth(value) * s, textY, s, i == selectedEntry ? tint : row.ValueColor ?? tint);
                         }
+                        if (row.Note is { Length: > 0 } note)
+                        {
+                            float noteRight = placement.X + (frame.Width - AssignValueRightPad) * s;
+                            renderer.DrawText(font, note, noteRight - font.MeasureWidth(note) * s, textY, s, tint);
+                        }
                         continue;
                     }
                     int stateImage = row.Marked ? StateOnImage : StateOffImage;

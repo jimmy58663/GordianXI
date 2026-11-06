@@ -35,6 +35,11 @@ namespace Gordian.Engine.Ui
     {
         None = 0,
         MeritCategories,
+
+        /// <summary>A job category's two merit groups (Key: the category).</summary>
+        MeritGroups,
+
+        /// <summary>A category's merits (Key: <see cref="StockUiProgression.MeritListKey"/>).</summary>
         Merits,
         JobPointCategories,
 
@@ -68,8 +73,10 @@ namespace Gordian.Engine.Ui
     /// <list type="bullet">
     /// <item>Merit Points > Categories: <c>meritcat</c> (366 x 190 at 16,48, title 130 "Categories", 11 rows, help 609) lists
     /// the categories with their upgrades and most ("12/75"); Confirm lists the category's merits in <c>merit2ca</c> (the same
-    /// frame) with each merit's upgrades; <c>meritinf</c> (16,240: "Merit Points", "Combo Total/Max" baked in) shows the merit
-    /// points held and the category's total. Confirm on a merit opens <c>merit3</c> (Raise, help 612 / Lower, help 613), each
+    /// frame) with each merit's upgrades and NEXT, the merit points the next upgrade costs; a job category first lists its
+    /// Group 1 and Group 2 (each with its own limit: its line in the table, XiPackets 0x008C's tables). <c>meritinf</c> (16,240:
+    /// "Merit Points", "Combo Total/Max" baked in) shows the merit points held and the category's or group's total. No retail
+    /// capture of these lists: the group list and NEXT's place are PROVISIONAL. Confirm on a merit opens <c>merit3</c> (Raise, help 612 / Lower, help 613), each
     /// asking first, then sends C2S 0x0BE kind 3 (Param1 1 raise / 0 lower, Param2 the merit id / 2: LandSandBoat shifts it
     /// back). LandSandBoat allows it in a Mog House only and sends each merit's next cost as 0 elsewhere.</item>
     /// <item>Job Points: Confirm on a job lists its ten categories (ROM/314/62 at job x 64 + 2 k) with "level/20" in
@@ -137,6 +144,21 @@ namespace Gordian.Engine.Ui
             category >= FirstJobCategory && category != WeaponSkillsCategory && category <= MeritCategoryCount
                 ? SecondGroupBase + (category - FirstJobCategory) * 64 : -1;
 
+        /// <summary>Whether a category's merits are split into Group 1 and Group 2 (the jobs).</summary>
+        public static bool HasMeritGroups(int category) => SecondGroupId(category) >= 0;
+
+        /// <summary>A job merit's group: 2 from the second group's base on, else 1.</summary>
+        public static int MeritGroupOf(int meritId) => (meritId & ~63) >= SecondGroupBase ? 2 : 1;
+
+        /// <summary>The merits list's key: the category, and its group (0: all its merits) above it.</summary>
+        public static int MeritListKey(int category, int group) => category | group << 8;
+
+        /// <summary>A merits list key's category and group.</summary>
+        public static (int Category, int Group) MeritListParts(int key) => (key & 0xFF, key >> 8);
+
+        /// <summary>The group rows' names. The client's strings have none but the category's line ("Group 1 max. total ability increases: 10").</summary>
+        public const string MeritGroupName = "Group";
+
         /// <summary>Which category a merit id belongs to (its first or second group), or 0.</summary>
         public static int CategoryOfMerit(int meritId)
         {
@@ -162,6 +184,37 @@ namespace Gordian.Engine.Ui
             int total = 0;
             foreach (Match m in MaxIncreases.Matches(help)) total += int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
             return total;
+        }
+
+        /// <summary>A job group's most upgrades: its own figure in the category's line; 0 when the line names none.</summary>
+        public static int GroupMax(string? help, int group)
+        {
+            if (string.IsNullOrEmpty(help)) return 0;
+            var matches = MaxIncreases.Matches(help);
+            return group >= 1 && group <= matches.Count ? int.Parse(matches[group - 1].Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+        }
+
+        /// <summary>The upgrades of a job group's merits.</summary>
+        public static int GroupTotal(int category, int group, IReadOnlyList<StockUiMerit> merits)
+        {
+            int total = 0;
+            foreach (var m in merits)
+            {
+                if (CategoryOfMerit(m.Id) == category && MeritGroupOf(m.Id) == group) total += m.Count;
+            }
+            return total;
+        }
+
+        /// <summary>A job category's group rows ("Group 1", "3/10") and their keys (1, 2).</summary>
+        public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) MeritGroupRows(int category, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
+        {
+            var rows = new List<StockUiListRow>(2);
+            for (int group = 1; group <= 2; group++)
+            {
+                string value = string.Create(CultureInfo.InvariantCulture, $"{GroupTotal(category, group, merits)}/{GroupMax(text?.Invoke(category * 2 + 1), group)}");
+                rows.Add(new StockUiListRow(group, string.Create(CultureInfo.InvariantCulture, $"{MeritGroupName} {group}"), false, Value: value));
+            }
+            return (rows, new[] { 1, 2 });
         }
 
         /// <summary>The categories that have a name in the table, in table order but Weapon Skills after Others (HP/MP ... Rune Fencer).</summary>
@@ -210,26 +263,36 @@ namespace Gordian.Engine.Ui
             return rows;
         }
 
-        /// <summary>A category's merits that S2C 0x08C listed and the table names, in id order (the first group, then the second).</summary>
-        public static IReadOnlyList<StockUiMerit> MeritsOf(int category, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
+        /// <summary>A category's merits that S2C 0x08C listed and the table names, in id order (the first group, then the second), or one <paramref name="group"/>'s.</summary>
+        public static IReadOnlyList<StockUiMerit> MeritsOf(int category, IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text, int group = 0)
         {
             var list = new List<StockUiMerit>();
             foreach (var m in merits)
             {
-                if (CategoryOfMerit(m.Id) == category && !IsPlaceholder(text?.Invoke(m.Id))) list.Add(m);
+                if (CategoryOfMerit(m.Id) == category && (group == 0 || MeritGroupOf(m.Id) == group) && !IsPlaceholder(text?.Invoke(m.Id))) list.Add(m);
             }
             list.Sort((a, b) => a.Id.CompareTo(b.Id));
             return list;
         }
 
-        /// <summary>The merits list's rows: the name and "upgrades/most" ("2/15"); a merit that cannot be raised now (no next cost) is greyed.</summary>
-        public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text)
+        /// <summary>ROM/165/77's "NEXT", the level box's; "--" (434) when there is no next upgrade or S2C 0x08C sends no cost (LandSandBoat outside a Mog House).</summary>
+        public const int NextLabel = 90;
+
+        /// <summary>The right edge of a merit's "upgrades/most", left of its NEXT (PROVISIONAL).</summary>
+        public const int MeritValueRight = 250;
+
+        /// <summary>
+        /// The merits list's rows: the name, "upgrades/most" ("2/15") and "NEXT 5", the merit points the next upgrade costs (S2C
+        /// 0x08C <c>next</c>); a merit that cannot be raised now (no next cost) is greyed.
+        /// </summary>
+        public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text, string nextLabel = "NEXT")
         {
             var rows = new List<StockUiListRow>(merits.Count);
             foreach (var m in merits)
             {
                 rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(m.Id) ?? string.Empty, false, m.Next == 0 ? Greyed : null,
-                    string.Create(CultureInfo.InvariantCulture, $"{m.Count}/{MeritMax(m.Id)}")));
+                    string.Create(CultureInfo.InvariantCulture, $"{m.Count}/{MeritMax(m.Id)}"),
+                    Note: m.Next > 0 ? string.Create(CultureInfo.InvariantCulture, $"{nextLabel} {m.Next}") : nextLabel + " --"));
             }
             return rows;
         }
