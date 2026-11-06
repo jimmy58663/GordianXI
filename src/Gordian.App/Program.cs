@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime;
 using Avalonia;
+using Gordian.App.Services;
+using Gordian.Core.Config;
 
 namespace Gordian.App
 {
@@ -22,6 +24,12 @@ namespace Gordian.App
             InitializeSegmentedLogFiles();
 
             Debug.WriteLine($"[GordianXI Boot] GC Profile: ServerGC={GCSettings.IsServerGC}, LatencyMode={GCSettings.LatencyMode}");
+
+            DevLaunchOptions.Current = DevLaunchOptions.Parse(args);
+            if (DevLaunchOptions.Current.ProfilesDirectory is { } profilesDirectory)
+            {
+                GordianStorage.ProfilesDirectory = profilesDirectory;
+            }
 
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }

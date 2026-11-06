@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/assets/gordian_256.png" alt="GordianXI Gordian Knot logo" width="180">
+</p>
+
 # GordianXI
 
 [![Target Framework](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
@@ -11,6 +15,11 @@
 By replacing the legacy 2002 executable entirely, GordianXI cuts through decades of technical debt, shifts multi-boxing from a brittle hacking exercise into a native design feature, and permanently shatters the structural memory constraints of the original client.
 
 > ⚠️ **Disclaimer & Legal Boundary:** GordianXI is an independent, clean-room software preservation project. It does **not** contain, host, or distribute any copyrighted assets, 3D models, textures, or proprietary code belonging to Square Enix. Users must possess a legally installed, official retail copy of Final Fantasy XI. GordianXI functions purely as an alternative execution runtime that reads local resource data files directly from the user's hard drive. For comprehensive legal terms, trademark disclaimers, and reverse-engineering statutory protections, see [LEGAL.md](LEGAL.md).
+
+---
+
+https://github.com/user-attachments/assets/19340a71-254d-4f30-97d4-415d25863078
+<p align="center"><sub><b>GordianXI in action</b> · 1080p, 30 fps, no audio</sub></p>
 
 ---
 
