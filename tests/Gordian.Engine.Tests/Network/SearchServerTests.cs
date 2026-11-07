@@ -826,10 +826,10 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Theory]
-        [InlineData("<t>", false)]
-        [InlineData("<T>", false)]
-        [InlineData("all <t>", true)]
-        public async Task SeaCommand_TheTargetPlaceholderIsThePlayersName(string arguments, bool all)
+        [InlineData("<t>", false, "Search result: Only one person found in this area.")]
+        [InlineData("<T>", false, "Search result: Only one person found in this area.")]
+        [InlineData("all <t>", true, "Search result: Only one person found in the entire world.")]
+        public async Task SeaCommand_TheTargetPlaceholderIsThePlayersName(string arguments, bool all, string line)
         {
             // Round 2: /sea <t> is /sea Cybin. A name that reads as a zone ("Selbina") stays a name.
             var (session, social) = SeaSession();
@@ -837,9 +837,21 @@ namespace Gordian.Engine.Tests.Network
 
             var result = await session.Actions.PlayerSearchAsync(arguments);
 
-            Assert.True(string.IsNullOrEmpty(result.Message));
+            Assert.Equal(line, result.Message);
             Assert.Equal("Selbina", social.LastQuery!.Name);
             Assert.Equal(all, social.LastQuery.AllAreas);
+        }
+
+        [Theory]
+        [InlineData("all", 2, "Search result: 2 people found in all known areas.")] // retail client on local LSB, 2026-11-06
+        [InlineData("Cybin", 2, "Search result: 2 people found in this area.")] // PROVISIONAL: retail's "0 people" line with the count
+        public async Task SeaCommand_LogsHowManyPeopleWereFound(string arguments, int found, string line)
+        {
+            var (session, social) = SeaSession();
+            social.SearchResult = new(Enumerable.Range(1, found).Select(id => new Gordian.Engine.Ui.StockUiPerson($"Cybin{id}", CharacterId: (uint)id)).ToArray());
+
+            Assert.Equal(line, (await session.Actions.PlayerSearchAsync(arguments)).Message);
+            Assert.Equal(found, session.Actions.Menus.Top!.People.Count);
         }
 
         [Fact]
@@ -876,7 +888,7 @@ namespace Gordian.Engine.Tests.Network
 
             var result = await session.Actions.PlayerSearchAsync("all BRD 37-99");
 
-            Assert.True(string.IsNullOrEmpty(result.Message)); // the window shows them; nothing goes to the log (round 1)
+            Assert.Equal("Search result: Only one person found in the entire world.", result.Message);
             Assert.True(social.LastQuery!.AllAreas);
             Assert.Equal((byte)10, social.LastQuery.Job);
             Assert.Equal(((byte)37, (byte)99), social.LastQuery.Level);
