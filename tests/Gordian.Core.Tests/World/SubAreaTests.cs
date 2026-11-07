@@ -172,11 +172,12 @@ namespace Gordian.Core.Tests.World
         }
 
         /// <summary>
-        /// Northern San d'Oria's Woodworking guild (round 2): the zone's closed building has its floor at 12, the room (interior
-        /// 349) at 11. Andreas stands at 11, and the entity pass grounded him on the zone's mesh, a yalm into the room's floor.
+        /// Northern San d'Oria's Carpenters' Guild (round 2): Andreas stands on a platform at 11, up steps from the room's main
+        /// floor at 12 (interior 349; retail client on LandSandBoat, 2026-11-06). The zone's closed building has only the 12, and
+        /// the entity pass grounded him on the zone's mesh, a yalm into the platform.
         /// </summary>
         [Fact]
-        public void WoodworkingGuild_CharactersStandOnTheRoomsFloor()
+        public void CarpentersGuild_CharactersStandOnTheRoomsFloor()
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
