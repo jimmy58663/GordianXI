@@ -156,7 +156,7 @@ namespace Gordian.Engine.Ui
         public const int EquipDescriptionX = 130;
 
         /// <summary>Help text ids (ROM/165/75): "Select an item.", "Select item to move.", "Sort list?".</summary>
-        public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80;
+        public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80, HelpDisposeOfItem = 242;
 
         /// <summary>Title text ids (ROM/165/76): "Items", "Equipment", "No. of Items", "Recycling Bin".</summary>
         public const string TitleItems = "Items", TitleEquipment = "Equipment", TitleQuantity = "No. of Items", TitleRecycleBin = "Recycling Bin";
@@ -486,7 +486,6 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// The Drop prompt (PROVISIONAL wording: retail's is not captured): "Drop a Ronfaure chestnut?", "Drop 12 Ronfaure chestnuts?".
         /// </summary>
-        public static string DropPrompt(ItemRecord record, uint count) => $"Drop {StockUiShop.DescribeCount(record, count)}?";
 
         private static readonly Dictionary<string, EquipSlotId> SlotWords = new(StringComparer.OrdinalIgnoreCase)
         {

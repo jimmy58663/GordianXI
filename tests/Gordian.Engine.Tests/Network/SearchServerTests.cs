@@ -709,9 +709,20 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal("all whm", ChatCommandRouter.Parse("/sea all whm").Message);
         }
 
+        [Fact]
+        public void ParseSearchQuery_AZoneNamesFirstWordIsTheZone()
+        {
+            // Retail client on local LSB, 2026-11-07: /sea valkurm listed both players in Valkurm Dunes.
+            var query = PlayerActionService.ParseSearchQuery("valkurm", 230, ZoneNames);
+            Assert.Equal(new ushort[] { 103 }, query.Areas.ToArray());
+            Assert.Null(query.Name);
+        }
+
         private static string? ZoneNames(int zone) => zone switch
         {
+            103 => "Valkurm Dunes",
             230 => "Southern San d'Oria",
+            232 => "Port San d'Oria",
             235 => "Bastok Markets",
             246 => "Port Jeuno",
             248 => "Selbina",
@@ -721,6 +732,8 @@ namespace Gordian.Engine.Tests.Network
         [Theory]
         [InlineData("Cybin")]
         [InlineData("cybin")]
+        [InlineData("taru")] // retail client on local LSB, 2026-11-07: /sea all taru found no Tarutaru
+        [InlineData("port")] // the first word of more than one zone
         public void ParseSearchQuery_AnyOtherWordIsAName(string words)
         {
             var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
@@ -733,6 +746,10 @@ namespace Gordian.Engine.Tests.Network
         [InlineData("ELVAAN", (byte)1)]
         [InlineData("Hume", (byte)0)]
         [InlineData("galka", (byte)4)]
+        [InlineData("tar", (byte)2)] // retail client on local LSB, 2026-11-07: tar, tarutaru, mit and mithra found its players
+        [InlineData("tarutaru", (byte)2)]
+        [InlineData("mit", (byte)3)]
+        [InlineData("mithra", (byte)3)]
         public void ParseSearchQuery_Races(string words, byte race)
         {
             var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
@@ -844,7 +861,8 @@ namespace Gordian.Engine.Tests.Network
 
         [Theory]
         [InlineData("all", 2, "Search result: 2 people found in all known areas.")] // retail client on local LSB, 2026-11-06
-        [InlineData("Cybin", 2, "Search result: 2 people found in this area.")] // PROVISIONAL: retail's "0 people" line with the count
+        [InlineData("Cybin", 2, "Search result: 2 people found in this area.")] // retail client on local LSB, 2026-11-07
+        [InlineData("all", 1, "Search result: Only one person found in the entire world.")] // the same, with no name
         public async Task SeaCommand_LogsHowManyPeopleWereFound(string arguments, int found, string line)
         {
             var (session, social) = SeaSession();

@@ -96,8 +96,24 @@ namespace Gordian.Engine.Tests.Ui
             menus.Top!.SelectedButtonId = StockUiMenuController.KeyAssignCommandsButton;
             menus.Activate();
             Assert.Equal(StockUiMenuController.KeyAssignCommandsMenu, menus.Top!.Name);
-            Assert.Equal("Zoom Out", menus.Top.Rows[0].Text);
-            Assert.Equal("Page Down", menus.Top.Rows[0].Value);
+            // Retail's order (retail client on local LSB, 2026-11-07): Confirm, Cancel, Open Main Menu, Select Window, Toggle
+            // Walk/Run, Zoom In, Zoom Out, Change View, then GordianXI's own.
+            Assert.Equal(new[] { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View", "Strafe Left" },
+                menus.Top.Rows.Take(9).Select(r => r.Text));
+            Assert.Equal("Page Down", menus.Top.Rows[6].Value);
+        }
+
+        [Fact]
+        public void TheWindowsShareTheirCommonFunctions_InRetailsOrder()
+        {
+            // Retail client on local LSB, 2026-11-07: Movement lists Zoom In / Out and Toggle Walk/Run too, and a function in
+            // both windows shows the same key in both.
+            var shared = KeyboardAssignments.Movement.Intersect(KeyboardAssignments.Commands).Select(f => f.Label).ToHashSet();
+            Assert.Equal(new HashSet<string> { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View" }, shared);
+            Assert.Equal(new[] { "Move Up", "Move Down", "Move Left", "Move Right", "Menu Cursor & Camera Up", "Menu Cursor & Camera Down",
+                "Move Camera Up", "Move Camera Down", "Move Camera Left", "Move Camera Right", "Zoom In", "Zoom Out" },
+                KeyboardAssignments.Movement.Take(12).Select(f => f.Label));
+            Assert.Equal(KeyboardAssignments.All.Count(), KeyboardAssignments.All.Distinct().Count());
         }
 
         [Fact]

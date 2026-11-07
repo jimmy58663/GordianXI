@@ -32,13 +32,19 @@ namespace Gordian.Engine.Input
     /// 152 / 278: shortcut commands); the row's Default (help 153) puts the keys back. Both windows are titled "Keyboard"
     /// (title 69, ROM/165/76).
     /// <para>
-    /// The function names are retail's, from the config row table (ROM/165/74 rows 89-142: 89-104 movement, camera and the
-    /// cursors, 105-111 Confirm ... Open Main Menu, 112-133 the shortcut commands; read 2026-11-02). Only the functions
-    /// GordianXI has an action for are listed; retail's other shortcut rows (Attack, Items, Magic, Abilities, Weapon Skills,
-    /// Ranged Attack, Call For Help, Equipment, Heal, Check, the Chat: rows, Pet Commands, Take Screenshot, Hide/Show
-    /// Window) have none yet. GordianXI's own keyboard functions (strafing, lock-on, target cycling, the chat line) are
-    /// listed after the retail rows of the Commands window, with GordianXI wording. Which rows retail lists in each window,
-    /// and in what order, is PROVISIONAL (no capture of either window yet).
+    /// The function names are retail's, from the config row table (ROM/165/74 rows 89-142: 89-111 the Movement window's,
+    /// 112-142 the Commands window's; read 2026-11-02). The rows and their order are retail's (retail client on local LSB,
+    /// 2026-11-07, Key_Assignment_Movement_*.png and Key_Assignment_Commands_*.png): Movement lists 30 rows (Move Up, Down,
+    /// Left, Right, Menu Cursor &amp; Camera Up, Down, Left, Right, Move Camera Up, Down, Left, Right, Zoom In, Zoom Out,
+    /// Menu/Target Cursor Up, Down, Left, Right, Confirm, Cancel, Change View, Autorun, Heal, Select Window, Open Main Menu,
+    /// Toggle Walk/Run, Hide/Show Window, Take Screenshot, Turn Right, Turn Left) and Commands 29 (Attack, Items, Magic,
+    /// Abilities, Weapon Skills, Pet Commands, Confirm, Cancel, Open Main Menu, Select Window, Hide/Show Window, Take
+    /// Screenshot, Toggle Walk/Run, Zoom In, Zoom Out, Ranged Attack, Call For Help, Equipment, Change View, Heal, Check,
+    /// then the Chat: rows /Say, /Party, /Tell, /Linkshell, /Reply to tell, /Unity, /Linkshell2, /AssistE or /AssistJ).
+    /// A function in both windows showed the same key in both, so it is one function listed in both here. Only the rows
+    /// GordianXI has an action for are listed. GordianXI's own keyboard functions (strafing, lock-on, target cycling, the
+    /// chat line) follow the Commands window's retail rows, with GordianXI wording. Not matched yet: retail's Move Left /
+    /// Right are on A / D and its Turn Left / Right on Q / E, where GordianXI's A / D turn and Q / E strafe.
     /// </para>
     /// <para>
     /// Assigning works as the gamepad list's does (<see cref="GamepadAssignments.Assign"/>): a function gets one key, and
@@ -48,35 +54,53 @@ namespace Gordian.Engine.Input
     /// </summary>
     public static class KeyboardAssignments
     {
-        /// <summary>The Movement window's functions (<c>k1assign</c>), in list order.</summary>
+        // The functions both windows list: one function each, so one key (retail's two lists show the same key for them).
+        private static readonly KeyboardFunction ZoomIn = new("Zoom In", 137, InputAction.CameraZoomIn);
+        private static readonly KeyboardFunction ZoomOut = new("Zoom Out", 136, InputAction.CameraZoomOut);
+        private static readonly KeyboardFunction Confirm = new("Confirm", 105, InputAction.Confirm);
+        private static readonly KeyboardFunction Cancel = new("Cancel", 106, InputAction.Cancel);
+        private static readonly KeyboardFunction ChangeView = new("Change View", 107, InputAction.ToggleCameraMode);
+        private static readonly KeyboardFunction SelectWindow = new("Select Window", 110, InputAction.CycleLogWindow);
+        private static readonly KeyboardFunction OpenMainMenu = new("Open Main Menu", 111, InputAction.OpenMenu);
+        private static readonly KeyboardFunction ToggleWalkRun = new("Toggle Walk/Run", 138, InputAction.ToggleWalkRun);
+
+        /// <summary>The Movement window's functions (<c>k1assign</c>), in retail's list order.</summary>
         public static IReadOnlyList<KeyboardFunction> Movement { get; } = new[]
         {
             new KeyboardFunction("Move Up", 89, InputAction.MoveForward),
             new KeyboardFunction("Move Down", 90, InputAction.MoveBackward),
-            new KeyboardFunction("Move Right", 91, InputAction.TurnRight),
             new KeyboardFunction("Move Left", 92, InputAction.TurnLeft),
-            new KeyboardFunction("Move Camera Up", 93, InputAction.CameraPitchUp),
-            new KeyboardFunction("Move Camera Down", 94, InputAction.CameraPitchDown),
-            new KeyboardFunction("Move Camera Right", 95, InputAction.CameraYawRight),
-            new KeyboardFunction("Move Camera Left", 96, InputAction.CameraYawLeft),
-            new KeyboardFunction("Menu/Target Cursor Right", 99, InputAction.MenuRight, InputAction.TargetCursorRight),
-            new KeyboardFunction("Menu/Target Cursor Left", 100, InputAction.MenuLeft, InputAction.TargetCursorLeft),
+            new KeyboardFunction("Move Right", 91, InputAction.TurnRight),
             new KeyboardFunction("Menu Cursor & Camera Up", 101, InputAction.MenuUp, InputAction.CameraPitchUp),
             new KeyboardFunction("Menu Cursor & Camera Down", 102, InputAction.MenuDown, InputAction.CameraPitchDown),
-            new KeyboardFunction("Confirm", 105, InputAction.Confirm),
-            new KeyboardFunction("Cancel", 106, InputAction.Cancel),
-            new KeyboardFunction("Change View", 107, InputAction.ToggleCameraMode),
+            new KeyboardFunction("Move Camera Up", 93, InputAction.CameraPitchUp),
+            new KeyboardFunction("Move Camera Down", 94, InputAction.CameraPitchDown),
+            new KeyboardFunction("Move Camera Left", 96, InputAction.CameraYawLeft),
+            new KeyboardFunction("Move Camera Right", 95, InputAction.CameraYawRight),
+            ZoomIn,
+            ZoomOut,
+            new KeyboardFunction("Menu/Target Cursor Left", 100, InputAction.MenuLeft, InputAction.TargetCursorLeft),
+            new KeyboardFunction("Menu/Target Cursor Right", 99, InputAction.MenuRight, InputAction.TargetCursorRight),
+            Confirm,
+            Cancel,
+            ChangeView,
             new KeyboardFunction("Autorun", 108, InputAction.ToggleAutorun),
-            new KeyboardFunction("Select Window", 110, InputAction.CycleLogWindow),
-            new KeyboardFunction("Open Main Menu", 111, InputAction.OpenMenu),
+            SelectWindow,
+            OpenMainMenu,
+            ToggleWalkRun,
         };
 
-        /// <summary>The Commands window's functions (<c>k2assign</c>), in list order.</summary>
+        /// <summary>The Commands window's functions (<c>k2assign</c>), in retail's list order, then GordianXI's own.</summary>
         public static IReadOnlyList<KeyboardFunction> Commands { get; } = new[]
         {
-            new KeyboardFunction("Zoom Out", 131, InputAction.CameraZoomOut),
-            new KeyboardFunction("Zoom In", 132, InputAction.CameraZoomIn),
-            new KeyboardFunction("Toggle Walk/Run", 138, InputAction.ToggleWalkRun),
+            Confirm,
+            Cancel,
+            OpenMainMenu,
+            SelectWindow,
+            ToggleWalkRun,
+            ZoomIn,
+            ZoomOut,
+            ChangeView,
             // GordianXI's own keyboard functions.
             new KeyboardFunction("Strafe Left", -1, InputAction.StrafeLeft),
             new KeyboardFunction("Strafe Right", -1, InputAction.StrafeRight),
@@ -89,7 +113,7 @@ namespace Gordian.Engine.Input
         };
 
         /// <summary>Both windows' functions: a key is taken from any of them when assigned.</summary>
-        public static IEnumerable<KeyboardFunction> All => Movement.Concat(Commands);
+        public static IEnumerable<KeyboardFunction> All => Movement.Concat(Commands).Distinct();
 
         /// <summary>
         /// The keys a function has in <paramref name="profile"/>: the keyboard chords every one of its actions has (a

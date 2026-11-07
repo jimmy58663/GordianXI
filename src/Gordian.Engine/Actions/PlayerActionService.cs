@@ -2150,10 +2150,10 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// The log line of a search. Retail client on local LSB, 2026-11-06 (Sea_Target_Player.png, Sea_All_Target_Player.png):
-        /// "Search result: 0 people found in this area.", "Search result: Only one person found in this area.", "Search result:
-        /// Only one person found in the entire world." and "Search result: 2 people found in all known areas." PROVISIONAL, not
-        /// seen there: 0 with <c>all</c>, 2 or more in this area, and "this area" for a search of another named zone.
+        /// The log line of a search, by the count and <c>all</c> (retail client on local LSB, 2026-11-06 and 2026-11-07,
+        /// Sea_Found_Lines.png): "Search result: 0 people found in this area." / "... in all known areas.", "Search result: Only
+        /// one person found in this area." / "... in the entire world." (<c>/sea all</c> finding one, name or not), "Search
+        /// result: 2 people found in this area." / "... in all known areas.". A search of another named zone says "this area" too.
         /// </summary>
         private static string SearchResultLine(SearchQuery query, int found) => found == 1
             ? $"Search result: Only one person found in {(query.AllAreas ? "the entire world" : "this area")}."
@@ -2189,11 +2189,13 @@ namespace Gordian.Engine.Actions
         /// Turns the arguments of <c>/sea</c> into a search; words are not case-sensitive and combine (the maintainer's
         /// retail grammar, #495 round 1, 2026-11-04): <c>all</c> every zone; a zone's name, joined or as words (<c>selbina</c>,
         /// <c>port jeuno</c>, through <paramref name="zoneName"/>), else the current zone; a job code; <c>24-35</c>, <c>75</c>
-        /// or <c>lv75</c> the level; <c>rank 10</c>; a race (<c>elv</c>, <c>elvaan</c>, ...); a nation (<c>sandoria</c>,
+        /// or <c>lv75</c> the level; <c>rank 10</c>; a race (<c>elv</c>, <c>elvaan</c>, ...; not <c>taru</c>); a nation (<c>sandoria</c>,
         /// <c>bastok</c>, <c>windurst</c>); <c>inv</c> (also <c>party</c>, <c>pt</c>) players seeking a party; <c>friend</c>
         /// friends. Any other word is a name or name prefix. A zone's several words are read first, so <c>bastok markets</c>
-        /// is the zone and <c>bastok</c> alone the nation. PROVISIONAL: the race short forms past <c>elv</c>, and a one-word
-        /// zone name beating a player of that name.
+        /// is the zone and <c>bastok</c> alone the nation; a zone name's first word, when no other zone's starts with it, is that
+        /// zone (<c>valkurm</c>). Retail client on local LSB, 2026-11-07: <c>tar</c>, <c>tarutaru</c>, <c>mit</c>, <c>mithra</c>
+        /// and <c>valkurm</c> search as these do; <c>taru</c> finds no Tarutaru. PROVISIONAL: the Hume, Elvaan and Galka words
+        /// (no such player was online), first words in general, and a one-word zone name beating a player of that name.
         /// </summary>
         public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone, Func<int, string?>? zoneName = null)
         {
@@ -2261,12 +2263,21 @@ namespace Gordian.Engine.Actions
         /// <summary>A name as <c>/sea</c> compares it: lower case letters and digits only ("Ru'Lude Gardens" = "ruludegardens").</summary>
         private static string SearchKey(string name) => string.Concat(name.Where(char.IsLetterOrDigit)).ToLowerInvariant();
 
+        /// <summary>The zones by their whole names, then by a first word no other zone's name starts with (<c>valkurm</c>).</summary>
         private static Dictionary<string, ushort> SearchZones(Func<int, string?> zoneName)
         {
             var zones = new Dictionary<string, ushort>();
+            var firstWords = new Dictionary<string, ushort?>();
             for (ushort zone = 1; zone < 300; zone++)
             {
-                if (zoneName(zone) is { Length: > 0 } name) zones.TryAdd(SearchKey(name), zone);
+                if (zoneName(zone) is not { Length: > 0 } name) continue;
+                zones.TryAdd(SearchKey(name), zone);
+                string first = SearchKey(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]);
+                firstWords[first] = firstWords.TryGetValue(first, out var seen) && seen != zone ? null : zone;
+            }
+            foreach (var (word, zone) in firstWords)
+            {
+                if (zone is { } only) zones.TryAdd(word, only);
             }
             return zones;
         }
@@ -2283,7 +2294,7 @@ namespace Gordian.Engine.Actions
         /// <summary>A race's number in the search request (the Search menu's, both genders).</summary>
         private static readonly Dictionary<string, byte> SearchRaces = new()
         {
-            ["hume"] = 0, ["hum"] = 0, ["elvaan"] = 1, ["elv"] = 1, ["tarutaru"] = 2, ["taru"] = 2, ["tar"] = 2,
+            ["hume"] = 0, ["hum"] = 0, ["elvaan"] = 1, ["elv"] = 1, ["tarutaru"] = 2, ["tar"] = 2,
             ["mithra"] = 3, ["mit"] = 3, ["galka"] = 4, ["gal"] = 4,
         };
 

@@ -66,6 +66,12 @@ namespace Gordian.Engine.Ui
         /// <summary>Auto-sort's Yes / No (<see cref="StockUiItems.SortConfirmMenu"/>).</summary>
         public bool IsSortConfirm { get; init; }
 
+        /// <summary>The row a Drop's Yes / No (<see cref="StockUiItems.SortConfirmMenu"/>, as retail's) is for; null for other menus.</summary>
+        public StockUiItemRow? ItemDropConfirm { get; init; }
+
+        /// <summary>How many of <see cref="ItemDropConfirm"/> the Yes drops.</summary>
+        public uint ItemDropCount { get; init; }
+
         /// <summary>The Equipment list's storage choice (<see cref="StockUiItems.EquipStorageMenu"/>).</summary>
         public bool IsEquipStorageMenu { get; init; }
 
@@ -102,7 +108,7 @@ namespace Gordian.Engine.Ui
         public string? ItemHelpText(int id) => ItemOwner?.MenuHelpText?.Invoke(id);
 
         /// <summary>An Items or Equipment window: drawn at its own place rather than following the root.</summary>
-        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment
+        public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || ItemDropConfirm != null || IsEquipStorageMenu || IsEquipment
             || IsSynthesisGrid || IsSynthesisOptions || IsTradeWindow;
 
         /// <summary>The item worn in the slot a grid button shows (0 when empty or not the Equipment grid).</summary>
@@ -608,6 +614,7 @@ namespace Gordian.Engine.Ui
                 var menu = open[i];
                 if (menu.AuctionHelpId >= 0) help = menu.AuctionHelpId; // the Auction House's Sell, Price Set and prompts (#90)
                 else if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
+                else if (menu.ItemDropConfirm != null) help = StockUiItems.HelpDisposeOfItem;
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisMaterials) help = StockUiSynthesis.HelpSelectMaterials;
                 else if (menu.Picker is { HelpTextId: >= 0 } pickerHelp) help = pickerHelp.HelpTextId;
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
@@ -656,6 +663,7 @@ namespace Gordian.Engine.Ui
             else if (top.ItemAction is { } action) ActivateItemAction(top, button, action);
             else if (top.IsItemOptions) ActivateItemOptions(top, button);
             else if (top.IsSortConfirm) ActivateSortConfirm(top, button);
+            else if (top.ItemDropConfirm is { } drop) ActivateDropConfirm(top, button, drop);
             else if (top.IsEquipStorageMenu) ActivateEquipStorage(top, button);
             else if (top.IsEquipment) ActivateEquipmentSlot(top, button);
             else return false;
@@ -918,24 +926,45 @@ namespace Gordian.Engine.Ui
             ConfirmDrop(action, row, count);
         }
 
-        /// <summary>Asks "Drop ...?" (No under the cursor); Yes sends 0x028 and closes the Use / Drop window.</summary>
+        /// <summary>
+        /// Asks to drop in auto-sort's Yes / No under the Use / Drop window ("Commands", No under the cursor), the help bar
+        /// "Dispose of item?" (help 242): retail client on local LSB, 2026-11-07 (Items_Drop_Confirm.png, a single Fire
+        /// Crystal). PROVISIONAL: the same after a stack's count box. Yes sends 0x028 and closes the Use / Drop window.
+        /// </summary>
         private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count)
         {
-            var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
-            var prompt = OpenYesNo(StockUiItems.DropPrompt(record, count), defaultYes: false, yes =>
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiItems.SortConfirmMenu, out var definition))
             {
-                if (yes != true) return;
-                if (action != null) CloseMenu(action);
-                var drop = ItemDrop;
-                if (drop == null)
-                {
-                    NoticePosted?.Invoke("Items cannot be dropped in this session.");
-                    return;
-                }
-                GordianLog.Info("ITEM", $"Dropping {count} x {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}).");
-                _ = SendItemAsync(() => drop(row.Container, row.Slot, count), "Drop");
-            });
-            if (prompt == null) NoticePosted?.Invoke("Drop: the prompt is not available.");
+                NoticePosted?.Invoke("Drop: the prompt is not available.");
+                return;
+            }
+            var confirm = new StockUiOpenMenu(definition, action ?? ItemsList() ?? Top, Array.Empty<string>(), null)
+            {
+                ItemDropConfirm = row,
+                ItemDropCount = count,
+            };
+            confirm.SelectedButtonId = StockUiItems.SortNoButton;
+            lock (_sync) PushOpen(confirm);
+            Changed?.Invoke();
+        }
+
+        /// <summary>A Drop's Yes: closes the Use / Drop window and sends 0x028; No returns to it.</summary>
+        private void ActivateDropConfirm(StockUiOpenMenu confirm, UiMenuButton button, StockUiItemRow row)
+        {
+            CloseMenu(confirm);
+            if (button.ButtonId != StockUiItems.SortYesButton) return;
+            uint count = confirm.ItemDropCount;
+            if (confirm.Parent is { ItemAction: not null } action) CloseMenu(action);
+            var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
+            var drop = ItemDrop;
+            if (drop == null)
+            {
+                NoticePosted?.Invoke("Items cannot be dropped in this session.");
+                return;
+            }
+            GordianLog.Info("ITEM", $"Dropping {count} x {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}).");
+            _ = SendItemAsync(() => drop(row.Container, row.Slot, count), "Drop");
         }
 
         /// <summary>
