@@ -11,7 +11,8 @@ namespace Gordian.Engine.Ui
     /// The mannequins standing in the Mog House (#93). A mannequin is a character model, not a furniture mesh, so each placed one is a
     /// client-side entity, as the room's door is: no name (nothing targets it), the race of its item, what it wears from S2C 0x026
     /// (LandSandBoat sends that at zone-in and after 0x03B). Faces are the mannequins' own model 31 (LandSandBoat's note in
-    /// <c>0x026_item_subcontainer.cpp</c>). While its window is open it spins, as in the maintainer's image-49.
+    /// <c>0x026_item_subcontainer.cpp</c>). While its window is open it spins, clockwise from above (retail capture
+    /// <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06).
     /// </summary>
     public sealed class MogHouseMannequins
     {
@@ -22,11 +23,14 @@ namespace Gordian.Engine.Ui
         /// <summary>The mannequins' face and hair model (LandSandBoat <c>0x026_item_subcontainer.cpp</c>).</summary>
         public const byte FaceModel = 31;
 
-        /// <summary>One turn every few seconds (<b>provisional</b>: image-49 is a still).</summary>
-        public const float SpinSecondsPerTurn = 6f;
+        /// <summary>One turn in 2.0 s (retail capture <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06).</summary>
+        public const float SpinSecondsPerTurn = 2f;
 
-        /// <summary>A mannequin at rotation 0 faces the door: wire direction 64, south (<b>provisional</b>).</summary>
-        private const byte FacingAtRotationZero = 64;
+        /// <summary>
+        /// The wire direction a mannequin faces at rotation 0, west; each step of rotation is a quarter turn back from it: v2 faces
+        /// east, v1 south, v3 north (retail, 2026-11-06: v2 east and v1 south against 0x0FA packets, v0 and v3 from the images).
+        /// </summary>
+        private const byte FacingAtRotationZero = 128;
 
         private readonly WorldState _world;
         private readonly InventoryState _inventory;
@@ -88,9 +92,9 @@ namespace Gordian.Engine.Ui
                 _world.UpsertEntity(entity);
             }
             entity.Position = new Vector3(-display.X, -display.Y, display.Z);
-            entity.Direction = (byte)(FacingAtRotationZero + rotation * 64);
+            entity.Direction = FacingOf(rotation);
             var look = _inventory.GetMannequinLook(piece.Container, piece.Slot);
-            byte race = look is { Race: > 0 } known ? known.Race : RaceOf(piece.ItemId);
+            byte race = look is { Race: > 0 } known ? known.Race : RaceInExtData(piece) is > 0 and var stored ? stored : RaceOf(piece.ItemId);
             entity.Appearance.CopyFrom(new[]
             {
                 (ushort)((race << 8) | FaceModel),
@@ -98,6 +102,13 @@ namespace Gordian.Engine.Ui
                 look?.Main ?? (ushort)0x6000, look?.Sub ?? (ushort)0x7000, look?.Range ?? (ushort)0x8000,
             });
         }
+
+        /// <summary>The wire direction a mannequin stands at for a 0x0FA rotation.</summary>
+        public static byte FacingOf(int rotation) => (byte)(FacingAtRotationZero - rotation * 64);
+
+        /// <summary>The race in the item's extra data, which wins over the item id: retail's item 260 held Hume (2026-11-06).</summary>
+        private byte RaceInExtData(FurniturePlacement piece) =>
+            _inventory.GetContainer(piece.Container).TryGetItem(piece.Slot, out var item) ? MannequinGear.Read(item).Race : (byte)0;
 
         /// <summary>Turns the mannequin whose window is open.</summary>
         public void Spin(FurniturePlacement? mannequin, float seconds)

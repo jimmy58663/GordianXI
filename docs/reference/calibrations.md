@@ -245,6 +245,10 @@ Dates in the evidence column are the dates the docs give.
 | Grid cell 0.6 yalm, centred on the room | `MogHouseFurniture.CellSize` | San d'Oria room's rug against the retail video `20261104-0517-47` (confirmed by mesh sizes) |
 | Camera 9.16 yalms up, eye 0.53 north, pan box 4 x 2 yalms, ease 0.6 s | `MogHouseLayoutCamera` | fitted to that video, provisional |
 | Walls at x +-6.5; wall pieces 2.5 up; slots at z +-4.8, 0 | `MogHouseFurniture` | video and XiPackets' slot diagram, provisional |
+| Mannequin spin 2.0 s per turn, clockwise from above | `MogHouseMannequins.SpinSecondsPerTurn` | retail capture `Mog_House_Mannequin_Spin.mp4`, 2026-11-06 |
+| Mannequin window view 2.8 yalms away | `MogHouseLayoutCamera.MannequinDistance` | same capture: body about 60% of the screen's height at the 60 degree field of view; heights 1.3 / 1.1 provisional |
+| Mannequin faces wire direction 128 - 64 x rotation | `MogHouseMannequins.FacingOf` | retail 0x0FA packets and images, 2026-11-06: v2 east, v1 south measured; v0 west, v3 north from images only |
+| A menu press lowers the rotation by 1 | `MogHouseLayoutState.TurnHeld` | retail 0x0FA packets, 2026-11-06 (v2 to v1) |
 | Ceiling left out above 4.9 yalms | `MogHouseFurnitureScene.CeilingHeight` | San d'Oria room's meshes (`m_san01_b` 5-7.4, lamp from 4.6) |
 
 ## Player size

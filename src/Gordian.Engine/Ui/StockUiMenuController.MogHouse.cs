@@ -115,7 +115,37 @@ namespace Gordian.Engine.Ui
             {
                 menu.SetGreyed(Safe2Locked ? new HashSet<int> { StockUiMogHouse.SafeMenuSafe2Button } : null);
             }
+            else if (menu.Name.Equals(StockUiMogHouse.LayoutFloorMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                menu.SetGreyed(GreyedRemoveRows(null, StockUiMogHouse.FloorRemoveAllButton));
+            }
+            else if (menu.Name.Equals(StockUiMogHouse.LayoutPieceMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                menu.SetGreyed(GreyedRemoveRows(StockUiMogHouse.PieceRemoveButton, StockUiMogHouse.PieceRemoveAllButton));
+            }
+            else if (menu.Name.Equals(StockUiMogHouse.LayoutMannequinMenu, StringComparison.OrdinalIgnoreCase))
+            {
+                menu.SetGreyed(GreyedRemoveRows(StockUiMogHouse.MannequinRemoveButton, StockUiMogHouse.MannequinRemoveAllButton));
+            }
         }
+
+        /// <summary>
+        /// Which of a Layout menu's rows the Storage forbids: the retail client greys Remove and Remove All rather than sending them
+        /// (<c>rmlo4</c>, 2026-11-06; that the Storage is why is inferred from LandSandBoat's 0x0FB rule). Null when neither is.
+        /// </summary>
+        private HashSet<int>? GreyedRemoveRows(int? removeButton, int removeAllButton)
+        {
+            var layout = MogHouseLayout;
+            int used = StorageUsed();
+            var greyed = new HashSet<int>();
+            if (removeButton is { } remove && layout.Selected is { } piece && !layout.StorageAllowsRemoving(piece, used, StorageOf)) greyed.Add(remove);
+            if (!layout.StorageAllowsClearing(used)) greyed.Add(removeAllButton);
+            return greyed.Count > 0 ? greyed : null;
+        }
+
+        private int StorageUsed() => Inventory?.SnapshotItems(ContainerId.Storage).Count(i => i.ItemId != 0) ?? 0;
+
+        private int StorageOf(ushort itemId) => ItemLookup?.Invoke(itemId)?.FurnitureStorage ?? 0;
 
         /// <summary>Whether Mog Safe 2 is open to the character; set by the session.</summary>
         public Func<bool>? MogSafe2Unlocked { get; set; }
@@ -214,8 +244,7 @@ namespace Gordian.Engine.Ui
         private bool ClearAway(IStockUiMogHouse house, FurniturePlacement piece)
         {
             var layout = MogHouseLayout;
-            int used = Inventory?.SnapshotItems(ContainerId.Storage).Count(i => i.ItemId != 0) ?? 0;
-            if (!layout.StorageAllowsRemoving(piece, used, id => ItemLookup?.Invoke(id)?.FurnitureStorage ?? 0)) return false;
+            if (!layout.StorageAllowsRemoving(piece, StorageUsed(), StorageOf)) return false;
             layout.UpdatePiece(piece with { Installed = false });
             if (layout.Selected == null) layout.SelectFirst();
             Changed?.Invoke();
@@ -233,6 +262,7 @@ namespace Gordian.Engine.Ui
             layout.Active = true;
             Array.Clear(_layoutRepeat);
             CloseAll();
+            NoticePosted?.Invoke(StockUiMogHouse.LayoutEntryNotice);
         }
 
         /// <summary>

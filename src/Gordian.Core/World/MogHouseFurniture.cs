@@ -124,7 +124,8 @@ namespace Gordian.Core.World
         /// <summary>
         /// Where a floor piece's mesh goes in display space (-x, -y, z), its origin at the footprint's middle, raised by its
         /// stacking level (C2S 0x0FA <c>y</c>, tenths of a yalm), turned a quarter clockwise per <paramref name="rotation"/>
-        /// (<b>provisional</b>: which way is not checked against retail).
+        /// (<b>provisional</b>: which way is not checked against retail for meshes; a mannequin's facing goes the other way as v
+        /// rises, see <c>MogHouseMannequins</c>).
         /// </summary>
         public static Matrix4x4 FloorTransform(in FurnitureInfo info, int x, int z, int level, int rotation, bool secondFloor)
         {

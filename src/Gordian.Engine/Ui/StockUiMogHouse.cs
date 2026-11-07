@@ -121,6 +121,16 @@ namespace Gordian.Engine.Ui
         public const int MannequinHelp = 604;
         public const string LayoutTitle = "Layout";
 
+        /// <summary><c>rmlo1</c>'s Remove All; <c>rmlo2</c>'s Remove and Remove All; <c>rmlo4</c>'s.</summary>
+        public const int FloorRemoveAllButton = 2, PieceRemoveButton = 2, PieceRemoveAllButton = 4, MannequinRemoveButton = 3, MannequinRemoveAllButton = 5;
+
+        /// <summary>
+        /// What the log shows each time Layout opens: the client prints it itself, no 0x009 or 0x053 came (retail, 2026-11-06). It is
+        /// system message 54 (file 7031), whose <c>17 06</c> before the text is the "Moogle : " the log showed, which the message
+        /// formatter does not read yet, so the whole line is held here.
+        /// </summary>
+        public const string LayoutEntryNotice = "Moogle : You can place new furnishings by selecting \"Layout,\" kupo!";
+
         public const string StorageFullNotice = "You must take items out of your Storage before removing that.";
         public const string LockedGearNotice = "Another mannequin is wearing that.";
         public const string OtherFloorNotice = "That is placed on the other floor.";
@@ -264,6 +274,12 @@ namespace Gordian.Engine.Ui
             return storageUsed <= Math.Min(MogHouseFurniture.MaxStorage, Math.Max(0, total - storageOf(piece.ItemId)));
         }
 
+        /// <summary>
+        /// Whether every piece on the floor shown can leave: clearing the first floor leaves the Storage no slots, the second
+        /// floor's pieces give none.
+        /// </summary>
+        public bool StorageAllowsClearing(int storageUsed) => SecondFloor || storageUsed == 0;
+
         /// <summary>Whether a piece stands on the floor shown.</summary>
         public bool IsShown(FurniturePlacement piece) => piece.Installed && piece.SecondFloor == SecondFloor;
 
@@ -384,7 +400,7 @@ namespace Gordian.Engine.Ui
         internal void TurnHeld()
         {
             if (HeldInfo is not { IsWall: false }) return;
-            Rotation = (byte)((Rotation + 1) & 3);
+            Rotation = (byte)((Rotation + 3) & 3); // a press lowers v (retail 0x0FA, 2026-11-06)
             ClampHeld();
         }
 
@@ -469,8 +485,12 @@ namespace Gordian.Engine.Ui
     {
         public const float Height = 9.16f, EyeNorth = 0.53f, BoxX = 4.0f, BoxZ = 2.0f, BlendSeconds = 0.6f, PanRate = 6.0f;
 
-        /// <summary>The Mannequin window's view (image-49, <b>provisional</b>): from the room side, this far away and this high, at the mannequin's chest.</summary>
-        public const float MannequinDistance = 3.0f, MannequinEyeHeight = 1.3f, MannequinLookHeight = 1.1f;
+        /// <summary>
+        /// The Mannequin window's view: from the room side, this far away and this high, at the mannequin's chest. The distance puts
+        /// the body at about 60% of the screen's height (retail capture <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06); the heights
+        /// are image-49's, <b>provisional</b>.
+        /// </summary>
+        public const float MannequinDistance = 2.8f, MannequinEyeHeight = 1.3f, MannequinLookHeight = 1.1f;
 
         private Vector3? _mannequin;
         private float _mannequinBlend;

@@ -321,6 +321,8 @@ namespace Gordian.Engine.Tests.Ui
 
             // Remove: 0x0FB, and the cursor goes on to the mannequin.
             h.Menus.ConfirmLayoutCell();
+            Assert.False(h.Menus.Top!.IsGreyed(StockUiMogHouse.PieceRemoveButton));
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.PieceRemoveAllButton)); // the Storage still holds 2
             h.Choose(2);
             Assert.Equal(new[] { $"0x0FB {SimpleBed} {(byte)ContainerId.MogSafe}:1" }, h.House.Sent);
             Assert.Equal(HumeMannequin, layout.Selected?.ItemId);
@@ -509,6 +511,8 @@ namespace Gordian.Engine.Tests.Ui
             mannequins.Sync(inRoom: true);
             Assert.Equal(0x1012, shown.Appearance.Head);
             Assert.Equal((3 << 8) | MogHouseMannequins.FaceModel, shown.Appearance.FaceModel);
+            Assert.Equal(MogHouseMannequins.FacingOf(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin).Rotation), shown.Direction);
+            Assert.Equal(new byte[] { 128, 64, 0, 192 }, new[] { 0, 1, 2, 3 }.Select(MogHouseMannequins.FacingOf)); // W, S, E, N
             byte facing = shown.Direction;
             mannequins.Spin(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin), MogHouseMannequins.SpinSecondsPerTurn / 4);
             Assert.Equal((byte)(facing + 64), shown.Direction);
@@ -579,10 +583,12 @@ namespace Gordian.Engine.Tests.Ui
             var layout = h.Menus.MogHouseLayout;
             for (byte slot = 10; slot < 38; slot++) h.Inventory.SetItemAttributes(ContainerId.Storage, slot, LeatherVest, 1, 0, ItemLockFlag.Normal, ReadOnlySpan<byte>.Empty);
             h.Menus.ConfirmLayoutCell();
-            h.Choose(2); // Remove the bed: 30 items, 28 slots left
-            Assert.Equal(StockUiMogHouse.StorageFullNotice, h.Notices.Last());
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.PieceRemoveButton)); // the bed: 30 items, 28 slots left
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.PieceRemoveAllButton));
+            h.Choose(2);
             Assert.Empty(h.House.Sent);
             Assert.Equal(SimpleBed, layout.Selected?.ItemId);
+            h.Menus.CloseAll();
 
             for (byte slot = 12; slot < 38; slot++) h.Inventory.RemoveItem(ContainerId.Storage, slot);
             h.Menus.ConfirmLayoutCell();
