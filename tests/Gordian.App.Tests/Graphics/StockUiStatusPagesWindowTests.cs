@@ -184,6 +184,15 @@ namespace Gordian.App.Tests.Graphics
             RenderOpen(screen, menus, "gpu_status_merit_question.png");
             menus.Activate(); // No
             Assert.Equal(StockUiProgression.MeritEditMenu, menus.Top!.Name);
+            // Raise, Yes: the question in words above the log (retail client, 2026-11-07).
+            menus.Activate();
+            menus.Top!.SelectedButtonId = 1;
+            menus.Activate();
+            for (int i = 0; i < 1000 && menus.Top?.Message == null; i++) System.Threading.Thread.Sleep(10);
+            Assert.StartsWith("Use ", menus.Top!.Message);
+            shot = RenderOpen(screen, menus, "gpu_status_merit_question_words.png");
+            Assert.True(Enumerable.Range((int)screen.Height - 448 + 208, 30).Any(y => screen.HasLightPixel(shot, 16 + 6, 16 + 120, y, threshold: 150)), "no question text");
+            menus.CloseTop();
             menus.CloseTop();
             menus.CloseTop();
             // A job's merits under their group headers: Puppetmaster, the main job here.
@@ -251,7 +260,26 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(StockUiProgressionList.UnityInfo, menus.Top!.ProgressionList);
             Assert.Equal("Naja Salaheem", menus.Top!.Rows[0].Value);
             Assert.Equal("1", menus.Top!.Rows[2].Value);
-            RenderOpen(screen, menus, "gpu_status_unity_info.png", party);
+            shot = RenderOpen(screen, menus, "gpu_status_unity_info.png", party);
+            // Unity Information's title in quest00's frame (retail client, 2026-11-07).
+            Assert.True(screen.HasLightPixel(shot, 16 + 80, 16 + 200, 48 + 11 + 6, threshold: 150), "no Unity Information title");
+            menus.CloseTop();
+            menus.Top!.SelectedButtonId = StockUiStatusPages.UnityRankingButton;
+            menus.Activate(); // Ranking Info: the choice
+            RenderOpen(screen, menus, "gpu_status_unity_ranking_choice.png", party);
+            menus.Move(InputAction.MenuDown);
+            menus.Activate(); // Partial Ranking Results
+            Assert.Equal(StockUiProgressionList.UnityRankingList, menus.Top!.ProgressionList);
+            shot = RenderOpen(screen, menus, "gpu_status_unity_ranking.png", party);
+            Assert.True(Enumerable.Range(48 + 64, 18).Any(y => screen.HasLightPixel(shot, 16 + 290, 16 + 330, y, threshold: 150)), "no points");
+            menus.CloseTop();
+            menus.CloseTop();
+            menus.Top!.SelectedButtonId = 3;
+            menus.Activate(); // Unity Lists: five rows above the log
+            Assert.Equal(StockUiProgression.UnityListsMenu, menus.Top!.Name);
+            RenderOpen(screen, menus, "gpu_status_unity_lists.png", party);
+            menus.CloseTop();
+            menus.CloseTop();
 
             // Play Time: one line in the echo colour.
             OpenStatusEntry(menus, StockUiStatus.PlayTimeButton);

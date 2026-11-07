@@ -128,12 +128,15 @@ namespace Gordian.App.Graphics
         private static readonly (byte R, byte G, byte B)[] BarTrack = [(88, 96, 140), (70, 78, 120)];
         private static readonly (byte R, byte G, byte B)[] BarFill = [(238, 160, 200), (214, 130, 176)];
 
-        /// <summary>A Records of Eminence list's title between the DAT's red arrows.</summary>
+        /// <summary>
+        /// A Records of Eminence list's or Unity window's title: between the DAT's red arrows on the RoE lists and the Unity
+        /// rankings, further in without them on Unity Info and Ranking Info (retail client, 2026-11-07).
+        /// </summary>
         public static void DrawRoeTitle(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu, StockUiPlacement at)
         {
             float s = at.Scale;
-            Text(renderer, font, logFont, menu.RoeListTitle, at.X + RoeTitleX * s, at.Y + RoeTitleY * s, s, White);
-            if (library.TryGetGroup("frames", out var frames) && frames.Images.Count > 26)
+            Text(renderer, font, logFont, menu.RoeListTitle, at.X + (menu.ListTitleArrows ? RoeTitleX : PlainTitleX) * s, at.Y + RoeTitleY * s, s, White);
+            if (menu.ListTitleArrows && library.TryGetGroup("frames", out var frames) && frames.Images.Count > 26)
             {
                 renderer.DrawImage(frames.Images[25], at.X + RoeArrowLeft * s, at.Y + RoeArrowY * s, s);
                 renderer.DrawImage(frames.Images[26], at.X + RoeArrowRight * s, at.Y + RoeArrowY * s, s);
@@ -160,6 +163,39 @@ namespace Gordian.App.Graphics
                 StockUiMenuWindow.DrawShades(renderer, BarFill, bx, by, bx + bw * Math.Min(1f, have / (float)need), bh);
             float ts = s * StockUiPartyWindow.TextScale;
             renderer.DrawText(font, value, bx + bw - font.MeasureWidth(value) * ts, by - 3 * s, ts, White);
+        }
+
+        /// <summary>The Unity windows' places (retail client on local LandSandBoat, 2026-11-07, UI 1:1).</summary>
+        private const float PlainTitleX = 80, UnityLabelX = 20, UnityLeaderValueX = 180, UnityValueX = 220, UnityChoiceBallX = 36, UnityChoiceBulletRowX = 41,
+            UnityChoiceTextX = 62, UnityRankBulletRowX = 39, UnityRankX = 56, UnityRankNameX = 96, UnityRankPointsX = 290;
+
+        /// <summary>
+        /// A Unity window's row (retail client, 2026-11-07). Unity Info: the labels and their values, then Active and Inactive, the
+        /// setting in effect behind a green ball and the other behind a bullet. A ranking: a bullet, the rank, the leader and "0pt".
+        /// </summary>
+        public static void DrawUnityRow(StockUiRenderer renderer, UiFont font, StockUiLogFont? logFont, StockUiProgressionList list, StockUiListRow row, bool selected,
+            StockUiPlacement at, float y, float height)
+        {
+            float s = at.Scale, ty = RowTextY(font, logFont, y, height, s);
+            var tint = selected ? SelectedTint : White;
+            if (list == StockUiProgressionList.UnityRankingList)
+            {
+                Bullet(renderer, at.X + UnityRankBulletRowX * s, y, height, s);
+                if (row.Note is { } rank) Text(renderer, font, logFont, rank, at.X + UnityRankX * s, ty, s, tint);
+                Text(renderer, font, logFont, row.Text, at.X + UnityRankNameX * s, ty, s, tint);
+                if (row.Value is { } points) Text(renderer, font, logFont, points, at.X + UnityRankPointsX * s, ty, s, tint);
+                return;
+            }
+            if (row.ButtonId >= StockUiProgression.UnityChatActiveRow)
+            {
+                if (row.Marked) Ball(renderer, at.X + UnityChoiceBallX * s, y + (height - RoeBallSize) * 0.5f * s, RoeBallSize * s);
+                else Bullet(renderer, at.X + UnityChoiceBulletRowX * s, y, height, s);
+                Text(renderer, font, logFont, row.Text, at.X + UnityChoiceTextX * s, ty, s, tint);
+                return;
+            }
+            Text(renderer, font, logFont, row.Text, at.X + UnityLabelX * s, ty, s, White);
+            if (row.Value is { Length: > 0 } value)
+                Text(renderer, font, logFont, value, at.X + (row.ButtonId == 1 ? UnityLeaderValueX : UnityValueX) * s, ty, s, White);
         }
 
         /// <summary>The green ball of an objective: the bullet's ball drawn larger.</summary>

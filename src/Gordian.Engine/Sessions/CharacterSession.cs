@@ -389,6 +389,9 @@ namespace Gordian.Engine.Sessions
             Progression.MeritsUpdated += ActionService.Menus.OnStatusPointsChanged;
             Progression.JobPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
             Progression.AlterEgoPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
+            // Alter Ego Points' items: S2C 0x08E's costs, spent with C2S 0x0C1 (retail client, 2026-11-07).
+            ActionService.Menus.AlterEgoNextCost = category => Progression.GetAlterEgoNextCost(category);
+            ActionService.Menus.AlterEgoSpent = category => LoginDataModule.SendAlterEgoUpgradeAsync(category);
             // Merit Points' Categories, spending job points, the Unity windows (#491, #94) and Records of Eminence (#493): C2S
             // 0x0BE kind 3, 0x0BF, 0x116-0x118, 0x10C / 0x10D; the open lists follow S2C 0x08C / 0x08D / 0x063 / 0x111 / 0x112.
             ActionService.Menus.Merits = Merits;

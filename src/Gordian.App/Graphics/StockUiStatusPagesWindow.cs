@@ -89,7 +89,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static string TitleOf(StockUiOpenMenu list) => list.ProgressionList switch
         {
-            StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityLeaders => "Unity",
+            StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityRankingList or StockUiProgressionList.UnityLeaders => "Unity",
             _ when list.IsRoeList => StockUiRecordsOfEminence.HelpTitle,
             _ => list.StatusWindow is StockUiStatusPage.Currencies or StockUiStatusPage.Currencies2
                 ? StockUiStatusPages.CurrenciesTitle

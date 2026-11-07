@@ -550,13 +550,14 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// Requests the Unity Concord menu data as retail does: block 0, then block 1 (C2S 0x116); each is
-        /// answered with 32 S2C 0x063 packets.
+        /// Requests the Unity Concord menu data as retail does: block 1, then block 0 (C2S 0x116; the retail client on local
+        /// LandSandBoat, 2026-11-07, sent kind 1 first); each is answered with 32 S2C 0x063 packets.
         /// </summary>
         public async Task SendUnityMenuAsync()
         {
-            for (uint blockIndex = 0; blockIndex < 2; blockIndex++)
+            for (int block = 1; block >= 0; block--)
             {
+                uint blockIndex = (uint)block;
                 byte[] packet = ProgressionPacketBuilder.BuildUnityMenu(blockIndex, NextSequence());
                 LogOutbound(0x116, packet);
                 await _sendChunkCallback(packet, true).ConfigureAwait(false);

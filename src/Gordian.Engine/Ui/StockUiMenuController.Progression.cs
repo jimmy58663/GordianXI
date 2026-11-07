@@ -45,6 +45,18 @@ namespace Gordian.Engine.Ui
 
         /// <summary>A Records of Eminence list (#493).</summary>
         public bool IsRoeList => ProgressionList is StockUiProgressionList.RoeCategories or StockUiProgressionList.RoeObjectives or StockUiProgressionList.RoeCurrent;
+
+        /// <summary>A Unity window in <c>quest00</c>'s frame: Unity Info, Ranking Info's choice and the rankings (retail client, 2026-11-07).</summary>
+        public bool IsUnityQuestList => ProgressionList is StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityRankingList;
+
+        /// <summary>A list in <c>quest00</c>'s frame with a title over its rows (<see cref="RoeListTitle"/>).</summary>
+        public bool IsQuestFrameList => IsRoeList || IsUnityQuestList;
+
+        /// <summary>Whether the title stands between the red page arrows: the RoE lists and the Unity rankings, not Unity Info or Ranking Info.</summary>
+        public bool ListTitleArrows => IsRoeList || ProgressionList == StockUiProgressionList.UnityRankingList;
+
+        /// <summary>Where a Status list's notes start ("NEXT 1 P"), UI units from the window's left; null for the merits' column.</summary>
+        public float? StatusNoteX { get; internal set; }
     }
 
     public sealed partial class StockUiMenuController
@@ -100,6 +112,12 @@ namespace Gordian.Engine.Ui
         /// <summary>Removes an objective (C2S 0x10D) by objective id. Set by the session.</summary>
         public Func<int, Task>? RoeRemoved { get; set; }
 
+        /// <summary>An alter ego item's next cost (S2C 0x08E <c>next</c>); set by the session.</summary>
+        public Func<Gordian.Core.Network.Packets.AlterEgoCategory, int>? AlterEgoNextCost { get; set; }
+
+        /// <summary>Raises an alter ego item: C2S 0x0C1 with its kind. Set by the session.</summary>
+        public Func<Gordian.Core.Network.Packets.AlterEgoCategory, Task>? AlterEgoSpent { get; set; }
+
         private string ShortText(int id, string fallback) => MenuStringText?.Invoke(id) is { Length: > 0 } text ? text : fallback;
 
         private IReadOnlyList<StockUiMerit> CurrentMerits() => Merits?.Invoke() ?? Array.Empty<StockUiMerit>();
@@ -120,11 +138,11 @@ namespace Gordian.Engine.Ui
                     lock (_sync) OpenProgressionList(StockUiProgressionList.UnityInfo, -1, from, StockUiProgression.UnityChatActiveRow - 1);
                     break;
                 case StockUiProgressionAction.UnityRanking:
-                    UnityQuestRequested?.Invoke();
                     lock (_sync) OpenProgressionList(StockUiProgressionList.UnityRanking, -1, from, 0);
                     break;
                 case StockUiProgressionAction.UnityLists:
-                    lock (_sync) OpenProgressionList(StockUiProgressionList.UnityLeaders, -1, from, Math.Max(0, (UnityInfo?.Invoke()?.Leader ?? 1) - 1));
+                    // The cursor starts on "Unity", the first row (retail client, 2026-11-07).
+                    lock (_sync) OpenProgressionList(StockUiProgressionList.UnityLeaders, -1, from, 0);
                     break;
             }
             Changed?.Invoke();
@@ -137,9 +155,9 @@ namespace Gordian.Engine.Ui
             StockUiProgressionList.Merits => (StockUiProgression.MeritListMenu, StockUiProgression.MeritListHelp, StockUiStatusPage.MeritPoints),
             StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts =>
                 (StockUiStatusPages.JobPointMenu, StockUiProgression.JobPointCategoryHelp, StockUiStatusPage.JobPoints),
-            StockUiProgressionList.UnityInfo => (StockUiProgression.MeritCategoryMenu, -1, StockUiStatusPage.Unity),
-            StockUiProgressionList.UnityRanking => (StockUiProgression.MeritCategoryMenu, -1, StockUiStatusPage.Unity),
-            StockUiProgressionList.UnityLeaders => (StockUiProgression.MeritCategoryMenu, StockUiProgression.UnityListHelp, StockUiStatusPage.Unity),
+            StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityRankingList =>
+                (StockUiRecordsOfEminence.ListMenu, -1, StockUiStatusPage.Unity),
+            StockUiProgressionList.UnityLeaders => (StockUiProgression.UnityListsMenu, StockUiProgression.UnityListHelp, StockUiStatusPage.Unity),
             _ => (StockUiRecordsOfEminence.ListMenu, -1, StockUiStatusPage.None),
         };
 
@@ -165,9 +183,11 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.UnityInfo:
                     return (StockUiProgression.UnityInfoRows(UnityInfo?.Invoke(), UnityChatActive, MenuStringText), Array.Empty<int>());
                 case StockUiProgressionList.UnityRanking:
-                    return (StockUiProgression.UnityRankingRows(UnityInfo?.Invoke(), MenuStringText), Array.Empty<int>());
+                    return (StockUiProgression.UnityRankingChoiceRows(MenuStringText), new[] { 0, 1 });
+                case StockUiProgressionList.UnityRankingList:
+                    return (StockUiProgression.UnityRankingRows(UnityInfo?.Invoke(), key == 1, MenuStringText), Array.Empty<int>());
                 case StockUiProgressionList.UnityLeaders:
-                    return (StockUiProgression.UnityLeaderRows(UnityInfo?.Invoke()?.Leader ?? 0, MenuStringText), Array.Empty<int>());
+                    return StockUiProgression.UnityListsRows(MenuStringText);
                 case StockUiProgressionList.RoeCategories:
                 case StockUiProgressionList.RoeObjectives:
                     return RoeTables?.Invoke() is { } tables ? StockUiRecordsOfEminence.CategoryRows(tables, key, RoeState?.Invoke())
@@ -184,20 +204,29 @@ namespace Gordian.Engine.Ui
         {
             var (menu, help, page) = ProgressionWindow(list);
             var (rows, keys) = ProgressionRows(list, key);
-            // The Records of Eminence lists: quest00's frame with rows of their own.
-            bool roe = list is StockUiProgressionList.RoeCategories or StockUiProgressionList.RoeObjectives or StockUiProgressionList.RoeCurrent;
+            // The Records of Eminence lists and the Unity windows: quest00's frame with rows of their own.
+            bool roe = list is StockUiProgressionList.RoeCategories or StockUiProgressionList.RoeObjectives or StockUiProgressionList.RoeCurrent
+                or StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityRankingList;
             var definition = roe ? QuestLogDefinition(StockUiRecordsOfEminence.ListMenu, StockUiRecordsOfEminence.ListRows, StockUiQuestLog.KindRowX - StockUiStatusPages.ListRowInset,
                 i => StockUiRecordsOfEminence.ListRowY + i * StockUiRecordsOfEminence.ListRowPitch, StockUiQuestLog.PickerRowWidth, StockUiQuestLog.PickerRowHeight, Array.Empty<int>()) : null;
             var open = OpenStatusList(page, menu, from, rows, help >= 0 ? new[] { help } : Array.Empty<int>(), cursor, progression: list, key: key, keys: keys, listWindow: definition);
             if (open != null && roe) open.RoeListTitle = RoeTitle(list, key);
             if (open != null && list == StockUiProgressionList.JobPointCategories) open.StatusValueRight = StockUiProgression.JobPointValueRight;
             if (open != null && list == StockUiProgressionList.Merits) open.StatusValueRight = StockUiProgression.MeritValueRight;
+            if (open != null && list == StockUiProgressionList.UnityLeaders) open.StatusNoteX = StockUiProgression.UnityListsShortNameX;
             return open;
         }
 
-        /// <summary>A Records of Eminence list's title.</summary>
+        /// <summary>A Records of Eminence list's or Unity window's title.</summary>
         private string RoeTitle(StockUiProgressionList list, int key)
         {
+            switch (list)
+            {
+                case StockUiProgressionList.UnityInfo: return ShortText(StockUiProgression.UnityInfoTitle, "Unity Information");
+                case StockUiProgressionList.UnityRanking: return ShortText(StockUiProgression.RankingTitle, "Ranking Information");
+                case StockUiProgressionList.UnityRankingList:
+                    return key == 1 ? ShortText(StockUiProgression.PartialRankingResultsTitle, "Partial Ranking Results") : ShortText(StockUiProgression.RankingResultsTitle, "Ranking Results");
+            }
             if (list == StockUiProgressionList.RoeCurrent)
                 return StockUiRecordsOfEminence.ListTitle(ShortText(StockUiRecordsOfEminence.CurrentText, "Current"), StockUiRecordsOfEminence.ActiveCount(RoeState?.Invoke()));
             if (list == StockUiProgressionList.RoeCategories) return ShortText(StockUiRecordsOfEminence.ObjectiveListText, "Objective List");
@@ -207,6 +236,7 @@ namespace Gordian.Engine.Ui
         /// <summary>Left / Right on a category's list: the category beside it in the list it was opened from (retail client). Call under the lock.</summary>
         private bool TryMoveRoeCategory(InputAction direction)
         {
+            if (TryMoveUnity(direction)) return true;
             if (direction is not (InputAction.MenuLeft or InputAction.MenuRight) || Top is not { IsRoeList: true } top) return false;
             if (top.ProgressionList != StockUiProgressionList.RoeObjectives || top.Parent is not { IsRoeList: true } parent) return true;
             var siblings = new List<int>();
@@ -224,6 +254,38 @@ namespace Gordian.Engine.Ui
             top.FirstRow = 0;
             top.ScrollFrom = 0;
             top.SelectedButtonId = rows.Count > 0 ? 1 : 0;
+            return true;
+        }
+
+        /// <summary>
+        /// The Unity windows' cursor (retail client, 2026-11-07): Unity Info's moves only between Active and Inactive; Left / Right
+        /// on a ranking turns to the other (Ranking Results, Partial Ranking Results) and does nothing on the others. Call under the lock.
+        /// </summary>
+        private bool TryMoveUnity(InputAction direction)
+        {
+            if (Top is not { IsUnityQuestList: true } top) return false;
+            bool sideways = direction is InputAction.MenuLeft or InputAction.MenuRight;
+            if (top.ProgressionList == StockUiProgressionList.UnityInfo)
+            {
+                if (direction is InputAction.MenuUp or InputAction.MenuDown)
+                {
+                    top.SelectedButtonId = direction == InputAction.MenuUp ? StockUiProgression.UnityChatActiveRow : StockUiProgression.UnityChatInactiveRow;
+                    return true;
+                }
+                return sideways;
+            }
+            if (!sideways) return false;
+            if (top.ProgressionList == StockUiProgressionList.UnityRankingList)
+            {
+                top.ProgressionKey = top.ProgressionKey == 1 ? 0 : 1;
+                var (rows, keys) = ProgressionRows(top.ProgressionList, top.ProgressionKey);
+                top.Rows = rows;
+                top.RowKeys = keys;
+                top.RoeListTitle = RoeTitle(top.ProgressionList, top.ProgressionKey);
+                top.FirstRow = 0;
+                top.ScrollFrom = 0;
+                top.SelectedButtonId = rows.Count > 0 ? 1 : 0;
+            }
             return true;
         }
 
@@ -261,8 +323,8 @@ namespace Gordian.Engine.Ui
                     Changed?.Invoke();
                     break;
                 case StockUiProgressionList.Merits when rowKey > 0:
-                    // The retail client: outside a Mog House it says so and opens nothing. Another job's merits are greyed:
-                    // that Confirm does nothing there is PROVISIONAL (not tried on the retail client).
+                    // The retail client: outside a Mog House it says so and opens nothing. Another job's merits are greyed, and
+                    // Confirm on them does nothing (2026-11-07, Warrior's on a Bard).
                     if (InMogHouse?.Invoke() != true)
                     {
                         NoticePosted?.Invoke(StockUiProgression.OutsideMogHouse);
@@ -294,9 +356,14 @@ namespace Gordian.Engine.Ui
                     if (list.SelectedStatusRow + 1 is StockUiProgression.UnityChatActiveRow or StockUiProgression.UnityChatInactiveRow)
                         SetUnityChat(list.SelectedStatusRow + 1 == StockUiProgression.UnityChatActiveRow);
                     break;
-                case StockUiProgressionList.UnityLeaders:
-                    // "Display the members logged in to the designated Unity." (help 888): a search by Unity, not decoded yet.
-                    NoticePosted?.Invoke("Unity Lists: searching a Unity's members is not available yet.");
+                case StockUiProgressionList.UnityRanking when rowKey >= 0:
+                    // The retail client sends C2S 0x117 as a ranking opens (2026-11-07), not as Ranking Info does.
+                    UnityQuestRequested?.Invoke();
+                    lock (_sync) OpenProgressionList(StockUiProgressionList.UnityRankingList, rowKey, list, 0);
+                    Changed?.Invoke();
+                    break;
+                case StockUiProgressionList.UnityLeaders when rowKey >= 0:
+                    SearchUnity(rowKey, list);
                     break;
                 case StockUiProgressionList.RoeCategories:
                 case StockUiProgressionList.RoeObjectives:
@@ -335,8 +402,11 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// <c>merit3</c>'s Raise or Lower: asks in the bare <c>yesno</c> box beneath it, the cursor on No (retail client, 2026-11-06;
-        /// <c>merit3</c> stays open), then sends C2S 0x0BE kind 3. Raising needs the merit's next cost in merit points held.
+        /// <c>merit3</c>'s Raise or Lower (retail client on local LandSandBoat, 2026-11-07): asks in the bare <c>yesno</c> box beneath
+        /// it ("Commands"), the cursor on No; Yes asks again in words above the log ("Use 1 merit point to raise your "Lullaby
+        /// Recast" by one level?", or Lower's "will not be reimbursed"), the cursor on No; Yes sends C2S 0x0BE kind 3 and closes
+        /// <c>merit3</c>. A merit at its most is asked the same, with the cost the server sent. Raising needs that cost in merit
+        /// points held (PROVISIONAL: not tried short of points).
         /// </summary>
         private void EditMerit(int meritId, bool raise, StockUiOpenMenu edit)
         {
@@ -347,9 +417,10 @@ namespace Gordian.Engine.Ui
             {
                 if (m.Id == meritId) merit = m;
             }
-            if (raise && merit is { } r && (StockUiProgression.NextCost(r) == 0 || (StatusPoints?.Invoke()?.MeritPoints ?? 0) < r.Next))
+            int cost = merit?.Next ?? 0;
+            if (raise && merit != null && (StatusPoints?.Invoke()?.MeritPoints ?? 0) < cost)
             {
-                NoticePosted?.Invoke(StockUiProgression.NextCost(r) == 0 ? $"{name} cannot be raised any further." : $"You do not have enough merit points to raise {name}.");
+                NoticePosted?.Invoke($"You do not have enough merit points to raise {name}.");
                 return;
             }
             if (MeritChanged is not { } send)
@@ -359,9 +430,124 @@ namespace Gordian.Engine.Ui
             }
             var prompt = OpenPlacedPrompt(StockUiMenuEntries.YesNoMenu, UiAnchor.TopRight, StockUiProgression.MeritPromptX, StockUiProgression.MeritPromptY, null, false, answer =>
             {
-                if (answer == true) _ = send(meritId, raise);
+                if (answer != true) return;
+                string question = raise ? StockUiProgression.MeritRaiseQuestion(cost, name) : StockUiProgression.MeritLowerQuestion(name);
+                OpenWidePrompt(question, yes =>
+                {
+                    if (!yes) return;
+                    _ = send(meritId, raise);
+                    CloseMenu(edit);
+                });
             });
             if (prompt != null) prompt.PromptTitle = StockUiProgression.MeritPromptTitle;
+        }
+
+        /// <summary>
+        /// A question in words above the log with Yes / No at its foot, the cursor on No: the merit and alter ego questions (retail
+        /// client, 2026-11-07). Retail draws it 366 wide at x 16, <c>comyn</c>'s buttons where <c>comyn</c> has them; the frame is
+        /// <c>query</c>'s (366 x 88 at 16,208), the text upright from the top left.
+        /// </summary>
+        private void OpenWidePrompt(string question, Action<bool> answered)
+        {
+            var library = _library;
+            if (library == null || !library.TryGetMenu(StockUiMenuEntries.MessageYesNoMenu, out var yesNo) || !library.TryGetMenu(WidePromptFrame, out var wide))
+            {
+                var fallback = OpenYesNo(question, defaultYes: false, answer => answered(answer == true));
+                if (fallback != null) fallback.PromptTextLeft = true;
+                return;
+            }
+            int shift = yesNo.Frame.X - wide.Frame.X;
+            var buttons = new List<UiMenuButton>(yesNo.Buttons.Count);
+            foreach (var b in yesNo.Buttons)
+            {
+                buttons.Add(new UiMenuButton
+                {
+                    X = (short)(b.X + shift), Y = b.Y, CursorOffsetX = b.CursorOffsetX, CursorOffsetY = b.CursorOffsetY, Width = b.Width, Height = b.Height,
+                    SelectRectOffsetX = b.SelectRectOffsetX, SelectRectOffsetY = b.SelectRectOffsetY, ButtonId = b.ButtonId,
+                    NavUp = b.NavUp, NavDown = b.NavDown, NavLeft = b.NavLeft, NavRight = b.NavRight, Shapes = b.Shapes,
+                    HelpTextId = b.HelpTextId, TitleTextId = b.TitleTextId,
+                });
+            }
+            var f = yesNo.Frame;
+            var w = wide.Frame;
+            var definition = new UiMenuDefinition
+            {
+                DatId = yesNo.DatId, Category = yesNo.Category, Name = yesNo.Name, MenuType = yesNo.MenuType, Buttons = buttons,
+                Frame = new UiMenuFrame
+                {
+                    X = w.X, Y = w.Y, Width = w.Width, Height = w.Height, AuthoredHeight = w.AuthoredHeight, DrawOffsetX = w.DrawOffsetX,
+                    DrawOffsetY = w.DrawOffsetY, Anchor = w.Anchor, Shapes = w.Shapes, CursorOffsetX = f.CursorOffsetX, CursorOffsetY = f.CursorOffsetY,
+                    HelpTextId = f.HelpTextId, TitleTextId = f.TitleTextId,
+                },
+            };
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            StockUiOpenMenu prompt;
+            lock (_sync)
+            {
+                prompt = new StockUiOpenMenu(definition, Top, Array.Empty<string>(), question) { Prompt = tcs, PromptTextLeft = true };
+                prompt.SelectedButtonId = 2;
+                PushOpen(prompt);
+            }
+            _ = tcs.Task.ContinueWith(t => answered(!prompt.Cancelled && t.Result), TaskScheduler.Default);
+            Changed?.Invoke();
+        }
+
+        /// <summary>The frame <see cref="OpenWidePrompt"/> borrows: <c>query</c>, 366 x 88 at 16,208 above the log.</summary>
+        private const string WidePromptFrame = "query";
+
+        /// <summary>
+        /// Confirm on an alter ego item (retail client on local LandSandBoat, 2026-11-07): outside a Mog House the merits' line and
+        /// nothing else; in one the question in words, the cursor on No, then C2S 0x0C1 with the item's kind (XiPackets
+        /// <c>world/client/0x00C1</c>). The cost is S2C 0x08E's <c>next</c> (LandSandBoat sends 0).
+        /// </summary>
+        private void SpendAlterEgoPoint(StockUiOpenMenu list)
+        {
+            int item = list.SelectedStatusRow;
+            if (item < 0) return;
+            if (InMogHouse?.Invoke() != true)
+            {
+                NoticePosted?.Invoke(StockUiProgression.OutsideMogHouse);
+                return;
+            }
+            var (_, first, count) = StockUiStatusPages.AlterEgoGroups[Math.Clamp(list.AlterEgoGroup, 0, StockUiStatusPages.AlterEgoGroups.Count - 1)];
+            if (item >= count) return;
+            int index = first + item;
+            var category = StockUiStatusPages.AlterEgoCategories[index].Category;
+            string name = AlterEgoText?.Invoke(StockUiStatusPages.AlterEgoItemNameId(index)) is { Length: > 0 } n ? n : StockUiStatusPages.AlterEgoCategories[index].Name;
+            int cost = AlterEgoNextCost?.Invoke(category) ?? 0;
+            if (AlterEgoSpent is not { } send)
+            {
+                NoticePosted?.Invoke("Alter Ego Points: this is not available in this session.");
+                return;
+            }
+            OpenWidePrompt(StockUiProgression.AlterEgoRaiseQuestion(cost, name), yes =>
+            {
+                if (yes) _ = send(category);
+            });
+        }
+
+        /// <summary>
+        /// Confirm on Unity Lists (retail client, 2026-11-07): closes the list and searches every area for the Unity's members,
+        /// "Unity" the character's own (the leader in the search's flags, <see cref="StockUiProgression.UnitySearchFlags"/>).
+        /// Without a Unity there is nobody to find (retail: "Search result: 0 people found in all known areas.").
+        /// </summary>
+        private void SearchUnity(int key, StockUiOpenMenu list)
+        {
+            int leader = key == 0 ? UnityInfo?.Invoke()?.Leader ?? 0 : key;
+            var parent = list.Parent;
+            CloseMenu(list);
+            if (leader <= 0 || parent == null)
+            {
+                NoticePosted?.Invoke(StockUiProgression.NobodyFoundText);
+                return;
+            }
+            if (Social is not { } social)
+            {
+                NoticePosted?.Invoke("Unity Lists: searching is not available in this session.");
+                return;
+            }
+            _ = OpenPeopleAsync(StockUiPeoplePurpose.SearchResults,
+                social.SearchAsync(new Gordian.Core.Network.Search.SearchQuery { AllAreas = true, Flags2 = StockUiProgression.UnitySearchFlags(leader) }), parent);
         }
 
         /// <summary>
@@ -473,19 +659,34 @@ namespace Gordian.Engine.Ui
             if (slot is { } taken)
             {
                 if (RoeRemoved is not { } remove) return;
-                string question = ShortText(StockUiRecordsOfEminence.RemovePromptText, "Remove objective?");
-                if (taken.Progress > 0) question += " " + ShortText(StockUiRecordsOfEminence.RemoveWarningText, "Your progress will be reset if you cancel this objective. Are you sure?");
-                OpenRoePrompt(question, defaultYes: false, () =>
+                void Remove()
                 {
                     CloseRoeDetail(page);
                     _ = remove(id);
+                }
+                // With progress, Yes asks again in comyn at its own place above the log, the cursor on No (2026-11-07).
+                OpenRoePrompt(ShortText(StockUiRecordsOfEminence.RemovePromptText, "Remove objective?"), defaultYes: false, () =>
+                {
+                    if (taken.Progress <= 0)
+                    {
+                        Remove();
+                        return;
+                    }
+                    var warning = OpenYesNo(ShortText(StockUiRecordsOfEminence.RemoveWarningText, "Your progress will be reset if you cancel this objective. \nAre you sure?"),
+                        defaultYes: false, answer =>
+                        {
+                            if (answer == true) Remove();
+                        });
+                    if (warning != null) warning.PromptTextLeft = true;
                 });
                 return;
             }
             if (RoeStarted is not { } start) return;
+            // Yes leaves the page up, the objective's name now teal (2026-11-07).
             OpenRoePrompt(ShortText(StockUiRecordsOfEminence.SetPromptText, "Set objective?"), defaultYes: true, () =>
             {
-                CloseRoeDetail(page);
+                page.RoeDetail = detail with { Taken = true };
+                Changed?.Invoke();
                 _ = start(id);
             });
         }
@@ -553,7 +754,10 @@ namespace Gordian.Engine.Ui
             return page;
         }
 
-        /// <summary>Closes a detail page once its question is answered Yes (PROVISIONAL: Yes was not pressed on the retail client).</summary>
+        /// <summary>
+        /// Closes a detail page once its removal is answered Yes (retail client, 2026-11-07, after the progress warning; the list
+        /// below keeps its place, the cursor on the row before). Without progress it is taken to close the same (PROVISIONAL).
+        /// </summary>
         private void CloseRoeDetail(StockUiOpenMenu page)
         {
             lock (_sync)

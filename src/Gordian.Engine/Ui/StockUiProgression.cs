@@ -43,7 +43,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The Job Points window's second page: the job's gifts (<c>jbpcat</c>'s frame).</summary>
         JobGifts,
         UnityInfo,
+
+        /// <summary>Ranking Info's choice: Ranking Results or Partial Ranking Results.</summary>
         UnityRanking,
+
+        /// <summary>A Unity ranking (Key: 0 Ranking Results, last week's; 1 Partial Ranking Results, this week's).</summary>
+        UnityRankingList,
         UnityLeaders,
         RoeCategories,
         RoeObjectives,
@@ -83,11 +88,13 @@ namespace Gordian.Engine.Ui
     /// House only. A level costs its number plus one in job points (LandSandBoat <c>JobPointCost</c>; S2C 0x08D <c>next</c>),
     /// to 20. Left / Right turns to the second page, "Gifts" with "Combo Total:" the job points spent: the job's gifts
     /// (ROM/324/59) with the job points spent each needs, grey until earned (image-31 to image-33).</item>
-    /// <item>Unity: opening <c>ut_menu</c> sends C2S 0x116 kinds 0 and 1 (XiPackets: retail sends both, each answered by 32 S2C
-    /// 0x063). Unity Info lists "Current Unity:", the rankings, the personal evaluations and "Unity chat settings:" with
-    /// Active / Inactive (C2S 0x118; the maintainer's capture <c>Main_Menu_Page1.mp4</c> 1:00-1:10); Ranking Info sends C2S
-    /// 0x117 and ranks the eleven Unities by this week's points; Unity Lists lists the leaders (help 892 "Select a Unity.").
-    /// PROVISIONAL: every window but <c>ut_menu</c> borrows <c>meritcat</c>'s frame (no DAT window names them).</item>
+    /// <item>Unity (retail client on local LandSandBoat, 2026-11-07, Retail Captures <c>Unity_*</c>): opening <c>ut_menu</c> sends
+    /// C2S 0x116 kind 1, then kind 0. Unity Info ("Unity Information", 395) lists "Current Unity:", the rankings, the personal
+    /// evaluations, "Unity chat settings:" and Active / Inactive on rows of their own in <c>quest00</c>'s frame, the cursor only
+    /// on those two (C2S 0x118). Ranking Info ("Ranking Information", 396) sends C2S 0x117 and offers Ranking Results and
+    /// Partial Ranking Results; each ranks the eleven Unities by points ("2  Ayame  0pt", ties share a rank), its title between
+    /// red arrows, Left / Right turning to the other. Unity Lists is a five-row list above the log ("Unity" first, then the
+    /// leaders); Confirm searches every area for that Unity's members.</item>
     /// </list>
     /// </summary>
     public static class StockUiProgression
@@ -266,16 +273,36 @@ namespace Gordian.Engine.Ui
         public static readonly Gordian.Core.Resources.Ui.UiColor GroupYellow = new(0x80, 0x80, 0x50, 0x80);
 
         /// <summary>
-        /// The merit points a merit's next upgrade costs, 0 when it has none. A merit at its most has none: LandSandBoat keeps sending
-        /// its last cost there and ignores the raise. PROVISIONAL: no merit at its most has been seen on the retail client.
+        /// The merit points shown as a merit's NEXT, 0 for none: the retail client shows none at the merit's most, though
+        /// LandSandBoat keeps sending the last cost there (retail client on local LandSandBoat, 2026-11-07: Lullaby Recast at 5).
         /// </summary>
         public static int NextCost(StockUiMerit merit) => merit.Count >= MeritMax(merit.Id) ? 0 : merit.Next;
+
+        /// <summary>Whether a merit is at its most (<see cref="MeritMax"/>).</summary>
+        public static bool AtMeritMax(StockUiMerit merit) => merit.Count >= MeritMax(merit.Id);
+
+        /// <summary>
+        /// The question after Raise's Commands Yes (retail client, 2026-11-07, "Use 1 merit point to raise your "Lullaby Recast" by one
+        /// level?"): <paramref name="cost"/> is the merit's S2C 0x08C <c>next</c>, asked even at its most. The client's string was
+        /// not found in the DMsg tables, so the text is the capture's.
+        /// </summary>
+        public static string MeritRaiseQuestion(int cost, string name) =>
+            string.Create(CultureInfo.InvariantCulture, $"Use {cost} merit point{(cost == 1 ? "" : "s")} to raise your \"{name}\" by one level?");
+
+        /// <summary>The question after Lower's Commands Yes (retail client, 2026-11-07).</summary>
+        public static string MeritLowerQuestion(string name) =>
+            $"Lower your \"{name}\" by one level?\nThe point(s) used to raise it will not be reimbursed.";
+
+        /// <summary>An alter ego item's question (retail client, 2026-11-07, "Use 0 alter ego points to raise your "Max HP" by one level?").</summary>
+        public static string AlterEgoRaiseQuestion(int cost, string name) =>
+            string.Create(CultureInfo.InvariantCulture, $"Use {cost} alter ego point{(cost == 1 ? "" : "s")} to raise your \"{name}\" by one level?");
 
         /// <summary>
         /// The merits rows: the name, "upgrades/most" ("2/15"; the most is the maintainer's addition, retail shows the upgrades
         /// alone) and "NEXT 5 P", the merit points the next upgrade costs (S2C 0x08C <c>next</c>). As the retail client does, a
-        /// merit with no next cost is greyed with no NEXT (outside a Mog House LandSandBoat sends 0); <paramref name="otherJob"/>
-        /// greys another job's merits but keeps the NEXT, and a job's Group2 is yellow.
+        /// merit the server sends no cost for is greyed with no NEXT (outside a Mog House LandSandBoat sends 0); one at its most
+        /// keeps its colour, its upgrades blue and no NEXT (2026-11-07); <paramref name="otherJob"/> greys another job's merits but
+        /// keeps the NEXT, and a job's Group2 is yellow.
         /// </summary>
         public static IReadOnlyList<StockUiListRow> MeritRows(IReadOnlyList<StockUiMerit> merits, Func<int, string?>? text, string nextLabel = "NEXT", bool otherJob = false)
         {
@@ -283,9 +310,11 @@ namespace Gordian.Engine.Ui
             foreach (var m in merits)
             {
                 int next = NextCost(m);
-                var color = otherJob || next == 0 ? Greyed : m.Id >= SecondGroupBase ? GroupYellow : (Gordian.Core.Resources.Ui.UiColor?)null;
+                bool most = AtMeritMax(m);
+                var color = otherJob || m.Next == 0 ? Greyed : m.Id >= SecondGroupBase ? GroupYellow : (Gordian.Core.Resources.Ui.UiColor?)null;
                 rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(m.Id) ?? string.Empty, false, color,
                     string.Create(CultureInfo.InvariantCulture, $"{m.Count}/{MeritMax(m.Id)}"),
+                    ValueColor: most && m.Next > 0 && !otherJob ? AtMost : null,
                     Note: next > 0 ? string.Create(CultureInfo.InvariantCulture, $"{nextLabel} {next} P") : null));
             }
             return rows;
@@ -413,12 +442,29 @@ namespace Gordian.Engine.Ui
         /// <summary>The Unity leaders (1-11), ROM/165/77 403-413 ("Pieuje" ... "Sylvie"); 402 "None" and 418 "No Unity".</summary>
         public const int UnityLeaderCount = 11, FirstUnityName = 403, NoUnityName = 402;
 
-        /// <summary>Unity Info's labels (ROM/165/77): 397 "Current Unity:", 398 / 399 the rankings, 452 / 453 the evaluations, 439 "Unity chat settings:", 440 / 441 Active / Inactive, 434 "--".</summary>
+        /// <summary>
+        /// Unity Info's labels (ROM/165/77): 397 "Current Unity:", 398 / 399 the rankings, 452 / 453 the evaluations, 439 "Unity chat
+        /// settings:", 440 / 441 Active / Inactive, 434 "--"; the titles 395 "Unity Information", 396 "Ranking Information" and the
+        /// rankings' 400 "Ranking Results" / 401 "Partial Ranking Results"; 442 "Unity".
+        /// </summary>
         public const int CurrentUnityLabel = 397, RankingLabel = 398, PartialRankingLabel = 399, EvaluationLabel = 452, PartialEvaluationLabel = 453,
-            ChatSettingsLabel = 439, ChatActiveLabel = 440, ChatInactiveLabel = 441, NoValueText = 434, UnityInfoTitle = 395, RankingTitle = 396;
+            ChatSettingsLabel = 439, ChatActiveLabel = 440, ChatInactiveLabel = 441, NoValueText = 434, UnityInfoTitle = 395, RankingTitle = 396,
+            RankingResultsTitle = 400, PartialRankingResultsTitle = 401, UnityWord = 442;
 
-        /// <summary>Unity Info's rows (<see cref="UnityInfoRows"/>): the Active and Inactive rows are the last two.</summary>
-        public const int UnityChatActiveRow = 6, UnityChatInactiveRow = 7;
+        /// <summary>Unity Info's rows (<see cref="UnityInfoRows"/>): Active and Inactive are the last two, the only ones the cursor visits.</summary>
+        public const int UnityChatActiveRow = 7, UnityChatInactiveRow = 8;
+
+        /// <summary>Unity Lists' window: <c>arealist</c>, five rows above the log (retail client, 2026-11-07).</summary>
+        public const string UnityListsMenu = "arealist";
+
+        /// <summary>Where Unity Lists' bracketed short names start (UI 1:1, 2026-11-07).</summary>
+        public const float UnityListsShortNameX = 248;
+
+        /// <summary>
+        /// The short names Unity Lists brackets after each leader (2026-11-07: "(IShield)"); seen for the first five only, so the
+        /// others fall back to the full name (PROVISIONAL). Not found in the DMsg tables.
+        /// </summary>
+        private static readonly string?[] UnityShortNames = { null, "Pieuje", "Ayame", "IShield", "Apururu", "Maat" };
 
         /// <summary>A Unity's rank (1-11) by <paramref name="points"/> (more points rank higher; ties share a rank), or 0 when nothing is known.</summary>
         public static int UnityRank(IReadOnlyList<uint> points, int leader)
@@ -434,9 +480,9 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Unity Info's rows: "Current Unity:" the leader, the rankings (last week's, then this week's partial; "--" outside a
-        /// Unity or before the server sent them), the evaluations, and "Unity chat settings:" Active / Inactive with the one in
-        /// effect white and the other greyed (the capture shows a pink ball on the chosen one).
+        /// Unity Info's eight rows (retail client, 2026-11-07): "Current Unity:" the leader ("None"), the rankings (last week's,
+        /// then this week's partial; "--" outside a Unity or before the server sent them), the evaluations (nothing outside a
+        /// Unity), "Unity chat settings:", then Active and Inactive, the setting in effect marked (a green ball, the other a bullet).
         /// </summary>
         public static IReadOnlyList<StockUiListRow> UnityInfoRows(StockUiUnityInfo? info, bool chatActive, Func<int, string?>? text)
         {
@@ -446,7 +492,7 @@ namespace Gordian.Engine.Ui
             int leader = info?.Leader ?? 0;
             string unity = leader is >= 1 and <= UnityLeaderCount ? T(FirstUnityName + leader - 1, "Unity " + leader) : T(NoUnityName, "None");
             string Rank(IReadOnlyList<uint>? points) => info != null && points != null && UnityRank(points, leader) is > 0 and var r ? r.ToString(inv) : none;
-            string Points(int value) => leader > 0 ? value.ToString(inv) : none;
+            string Points(int value) => leader > 0 ? value.ToString(inv) : string.Empty;
             return new[]
             {
                 new StockUiListRow(1, T(CurrentUnityLabel, "Current Unity:"), false, Value: unity),
@@ -454,38 +500,69 @@ namespace Gordian.Engine.Ui
                 new StockUiListRow(3, T(PartialRankingLabel, "Partial Ranking Results:"), false, Value: Rank(info?.ThisWeekPoints)),
                 new StockUiListRow(4, T(EvaluationLabel, "Personal Evaluation:"), false, Value: Points(info?.Evaluation ?? 0)),
                 new StockUiListRow(5, T(PartialEvaluationLabel, "Partial Personal Evaluation"), false, Value: Points(info?.PartialEvaluation ?? 0)),
-                // The setting in effect is drawn white, the other greyed (the capture's pink ball, PROVISIONAL look).
-                new StockUiListRow(UnityChatActiveRow, T(ChatSettingsLabel, "Unity chat settings:"), chatActive, chatActive ? null : Greyed,
-                    T(ChatActiveLabel, "Active")),
-                new StockUiListRow(UnityChatInactiveRow, string.Empty, !chatActive, chatActive ? Greyed : null, T(ChatInactiveLabel, "Inactive")),
+                new StockUiListRow(6, T(ChatSettingsLabel, "Unity chat settings:"), false),
+                new StockUiListRow(UnityChatActiveRow, T(ChatActiveLabel, "Active"), chatActive),
+                new StockUiListRow(UnityChatInactiveRow, T(ChatInactiveLabel, "Inactive"), !chatActive),
             };
         }
 
-        /// <summary>Ranking Info's rows: the eleven Unities by this week's points, each with its rank and points ("1.  12,345").</summary>
-        public static IReadOnlyList<StockUiListRow> UnityRankingRows(StockUiUnityInfo? info, Func<int, string?>? text)
+        /// <summary>Ranking Info's choice (396): 400 "Ranking Results" and 401 "Partial Ranking Results".</summary>
+        public static IReadOnlyList<StockUiListRow> UnityRankingChoiceRows(Func<int, string?>? text) => new[]
+        {
+            new StockUiListRow(1, text?.Invoke(RankingResultsTitle) is { Length: > 0 } a ? a : "Ranking Results", false),
+            new StockUiListRow(2, text?.Invoke(PartialRankingResultsTitle) is { Length: > 0 } b ? b : "Partial Ranking Results", false),
+        };
+
+        /// <summary>
+        /// A ranking's rows (retail client, 2026-11-07): the eleven Unities by points, most first and ties in leader order, each
+        /// with its rank in <see cref="StockUiListRow.Note"/> (ties share it: "1", "2", "2" ...) and its points ("0pt") as the value.
+        /// <paramref name="partial"/> ranks this week's points (Partial Ranking Results), else last week's.
+        /// </summary>
+        public static IReadOnlyList<StockUiListRow> UnityRankingRows(StockUiUnityInfo? info, bool partial, Func<int, string?>? text)
         {
             var order = new List<int>(UnityLeaderCount);
             for (int l = 1; l <= UnityLeaderCount; l++) order.Add(l);
-            var points = info?.ThisWeekPoints ?? Array.Empty<uint>();
+            var points = (partial ? info?.ThisWeekPoints : info?.LastWeekPoints) ?? Array.Empty<uint>();
             uint P(int l) => l - 1 < points.Count ? points[l - 1] : 0;
             order.Sort((a, b) => P(b) != P(a) ? P(b).CompareTo(P(a)) : a.CompareTo(b));
+            var inv = CultureInfo.InvariantCulture;
             var rows = new List<StockUiListRow>(UnityLeaderCount);
             foreach (int l in order)
             {
-                int rank = UnityRank(points, l);
-                string value = rank > 0 ? rank.ToString(CultureInfo.InvariantCulture) + ".  " + StockUiStatus.Number((int)Math.Min(P(l), int.MaxValue)) : "--";
-                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(FirstUnityName + l - 1) ?? "Unity " + l, l == info?.Leader, Value: value));
+                int rank = 1;
+                for (int o = 1; o <= UnityLeaderCount; o++) if (P(o) > P(l)) rank++;
+                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(FirstUnityName + l - 1) ?? "Unity " + l, l == info?.Leader,
+                    Value: P(l).ToString(inv) + "pt", Note: rank.ToString(inv)));
             }
             return rows;
         }
 
-        /// <summary>Unity Lists' rows: the eleven leaders, the character's own marked.</summary>
-        public static IReadOnlyList<StockUiListRow> UnityLeaderRows(int leader, Func<int, string?>? text)
+        /// <summary>
+        /// Unity Lists' rows and what each searches: "Unity" first (the character's own Unity, key 0), then the eleven leaders
+        /// (key 1-11), each with its short name in brackets in <see cref="StockUiListRow.Note"/>.
+        /// </summary>
+        public static (IReadOnlyList<StockUiListRow> Rows, IReadOnlyList<int> Keys) UnityListsRows(Func<int, string?>? text)
         {
-            var rows = new List<StockUiListRow>(UnityLeaderCount);
+            string unity = text?.Invoke(UnityWord) is { Length: > 0 } u ? u : "Unity";
+            var rows = new List<StockUiListRow>(UnityLeaderCount + 1) { new(1, unity, false, Note: "(" + unity + ")") };
+            var keys = new List<int>(UnityLeaderCount + 1) { 0 };
             for (int l = 1; l <= UnityLeaderCount; l++)
-                rows.Add(new StockUiListRow(l, text?.Invoke(FirstUnityName + l - 1) ?? "Unity " + l, l == leader));
-            return rows;
+            {
+                string name = text?.Invoke(FirstUnityName + l - 1) ?? "Unity " + l;
+                string brief = l < UnityShortNames.Length && UnityShortNames[l] is { } s ? s : name;
+                rows.Add(new StockUiListRow(rows.Count + 1, name, false, Note: "(" + brief + ")"));
+                keys.Add(l);
+            }
+            return (rows, keys);
         }
+
+        /// <summary>
+        /// The search flags that pick a Unity's members: the leader in bits 22 and up of the search's second flag word
+        /// (LandSandBoat <c>src/search/data_loader.cpp</c>, <c>sr.flags >> 22</c>).
+        /// </summary>
+        public static uint UnitySearchFlags(int leader) => (uint)leader << 22;
+
+        /// <summary>The line a search that finds nobody prints (retail client, 2026-11-07, Unity Lists' "Unity" without a Unity).</summary>
+        public const string NobodyFoundText = "Search result: 0 people found in all known areas.";
     }
 }

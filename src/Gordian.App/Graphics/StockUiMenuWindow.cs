@@ -63,7 +63,7 @@ namespace Gordian.App.Graphics
                 frameHeight: frame.AuthoredHeight > 0 ? frame.Height : null);
 
             if (font != null) StockUiStatusPagesWindow.DrawJobPointTitle(renderer, library, font, menu, placement);
-            if (font != null && menu.IsRoeList) StockUiQuestLogWindow.DrawRoeTitle(renderer, library, font, logFont, menu, placement);
+            if (font != null && menu.IsQuestFrameList) StockUiQuestLogWindow.DrawRoeTitle(renderer, library, font, logFont, menu, placement);
 
             foreach (var button in definition.Buttons)
             {
@@ -235,9 +235,14 @@ namespace Gordian.App.Graphics
                         // the chat's text; retail round 2 image-25), its "[4]" / "(Area)" / "(SSandOria)" at the right. The
                         // people lists (#489, #490) as the map lists: the name, then the jobs and area at the right.
                         // A greyed row (#491: a merit that cannot be raised; #493: an objective done for good) keeps its colour.
-                        if (menu.IsRoeList)
+                        if (menu.IsRoeList || menu.ProgressionList == StockUiProgressionList.UnityRanking)
                         {
                             StockUiQuestLogWindow.DrawRoeRow(renderer, font, logFont, row, i == selectedEntry, placement, ry, firstRow.Height);
+                            continue;
+                        }
+                        if (menu.IsUnityQuestList)
+                        {
+                            StockUiQuestLogWindow.DrawUnityRow(renderer, font, logFont, menu.ProgressionList, row, i == selectedEntry, placement, ry, firstRow.Height);
                             continue;
                         }
                         // The merit and job point lists (retail client): upright names, pink under the cursor, a job's group headers.
@@ -249,7 +254,8 @@ namespace Gordian.App.Graphics
                             continue;
                         }
                         UiColor? tint = i == selectedEntry ? (uprightRow ? StockUiProgression.SelectedPink : SelectedGlyphTint) : row.Color;
-                        bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People;
+                        // Unity Lists draws as the Change Map lists do (retail client, 2026-11-07): upright names, a red bar under the cursor.
+                        bool mapRow = menu.ListKind is StockUiListKind.MapAreas or StockUiListKind.People || menu.ProgressionList == StockUiProgressionList.UnityLeaders;
                         if (mapRow && i == selectedEntry)
                             DrawMapRowBar(renderer, placement.X + ListClipInset * s, ry,
                                 placement.X + (frame.Width - ScrollbarInset) * s, firstRow.Height * s);
@@ -268,7 +274,7 @@ namespace Gordian.App.Graphics
                         }
                         if (row.Note is { Length: > 0 } note)
                         {
-                            renderer.DrawText(font, note, placement.X + StockUiProgression.MeritNoteX * s, textY, s, tint);
+                            renderer.DrawText(font, note, placement.X + (menu.StatusNoteX ?? StockUiProgression.MeritNoteX) * s, textY, s, tint);
                         }
                         continue;
                     }

@@ -106,13 +106,19 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void MeritAtItsMost_HasNoNext_EvenWhenTheServerSendsACost()
+        public void MeritAtItsMost_UpgradesBlue_NoNext_NameKeepsItsColour()
         {
+            // The retail client, 2026-11-07: Lullaby Recast at 5 shows "5" in blue, no NEXT, its name white.
             var atMost = new StockUiMerit(0x40, 9, 15);
             Assert.Equal(0, StockUiProgression.NextCost(atMost));
+            Assert.True(StockUiProgression.AtMeritMax(atMost));
             var row = StockUiProgression.MeritRows(new[] { atMost }, _ => "Max HP").Single();
-            Assert.Equal(("15/15", (string?)null, (UiColor?)StockUiProgression.Greyed), (row.Value, row.Note, row.Color));
+            Assert.Equal(("15/15", (string?)null, (UiColor?)null, (UiColor?)StockUiProgression.AtMost), (row.Value, row.Note, row.Color, row.ValueColor));
             Assert.Equal(15, StockUiProgression.CategoryMax("Adjust weapon skills. Total ability increases: 15."));
+            Assert.Equal("Use 1 merit point to raise your \"Lullaby Recast\" by one level?", StockUiProgression.MeritRaiseQuestion(1, "Lullaby Recast"));
+            Assert.Equal("Use 5 merit points to raise your \"Lullaby Recast\" by one level?", StockUiProgression.MeritRaiseQuestion(5, "Lullaby Recast"));
+            Assert.Equal("Lower your \"Lullaby Recast\" by one level?\nThe point(s) used to raise it will not be reimbursed.", StockUiProgression.MeritLowerQuestion("Lullaby Recast"));
+            Assert.Equal("Use 0 alter ego points to raise your \"Max HP\" by one level?", StockUiProgression.AlterEgoRaiseQuestion(0, "Max HP"));
         }
 
         [Fact]
@@ -231,14 +237,30 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(0, StockUiProgression.UnityRank(points, 0));
             var info = new StockUiUnityInfo(2, 7, 9, new uint[11], points);
             var rows = StockUiProgression.UnityInfoRows(info, chatActive: false, null);
+            Assert.Equal(8, rows.Count);
             Assert.Equal("Unity 2", rows[0].Value);
             Assert.Equal("--", rows[1].Value); // last week: nothing sent
             Assert.Equal("1", rows[2].Value);
-            Assert.Equal(StockUiProgression.Greyed, rows[StockUiProgression.UnityChatActiveRow - 1].Color);
-            Assert.Null(rows[StockUiProgression.UnityChatInactiveRow - 1].Color);
-            var ranking = StockUiProgression.UnityRankingRows(info, null);
-            Assert.Equal(new[] { "Unity 2", "Unity 3", "Unity 11", "Unity 1" }, ranking.Take(4).Select(r => r.Text));
+            Assert.Equal(("Active", false), (rows[StockUiProgression.UnityChatActiveRow - 1].Text, rows[StockUiProgression.UnityChatActiveRow - 1].Marked));
+            Assert.Equal(("Inactive", true), (rows[StockUiProgression.UnityChatInactiveRow - 1].Text, rows[StockUiProgression.UnityChatInactiveRow - 1].Marked));
+            // Outside a Unity: "None", "--" and no evaluations (2026-11-07).
+            var none = StockUiProgression.UnityInfoRows(new StockUiUnityInfo(0, 0, 0, new uint[11], new uint[11]), true, null);
+            Assert.Equal(("None", "--", ""), (none[0].Value, none[1].Value, none[3].Value));
+            // The rankings: most points first, ties in leader order sharing a rank, "0pt".
+            var ranking = StockUiProgression.UnityRankingRows(info, partial: true, null);
+            Assert.Equal(new[] { "Unity 2", "Unity 3", "Unity 11", "Unity 1", "Unity 4" }, ranking.Take(5).Select(r => r.Text));
+            Assert.Equal(new[] { "1", "1", "3", "4", "5" }, ranking.Take(5).Select(r => r.Note));
+            Assert.Equal(("50pt", "0pt"), (ranking[0].Value, ranking[4].Value));
             Assert.True(ranking[0].Marked);
+            var last = StockUiProgression.UnityRankingRows(info, partial: false, null);
+            Assert.Equal(("Unity 1", "1", "0pt"), (last[0].Text, last[0].Note, last[0].Value));
+            Assert.Equal(new[] { "Ranking Results", "Partial Ranking Results" }, StockUiProgression.UnityRankingChoiceRows(null).Select(r => r.Text));
+            // Unity Lists: "Unity" first, then the leaders with their short names.
+            var (lists, keys) = StockUiProgression.UnityListsRows(id => id == 405 ? "Invincible Shield" : null);
+            Assert.Equal(12, lists.Count);
+            Assert.Equal(("Unity", "(Unity)", 0), (lists[0].Text, lists[0].Note, keys[0]));
+            Assert.Equal(("Invincible Shield", "(IShield)", 3), (lists[3].Text, lists[3].Note, keys[3]));
+            Assert.Equal(3u << 22, StockUiProgression.UnitySearchFlags(3));
         }
 
         [Fact]
@@ -333,17 +355,35 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(h.MeritSent.Task.IsCompleted);
             h.Menus.Activate();
             h.Menus.Top!.SelectedButtonId = 1;
-            h.Menus.Activate(); // Yes
+            h.Menus.Activate(); // Commands Yes: the question in words, the cursor on No (retail client, 2026-11-07)
+            var question = WaitForMessage(h, "Use 3 merit points to raise your \"Max HP\" by one level?");
+            Assert.Equal(2, question.SelectedButtonId);
+            Assert.True(question.PromptTextLeft);
+            question.SelectedButtonId = 1;
+            h.Menus.Activate(); // Yes: sent, merit3 closes
             Assert.Equal((0x40, true), h.MeritSent.Task.Wait(10000) ? h.MeritSent.Task.Result : default);
-            h.Menus.CloseTop();
+            for (int i = 0; i < 1000 && !ReferenceEquals(h.Menus.Top, list); i++) System.Threading.Thread.Sleep(10);
             Assert.Same(list, h.Menus.Top);
 
-            // Max MP has no next cost (at its most): Raise posts a notice.
+            // Max MP at its most (the server still sends a cost): asked the same with that cost; Lower asks its own question.
+            h.Merits = new[] { new StockUiMerit(0x40, 3, 4), new StockUiMerit(0x42, 9, 15) };
+            h.Menus.OnStatusPointsChanged();
             h.Menus.Move(InputAction.MenuDown);
             h.Menus.Activate();
+            h.Menus.Activate(); // Raise
+            h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate();
-            Assert.Contains(h.Notices, n => n == "Max MP cannot be raised any further.");
+            WaitForMessage(h, "Use 9 merit points to raise your \"Max MP\" by one level?");
             h.Menus.CloseTop();
+            h.Menus.Top!.SelectedButtonId = StockUiProgression.MeritLowerButton;
+            h.Menus.Activate(); // Lower
+            h.Menus.Top!.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var lower = WaitForMessage(h, "Lower your \"Max MP\" by one level?\nThe point(s) used to raise it will not be reimbursed.");
+            lower.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal((0x42, false), h.MeritLowered.Task.Wait(10000) ? h.MeritLowered.Task.Result : default);
+            for (int i = 0; i < 1000 && !ReferenceEquals(h.Menus.Top, list); i++) System.Threading.Thread.Sleep(10);
 
             // S2C 0x08C: the open lists follow, the cursor kept.
             h.Merits = new[] { new StockUiMerit(0x40, 4, 5), new StockUiMerit(0x42, 0, 15) };
@@ -386,27 +426,84 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void Unity_InfoTogglesChat_RankingAsksForTheFigures()
+        public void Unity_InfoTogglesChat_RankingsTurn_ListsSearch()
         {
             var h = new Harness();
             Assert.True(h.Menus.Open(StockUiStatusPages.UnityMenu));
             h.Menus.Activate(); // Unity Info
             var info = h.Menus.Top!;
             Assert.Equal(StockUiProgressionList.UnityInfo, info.ProgressionList);
+            Assert.Equal(("Unity Information", false), (info.RoeListTitle, info.ListTitleArrows));
             Assert.Equal("Naja Salaheem", info.Rows[0].Value);
             Assert.Equal(StockUiProgression.UnityChatActiveRow - 1, info.SelectedStatusRow);
+            h.Menus.Move(InputAction.MenuUp); // the cursor stays on Active / Inactive
+            Assert.Equal(StockUiProgression.UnityChatActiveRow - 1, info.SelectedStatusRow);
             h.Menus.Move(InputAction.MenuDown); // Inactive
+            h.Menus.Move(InputAction.MenuDown);
+            Assert.Equal(StockUiProgression.UnityChatInactiveRow - 1, info.SelectedStatusRow);
             h.Menus.Activate();
             Assert.Equal(new[] { false }, h.UnityChat);
             Assert.False(h.Menus.UnityChatActive);
-            Assert.Null(info.Rows[StockUiProgression.UnityChatInactiveRow - 1].Color);
+            Assert.True(info.Rows[StockUiProgression.UnityChatInactiveRow - 1].Marked);
 
+            // Ranking Info: a choice; C2S 0x117 goes as a ranking opens. Left / Right turns between the two.
             h.Menus.CloseTop();
             h.Menus.Top!.SelectedButtonId = StockUiStatusPages.UnityRankingButton;
             h.Menus.Activate();
+            var choice = h.Menus.Top!;
+            Assert.Equal(0, h.UnityQuests);
+            Assert.Equal((StockUiProgressionList.UnityRanking, "Ranking Information"), (choice.ProgressionList, choice.RoeListTitle));
+            Assert.Equal(new[] { "Ranking Results", "Partial Ranking Results" }, choice.Rows.Select(r => r.Text));
+            h.Menus.Activate(); // Ranking Results: last week's (nothing)
+            var ranking = h.Menus.Top!;
             Assert.Equal(1, h.UnityQuests);
-            Assert.Equal(StockUiProgressionList.UnityRanking, h.Menus.Top!.ProgressionList);
-            Assert.Equal("Naja Salaheem", h.Menus.Top!.Rows[0].Text);
+            Assert.Equal((StockUiProgressionList.UnityRankingList, "Ranking Results", true), (ranking.ProgressionList, ranking.RoeListTitle, ranking.ListTitleArrows));
+            Assert.Equal(("1", "0pt"), (ranking.Rows[0].Note, ranking.Rows[0].Value));
+            h.Menus.Move(InputAction.MenuRight); // Partial Ranking Results: this week's
+            Assert.Equal("Partial Ranking Results", ranking.RoeListTitle);
+            Assert.Equal(("Naja Salaheem", "1", "90pt"), (ranking.Rows[0].Text, ranking.Rows[0].Note, ranking.Rows[0].Value));
+            Assert.Equal("2", ranking.Rows[1].Note);
+            h.Menus.Activate(); // nothing
+            Assert.Same(ranking, h.Menus.Top);
+            h.Menus.CloseTop();
+            h.Menus.CloseTop();
+
+            // Unity Lists: "Unity" first under the cursor; Confirm closes it and searches (no search server here).
+            h.Menus.Top!.SelectedButtonId = 3;
+            h.Menus.Activate();
+            var lists = h.Menus.Top!;
+            Assert.Equal((StockUiProgressionList.UnityLeaders, StockUiProgression.UnityListsMenu), (lists.ProgressionList, lists.Name));
+            Assert.Equal(("Unity", 0), (lists.Rows[0].Text, lists.SelectedStatusRow));
+            h.Menus.Activate();
+            Assert.NotSame(lists, h.Menus.Top);
+            Assert.Contains("Unity Lists: searching is not available in this session.", h.Notices);
+        }
+
+        [Fact]
+        public void AlterEgo_AsksInTheMogHouse_ThenSends()
+        {
+            var h = new Harness();
+            h.Menus.AlterEgoText = id => id switch { 2 => "HP/MP", 16 => "Max HP", _ => null };
+            Assert.True(h.Menus.Open(StockUiStatus.CommandMenu));
+            h.Menus.Top!.SelectedButtonId = StockUiStatus.AlterEgoButton;
+            h.Menus.Activate();
+            h.Menus.Activate(); // HP/MP
+            var items = h.Menus.Top!;
+            Assert.Equal((StockUiProgression.Greyed, (string?)null), (items.Rows[0].Color!.Value, items.Rows[0].Note));
+            h.Menus.Activate(); // outside: the merits' line, nothing else
+            Assert.Contains(StockUiProgression.OutsideMogHouse, h.Notices);
+            Assert.Same(items, h.Menus.Top);
+
+            h.InMogHouse = true;
+            h.Menus.OnStatusPointsChanged();
+            Assert.Equal(((UiColor?)null, "NEXT 0 P"), (items.Rows[0].Color, items.Rows[0].Note));
+            h.Menus.Activate();
+            var question = WaitForMessage(h, "Use 0 alter ego points to raise your \"Max HP\" by one level?");
+            Assert.Equal(2, question.SelectedButtonId);
+            question.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.True(h.AlterEgoSent.Task.Wait(10000));
+            Assert.Equal(Gordian.Core.Network.Packets.AlterEgoCategory.MaxHp, h.AlterEgoSent.Task.Result);
         }
 
         [Fact]
@@ -447,10 +544,12 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Activate();
             Assert.Equal("Set objective?", h.Menus.Top!.Message);
             Assert.Equal(1, h.Menus.Top!.SelectedButtonId); // the cursor on Yes
-            h.Menus.Activate(); // Yes
+            h.Menus.Activate(); // Yes: the page stays up, the objective now taken (retail client, 2026-11-07)
             Assert.True(h.RoeStarted.Task.Wait(10000));
             Assert.Equal(1, h.RoeStarted.Task.Result);
-            for (int i = 0; i < 1000 && !ReferenceEquals(h.Menus.Top, objectives); i++) System.Threading.Thread.Sleep(10);
+            for (int i = 0; i < 1000 && h.Menus.Top?.RoeDetail?.Taken != true; i++) System.Threading.Thread.Sleep(10);
+            Assert.Equal((StockUiQuestLogView.RoeDetail, true), (h.Menus.Top!.QuestLogView, h.Menus.Top!.RoeDetail!.Taken));
+            h.Menus.CloseTop();
             Assert.Same(objectives, h.Menus.Top);
 
             // S2C 0x111 lists it: the row shows its progress; Confirm now asks to remove it.
@@ -464,11 +563,31 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(h.RoeRemoved.Task.IsCompleted);
             Assert.Equal(StockUiQuestLogView.RoeDetail, h.Menus.Top!.QuestLogView);
             h.Menus.CloseTop();
+
+            // With progress, Yes asks again: the reset warning, the cursor on No; Yes removes it and closes the page.
+            h.Slots = new[] { new StockUiRoeSlot(0, 1, 1) };
+            h.Menus.OnStatusPointsChanged();
             h.Menus.Activate();
             h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate(); // Yes
+            var warning = WaitForMessage(h, "Your progress will be reset if you cancel this objective. \nAre you sure?");
+            Assert.Equal(2, warning.SelectedButtonId);
+            Assert.False(h.RoeRemoved.Task.IsCompleted);
+            warning.SelectedButtonId = 1;
+            h.Menus.Activate();
             Assert.True(h.RoeRemoved.Task.Wait(10000));
             Assert.Equal(1, h.RoeRemoved.Task.Result);
+            for (int i = 0; i < 1000 && !ReferenceEquals(h.Menus.Top, objectives); i++) System.Threading.Thread.Sleep(10);
+            Assert.Same(objectives, h.Menus.Top);
+        }
+
+        /// <summary>Waits for a prompt with <paramref name="message"/> on top: the second questions open from the thread pool.</summary>
+        private static StockUiOpenMenu WaitForMessage(Harness h, string message)
+        {
+            for (int i = 0; i < 1000 && h.Menus.Top?.Message != message; i++) System.Threading.Thread.Sleep(10);
+            Assert.Equal(message, h.Menus.Top?.Message);
+            Assert.True(h.Menus.Top!.IsPrompt);
+            return h.Menus.Top!;
         }
 
         #endregion
@@ -622,7 +741,11 @@ namespace Gordian.Engine.Tests.Ui
             Window(StockUiProgression.MeritListMenu, 16, 48, 11, rowWidth: 356),
             Window(StockUiStatusPages.JobPointMenu, 16, 48, 10, rowWidth: 356),
             Window(StockUiQuestLog.QuestKindMenu, 16, 48, 5, height: 248, rowWidth: 320),
-            Window(StockUiMenuEntries.MessageYesNoMenu, 16, 208, 2, 366, 88),
+            Window(StockUiMenuEntries.MessageYesNoMenu, 130, 208, 2, 252, 88),
+            Window("query", 16, 208, 3, 366, 88),
+            Window(StockUiProgression.UnityListsMenu, 16, 208, 5, 366, 88, rowWidth: 356),
+            Window(StockUiStatusPages.AlterEgoMenu, 16, 48, 3, rowWidth: 356),
+            Window(StockUiStatusPages.AlterEgoItemMenu, 16, 48, 7, rowWidth: 356),
             Window(StockUiMenuEntries.YesNoMenu, 384, 96, 2, 112, 42),
         });
 
@@ -635,6 +758,8 @@ namespace Gordian.Engine.Tests.Ui
             public IReadOnlyList<StockUiRoeSlot> Slots = Array.Empty<StockUiRoeSlot>();
             public readonly HashSet<int> Completed = new() { 1 };
             public readonly TaskCompletionSource<(int, bool)> MeritSent = new();
+            public readonly TaskCompletionSource<(int, bool)> MeritLowered = new();
+            public readonly TaskCompletionSource<Gordian.Core.Network.Packets.AlterEgoCategory> AlterEgoSent = new();
             public readonly TaskCompletionSource<ushort> JobPointSent = new();
             public readonly TaskCompletionSource<int> RoeStarted = new();
             public readonly TaskCompletionSource<int> RoeRemoved = new();
@@ -652,7 +777,9 @@ namespace Gordian.Engine.Tests.Ui
                 Menus.InMogHouse = () => InMogHouse;
                 Menus.MeritText = MeritText();
                 Menus.Merits = () => Merits;
-                Menus.MeritChanged = (id, raise) => { MeritSent.TrySetResult((id, raise)); return Task.CompletedTask; };
+                Menus.MeritChanged = (id, raise) => { (raise ? MeritSent : MeritLowered).TrySetResult((id, raise)); return Task.CompletedTask; };
+                Menus.AlterEgoNextCost = _ => 0;
+                Menus.AlterEgoSpent = category => { AlterEgoSent.TrySetResult(category); return Task.CompletedTask; };
                 Menus.JobPointText = id => id switch { 64 => "Mighty Strikes Effect", 66 => "Berserk Effect", _ => null };
                 Menus.JobPointLevel = (job, k) => job == 1 && k == 0 ? new StockUiJobPointCategory(3, 4) : default;
                 Menus.JobPointSpent = index => { JobPointSent.TrySetResult(index); return Task.CompletedTask; };

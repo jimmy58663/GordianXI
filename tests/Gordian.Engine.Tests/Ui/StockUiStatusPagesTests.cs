@@ -96,6 +96,10 @@ namespace Gordian.Engine.Tests.Ui
             var attributes = StockUiStatusPages.AlterEgoItemRows(1, points, null);
             Assert.Equal(("STR", "0/60"), (attributes[0].Text, attributes[0].Value));
             Assert.Equal(7, attributes.Count);
+            // The retail client, 2026-11-07: "NEXT 0 P" in a Mog House; grey with none outside.
+            Assert.Equal("NEXT 0 P", attributes[0].Note);
+            var outside = StockUiStatusPages.AlterEgoItemRows(1, points, null, inMogHouse: false);
+            Assert.Equal((StockUiProgression.Greyed, (string?)null), (outside[0].Color!.Value, outside[0].Note));
         }
 
         [Fact]

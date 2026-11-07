@@ -75,8 +75,11 @@ namespace Gordian.Engine.Ui
         /// <summary>A line the menus write to the log in the echo colour (Play Time, round 1 of #487).</summary>
         public event Action<string>? EchoPosted;
 
-        /// <summary>Where Alter Ego Points' item values end ("0/60" under the header's middle, round 1 image-9).</summary>
-        private const float AlterEgoValueRight = 252;
+        /// <summary>
+        /// Where Alter Ego Points' item values end and their NEXT starts (retail client, 2026-11-07, UI 1:1: "0/60" ends at 276,
+        /// "NEXT 0 P" from 290 in a Mog House; round 1's image-9 had put the value at 252).
+        /// </summary>
+        private const float AlterEgoValueRight = 276, AlterEgoNoteX = 290;
 
         /// <summary>
         /// The Status list's (<c>statcom2</c>) greyed entries, their kind-4 labels: Job Points without the job breaker key
@@ -143,7 +146,8 @@ namespace Gordian.Engine.Ui
             StockUiStatusPage.Currencies => StockUiStatusPages.CurrencyListRows(false, points, MenuStringText),
             StockUiStatusPage.Currencies2 => StockUiStatusPages.CurrencyListRows(true, points, MenuStringText),
             StockUiStatusPage.JobPoints => StockUiStatusPages.JobPointRows(JobPointText),
-            StockUiStatusPage.AlterEgoPoints when group >= 0 => StockUiStatusPages.AlterEgoItemRows(group, points, AlterEgoText),
+            StockUiStatusPage.AlterEgoPoints when group >= 0 => StockUiStatusPages.AlterEgoItemRows(group, points, AlterEgoText,
+                InMogHouse?.Invoke() == true, AlterEgoNextCost, ShortText(StockUiProgression.NextLabel, "NEXT")),
             StockUiStatusPage.AlterEgoPoints => StockUiStatusPages.AlterEgoGroupRows(AlterEgoText),
             _ => Array.Empty<StockUiListRow>(),
         };
@@ -197,6 +201,7 @@ namespace Gordian.Engine.Ui
                 StatusRowHelp = help,
                 Rows = rows,
                 StatusValueRight = group >= 0 ? AlterEgoValueRight : null,
+                StatusNoteX = group >= 0 ? AlterEgoNoteX : null,
                 ProgressionList = progression,
                 ProgressionKey = key,
                 RowKeys = keys ?? Array.Empty<int>(),
@@ -242,8 +247,8 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// Confirm on a Status list's row: a job lists its job point categories (<c>jbpcat</c>, #491), an Alter Ego Points
-        /// category its items (<c>fp_cat2</c>); the lists of #491 / #493 go to <see cref="ActivateProgressionList"/>. Spending
-        /// alter ego points is not done: no packet for it is known (LandSandBoat has no handler).
+        /// category its items (<c>fp_cat2</c>), an item asks to spend on it (<see cref="SpendAlterEgoPoint"/>); the lists of
+        /// #491 / #493 go to <see cref="ActivateProgressionList"/>.
         /// </summary>
         private void ActivateStatusList(StockUiOpenMenu list)
         {
@@ -271,7 +276,7 @@ namespace Gordian.Engine.Ui
                     Changed?.Invoke();
                     break;
                 case StockUiStatusPage.AlterEgoPoints:
-                    NoticePosted?.Invoke("Alter Ego Points: spending alter ego points is not available yet.");
+                    SpendAlterEgoPoint(list);
                     break;
             }
         }
