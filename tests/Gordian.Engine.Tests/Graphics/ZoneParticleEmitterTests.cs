@@ -218,6 +218,24 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(20f, Assert.Single(lamp.Particles).Scale.X);
         }
 
+        [Fact]
+        public void Op5A_GrowsAParticleBornAtScaleZeroWithItsDistance_UpToItsFullSize()
+        {
+            // The Waypoint's orb (52715 grw1): 0x5A (0.4, 0.4, 0.4, 0, 0.01).
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Initializers.RemoveAll(o => o.OpCode == 0x0F);
+            def.Initializers.Add(new ParticleOpcode(0x0F, 0, Args(0f, 0f, 0f)));
+            def.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(0.4f, 0.4f, 0.4f, 0f, 0.01f)));
+            var orb = new ZoneParticleEmitter(Template(def));
+            orb.Update(1f, Frame);
+
+            orb.Update(1f, Frame with { CameraRawPosition = Assert.Single(orb.Particles).WorldPosition + new Vector3(5f, 0f, 0f) });
+            Assert.Equal(0.05f, Assert.Single(orb.Particles).Scale.X, 3);
+
+            orb.Update(1f, Frame with { CameraRawPosition = Assert.Single(orb.Particles).WorldPosition + new Vector3(100f, 0f, 0f) });
+            Assert.Equal(0.4f, Assert.Single(orb.Particles).Scale.X, 3);
+        }
+
         private static uint IdArg(string id) =>
             BitConverter.ToUInt32(System.Text.Encoding.ASCII.GetBytes(id.PadRight(4, '\0')), 0);
 

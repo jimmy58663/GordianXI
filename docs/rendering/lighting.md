@@ -27,6 +27,25 @@
 - Why: the maintainer's capture outside Selbina (`image-13.png`, Valkurm Dunes, TESTING-2026-10-18 round 2) shows a soft grey band on the sand at the foot of the cliffs. Nothing in the data draws it: every vertex colour there is the neutral 0x80 (offscreen dump 2026-10-19), no generator or blended mesh adds it (hiding the `kin_fg` overlays changes only the cliff tops; drawing the blended decals after the solids changes nothing), and xi-model-viewer notes that FFXI has no cast-shadow pass. Lit per vertex, the cliff-base vertices (normals leaning away from the sun) are dark and their light spreads across the large sand triangles; lit per pixel, the summed light stayed above the clamp over nearly all of each triangle and only a thin dark line remained. Offscreen at the logged spot (display (-80.4, 1.9, -129.9), `dust`, 16:18-17:00) the per-vertex sand shows broad grey gradients at the cliff bases where per-pixel stayed white. Bibiki Bay's calibrated 15:58 sand is unchanged (166 vs 168 mean red); Southern San d'Oria's lamp pools come out slightly softer.
 - Open: confirm the band in game against retail at a noted time and weather.
 
+## Shaded walls against retail (2026-11-06)
+
+Retail client on local LSB, same spot and hour, sunshine (`Valkurm_Sand_*` and `Waypoint_*` in Retail Captures). Flat ground matches and upright faces out of the sun do not:
+
+| Surface | Hour | Retail | GordianXI |
+|---|---|---|---|
+| Valkurm cliff | 06:22 | (62, 57, 52) | (87, 82, 69) |
+| Valkurm cliff | 08:05 | (64, 59, 58) | (89, 85, 78) |
+| Valkurm cliff | 10:10 | (100, 95, 93) | (116, 113, 107) |
+| Valkurm cliff | 12:05 | (164, 160, 165) | (180, 177, 178) |
+| Valkurm sand | 06:22 | (142, 132, 104) | (169, 162, 127) |
+| Valkurm sand | 08:05 | (242, 232, 183) | (243, 237, 191) |
+| Adoulin wall | 01:15 | (29, 29, 38) | (44, 44, 53) |
+| Adoulin wall | 13:05 | (55, 51, 52) | (77, 75, 71) |
+| Adoulin street | 01:15 | (63, 63, 91) | (64, 68, 91) |
+| Adoulin street | 13:05 | (172, 163, 149) | (191, 184, 165) |
+
+Patches are by eye, and the field of view differs. A face that only ambient reaches is about 1.3-1.5x retail at any hour, and the gap closes as the sun reaches it, which points at the ambient share rather than the time of day. Not changed: 16:00 and 18:00 were not captured.
+
 ## Actor shadows (#7 rounds 1-2)
 
 - Retail draws a character's silhouette on the ground along the light (Bibiki Bay captures, 2026-10-17; `image-11.png`) and, on the Config > Misc. "Shadows" Normal setting, a plain dark circle for other PCs, NPCs and monsters (`image-12.png`). The floor under a shadow keeps about half its brightness (33 vs 67 and 26 vs 46 in the two captures; `EntityRenderer.ShadowOpacity` 0.5, circles 0.45 at the centre, fading toward the rim, radius 0.22x the actor's height).

@@ -66,6 +66,8 @@ namespace Gordian.Engine.Graphics
         internal ChildFollow FollowMode;
         internal Matrix4x4 ParentLinear = Matrix4x4.Identity;
         internal Vector3 ParentBase;
+        /// <summary>Born at scale 0 with op 0x5A, which sizes it by its distance to the camera each frame.</summary>
+        internal bool SizedByDistance;
         internal ParticleGeneratorDefinition? Definition;
 
         /// <summary>
@@ -1185,8 +1187,15 @@ namespace Gordian.Engine.Graphics
                 }
 
                 case 0x49: Clock(slot, frame.DayFraction, t => p.LightTheta = t); break; // point-light theta by time of day
-                case 0x5A: // Unnamed by the references. Four floats; a particle born at scale 0 takes the first three (see particles.md)
-                    if (p.Scale == Vector3.Zero) p.Scale = op.Vector(0);
+                case 0x5A: // Unnamed by the references. A particle born at scale 0 grows with its distance to the camera, up to the first three floats (see particles.md)
+                    if (p.Scale == Vector3.Zero) p.SizedByDistance = true;
+                    if (p.SizedByDistance)
+                    {
+                        float perYalm = op.Float(4);
+                        p.Scale = perYalm > 0f
+                            ? Vector3.Min(op.Vector(0), new Vector3(perYalm * Vector3.Distance(frame.CameraRawPosition, p.WorldPosition)))
+                            : op.Vector(0);
+                    }
                     break;
                 case 0x5B: Progress(p, slot, p.LightTheta, t => p.LightTheta = t); break;
                 case 0x5C: Progress(p, slot, p.LightRange, r => p.LightRange = r); break;
