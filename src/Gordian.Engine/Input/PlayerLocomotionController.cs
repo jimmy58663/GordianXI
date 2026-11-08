@@ -1567,6 +1567,16 @@ namespace Gordian.Engine.Input
                     });
                 }
             }
+            if (_inputState.WasActionTriggered(InputAction.Heal))
+            {
+                // Retail's Heal key (H on the compact keyboard): /heal.
+                var service = _actionService;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await service.HealAsync().ConfigureAwait(false);
+                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Heal key: {result.Message}");
+                });
+            }
             if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
             _actionService.ToggleLockOn();
             Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");

@@ -74,7 +74,7 @@
 
 ### Auto-run
 
-- R (keyboard) or RB toggles auto-run (`InputState.AutorunActive`). Retail behaviour (the maintainer's check, 2026-10-10): the character runs the way it faces; left / right (A / D or the stick sideways) steer it round in an arc at the turn speed (`TurnSpeedDegreesPerSec`, full rate at full tilt) and it carries on the new way when released; running backwards (S, or the stick pulled mostly back past `PlayerLocomotionController.AutorunCancelStickY` = 0.5) ends it. Forward input keeps running. Before round 2, auto-run ran toward the camera's direction and the stick ignored it. Locked on, auto-run still runs toward the target as before.
+- R (keyboard) or RB toggles auto-run (`InputState.AutorunActive`). Retail behaviour (the maintainer's check, 2026-10-10): the character runs the way it faces; left / right (Q / E, the turn keys, or the stick sideways) steer it round in an arc at the turn speed (`TurnSpeedDegreesPerSec`, full rate at full tilt) and it carries on the new way when released; running backwards (S, or the stick pulled mostly back past `PlayerLocomotionController.AutorunCancelStickY` = 0.5) ends it. Forward input keeps running. Before round 2, auto-run ran toward the camera's direction and the stick ignored it. Locked on, auto-run still runs toward the target as before.
 
 ### First- and third-person camera settings (#306)
 

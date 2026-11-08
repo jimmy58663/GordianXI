@@ -718,6 +718,27 @@ namespace Gordian.Engine.Tests.Network
             Assert.Null(query.Name);
         }
 
+        [Theory]
+        [InlineData("lowjeuno", 245)]
+        [InlineData("LowJeuno", 245)]
+        [InlineData("ssandoria", 230)]
+        [InlineData("all ssandoria war", 0)] // all still wins
+        public void ParseSearchQuery_AZonesShortNameIsTheZone(string words, int zone)
+        {
+            // The maintainer, round 3 of 2026-11-07: the short names of the Map screen's zone list (ROM/165/85) work too.
+            var query = PlayerActionService.ParseSearchQuery(words, 248, ZoneNames, ShortZoneNames);
+            Assert.Equal(zone == 0 ? Array.Empty<ushort>() : new[] { (ushort)zone }, query.Areas.ToArray());
+            Assert.Null(query.Name);
+        }
+
+        private static string? ShortZoneNames(int zone) => zone switch
+        {
+            230 => "SSandoria",
+            245 => "LowJeuno",
+            248 => "Selbina",
+            _ => null,
+        };
+
         private static string? ZoneNames(int zone) => zone switch
         {
             103 => "Valkurm Dunes",
@@ -742,7 +763,9 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Theory]
+        [InlineData("hum", (byte)0)] // the maintainer, round 3: the three letters the search windows show
         [InlineData("elv", (byte)1)]
+        [InlineData("gal", (byte)4)]
         [InlineData("ELVAAN", (byte)1)]
         [InlineData("Hume", (byte)0)]
         [InlineData("galka", (byte)4)]

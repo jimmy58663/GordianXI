@@ -72,6 +72,9 @@ namespace Gordian.Engine.Ui
         /// <summary>How many of <see cref="ItemDropConfirm"/> the Yes drops.</summary>
         public uint ItemDropCount { get; init; }
 
+        /// <summary>Whether this Drop Yes / No is the second one a Rare or Ex item asks (<see cref="StockUiItems.AsksTwiceToDrop"/>).</summary>
+        public bool ItemDropSecond { get; init; }
+
         /// <summary>The Equipment list's storage choice (<see cref="StockUiItems.EquipStorageMenu"/>).</summary>
         public bool IsEquipStorageMenu { get; init; }
 
@@ -929,9 +932,10 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// Asks to drop in auto-sort's Yes / No under the Use / Drop window ("Commands", No under the cursor), the help bar
         /// "Dispose of item?" (help 242): retail client on local LSB, 2026-11-07 (Items_Drop_Confirm.png, a single Fire
-        /// Crystal). PROVISIONAL: the same after a stack's count box. Yes sends 0x028 and closes the Use / Drop window.
+        /// Crystal). After a stack's count box it drops that many (the maintainer, round 3 of 2026-11-07). Yes sends 0x028
+        /// and closes the Use / Drop window; a Rare or Ex item asks a second time first (<paramref name="second"/>).
         /// </summary>
-        private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count)
+        private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count, bool second = false)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiItems.SortConfirmMenu, out var definition))
@@ -943,20 +947,29 @@ namespace Gordian.Engine.Ui
             {
                 ItemDropConfirm = row,
                 ItemDropCount = count,
+                ItemDropSecond = second,
             };
             confirm.SelectedButtonId = StockUiItems.SortNoButton;
             lock (_sync) PushOpen(confirm);
             Changed?.Invoke();
         }
 
-        /// <summary>A Drop's Yes: closes the Use / Drop window and sends 0x028; No returns to it.</summary>
+        /// <summary>
+        /// A Drop's Yes: closes the Use / Drop window and sends 0x028; No returns to it. A Rare or Ex item's first Yes asks
+        /// again (the maintainer, round 3 of 2026-11-07: retail asks a second time for them).
+        /// </summary>
         private void ActivateDropConfirm(StockUiOpenMenu confirm, UiMenuButton button, StockUiItemRow row)
         {
             CloseMenu(confirm);
             if (button.ButtonId != StockUiItems.SortYesButton) return;
             uint count = confirm.ItemDropCount;
-            if (confirm.Parent is { ItemAction: not null } action) CloseMenu(action);
             var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
+            if (!confirm.ItemDropSecond && StockUiItems.AsksTwiceToDrop(record))
+            {
+                ConfirmDrop(confirm.Parent?.ItemAction != null ? confirm.Parent : null, row, count, second: true);
+                return;
+            }
+            if (confirm.Parent is { ItemAction: not null } action) CloseMenu(action);
             var drop = ItemDrop;
             if (drop == null)
             {

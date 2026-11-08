@@ -116,6 +116,9 @@ namespace Gordian.Engine.Input
         /// Retail's L3 (the maintainer's check, 2026-10-10): toggles lock-on when there is a target (or a fight to lock
         /// on to), otherwise /heal. The keyboard's lock-on keys stay <see cref="ToggleLockOn"/>.
         /// </summary>
-        LockOnOrHeal = 114
+        LockOnOrHeal = 114,
+
+        /// <summary>/heal: retail's Heal key (H on the compact keyboard, 2026-11-07).</summary>
+        Heal = 115
     }
 }

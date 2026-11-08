@@ -97,10 +97,13 @@ namespace Gordian.Engine.Tests.Ui
             menus.Activate();
             Assert.Equal(StockUiMenuController.KeyAssignCommandsMenu, menus.Top!.Name);
             // Retail's order (retail client on local LSB, 2026-11-07): Confirm, Cancel, Open Main Menu, Select Window, Toggle
-            // Walk/Run, Zoom In, Zoom Out, Change View, then GordianXI's own.
-            Assert.Equal(new[] { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View", "Strafe Left" },
-                menus.Top.Rows.Take(9).Select(r => r.Text));
-            Assert.Equal("Page Down", menus.Top.Rows[6].Value);
+            // Walk/Run, Zoom In, Zoom Out, Change View, Heal, then GordianXI's own.
+            Assert.Equal(new[] { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View", "Heal", "Reset Camera" },
+                menus.Top.Rows.Take(10).Select(r => r.Text));
+            // Retail's compact keys first (2026-11-07).
+            Assert.Equal(",, Page Down", menus.Top.Rows[6].Value);
+            Assert.Equal("Y, Enter, Space", menus.Top.Rows[0].Value);
+            Assert.Equal("H", menus.Top.Rows[8].Value);
         }
 
         [Fact]
@@ -109,10 +112,11 @@ namespace Gordian.Engine.Tests.Ui
             // Retail client on local LSB, 2026-11-07: Movement lists Zoom In / Out and Toggle Walk/Run too, and a function in
             // both windows shows the same key in both.
             var shared = KeyboardAssignments.Movement.Intersect(KeyboardAssignments.Commands).Select(f => f.Label).ToHashSet();
-            Assert.Equal(new HashSet<string> { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View" }, shared);
+            Assert.Equal(new HashSet<string> { "Confirm", "Cancel", "Open Main Menu", "Select Window", "Toggle Walk/Run", "Zoom In", "Zoom Out", "Change View", "Heal" }, shared);
             Assert.Equal(new[] { "Move Up", "Move Down", "Move Left", "Move Right", "Menu Cursor & Camera Up", "Menu Cursor & Camera Down",
                 "Move Camera Up", "Move Camera Down", "Move Camera Left", "Move Camera Right", "Zoom In", "Zoom Out" },
                 KeyboardAssignments.Movement.Take(12).Select(f => f.Label));
+            Assert.Equal(new[] { "Turn Right", "Turn Left" }, KeyboardAssignments.Movement.TakeLast(2).Select(f => f.Label));
             Assert.Equal(KeyboardAssignments.All.Count(), KeyboardAssignments.All.Distinct().Count());
         }
 

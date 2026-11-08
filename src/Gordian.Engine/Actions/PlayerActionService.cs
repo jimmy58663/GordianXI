@@ -2108,7 +2108,7 @@ namespace Gordian.Engine.Actions
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
             bool nobody = !SearchTargetName(ref arguments, out string? targetName);
-            var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName);
+            var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName, Menus.ZoneCompactName);
             if (targetName != null) query.Name = targetName;
             if (Menus.Social is { } social)
             {
@@ -2188,16 +2188,20 @@ namespace Gordian.Engine.Actions
         /// <summary>
         /// Turns the arguments of <c>/sea</c> into a search; words are not case-sensitive and combine (the maintainer's
         /// retail grammar, #495 round 1, 2026-11-04): <c>all</c> every zone; a zone's name, joined or as words (<c>selbina</c>,
-        /// <c>port jeuno</c>, through <paramref name="zoneName"/>), else the current zone; a job code; <c>24-35</c>, <c>75</c>
-        /// or <c>lv75</c> the level; <c>rank 10</c>; a race (<c>elv</c>, <c>elvaan</c>, ...; not <c>taru</c>); a nation (<c>sandoria</c>,
+        /// <c>port jeuno</c>, through <paramref name="zoneName"/>), or its short name from the Map screen's zone list
+        /// (<c>lowjeuno</c>, <c>ssandoria</c>, through <paramref name="compactName"/>; the maintainer, round 3 of 2026-11-07),
+        /// else the current zone; a job code; <c>24-35</c>, <c>75</c> or <c>lv75</c> the level; <c>rank 10</c>; a race (the
+        /// three letters the search windows show, <c>hum</c>, <c>elv</c>, <c>tar</c>, <c>mit</c>, <c>gal</c> (the maintainer,
+        /// round 3), or the whole word; not <c>taru</c>); a nation (<c>sandoria</c>,
         /// <c>bastok</c>, <c>windurst</c>); <c>inv</c> (also <c>party</c>, <c>pt</c>) players seeking a party; <c>friend</c>
         /// friends. Any other word is a name or name prefix. A zone's several words are read first, so <c>bastok markets</c>
         /// is the zone and <c>bastok</c> alone the nation; a zone name's first word, when no other zone's starts with it, is that
         /// zone (<c>valkurm</c>). Retail client on local LSB, 2026-11-07: <c>tar</c>, <c>tarutaru</c>, <c>mit</c>, <c>mithra</c>
-        /// and <c>valkurm</c> search as these do; <c>taru</c> finds no Tarutaru. PROVISIONAL: the Hume, Elvaan and Galka words
-        /// (no such player was online), first words in general, and a one-word zone name beating a player of that name.
+        /// and <c>valkurm</c> search as these do; <c>taru</c> finds no Tarutaru. PROVISIONAL: first words in general, and a
+        /// one-word zone name beating a player of that name.
         /// </summary>
-        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone, Func<int, string?>? zoneName = null)
+        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone, Func<int, string?>? zoneName = null,
+            Func<int, string?>? compactName = null)
         {
             var query = new SearchQuery();
             var words = (arguments ?? string.Empty).Split(new[] { ' ', '_' }, StringSplitOptions.RemoveEmptyEntries);
@@ -2205,8 +2209,8 @@ namespace Gordian.Engine.Actions
             bool TryZone(string text, out ushort zone)
             {
                 zone = 0;
-                if (zoneName == null) return false;
-                zones ??= SearchZones(zoneName);
+                if (zoneName == null && compactName == null) return false;
+                zones ??= SearchZones(zoneName, compactName);
                 return zones.TryGetValue(SearchKey(text), out zone);
             }
 
@@ -2263,15 +2267,25 @@ namespace Gordian.Engine.Actions
         /// <summary>A name as <c>/sea</c> compares it: lower case letters and digits only ("Ru'Lude Gardens" = "ruludegardens").</summary>
         private static string SearchKey(string name) => string.Concat(name.Where(char.IsLetterOrDigit)).ToLowerInvariant();
 
-        /// <summary>The zones by their whole names, then by a first word no other zone's name starts with (<c>valkurm</c>).</summary>
-        private static Dictionary<string, ushort> SearchZones(Func<int, string?> zoneName)
+        /// <summary>
+        /// The zones by their whole names, then by their short names (ROM/165/85: "LowJeuno", "SSandoria"), then by a first
+        /// word no other zone's name starts with (<c>valkurm</c>).
+        /// </summary>
+        private static Dictionary<string, ushort> SearchZones(Func<int, string?>? zoneName, Func<int, string?>? compactName)
         {
             var zones = new Dictionary<string, ushort>();
             var firstWords = new Dictionary<string, ushort?>();
             for (ushort zone = 1; zone < 300; zone++)
             {
-                if (zoneName(zone) is not { Length: > 0 } name) continue;
-                zones.TryAdd(SearchKey(name), zone);
+                if (zoneName?.Invoke(zone) is { Length: > 0 } full) zones.TryAdd(SearchKey(full), zone);
+            }
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (compactName?.Invoke(zone) is { Length: > 0 } compact) zones.TryAdd(SearchKey(compact), zone);
+            }
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (zoneName?.Invoke(zone) is not { Length: > 0 } name) continue;
                 string first = SearchKey(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]);
                 firstWords[first] = firstWords.TryGetValue(first, out var seen) && seen != zone ? null : zone;
             }

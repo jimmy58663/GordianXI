@@ -359,6 +359,36 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public async Task Drop_ARareExItemAsksTwice()
+        {
+            // The maintainer, round 3 of 2026-11-07: retail asks a second time before dropping a Rare or Ex item.
+            var h = new Harness();
+            var plain = h.Menus.ItemLookup!;
+            h.Menus.ItemLookup = id => id == BronzeCap
+                ? new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", Flags = StockUiItems.RareFlag | StockUiItems.ExclusiveFlag }
+                : plain(id);
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, BronzeCap);
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.DropButton;
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+
+            var second = h.Menus.Top!;
+            Assert.Equal(StockUiItems.SortConfirmMenu, second.Name);
+            Assert.True(second.ItemDropSecond);
+            Assert.Equal(StockUiItems.SortNoButton, second.SelectedButtonId);
+            Assert.False(h.Dropped.Task.IsCompleted);
+
+            second.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+            var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal((ContainerId.Inventory, (byte)4, 1u), dropped);
+            Assert.Same(list, h.Menus.Top);
+        }
+
+        [Fact]
         public void Drop_IsGreyedForAWornItem()
         {
             var h = new Harness();

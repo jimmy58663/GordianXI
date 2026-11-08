@@ -42,14 +42,15 @@ namespace Gordian.Engine.Input
     /// Screenshot, Toggle Walk/Run, Zoom In, Zoom Out, Ranged Attack, Call For Help, Equipment, Change View, Heal, Check,
     /// then the Chat: rows /Say, /Party, /Tell, /Linkshell, /Reply to tell, /Unity, /Linkshell2, /AssistE or /AssistJ).
     /// A function in both windows showed the same key in both, so it is one function listed in both here. Only the rows
-    /// GordianXI has an action for are listed. GordianXI's own keyboard functions (strafing, lock-on, target cycling, the
-    /// chat line) follow the Commands window's retail rows, with GordianXI wording. Not matched yet: retail's Move Left /
-    /// Right are on A / D and its Turn Left / Right on Q / E, where GordianXI's A / D turn and Q / E strafe.
+    /// GordianXI has an action for are listed. Retail's Move Left / Right step sideways (A / D) and its Turn Left / Right
+    /// turn (Q / E), as GordianXI's compact defaults now do (round 3 of the 2026-11-07 test). GordianXI's own keyboard
+    /// functions (camera reset, lock-on, target cycling, the chat line) follow the Commands window's retail rows, with
+    /// GordianXI wording.
     /// </para>
     /// <para>
     /// Assigning works as the gamepad list's does (<see cref="GamepadAssignments.Assign"/>): a function gets one key, and
-    /// another function of the same context that had the key gets the function's previous key (a swap). What retail does
-    /// with a key already in use is not known. Gamepad and mouse bindings are never touched.
+    /// another function of the same context that had the key gets the function's previous key (a swap; what retail does
+    /// is not known, and the maintainer chose the swap, round 3). Gamepad and mouse bindings are never touched.
     /// </para>
     /// </summary>
     public static class KeyboardAssignments
@@ -63,14 +64,15 @@ namespace Gordian.Engine.Input
         private static readonly KeyboardFunction SelectWindow = new("Select Window", 110, InputAction.CycleLogWindow);
         private static readonly KeyboardFunction OpenMainMenu = new("Open Main Menu", 111, InputAction.OpenMenu);
         private static readonly KeyboardFunction ToggleWalkRun = new("Toggle Walk/Run", 138, InputAction.ToggleWalkRun);
+        private static readonly KeyboardFunction Heal = new("Heal", 109, InputAction.Heal);
 
         /// <summary>The Movement window's functions (<c>k1assign</c>), in retail's list order.</summary>
         public static IReadOnlyList<KeyboardFunction> Movement { get; } = new[]
         {
             new KeyboardFunction("Move Up", 89, InputAction.MoveForward),
             new KeyboardFunction("Move Down", 90, InputAction.MoveBackward),
-            new KeyboardFunction("Move Left", 92, InputAction.TurnLeft),
-            new KeyboardFunction("Move Right", 91, InputAction.TurnRight),
+            new KeyboardFunction("Move Left", 92, InputAction.StrafeLeft),
+            new KeyboardFunction("Move Right", 91, InputAction.StrafeRight),
             new KeyboardFunction("Menu Cursor & Camera Up", 101, InputAction.MenuUp, InputAction.CameraPitchUp),
             new KeyboardFunction("Menu Cursor & Camera Down", 102, InputAction.MenuDown, InputAction.CameraPitchDown),
             new KeyboardFunction("Move Camera Up", 93, InputAction.CameraPitchUp),
@@ -85,9 +87,13 @@ namespace Gordian.Engine.Input
             Cancel,
             ChangeView,
             new KeyboardFunction("Autorun", 108, InputAction.ToggleAutorun),
+            Heal,
             SelectWindow,
             OpenMainMenu,
             ToggleWalkRun,
+            // Retail's last two rows; the config row table has no text for them.
+            new KeyboardFunction("Turn Right", -1, InputAction.TurnRight),
+            new KeyboardFunction("Turn Left", -1, InputAction.TurnLeft),
         };
 
         /// <summary>The Commands window's functions (<c>k2assign</c>), in retail's list order, then GordianXI's own.</summary>
@@ -101,9 +107,8 @@ namespace Gordian.Engine.Input
             ZoomIn,
             ZoomOut,
             ChangeView,
+            Heal,
             // GordianXI's own keyboard functions.
-            new KeyboardFunction("Strafe Left", -1, InputAction.StrafeLeft),
-            new KeyboardFunction("Strafe Right", -1, InputAction.StrafeRight),
             new KeyboardFunction("Reset Camera", -1, InputAction.ResetCamera),
             new KeyboardFunction("Lock On", -1, InputAction.ToggleLockOn),
             new KeyboardFunction("Cycle Target Right", -1, InputAction.TargetNearest),
@@ -227,6 +232,10 @@ namespace Gordian.Engine.Input
                 GordianKey.PageDown => "Page Down",
                 GordianKey.OemMinus => "-",
                 GordianKey.OemSlash => "/",
+                GordianKey.OemPeriod => ".",
+                GordianKey.OemComma => ",",
+                GordianKey.OemOpenBracket => "[",
+                GordianKey.OemCloseBracket => "]",
                 _ => key.ToString(),
             };
             return prefix + name;

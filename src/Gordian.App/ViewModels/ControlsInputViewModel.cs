@@ -750,6 +750,7 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.TargetCursorLeft, "Targeting", "Target Cursor Left (via yourself)");
             AddBindingRow(InputAction.ToggleLockOn, "Targeting", "Toggle Lock-On");
             AddBindingRow(InputAction.LockOnOrHeal, "Targeting", "Lock-On (target) / Heal (no target)");
+            AddBindingRow(InputAction.Heal, "Targeting", "Heal (/heal)");
             AddBindingRow(InputAction.TargetSelf, "Targeting", "Target Self");
             AddBindingRow(InputAction.TargetParty1, "Targeting", "Target Party Member 2");
             AddBindingRow(InputAction.TargetParty2, "Targeting", "Target Party Member 3");

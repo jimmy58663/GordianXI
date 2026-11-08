@@ -158,6 +158,15 @@ namespace Gordian.Engine.Ui
         /// <summary>Help text ids (ROM/165/75): "Select an item.", "Select item to move.", "Sort list?".</summary>
         public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80, HelpDisposeOfItem = 242;
 
+        /// <summary>The item flags of Rare and Ex items (LandSandBoat <c>ItemFlag::Rare</c>, <c>ItemFlag::Exclusive</c>).</summary>
+        public const uint RareFlag = 0x8000, ExclusiveFlag = 0x4000;
+
+        /// <summary>
+        /// Whether dropping the item asks a second Yes / No: Rare and Ex items (the maintainer, round 3 of 2026-11-07).
+        /// PROVISIONAL: the second prompt's wording (it shows "Dispose of item?" again here) and place, not captured.
+        /// </summary>
+        public static bool AsksTwiceToDrop(ItemRecord record) => (record.Flags & (RareFlag | ExclusiveFlag)) != 0;
+
         /// <summary>Title text ids (ROM/165/76): "Items", "Equipment", "No. of Items", "Recycling Bin".</summary>
         public const string TitleItems = "Items", TitleEquipment = "Equipment", TitleQuantity = "No. of Items", TitleRecycleBin = "Recycling Bin";
 

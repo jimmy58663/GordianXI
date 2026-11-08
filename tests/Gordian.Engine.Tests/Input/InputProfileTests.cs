@@ -9,6 +9,46 @@ namespace Gordian.Engine.Tests.Input
     public sealed class InputProfileTests
     {
         [Fact]
+        public void RetailCompactKeys_ReachAProfileSavedWithTheOldDefaults()
+        {
+            // A compact profile as saved before round 3 of the 2026-11-07 test: A / D turn, Q / E strafe, H resets the
+            // camera, F targets, and no V / Y / N / Z / . / , keys.
+            var old = InputProfile.CreateCompact();
+            foreach (var key in new[] { GordianKey.A, GordianKey.D, GordianKey.Q, GordianKey.E, GordianKey.H, GordianKey.F,
+                GordianKey.V, GordianKey.Y, GordianKey.N, GordianKey.Z, GordianKey.OemPeriod, GordianKey.OemComma })
+            {
+                foreach (var chords in old.Bindings.Values) chords.Remove(new InputChord(key));
+            }
+            old.Bindings.Remove(InputAction.Heal);
+            old.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            old.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
+            old.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
+            old.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
+            old.Bind(InputAction.ResetCamera, new InputChord(GordianKey.H));
+            old.Bind(InputAction.TargetNearest, new InputChord(GordianKey.F));
+            old.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.Y)); // the player's own key stays theirs
+
+            var profile = InputProfile.FromJson(old.SaveToJson());
+
+            InputAction Action(GordianKey key) => profile.TryGetAction(new InputChord(key), out var a) ? a : InputAction.None;
+            Assert.Equal(InputAction.StrafeLeft, Action(GordianKey.A));
+            Assert.Equal(InputAction.StrafeRight, Action(GordianKey.D));
+            Assert.Equal(InputAction.TurnLeft, Action(GordianKey.Q));
+            Assert.Equal(InputAction.TurnRight, Action(GordianKey.E));
+            Assert.Equal(InputAction.Heal, Action(GordianKey.H));
+            Assert.Equal(InputAction.CycleLogWindow, Action(GordianKey.F));
+            Assert.Equal(InputAction.ToggleCameraMode, Action(GordianKey.V));
+            Assert.Equal(InputAction.ToggleWalkRun, Action(GordianKey.Y));
+            Assert.DoesNotContain(new InputChord(GordianKey.Y), profile.GetChords(InputAction.Confirm));
+            Assert.Equal(InputAction.CameraZoomIn, Action(GordianKey.OemPeriod));
+
+            // Once migrated, the player's later changes stay.
+            profile.Unbind(InputAction.StrafeLeft, new InputChord(GordianKey.A));
+            profile.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            Assert.Equal(InputAction.TurnLeft, InputProfile.FromJson(profile.SaveToJson()).TryGetAction(new InputChord(GordianKey.A), out var again) ? again : InputAction.None);
+        }
+
+        [Fact]
         public void CreateCompact_BindsExpectedDefaultActions()
         {
             var profile = InputProfile.CreateCompact();
@@ -23,16 +63,16 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(InputAction.MoveBackward, actS);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.A), out var actA));
-            Assert.Equal(InputAction.TurnLeft, actA);
+            Assert.Equal(InputAction.StrafeLeft, actA); // retail: A / D move left / right, Q / E turn (2026-11-07)
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.D), out var actD));
-            Assert.Equal(InputAction.TurnRight, actD);
+            Assert.Equal(InputAction.StrafeRight, actD);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.Q), out var actQ));
-            Assert.Equal(InputAction.StrafeLeft, actQ);
+            Assert.Equal(InputAction.TurnLeft, actQ);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.E), out var actE));
-            Assert.Equal(InputAction.StrafeRight, actE);
+            Assert.Equal(InputAction.TurnRight, actE);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.R), out var actR));
             Assert.Equal(InputAction.ToggleAutorun, actR);

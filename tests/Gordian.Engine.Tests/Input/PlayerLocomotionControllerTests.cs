@@ -109,7 +109,7 @@ namespace Gordian.Engine.Tests.Input
 
             // D (TurnRight) now faces the character camera-relative-right and runs, like a
             // gamepad stick pushed right, instead of turning in place.
-            input.SetKeyDown(GordianKey.D);
+            input.SetKeyDown(GordianKey.E);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             // Mirrors the tested gamepad CameraRelative "strafe right" behavior: with the camera
@@ -130,7 +130,7 @@ namespace Gordian.Engine.Tests.Input
             controller.CameraYaw = 0.0f;
 
             // A (TurnLeft) mirrors D: faces camera-relative-left and runs.
-            input.SetKeyDown(GordianKey.A);
+            input.SetKeyDown(GordianKey.Q);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(192, localEnt.Direction);
@@ -166,9 +166,9 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(0, localEnt.Direction);
             Assert.InRange(localEnt.Position.X, 2.4f, 2.6f);
 
-            input.SetKeyDown(GordianKey.D);   // steer right for a quarter second: 45 degrees at 180 degrees/s
+            input.SetKeyDown(GordianKey.E);   // steer right for a quarter second: 45 degrees at 180 degrees/s
             controller.Update(TimeSpan.FromSeconds(0.25));
-            input.SetKeyUp(GordianKey.D);
+            input.SetKeyUp(GordianKey.E);
             Assert.InRange(localEnt.Direction, (byte)31, (byte)33);
             Assert.True(input.AutorunActive);
 
@@ -252,7 +252,7 @@ namespace Gordian.Engine.Tests.Input
             controller.CameraYaw = 0.0f;
 
             // E strafes without turning; it must land on the side D (camera-relative right) runs to: -Z.
-            input.SetKeyDown(GordianKey.E);
+            input.SetKeyDown(GordianKey.D);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(0, localEnt.Direction);
@@ -271,7 +271,7 @@ namespace Gordian.Engine.Tests.Input
             controller.CameraYaw = 0.0f;
 
             input.SetKeyDown(GordianKey.W);
-            input.SetKeyDown(GordianKey.A);
+            input.SetKeyDown(GordianKey.Q);
 
             // Retail reference: a held W+A run completes a full circle in about 11.75 seconds (60 Hz frames).
             float totalTurnDeg = 0f;
@@ -562,7 +562,7 @@ namespace Gordian.Engine.Tests.Input
             controller.CameraYaw = NorthYaw;
             me.Direction = 192;
 
-            input.SetKeyDown(GordianKey.E);
+            input.SetKeyDown(GordianKey.D);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(LocomotionDirection.Right, me.LocomotionDirection);
@@ -608,8 +608,8 @@ namespace Gordian.Engine.Tests.Input
             float before = YawOffFromNorth(controller);
 
             // Run around the target with no camera input: the camera holds its world yaw while it can, then rides the limit.
-            input.SetKeyDown(GordianKey.Q);
             input.SetKeyDown(GordianKey.A);
+            input.SetKeyDown(GordianKey.Q);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
 
             var target = mob.Position - me.Position;
