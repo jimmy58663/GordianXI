@@ -66,6 +66,7 @@ namespace Gordian.Core.Resources
             _vfs = vfs ?? new VirtualFileSystem(_gameDirectory, resourcesDirectory);
             // A VFS reload (hot reload, a pack toggled, the VFS switched off) can change what any DAT resolves to.
             _vfs.OnReloaded += ClearCache;
+            _furniture = new Lazy<Dictionary<ushort, Tables.FurnitureInfo>>(LoadFurnitureTable);
         }
 
         /// <summary>

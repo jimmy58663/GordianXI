@@ -979,6 +979,8 @@ namespace Gordian.App.Graphics
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
+                        _renderer.Furniture = _activeSession is { } roomSession ? MogHouseFurnitureScene.Build(roomSession, ResourceManager, _furnitureInstances) : null;
+                        _renderer.HideSceneryAbove = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true ? MogHouseFurnitureScene.CeilingHeight : null;
                         _renderer.SoftTerrainHighlights = ViewportRenderSettings.SoftTerrainHighlights;
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
@@ -1054,8 +1056,10 @@ namespace Gordian.App.Graphics
                                 fadeEntities.HideFallbackProxies = StockUi.LoadingOpacity > 0f;
                                 // First person looks out of the character's eyes, so its own body is not drawn (#305), except
                                 // while an event's camera holds the view.
-                                fadeEntities.HideLocalPlayer = Camera.Mode == CameraMode.FirstPerson
-                                    && !(_activeSession?.Events.Presentation.TryGetCamera(out _) ?? false);
+                                fadeEntities.HideLocalPlayer = (Camera.Mode == CameraMode.FirstPerson
+                                    && !(_activeSession?.Events.Presentation.TryGetCamera(out _) ?? false))
+                                    // The Layout's view of the room has no character in it (video, #93).
+                                    || _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true;
                             }
 
                             // Tier 1: 3D Scene Pass (Terrain, Sky Dome, Cutout Foliage, Entities, Blend Water)
@@ -1349,6 +1353,16 @@ namespace Gordian.App.Graphics
                     camera.AspectRatio = aspect;
                 }
             }
+            // The Mog House Layout's camera (#93) eases up from the view just worked out and back down to it.
+            if (session?.ActionService.Menus is { } layoutMenus)
+            {
+                if (!IsThumbnail) session.UpdateMogHouseView(deltaSeconds);
+                if (layoutMenus.MogHouseCamera.InUse)
+                {
+                    var (eye, target, up) = layoutMenus.MogHouseCamera.View(camera.Position, camera.Target);
+                    camera.SetLookAt(eye, target, up);
+                }
+            }
             else
             {
                 camera.AspectRatio = aspect;
@@ -1550,6 +1564,8 @@ namespace Gordian.App.Graphics
         /// The stock FFXI 2D HUD (Tier 2): layout, visibility and resources.
         /// </summary>
         public StockUiHud StockUi { get; } = new();
+
+        private readonly System.Collections.Generic.List<FurnitureInstance> _furnitureInstances = new();
 
         private readonly Gordian.Engine.Ui.ZoneLoadingScreen _loadingScreen = new();
 
@@ -1755,7 +1771,10 @@ namespace Gordian.App.Graphics
                 }
             }
             // The camera works in display space (-x, -y, z): world east is -X there (#485's compass turns with the view).
-            StockUi.CameraBearing = Gordian.Engine.Ui.StockUiCompass.BearingOf(-Camera.Forward.X, Camera.Forward.Z);
+            // The Layout looks straight down with north at the top (#93).
+            bool layoutView = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true;
+            StockUi.CameraBearing = Gordian.Engine.Ui.StockUiCompass.BearingOf(layoutView ? 0f : -Camera.Forward.X, layoutView ? 1f : Camera.Forward.Z);
+            StockUi.ViewProjection = Camera.ViewProjectionMatrix;
             StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors, subCursor);
         }
 

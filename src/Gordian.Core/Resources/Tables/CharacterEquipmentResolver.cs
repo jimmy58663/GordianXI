@@ -265,6 +265,40 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// The face model of a Mog House mannequin, the same index in every race's face table: Hume male file 7110 (ROM/143/7), a
+        /// carved head with no blink or talk routines. Its body, hands, legs and feet are the race's model 0, the outfit retail's
+        /// empty mannequin wears (render against <c>Mog_House_Mannequin_Equip_Window.png</c>, 2026-11-07). Face list referenced from
+        /// xi-tools (src/xi/entity/xi_pc_faces.py, "Hume Male Mannequin" ... "Galka Mannequin", index 30 of each table).
+        /// <b>Differs from LandSandBoat:</b> its note in <c>0x026_item_subcontainer.cpp</c> gives 31, which is the face after it
+        /// (Hume male F8B, ROM/27/102).
+        /// </summary>
+        public const byte MannequinFace = 30;
+
+        /// <summary>
+        /// The race's mannequin pose file: routines <c>em00</c>-<c>em07</c> holding the one-frame poses <c>mq0</c>-<c>mq4</c> as body
+        /// parts 0 (legs) and 1 (upper body); part 2 (the waist) is in the next file. Hume male ROM/143/9 and 143/10, each race five
+        /// files on from the last (Tarutaru female 143/34). Files referenced from xi-tools (mv/lists/characters.json, the race
+        /// actions labelled "Mannequin"); the routines and clips were read from the retail DATs (2026-11-07). Empty when none.
+        /// </summary>
+        public static (string Parts, string Waist) GetMannequinPosePaths(CharacterRace race)
+        {
+            int file = race switch
+            {
+                CharacterRace.HumeMale => 9,
+                CharacterRace.HumeFemale => 14,
+                CharacterRace.ElvaanMale => 19,
+                CharacterRace.ElvaanFemale => 24,
+                CharacterRace.TaruMale => 30,
+                CharacterRace.TaruFemale => 34,
+                CharacterRace.Mithra => 39,
+                CharacterRace.Galka => 44,
+                _ => 0,
+            };
+            return file == 0 ? (string.Empty, string.Empty)
+                : (Path.Combine("ROM", "143", $"{file}.DAT"), Path.Combine("ROM", "143", $"{file + 1}.DAT"));
+        }
+
+        /// <summary>
         /// Returns the race's zero-indexed slot in the retail PC race ordering
         /// (HumeM, HumeF, ElvaanM, ElvaanF, Taru, TaruF, Mithra, Galka), used to index
         /// race-ordered motion tables such as <see cref="MotionBattleBaseFileId"/>.

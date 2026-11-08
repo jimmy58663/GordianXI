@@ -1040,6 +1040,7 @@ namespace Gordian.Engine.Ui
         /// <summary>Rebuilds a menu's markers, slider fills and list rows from the current settings.</summary>
         private void Refresh(StockUiOpenMenu menu)
         {
+            RefreshMogHouseMenu(menu);
             if (menu.ConfigPage is { } page)
             {
                 var marked = new HashSet<int>();
@@ -1206,6 +1207,7 @@ namespace Gordian.Engine.Ui
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
+            if (ProcessMogHouseLayout(input, elapsed)) return true; // the Mog House layout grid (#93)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1296,7 +1298,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveJobPointPage(direction) || TryMoveRoeCategory(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveJobPointPage(direction) || TryMoveRoeCategory(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction) || TryMoveMannequin(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();
@@ -1517,6 +1519,7 @@ namespace Gordian.Engine.Ui
                 }
             }
             page.SelectedButtonId = selected != 0 ? selected : FirstSelectable(definition);
+            RefreshMogHouseMenu(page);
             Remember(top);
             _mainMenuPage = next;
 
@@ -1939,8 +1942,17 @@ namespace Gordian.Engine.Ui
                     RunSearchAction(entry, from);
                     break;
 
+                case StockUiMenuCommand.MogHouseAction:
+                    RunMogHouseAction(entry, from);
+                    break;
+
                 case StockUiMenuCommand.CurrentTime:
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
+                    break;
+
+                case StockUiMenuCommand.Map when InMogHouse?.Invoke() == true:
+                    // In the Mog House this button reads Mog House and opens the moogle's menu (#93).
+                    lock (_sync) Push(StockUiMogHouse.MoogleMenu, from, Array.Empty<string>(), null, null);
                     break;
 
                 case StockUiMenuCommand.Map:

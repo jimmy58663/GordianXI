@@ -113,7 +113,7 @@ namespace Gordian.App.Graphics
                 for (int i = open.Count - 1; i >= 0; i--)
                 {
                     if (!StockUiStatusPagesWindow.ShowsHelp(open[i])) continue;
-                    if (open[i].SelectedButton is { HelpTextId: >= 0 } button) help = menus.MenuHelpText?.Invoke(button.HelpTextId);
+                    if (open[i].SelectedButton is { } button && open[i].HelpTextIdOf(button) >= 0) help = menus.MenuHelpText?.Invoke(open[i].HelpTextIdOf(button));
                     break;
                 }
             }

@@ -220,6 +220,8 @@ namespace Gordian.App.Graphics
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
                 Gordian.Engine.Ui.StandardMessages.ItemLookup ??= menus.ItemLookup;
+                menus.MogHouseLayout.InfoOf = items.GetFurnitureInfo;
+                menus.OnMogHouseFurnitureChanged();
             }
             if (menus.KeyItemCatalog == null && _resources is { } keyItems)
             {
@@ -309,6 +311,7 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
+                DrawMogHouseLayout(renderer, library, menus, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -405,7 +408,7 @@ namespace Gordian.App.Graphics
             // frame's help (Level Sync's "Please select the player ...") shows.
             string? title = top.HelpTitle ?? (top.Parent is { ListKind: StockUiListKind.People } list ? list.HelpTitle : null) ?? StockUiParty.TitleOf(top.Name) ?? StockUiSearch.TitleOf(top.Name);
             if (title == null) return;
-            int helpId = top.SelectedButton is { HelpTextId: >= 0 } button ? button.HelpTextId : top.Menu.Frame.HelpTextId;
+            int helpId = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? top.HelpTextIdOf(button) : top.Menu.Frame.HelpTextId;
             string? help = helpId >= 0 ? menus.MenuHelpText?.Invoke(helpId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
@@ -579,6 +582,30 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
+        /// <summary>The frame's camera, for what the HUD draws in the 3D scene.</summary>
+        public Matrix4x4 ViewProjection { get; set; }
+
+        /// <summary>The Mog House Layout's lines and cursor (#93) under any menu, and its help bar while no menu is up.</summary>
+        private void DrawMogHouseLayout(StockUiRenderer renderer, UiResourceLibrary library, StockUiMenuController menus, uint width, uint height)
+        {
+            var layout = menus.MogHouseLayout;
+            if (_font is not { } font || !layout.Active) return;
+            var resources = _resources;
+            StockUiMogHouseLayoutWindow.Draw(renderer, library, layout, ViewProjection, id => resources?.TryLoadFurnitureModel(id) != null, Layout.Scale, width, height, Stopwatch.GetTimestamp());
+            if (menus.OpenMenus.Count == 0)
+            {
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMogHouseLayoutWindow.Title, StockUiMogHouseLayoutWindow.HelpLine,
+                    Layout.Scale, width, height);
+            }
+            else if (menus.OpenMenus[^1] is { IsItemWindow: false, SelectedButton: { } button } top && menus.MenuHelpText?.Invoke(top.HelpTextIdOf(button)) is { } line)
+            {
+                // The Layout's menus keep its title; the safes' list names the safe under the cursor (video at 0:27-0:30).
+                string title = !top.Name.Equals(StockUiMogHouse.SafeMenu, StringComparison.OrdinalIgnoreCase) ? StockUiMogHouseLayoutWindow.Title
+                    : button.ButtonId == StockUiMogHouse.SafeMenuSafe2Button ? StockUiMogHouse.Safe2Title : StockUiMogHouse.SafeTitle;
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, line, Layout.Scale, width, height);
+            }
+        }
+
         private void DrawBlueMagicHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var menus = session.ActionService.Menus;
@@ -615,7 +642,7 @@ namespace Gordian.App.Graphics
             var top = menus.OpenMenus.LastOrDefault(m => m.IsMacroWindow);
             if (top != null)
             {
-                string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+                string? help = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? menus.MenuHelpText?.Invoke(top.HelpTextIdOf(button)) : null;
                 string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
                 if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
                 StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
@@ -739,11 +766,12 @@ namespace Gordian.App.Graphics
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
                 : open[0].IsShopMenu ? StockUiWindowIds.Shop
-                : open[0].IsCheck ? StockUiWindowIds.Check
+                : open[0].IsCheck || open[0].IsMannequinWindow ? StockUiWindowIds.Check
                 : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
-            if ((open[0].IsCommandMenu || open[0].IsShopMenu) && !rootMoved && _window1Top is { } logTop)
+            var unclampedRoot = root;
+            if ((open[0].IsCommandMenu || open[0].IsShopMenu || StockUiMogHouse.StandsOnLog(open[0].Name)) && !rootMoved && _window1Top is { } logTop)
             {
                 // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
                 // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window. The shop's
@@ -759,6 +787,10 @@ namespace Gordian.App.Graphics
             }
             var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
             float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
+            // The moogle's menu stands on the log, but what it opens (View House, the Storage and Safe lists) stays under the help
+            // bar where the main menu's windows sit, not moving with the log (round 3).
+            bool rootOnLog = StockUiMogHouse.StandsOnLog(open[0].Name);
+            float mainDx = unclampedRoot.X - authoredRoot.X, mainDy = unclampedRoot.Y - authoredRoot.Y;
 
             for (int i = 0; i < open.Count; i++)
             {
@@ -785,8 +817,9 @@ namespace Gordian.App.Graphics
                     // own places; the other windows follow the root.
                     bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
                         || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
-                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
-                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    bool underHelp = rootOnLog && !StockUiMogHouse.StandsOnLog(menu.Name);
+                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + (underHelp ? mainDx : dx), 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + (underHelp ? mainDy : dy), 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
                     {
                         // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).
@@ -806,6 +839,12 @@ namespace Gordian.App.Graphics
                         // A book's options open beside its row, left of the book list (PROVISIONAL: authored at 0,0; retail's place not captured).
                         x = Math.Max(0, listAt.X - (frame.Width + 4) * root.Scale);
                         y = Math.Clamp(listAt.Y + (bookRow.Y - 6) * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    }
+                    else if (StockUiMogHouse.StandsOnLog(menu.Name) && _window1Top is { } roomLogTop)
+                    {
+                        // The moogle's menu and the Layout's menus stand on Window 1's top edge, opened from anywhere (round 2).
+                        x = authored.X;
+                        y = Math.Clamp(roomLogTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
                     else if (menu.IsActionList && _window1Top is { } listTop)
                     {

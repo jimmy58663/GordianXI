@@ -103,7 +103,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>An Items or Equipment window: drawn at its own place rather than following the root.</summary>
         public bool IsItemWindow => IsItemList || ItemAction != null || ItemDropRow != null || IsItemOptions || IsSortConfirm || IsEquipStorageMenu || IsEquipment
-            || IsSynthesisGrid || IsSynthesisOptions || IsTradeWindow;
+            || IsSynthesisGrid || IsSynthesisOptions || IsTradeWindow || IsMannequinWindow;
 
         /// <summary>The item worn in the slot a grid button shows (0 when empty or not the Equipment grid).</summary>
         public ushort EquippedItemIn(int buttonId) =>
@@ -120,6 +120,7 @@ namespace Gordian.Engine.Ui
             : IsTradeWindow ? TradeGridItem
             : IsEquipSetGrid ? EquipSetItemIn(SelectedButtonId)
             : IsEquipment ? EquippedItemIn(SelectedButtonId)
+            : IsMannequinWindow ? MannequinItemIn(SelectedButtonId)
             : IsCheck ? SelectedCheckItem
             : IsTreasureList ? SelectedTreasureRow?.ItemId ?? 0
             : IsShopList ? SelectedShopRow?.ItemId ?? 0
@@ -425,6 +426,12 @@ namespace Gordian.Engine.Ui
                 // A Mog Wardrobe takes equipment only: the inventory's other items are greyed (round 2).
                 bool wardrobe = StockUiViewHouse.IsWardrobe(menu.StorageContainer);
                 var companion = OrderedRows(partner);
+                if (!menu.StorageInventorySide)
+                {
+                    rows = new List<StockUiItemRow>(rows);
+                    GreyPlacedFurniture((List<StockUiItemRow>)rows);
+                }
+                else GreyPlacedFurniture(companion);
                 if (wardrobe && !menu.StorageInventorySide) StockUiViewHouse.GreyForWardrobe(companion, menu.StorageContainer, ItemLookup);
                 if (wardrobe && menu.StorageInventorySide) rows = StockUiViewHouse.GreyForWardrobe(new List<StockUiItemRow>(rows), menu.StorageContainer, ItemLookup);
                 menu.CompanionRows = companion;
@@ -475,6 +482,11 @@ namespace Gordian.Engine.Ui
                     else if (menu.IsEquipment)
                     {
                         menu.CompanionRows = StockUiItems.EquipRows(Inventory, menu.EquipContainer, null, ItemLookup, Character());
+                        changed = true;
+                    }
+                    else if (menu.Mannequin is { } mannequin)
+                    {
+                        menu.CompanionRows = MannequinRows(mannequin, null);
                         changed = true;
                     }
                     else if (menu.IsTradeWindow)
@@ -560,7 +572,7 @@ namespace Gordian.Engine.Ui
             StockUiOpenMenu? baseWindow = null;
             for (int i = open.Length - 1; i >= 0 && baseWindow == null; i--)
             {
-                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid || open[i].IsSynthesisGrid || open[i].IsTradeWindow) baseWindow = open[i];
+                if (open[i].IsItemList || open[i].IsEquipment || open[i].IsEquipSetGrid || open[i].IsSynthesisGrid || open[i].IsTradeWindow || open[i].IsMannequinWindow) baseWindow = open[i];
             }
             if (!ReferenceEquals(baseWindow, window) || open.Length == 0) return null;
             var top = open[^1];
@@ -573,6 +585,7 @@ namespace Gordian.Engine.Ui
                 : window.IsSynthesisGrid || window.ItemListKind == StockUiItemListKind.SynthesisHistory ? StockUiSynthesis.Title
                 : window.Picker is { } picker ? picker.Title
                 : window.IsTradeWindow ? StockUiTrade.Title
+                : window.IsMannequinWindow ? StockUiMogHouse.LayoutTitle
                 : window.EquipSetNumber > 0 ? StockUiEquipSets.Title
                 : window.IsEquipment || window.ItemListKind == StockUiItemListKind.Equipment ? StockUiItems.TitleEquipment
                 : StockUiItems.TitleItems;
@@ -587,6 +600,9 @@ namespace Gordian.Engine.Ui
                         (int used, int total) = StockUiItems.Fill(Inventory, window.ItemContainer);
                         numerator = used;
                         denominator = total;
+                        break;
+                    case StockUiItemListKind.Picker when window.Picker?.Count is { } counted:
+                        (numerator, denominator) = StockUiItems.Fill(Inventory, counted);
                         break;
                     case StockUiItemListKind.Usable:
                         numerator = window.ItemRows.Count;
@@ -607,6 +623,7 @@ namespace Gordian.Engine.Ui
                 else if (menu.IsSortConfirm) help = StockUiItems.HelpSortList;
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisMaterials) help = StockUiSynthesis.HelpSelectMaterials;
                 else if (menu.Picker is { HelpTextId: >= 0 } pickerHelp) help = pickerHelp.HelpTextId;
+                else if (menu.IsMannequinWindow) help = StockUiMogHouse.MannequinHelp;
                 // The History capture shows "Synthesize this combination of items." while the list has the cursor.
                 else if (menu.ItemListKind == StockUiItemListKind.SynthesisHistory) help = StockUiSynthesis.HelpSynthesize;
                 else if (menu.IsManualSort) help = StockUiItems.HelpSelectItemToMove;
@@ -655,6 +672,7 @@ namespace Gordian.Engine.Ui
             else if (top.IsSortConfirm) ActivateSortConfirm(top, button);
             else if (top.IsEquipStorageMenu) ActivateEquipStorage(top, button);
             else if (top.IsEquipment) ActivateEquipmentSlot(top, button);
+            else if (top.IsMannequinWindow) ActivateMannequinWindow(top, button);
             else return false;
             return true;
         }

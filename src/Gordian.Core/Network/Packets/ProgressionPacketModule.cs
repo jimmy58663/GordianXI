@@ -326,9 +326,8 @@ namespace Gordian.Core.Network.Packets
 
         private void HandleOpenMogMenu(PacketHeader header, ReadOnlySpan<byte> payload)
         {
-            _progressionState.IsInMogHouse = true;
-            _progressionState.MogMenuPending = true;
             GordianLog.Info("MOGHOUSE", "Mog House menu opened.");
+            _progressionState.OpenMogMenu();
         }
 
         private void HandleMyRoomEnter(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -603,6 +602,17 @@ namespace Gordian.Core.Network.Packets
         {
             byte[] packet = ProgressionPacketBuilder.BuildMyRoomLayout(itemNo, itemIndex, category, floor, x, y, z, rotation, NextSequence());
             LogOutbound(0x0FA, packet);
+            return _sendChunkCallback(packet, true);
+        }
+
+        /// <summary>
+        /// Sends C2S 0x0FB: clears a placed furnishing away. The server answers with S2C 0x020 for the item (no longer
+        /// installed) and 0x01C when the Storage shrinks.
+        /// </summary>
+        public Task SendMyRoomBankInAsync(ushort itemNo, byte itemIndex, ContainerId container)
+        {
+            byte[] packet = ProgressionPacketBuilder.BuildMyRoomBankIn(itemNo, itemIndex, (byte)container, NextSequence());
+            LogOutbound(0x0FB, packet);
             return _sendChunkCallback(packet, true);
         }
 
