@@ -169,6 +169,73 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(0.5f, Assert.Single(emitter.Particles).ColorMultiplier.W, 2);
         }
 
+        [Fact]
+        public void ClockAlphaGate_HoldsFromTheFrameAParticleIsBorn()
+        {
+            // West Ronfaure's braziers (kohi) are off by day: an unlit flame must not flash on the frame it is emitted.
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Updaters.Add(new ParticleOpcode(0x3F, 0, Array.Empty<uint>()));
+            var curves = new Dictionary<ushort, KeyFrameCurve> { [0] = new("kohi", new[] { new KeyFrameEntry(0f, 0f), new KeyFrameEntry(1f, 0f) }) };
+            var emitter = new ZoneParticleEmitter(new ZoneEmitterTemplate(def, curves));
+
+            emitter.Update(1f, Frame); // emitted; not updated yet
+
+            Assert.Equal(0f, Assert.Single(emitter.Particles).ColorMultiplier.W);
+        }
+
+        [Fact]
+        public void DrawDistanceGate_HoldsFromTheFrameAParticleIsBorn()
+        {
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Updaters.Add(new ParticleOpcode(0x2E, 0, new[] { BitConverter.SingleToUInt32Bits(10f), BitConverter.SingleToUInt32Bits(30f), 0u }));
+            def.Setup!.BasePosition = new Vector3(40f, 0f, 0f);
+            var emitter = new ZoneParticleEmitter(Template(def));
+
+            emitter.Update(1f, Frame);
+
+            Assert.Equal(0f, Assert.Single(emitter.Particles).ColorMultiplier.W);
+        }
+
+        [Fact]
+        public void Op5A_SizesAParticleBornAtScaleZero_AndLeavesASizedOneAlone()
+        {
+            // The Waypoint's orb (52715 grw1): scale 0 at birth, 0x5A (0.4, 0.4, 0.4, 0) in its updaters.
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Initializers.RemoveAll(o => o.OpCode == 0x0F);
+            def.Initializers.Add(new ParticleOpcode(0x0F, 0, Args(0f, 0f, 0f)));
+            def.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(0.4f, 0.4f, 0.4f, 0f)));
+            var orb = new ZoneParticleEmitter(Template(def));
+            orb.Update(1f, Frame);
+            orb.Update(1f, Frame);
+            Assert.Equal(new Vector3(0.4f), Assert.Single(orb.Particles).Scale);
+
+            // A lamp halo (d_go lt20): born at 1.6 with 0x5A (3, 3, 3, 1.5).
+            var lampDef = Surf(life: 1000, framesPerEmission: 10000);
+            lampDef.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(3f, 3f, 3f, 1.5f)));
+            var lamp = new ZoneParticleEmitter(Template(lampDef));
+            lamp.Update(1f, Frame);
+            lamp.Update(1f, Frame);
+            Assert.Equal(20f, Assert.Single(lamp.Particles).Scale.X);
+        }
+
+        [Fact]
+        public void Op5A_GrowsAParticleBornAtScaleZeroWithItsDistance_UpToItsFullSize()
+        {
+            // The Waypoint's orb (52715 grw1): 0x5A (0.4, 0.4, 0.4, 0, 0.01).
+            var def = Surf(life: 1000, framesPerEmission: 10000);
+            def.Initializers.RemoveAll(o => o.OpCode == 0x0F);
+            def.Initializers.Add(new ParticleOpcode(0x0F, 0, Args(0f, 0f, 0f)));
+            def.Updaters.Add(new ParticleOpcode(0x5A, 0, Args(0.4f, 0.4f, 0.4f, 0f, 0.01f)));
+            var orb = new ZoneParticleEmitter(Template(def));
+            orb.Update(1f, Frame);
+
+            orb.Update(1f, Frame with { CameraRawPosition = Assert.Single(orb.Particles).WorldPosition + new Vector3(5f, 0f, 0f) });
+            Assert.Equal(0.05f, Assert.Single(orb.Particles).Scale.X, 3);
+
+            orb.Update(1f, Frame with { CameraRawPosition = Assert.Single(orb.Particles).WorldPosition + new Vector3(100f, 0f, 0f) });
+            Assert.Equal(0.4f, Assert.Single(orb.Particles).Scale.X, 3);
+        }
+
         private static uint IdArg(string id) =>
             BitConverter.ToUInt32(System.Text.Encoding.ASCII.GetBytes(id.PadRight(4, '\0')), 0);
 
