@@ -32,6 +32,10 @@ namespace Gordian.Core.World.Collision
     /// <param name="CameraTransparent">The camera and line of sight pass through this triangle.</param>
     /// <param name="CullingTable">The ZoneDef culling table its collision transform names at +0xA8 (the table a camera
     /// over this floor draws with, #70); -1 for none.</param>
+    /// <param name="MapFloor">The zone map (the <c>m_ZZZ_FF</c> number) its collision transform names at +0xA4 (the
+    /// floor the Map window shows for a character standing here, #481); 0 for none.</param>
+    /// <param name="Interior">The triangle is a building interior's (<see cref="ZoneCollisionMesh.Merge"/>): under a roof, where
+    /// rain does not wet the floor.</param>
     public readonly record struct CollisionTriangle(
         Vector3 A,
         Vector3 B,
@@ -40,7 +44,9 @@ namespace Gordian.Core.World.Collision
         bool IsWall,
         CollisionTerrain Terrain,
         bool CameraTransparent,
-        int CullingTable = -1);
+        int CullingTable = -1,
+        int MapFloor = 0,
+        bool Interior = false);
 
     /// <summary>
     /// A ground hit below a query point.
@@ -136,6 +142,8 @@ namespace Gordian.Core.World.Collision
                 if (interior._triangles.Length == 0) continue;
                 var min = interior.MinBounds;
                 var max = interior.MaxBounds;
+                // A floor over the interior's top stays: the street over a basement room (#468).
+                if (triangle.Normal.Y < -MinFloorNormalY && centroid.Y < min.Y) continue;
                 if (centroid.X > min.X + InteriorFootprintInset && centroid.X < max.X - InteriorFootprintInset &&
                     centroid.Z > min.Z + InteriorFootprintInset && centroid.Z < max.Z - InteriorFootprintInset &&
                     centroid.Y > min.Y - 1f && centroid.Y < max.Y + 1f &&
@@ -156,7 +164,9 @@ namespace Gordian.Core.World.Collision
         /// stables have zone walls running through the room the interior opens (round 3: blocked at (-87.19, -0.10,
         /// -186.15) where the stables interior has floor), so collision switches with the drawing, as the issue's format
         /// notes say it must. Walls on the footprint's edge (the shop fronts, the doorway) stay, and so does anything over
-        /// ground the interior has no floor for.
+        /// ground the interior has no floor for. So do the zone's floors above the interior's top: Bastok Metalworks' interior
+        /// 310 (<c>m6li</c>) is a room 0.56 to 8 yalms below the street, and the yalm to spare above it took the street's floor
+        /// over it, so the player fell through to Elayne's floor (#468).
         /// </summary>
         public static ZoneCollisionMesh Merge(ZoneCollisionMesh zone, IReadOnlyList<ZoneCollisionMesh> interiors)
         {
@@ -167,10 +177,11 @@ namespace Gordian.Core.World.Collision
             {
                 if (!InsideAnyFootprint(triangle, interiors)) triangles.Add(triangle);
             }
-            // An interior's culling tables are its own DAT's, not the zone's: its floors pick none.
+            // An interior's culling tables are its own DAT's, not the zone's: its floors pick none. Its triangles are marked
+            // as indoors (no rain foot effects there).
             foreach (var interior in interiors)
             {
-                foreach (var triangle in interior._triangles) triangles.Add(triangle with { CullingTable = -1 });
+                foreach (var triangle in interior._triangles) triangles.Add(triangle with { CullingTable = -1, Interior = true });
             }
             return new ZoneCollisionMesh(triangles)
             {
@@ -640,6 +651,38 @@ namespace Gordian.Core.World.Collision
         /// </summary>
         public int CullingTableUnder(Vector3 eye, float maxDrop = 1000.0f) =>
             TryGetGround(eye, 0.0f, maxDrop, out GroundHit hit) ? _triangles[hit.TriangleIndex].CullingTable : -1;
+
+        /// <summary>
+        /// The zone map of the floor under <paramref name="feet"/> (internal space, #481): the map number the highest floor
+        /// at or below the feet (a step up allowed) names, or 0 when there is no floor there or it names none.
+        /// </summary>
+        public int MapFloorUnder(Vector3 feet, float maxDrop = 1000.0f) =>
+            TryGetGround(feet, MapFloorStepUp, maxDrop, out GroundHit hit) ? _triangles[hit.TriangleIndex].MapFloor : 0;
+
+        /// <summary>
+        /// The zone map of the highest floor at (<paramref name="x"/>, <paramref name="z"/>) that names one, for a point
+        /// without a height (a home point of the retail table, #481); 0 when no floor there names a map.
+        /// </summary>
+        public int MapFloorAt(float x, float z)
+        {
+            if (!TryGetCell(x, z, out int cell)) return 0;
+            int map = 0;
+            float best = float.MaxValue;
+            for (int k = _cellStart[cell], end = _cellStart[cell + 1]; k < end; k++)
+            {
+                ref readonly var t = ref _triangles[_cellTriangles[k]];
+                if (t.MapFloor == 0 || t.Normal.Y > -MinFloorNormalY || !TryHeightAt(t, x, z, out float height)) continue;
+                if (height < best)
+                {
+                    best = height;
+                    map = t.MapFloor;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>How far above the feet <see cref="MapFloorUnder"/> still takes a floor (a stair tread mid-step).</summary>
+        private const float MapFloorStepUp = 1.0f;
 
         /// <summary>
         /// Height of the triangle's plane at (x, z) when that point lies inside the triangle's XZ projection.

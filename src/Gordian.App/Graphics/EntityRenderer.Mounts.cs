@@ -64,10 +64,14 @@ namespace Gordian.App.Graphics
         /// mount gives its race, its hips on the race's seat reference (r48 + race) in the mount's current pose, so it bobs with
         /// the mount.</item>
         /// </list>
-        /// Frees the mount's palette and returns null when the entity does not ride.
+        /// Frees the mount's palette and returns null when the entity does not ride. <paramref name="frameSeconds"/> is the rider's
+        /// own claim of the frame's time (<see cref="EntityAnimationState.ClaimFrameTime"/>): the mount advances by exactly what the
+        /// rider does (#499). Each claiming its own share of the frame, at a different moment, gave them different times whenever
+        /// the frame ran long, so the chocobo's gait and the rider's (the same lengths: <c>run</c> 0.8 s, <c>wlk</c> 1.07 s)
+        /// drifted in and out of phase.
         /// </summary>
         private MountRide? PrepareMount(CommandList cl, WorldEntity entity, in MountFrame frame, EntityModel? character, ResourceManager? resources,
-            bool engaged, bool isLocalPlayer, float deltaSeconds)
+            bool engaged, bool isLocalPlayer, float frameSeconds)
         {
             uint key = MountPaletteKey(entity.ServerId);
             if (!frame.Mount.IsMounted || resources == null || !resources.TryLoadMountModel(frame.Mount, out var mount)
@@ -83,7 +87,7 @@ namespace Gordian.App.Graphics
             var category = frame.Departing ? AnimationCategory.Idle : AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
             if (!entity.IsMotionStopped || entity.MountAnimation.CurrentClip == null)
             {
-                entity.MountAnimation.Advance(entity.MountAnimation.ClaimFrameTime(deltaSeconds), category, 0, mount);
+                entity.MountAnimation.Advance(frameSeconds, category, 0, mount);
             }
             var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
             UpdateJointPalette(cl, palette.Buffer, mount, entity.MountAnimation, null, Vector2.Zero, null, out var pose);

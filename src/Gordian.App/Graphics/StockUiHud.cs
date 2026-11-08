@@ -183,6 +183,9 @@ namespace Gordian.App.Graphics
                 // Job Points' and Alter Ego Points' names and info lines (ROM/314/62, ROM/384/121; #487 round 1).
                 menus.JobPointText = i => strings.TryGetString(DMsgCategory.JobPointStrings, i, out var text) ? text : null;
                 menus.AlterEgoText = i => strings.TryGetString(DMsgCategory.AlterEgoStrings, i, out var text) ? text : null;
+                // Merit Points' categories and merits (ROM/169/75, #491).
+                menus.MeritText = i => strings.TryGetString(DMsgCategory.MeritStrings, i, out var text) ? text : null;
+                menus.JobGiftText = i => strings.TryGetString(DMsgCategory.JobGiftStrings, i, out var text) ? text : null;
                 // The Status window's Profile (#23): the title (ROM/180/78) and the home point's compact zone name (ROM/165/85).
                 menus.TitleName = i => strings.TryGetString(DMsgCategory.Titles, i, out var title) ? title : null;
                 menus.ZoneCompactName = i => strings.TryGetString(DMsgCategory.ZoneNamesCompact, i, out var zone) ? zone : null;
@@ -197,6 +200,11 @@ namespace Gordian.App.Graphics
                 // The mount list and /mount (#87): names and help lines by mount id (ROM/351/84, 85).
                 session.ActionService.MountName = i => mountStrings.TryGetString(DMsgCategory.MountNames, i, out var name) ? name : null;
                 session.ActionService.MountHelp = i => mountStrings.TryGetString(DMsgCategory.MountHelp, i, out var help) ? help : null;
+            }
+            if (session.ActionService.MapSquare == null)
+            {
+                // The <pos> placeholder (#387): the character's map grid square, as the compass shows it.
+                session.ActionService.MapSquare = () => CharacterGrid(session);
             }
             if (session.ActionService.ZoneName == null && _resources is { } zoneStrings)
             {
@@ -214,12 +222,19 @@ namespace Gordian.App.Graphics
                 // The shop windows' names, stack sizes, icons and descriptions come from the item DATs.
                 menus.ItemLookup = id => items.TryGetItem(id, out var record) ? record : null;
                 Gordian.Engine.Ui.StandardMessages.ItemLookup ??= menus.ItemLookup;
+                menus.MogHouseLayout.InfoOf = items.GetFurnitureInfo;
+                menus.OnMogHouseFurnitureChanged();
             }
             if (menus.KeyItemCatalog == null && _resources is { } keyItems)
             {
                 // The Key Items window's categories, names and descriptions (ROM/175/35, #91), read once when first opened.
                 var catalog = new Lazy<StockUiKeyItemCatalog?>(() => StockUiKeyItemCatalog.FromTable(keyItems.GetDMsgTable(DMsgCategory.KeyItems)));
                 menus.KeyItemCatalog = () => catalog.Value;
+            }
+            if (menus.RoeTables == null && _resources is { } roeResources)
+            {
+                // The Records of Eminence objectives and categories (ROM/307/16, ROM/307/24; #493), read once on first use.
+                menus.RoeTables = () => roeResources.RecordsOfEminence;
             }
             if (menus.QuestLogCatalog == null && _resources is { } questLog)
             {
@@ -300,6 +315,7 @@ namespace Gordian.App.Graphics
             {
                 // Every window drawn from here on (menus, the item info window and other boxes they draw) hides the compass (#506).
                 int coverFrom = renderer.DrawnWindows.Count;
+                DrawMogHouseLayout(renderer, library, menus, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
                 if (!cutscene) DrawMacros(renderer, library, session, width, height);
@@ -309,6 +325,7 @@ namespace Gordian.App.Graphics
                     DrawStatus(renderer, library, session, width, height);
                     DrawAuctionHelpBar(renderer, library, session, width, height);
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
+                    DrawRoe(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
                     // Last: the help bar for an open menu whose window drew none of its own (#313).
                     DrawMenuHelpBar(renderer, library, session, width, height);
@@ -399,7 +416,7 @@ namespace Gordian.App.Graphics
             // frame's help (Level Sync's "Please select the player ...") shows.
             string? title = top.HelpTitle ?? (top.Parent is { ListKind: StockUiListKind.People } list ? list.HelpTitle : null) ?? StockUiParty.TitleOf(top.Name) ?? StockUiSearch.TitleOf(top.Name);
             if (title == null) return;
-            int helpId = top.SelectedButton is { HelpTextId: >= 0 } button ? button.HelpTextId : top.Menu.Frame.HelpTextId;
+            int helpId = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? top.HelpTextIdOf(button) : top.Menu.Frame.HelpTextId;
             string? help = helpId >= 0 ? menus.MenuHelpText?.Invoke(helpId) : null;
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
@@ -433,7 +450,8 @@ namespace Gordian.App.Graphics
             if (menus.MapWindow is not { } map) return;
             var loaded = LoadZoneMap(map.MapZone, map.MapNumber);
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
-            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin);
+            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin,
+                PlayerOnMap(session, map.MapZone, map.MapNumber));
         }
 
         /// <summary>The zone maps the Map window and the event map have loaded, with where each one's image sits.</summary>
@@ -474,6 +492,11 @@ namespace Gordian.App.Graphics
                 _eventMap.Reset();
                 return;
             }
+            if (focus.MapNumber == Gordian.Engine.Events.EventMapFocus.NoMap)
+            {
+                _eventMap.Reset();
+                return;
+            }
             int mapNumber = Gordian.Core.Resources.Tables.ZoneMapFiles.Resolve(focus.Zone, focus.MapNumber);
             if (mapNumber < 0) return;
             if (LoadZoneMap(focus.Zone, mapNumber) is not { } loaded) return;
@@ -507,7 +530,7 @@ namespace Gordian.App.Graphics
                     if (StockUiCompass.DotOffset(offset.X, offset.Z, CameraBearing) is { } at)
                         _compassDots.Add(new StockUiCompassDot(at, StockUiCompass.Classify(entity.Type)));
                 }
-                grid = CompassGrid(world.CurrentZoneId, me.Position);
+                grid = CompassGrid(world, me.Position);
             }
             var now = DateTime.UtcNow;
             var (hour, minute) = StockUiCompass.TimeOfDay(world.Clock, now);
@@ -515,22 +538,37 @@ namespace Gordian.App.Graphics
                 StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s);
         }
 
-        /// <summary>The map grid square of a position (<see cref="StockUiCompass.MapSquare"/>).</summary>
-        private string? CompassGrid(int zone, Vector3 position) => StockUiCompass.MapSquare(zone, position.X, position.Z, ZoneMapOrigin);
+        /// <summary>
+        /// The map grid square of the character's position on the floor it stands on (<see cref="StockUiCompass.MapSquare"/>,
+        /// <see cref="StockUiMap.FloorOf"/>, #481). Also the <c>&lt;pos&gt;</c> placeholder's, from the chat's thread (#387).
+        /// </summary>
+        private string? CompassGrid(WorldState world, Vector3 position) =>
+            StockUiCompass.MapSquare(world.CurrentZoneId, StockUiMap.FloorOf(world, position), position.X, position.Z, ZoneMapOrigin);
 
-        /// <summary>Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square).</summary>
-        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+        /// <summary>The character's map grid square, or null (the <c>&lt;pos&gt;</c> placeholder, #387).</summary>
+        private string? CharacterGrid(CharacterSession session) =>
+            session.World.TryGetByServerId(session.LocalPlayer.ServerId, out var me) && me != null ? CompassGrid(session.World, me.Position) : null;
 
-        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map)
+        /// <summary>The character's world x / z when it stands in <paramref name="zone"/> on map <paramref name="mapNumber"/> (#481), else null.</summary>
+        private static (float X, float Z)? PlayerOnMap(CharacterSession session, int zone, int mapNumber)
         {
-            if (!_zoneMapOrigins.TryGetValue((zone, map), out var origin))
-            {
-                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(zone, map);
-                origin = path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
-                _zoneMapOrigins[(zone, map)] = origin;
-            }
-            return origin;
+            var world = session.World;
+            if (world.CurrentZoneId != zone || !world.TryGetByServerId(session.LocalPlayer.ServerId, out var me) || me == null) return null;
+            return StockUiMap.FloorOf(world, me.Position) == mapNumber ? (me.Position.X, me.Position.Z) : null;
         }
+
+        /// <summary>
+        /// Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square). Read from
+        /// the render thread and the chat's (<c>&lt;pos&gt;</c>).
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+
+        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map) =>
+            _zoneMapOrigins.GetOrAdd((zone, map), key =>
+            {
+                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(key.Zone, key.Map);
+                return path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
+            });
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>
         private void DrawStatus(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
@@ -554,7 +592,39 @@ namespace Gordian.App.Graphics
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, bar.Title, bar.Help, Layout.Scale, width, height);
         }
 
+        /// <summary>The Records of Eminence lists' help bar and objective box (#493).</summary>
+        private void DrawRoe(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (_font is not { } font || menus.Suspended || session.Chat.HidesMenus) return;
+            StockUiStatusPagesWindow.DrawRoe(renderer, library, font, _logFont, menus, Layout.Scale, width, height);
+        }
+
         /// <summary>The help bar over Blue Magic's Set Spells windows (#363): "Blue Magic" and the window's help line.</summary>
+        /// <summary>The frame's camera, for what the HUD draws in the 3D scene.</summary>
+        public Matrix4x4 ViewProjection { get; set; }
+
+        /// <summary>The Mog House Layout's lines and cursor (#93) under any menu, and its help bar while no menu is up.</summary>
+        private void DrawMogHouseLayout(StockUiRenderer renderer, UiResourceLibrary library, StockUiMenuController menus, uint width, uint height)
+        {
+            var layout = menus.MogHouseLayout;
+            if (_font is not { } font || !layout.Active) return;
+            var resources = _resources;
+            StockUiMogHouseLayoutWindow.Draw(renderer, library, layout, ViewProjection, id => resources?.TryLoadFurnitureModel(id) != null, Layout.Scale, width, height, Stopwatch.GetTimestamp());
+            if (menus.OpenMenus.Count == 0)
+            {
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, StockUiMogHouseLayoutWindow.Title, StockUiMogHouseLayoutWindow.HelpLine,
+                    Layout.Scale, width, height);
+            }
+            else if (menus.OpenMenus[^1] is { IsItemWindow: false, SelectedButton: { } button } top && menus.MenuHelpText?.Invoke(top.HelpTextIdOf(button)) is { } line)
+            {
+                // The Layout's menus keep its title; the safes' list names the safe under the cursor (video at 0:27-0:30).
+                string title = !top.Name.Equals(StockUiMogHouse.SafeMenu, StringComparison.OrdinalIgnoreCase) ? StockUiMogHouseLayoutWindow.Title
+                    : button.ButtonId == StockUiMogHouse.SafeMenuSafe2Button ? StockUiMogHouse.Safe2Title : StockUiMogHouse.SafeTitle;
+                StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, line, Layout.Scale, width, height);
+            }
+        }
+
         private void DrawBlueMagicHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
         {
             var menus = session.ActionService.Menus;
@@ -591,7 +661,7 @@ namespace Gordian.App.Graphics
             var top = menus.OpenMenus.LastOrDefault(m => m.IsMacroWindow);
             if (top != null)
             {
-                string? help = top.SelectedButton is { HelpTextId: >= 0 } button ? menus.MenuHelpText?.Invoke(button.HelpTextId) : null;
+                string? help = top.SelectedButton is { } button && top.HelpTextIdOf(button) >= 0 ? menus.MenuHelpText?.Invoke(top.HelpTextIdOf(button)) : null;
                 string title = top.MacroView is StockUiMacroView.BookList or StockUiMacroView.BookOptions ? StockUiMacroMenus.PaletteTitle : StockUiMacroMenus.EditTitle;
                 if (help == null && top.MacroView is not (StockUiMacroView.BookList or StockUiMacroView.BookOptions)) help = top.MacroSetCaption;
                 StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
@@ -715,11 +785,12 @@ namespace Gordian.App.Graphics
             string rootId = open[0].IsQuery ? StockUiWindowIds.Query
                 : open[0].IsCommandMenu ? StockUiWindowIds.CommandMenu
                 : open[0].IsShopMenu ? StockUiWindowIds.Shop
-                : open[0].IsCheck ? StockUiWindowIds.Check
+                : open[0].IsCheck || open[0].IsMannequinWindow ? StockUiWindowIds.Check
                 : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
-            if ((open[0].IsCommandMenu || open[0].IsShopMenu) && !rootMoved && _window1Top is { } logTop)
+            var unclampedRoot = root;
+            if ((open[0].IsCommandMenu || open[0].IsShopMenu || StockUiMogHouse.StandsOnLog(open[0].Name)) && !rootMoved && _window1Top is { } logTop)
             {
                 // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
                 // (in-game check 2026-09-28); the DAT's authored place only fits the eight-line window. The shop's
@@ -735,6 +806,10 @@ namespace Gordian.App.Graphics
             }
             var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
             float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
+            // The moogle's menu stands on the log, but what it opens (View House, the Storage and Safe lists) stays under the help
+            // bar where the main menu's windows sit, not moving with the log (round 3).
+            bool rootOnLog = StockUiMogHouse.StandsOnLog(open[0].Name);
+            float mainDx = unclampedRoot.X - authoredRoot.X, mainDy = unclampedRoot.Y - authoredRoot.Y;
 
             for (int i = 0; i < open.Count; i++)
             {
@@ -758,8 +833,9 @@ namespace Gordian.App.Graphics
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
                     bool shopWindow = StockUiWindowPlacement.KeepsOwnPlace(menu);
-                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
-                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    bool underHelp = rootOnLog && !StockUiMogHouse.StandsOnLog(menu.Name);
+                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + (underHelp ? mainDx : dx), 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + (underHelp ? mainDy : dy), 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
                     {
                         // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).
@@ -786,6 +862,12 @@ namespace Gordian.App.Graphics
                         // DAT offset from its left edge (round 1 of the 2026-11-03 test; authored for the eight-line log only).
                         (x, y) = StockUiWindowPlacement.OnLog(frame, _window1Left.X, promptLogTop, root.Scale, width, height);
                     }
+                    else if (StockUiMogHouse.StandsOnLog(menu.Name) && _window1Top is { } roomLogTop)
+                    {
+                        // The moogle's menu and the Layout's menus stand on Window 1's top edge, opened from anywhere (round 2).
+                        x = authored.X;
+                        y = Math.Clamp(roomLogTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    }
                     else if (menu.IsActionList && _window1Top is { } listTop)
                     {
                         // The spell and ability lists sit on Window 1's top edge as the command menu does (retail image-14, the video).
@@ -793,10 +875,11 @@ namespace Gordian.App.Graphics
                         y = Math.Clamp(listTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
                     float scale = root.Scale;
-                    if (menu.ListKind == StockUiListKind.MapAreas && _window1Top is { } chatTop && _window1Left.Scale > 0)
+                    if ((menu.ListKind == StockUiListKind.MapAreas || menu.ProgressionList == StockUiProgressionList.UnityLeaders)
+                        && _window1Top is { } chatTop && _window1Left.Scale > 0)
                     {
                         // The Change Map lists sit on the chat log at its left edge and scale, moving with it (#23, round 2;
-                        // retail round 1 image-6).
+                        // retail round 1 image-6); Unity Lists, also arealist, does the same (#94, round 3).
                         scale = _window1Left.Scale;
                         x = Math.Clamp(_window1Left.X, 0, Math.Max(0, width - frame.Width * scale));
                         y = Math.Clamp(chatTop - frame.Height * scale, 0, Math.Max(0, height - frame.Height * scale));
@@ -935,6 +1018,12 @@ namespace Gordian.App.Graphics
             {
                 // The Conquest map puts its Conquest Points in the target window's place (#488, round 1).
                 StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
+                return;
+            }
+            if (font != null && session.ActionService.Menus.PannedMap is { RegionInfoView: { BoxWindow.Length: > 0 } regionInfo })
+            {
+                // Besieged, Campaign and Colonization put Imperial Standing, Allied Notes and Bayld there (#492).
+                StockUiRegionInfoWindow.DrawBox(renderer, library, font, _logFont, regionInfo, placement, menu.Frame.Width, menu.Frame.Height);
                 return;
             }
             if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);

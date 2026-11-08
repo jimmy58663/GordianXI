@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiItemPicker.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Network.Packets;
 
 namespace Gordian.Engine.Ui
 {
@@ -18,11 +19,13 @@ namespace Gordian.Engine.Ui
     /// <param name="Title">The help bar's title while the picker is up ("Trade").</param>
     /// <param name="HelpTextId">The help bar's text (ROM/165/75), -1 for the list's own "Select an item.".</param>
     /// <param name="FullText">The notice when <see cref="Room"/> is 0 for a row that is not greyed.</param>
+    /// <param name="Count">The container whose used / total the help bar shows beside the title ("Mog Safe 21/80"), if any.</param>
     public sealed record StockUiItemPicker(
         Func<List<StockUiItemRow>, List<StockUiItemRow>> Rows,
         Func<StockUiItemRow, uint> Room,
         Action<StockUiItemRow, uint> Picked,
         string Title,
         int HelpTextId = -1,
-        string? FullText = null);
+        string? FullText = null,
+        ContainerId? Count = null);
 }

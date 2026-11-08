@@ -20,7 +20,8 @@ namespace Gordian.Core.Resources.Graphics
     /// loop count (0 = loop until replaced: xi-tools docs/anim/schedule.md <c>maxLoops</c>; seen on the event gestures' last
     /// clips and the PC <c>corp</c>, #193); the reference ends in <c>?</c> where the body-region digit goes.</item>
     /// <item>0x03 / 0x3B (this DAT or the shared <c>ROM/0/0</c>), 0x57 / 0x3C (the actor's own routines) link another
-    /// routine; 0x3B and 0x3C wait for it to end. A link to <c>dada</c>, <c>mdam</c> or <c>ldad</c> is the moment the result shows.</item>
+    /// routine; 0x3B and 0x3C wait for it to end (<see cref="WaitTicks"/>). A link to <c>dada</c>, <c>mdam</c> or <c>ldad</c> is
+    /// the moment the result shows.</item>
     /// <item>0x21 / 0x25 procedural flinch: +0x18 f32 duration in ticks.</item>
     /// <item>0x5A procedural pose flash: +0x0E u16 pose index, +0x14 f32 duration in ticks.</item>
     /// <item>0x75 show / hide a weapon slot: +0x08 u32 hide, +0x0C u16 slot (0 main, 1 sub, 2 ranged).</item>
@@ -170,6 +171,30 @@ namespace Gordian.Core.Resources.Graphics
             return result;
         }
 
+        /// <summary>
+        /// How long a blocking link (0x3B / 0x3C) to <paramref name="child"/> waits: its own length, or, for a routine whose
+        /// length is 0 and that only chains others, the sum of what its own blocking links wait for. The work schedules of
+        /// the fixed NPC models (<c>@scd</c>, #455) are built that way: <c>@scd</c> chains <c>m000</c>, <c>m001</c>... with
+        /// 0x3B, each of length 0 and itself chaining the work loop <c>l000</c> one, three or five times with 0x3B. Reading
+        /// such a routine's own length (0) had every link start at once. *Inference* from the data.
+        /// </summary>
+        public static int WaitTicks(RawMotionRoutine child, IReadOnlyDictionary<string, RawMotionRoutine> routines, int depth = 0)
+        {
+            ArgumentNullException.ThrowIfNull(child);
+            ArgumentNullException.ThrowIfNull(routines);
+            if (child.TotalTicks > 0 || depth >= MaxLinkDepth) return child.TotalTicks;
+            int ticks = 0;
+            foreach (var command in child.Commands)
+            {
+                if (command.Op is OpLinkWait or OpLinkActorWait && command.Reference != child.Name
+                    && routines.TryGetValue(command.Reference, out var grandchild))
+                {
+                    ticks += WaitTicks(grandchild, routines, depth + 1);
+                }
+            }
+            return ticks;
+        }
+
         /// <summary>The routine a ranged start (0x76) or finish (0x77) runs for a RangeType: <c>lc06</c> / <c>ls06</c> for a bow.</summary>
         public static string RangedRoutineName(bool finish, int rangeType) =>
             rangeType is >= 0 and < 100 ? (finish ? "ls" : "lc") + rangeType.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
@@ -191,7 +216,7 @@ namespace Gordian.Core.Resources.Graphics
             int Flatten(RawMotionRoutine routine, int baseTick, int depth)
             {
                 int shift = 0; // blocking links push the rest of the routine back by the child's length
-                int routineEnd = baseTick + routine.TotalTicks;
+                int routineEnd = baseTick;
                 foreach (var command in routine.Commands)
                 {
                     int at = baseTick + command.StartTick + shift;
@@ -236,7 +261,7 @@ namespace Gordian.Core.Resources.Graphics
                             {
                                 int childEnd = Flatten(child, at, depth + 1);
                                 routineEnd = Math.Max(routineEnd, childEnd);
-                                if (command.Op is OpLinkWait or OpLinkActorWait) shift += child.TotalTicks;
+                                if (command.Op is OpLinkWait or OpLinkActorWait) shift += WaitTicks(child, routines);
                             }
                             else if (SharedWeaponRoutines.ByName.TryGetValue(command.Reference, out var shared))
                             {
@@ -245,7 +270,7 @@ namespace Gordian.Core.Resources.Graphics
                             break;
                     }
                 }
-                return routineEnd + shift;
+                return Math.Max(routineEnd, baseTick + routine.TotalTicks + shift);
             }
 
             if (segments.Count == 0 && hits.Count == 0 && flinchTicks == 0 && poseIndex < 0) return null;

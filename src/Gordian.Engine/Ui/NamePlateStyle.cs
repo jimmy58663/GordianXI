@@ -126,10 +126,12 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// Model ids whose NPCs the client draws without a name: Home Point crystals and other model ids 50-59, nation
         /// and beastmen flags 814-817, invisible models 1847-1862, special coffers 2425-2429 and Confluxes 2490-2494, from
-        /// the client's 0x00E sub-kind 0 handling in XiPackets; and treasure chests and coffers 960-969, which that
-        /// handling sends down a separate branch whose effect XiPackets does not show. Retail draws no plate and no
-        /// target HP gauge for the Port Jeuno Treasure Coffer (model 968) and Abyssea Campaign (962) NPCs, whose
-        /// LandSandBoat entries set no flag that hides a name (maintainer's retail check, 2026-10-04, #259).
+        /// the client's 0x00E sub-kind 0 handling in XiPackets; and the models that handling sends down a separate
+        /// branch whose effect XiPackets does not show: treasure chests and coffers 960-969, waypoints and resource
+        /// nodes 2420-2424, and 2495-2499. Retail draws no plate and no target HP gauge for the Port Jeuno Treasure
+        /// Coffer (model 968) and Abyssea Campaign (962) NPCs, whose LandSandBoat entries set no flag that hides a name
+        /// (maintainer's retail check, 2026-10-04, #259), nor for HELM Logging Points (2423) and Mining Points (2424)
+        /// (#475). The rest of that branch (2420-2422, 2495-2499) is taken to behave the same.
         /// Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000E, SubKind 0.
         /// </summary>
         public static bool ModelHidesName(uint modelId) => modelId switch
@@ -138,8 +140,10 @@ namespace Gordian.Engine.Ui
             >= 814 and <= 817 => true,
             >= 960 and <= 969 => true,
             >= 1847 and <= 1862 => true,
+            >= 2420 and <= 2424 => true,
             >= 2425 and <= 2429 => true,
             >= 2490 and <= 2494 => true,
+            >= 2495 and <= 2499 => true,
             _ => false,
         };
 

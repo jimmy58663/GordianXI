@@ -207,6 +207,28 @@ namespace Gordian.Core.Animation
         /// </summary>
         private bool _holdsLastClip;
 
+        /// <summary>Whether the playing action is the model's work schedule (<see cref="WorkScheduleRoutine"/>), which loops.</summary>
+        private bool _isWorkSchedule;
+
+        /// <summary>
+        /// The routine an idle fixed-model NPC loops while the server sends it <see cref="WorkScheduleSubAnimation"/> (#455): the
+        /// guild crafters at work (Orechiniel, model 202, and Tek Lengyon, 217, in Southern San d'Oria's Leathercraft guild).
+        /// 60 retail models carry it (scan of model ids 1-3192, 2026-11-02); it chains the work loop <c>l000</c> one, three
+        /// and five times (<c>m000</c>-<c>m002</c>) and the other work motions (<c>m100</c>...), which play here in that order
+        /// (<see cref="MotionRoutineDecoder.WaitTicks"/>). LandSandBoat sends sub-animation 3 for 86 fixed-model NPCs, 85 of
+        /// them on a model with the routine; 38 NPCs on such models with another value stand idle. *Inference* from the data:
+        /// no reference names the routine or the value.
+        /// </summary>
+        public const string WorkScheduleRoutine = "@scd";
+
+        /// <summary>
+        /// The 0x00E sub-animation that has an NPC play its <see cref="WorkScheduleRoutine"/>, read from the low two bits of
+        /// MonStat: XiPackets says the client treats it as 2 or 3 bits depending on the entity, and LandSandBoat's spawn packet
+        /// sets bit 2 under any non-zero value (entity_update.cpp, packet 0x2A), so a working NPC arrives as 7, and as 3 only
+        /// in a later update, which a standing NPC never gets (#455 round 1).
+        /// </summary>
+        public const byte WorkScheduleSubAnimation = 3;
+
         private AnimationClip? _overlayClip;
         private AnimationClip? _overlayReference;
         private bool[]? _overlayMask;
@@ -364,7 +386,8 @@ namespace Gordian.Core.Animation
             if (ActiveRoutine != null)
             {
                 bool movingSwingStopped = !isLocomotion && _actionAllowsLocomotion && (_actionHitTick < 0 || _actionTicks >= _actionHitTick);
-                if (modelChanged || newCategory == AnimationCategory.Death || (isLocomotion && !_actionAllowsLocomotion) || movingSwingStopped)
+                bool scheduleLeft = _isWorkSchedule && !PlaysWorkSchedule(newCategory, subAnimation);
+                if (modelChanged || newCategory == AnimationCategory.Death || (isLocomotion && !_actionAllowsLocomotion) || movingSwingStopped || scheduleLeft)
                 {
                     if (modelChanged) _lastModel = model;
                     EndAction(model, blend: !modelChanged);
@@ -461,6 +484,13 @@ namespace Gordian.Core.Animation
                 return;
             }
 
+            // 3b. An idle NPC at work loops its work schedule (#455).
+            if (!IsPlayingTransition && PlaysWorkSchedule(newCategory, subAnimation) && TryStartWorkSchedule(model, now))
+            {
+                AdvanceAction(dt, model);
+                return;
+            }
+
             // 4. Advance active playback
             ElapsedSeconds += dt;
             AdvanceBlend(dt);
@@ -530,6 +560,7 @@ namespace Gordian.Core.Animation
             _actionBank = null;
             _isPresentation = false;
             _holdsLastClip = false;
+            _isWorkSchedule = false;
             _weaponMotion = WeaponMotion.None;
             _actionSpeed = 1f;
             _overlayClip = null;
@@ -699,9 +730,21 @@ namespace Gordian.Core.Animation
             return true;
         }
 
+        private static bool PlaysWorkSchedule(AnimationCategory category, byte subAnimation) =>
+            category == AnimationCategory.Idle && (subAnimation & 3) == WorkScheduleSubAnimation;
+
+        private bool TryStartWorkSchedule(EntityModel model, long now)
+        {
+            if (!model.MotionRoutines.TryGetValue(WorkScheduleRoutine, out var schedule) || schedule.Segments.Count == 0) return false;
+            StartAction(model, null, schedule, allowsLocomotion: false, WeaponMotion.None, now);
+            _isWorkSchedule = true;
+            return true;
+        }
+
         private void StartAction(EntityModel model, ActionRequest? request, MotionRoutine routine, bool allowsLocomotion, WeaponMotion weaponMotion, long now,
             EventMotionBank? bank = null)
         {
+            _isWorkSchedule = false;
             _actionBank = bank;
             _isPresentation = request?.Asset?.Motion is { } motion && ReferenceEquals(motion, bank);
             _holdsLastClip = request?.Motion == ActionMotion.EventMotion && routine.HoldsLastClip;
@@ -769,7 +812,7 @@ namespace Gordian.Core.Animation
             // A chant (or a held event pose) with something already waiting behind it gives way at once: a cast's start and
             // finish can arrive in one datagram (an instant cast, #132 round 1), and the chant would otherwise hold the body
             // for its 30 s until the finish went stale, skipping the release and its effects.
-            if ((routine.IsSustained || _holdsLastClip) && _queuedActions.Count > 0 && _actionTicks >= MinSustainedTicks)
+            if ((routine.IsSustained || _holdsLastClip || _isWorkSchedule) && _queuedActions.Count > 0 && _actionTicks >= MinSustainedTicks)
             {
                 EndAction(model, blend: true);
                 return;
@@ -803,7 +846,9 @@ namespace Gordian.Core.Animation
                 : _actionRequest?.Asset is { HoldsBodyToEnd: true } ? Math.Max(routine.TotalTicks, BodyEndTick(routine)) : BodyEndTick(routine);
             if (!_holdsLastClip && _actionTicks >= endTick)
             {
-                EndAction(model, blend: true);
+                // The work schedule starts over at once, without a pass through the idle stance.
+                if (_isWorkSchedule) TryStartWorkSchedule(model, Stopwatch.GetTimestamp());
+                else EndAction(model, blend: true);
             }
         }
 
@@ -826,6 +871,7 @@ namespace Gordian.Core.Animation
             _actionBank = null;
             _isPresentation = false;
             _holdsLastClip = false;
+            _isWorkSchedule = false;
             _segmentIndex = -1;
             _weaponMotion = WeaponMotion.None;
             if (request != null && hitStillAhead && request.Sink != null && !request.HitsDelivered)

@@ -66,6 +66,8 @@ namespace Gordian.Engine.Graphics
         internal ChildFollow FollowMode;
         internal Matrix4x4 ParentLinear = Matrix4x4.Identity;
         internal Vector3 ParentBase;
+        /// <summary>Born at scale 0 with op 0x5A, which sizes it by its distance to the camera each frame.</summary>
+        internal bool SizedByDistance;
         internal ParticleGeneratorDefinition? Definition;
 
         /// <summary>
@@ -239,6 +241,7 @@ namespace Gordian.Engine.Graphics
         private Vector3 _cameraRawPosition;
         private Vector3 _cameraRawForward;
         private Vector3 _daylightColor = Vector3.One;
+        private float _dayFraction;
         private float _framesUntilNextParticle;
         private int _totalEmitted;
         private float _routineClock = -1.0f;
@@ -303,6 +306,7 @@ namespace Gordian.Engine.Graphics
             _cameraRawPosition = frame.CameraRawPosition;
             _cameraRawForward = frame.CameraRawForward;
             _daylightColor = frame.DaylightColor;
+            _dayFraction = frame.DayFraction;
             for (int i = 0; i < Particles.Count; i++)
             {
                 UpdateParticle(Particles[i], frames, frame);
@@ -766,11 +770,13 @@ namespace Gordian.Engine.Graphics
                 if (op.OpCode == 0x3C) ResolveChild(op.Id(1))?.EmitChildren(p, ChildFollow.None);
             }
 
-            // A weighted-mesh particle is drawn the frame it is born, before its updaters run: it takes its birth weights
-            // now, or 324's blink would open the eye for a frame before closing it.
+            // A particle is drawn the frame it is born, before its updaters run. It takes its birth mesh weights now, or 324's
+            // blink would open the eye for a frame before closing it, and the gates on its alpha (time of day, distance), or a
+            // West Ronfaure brazier that is off by day would flash on each emission (TESTING-2026-11-03 captures).
+            var birthFrame = new ZoneParticleFrame(_cameraRawPosition, _dayFraction, _daylightColor);
             foreach (var op in Def.Updaters)
             {
-                if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E) ApplyUpdater(p, op, 0f, new ZoneParticleFrame(_cameraRawPosition, 0f, _daylightColor));
+                if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E or 0x2E or 0x3F or 0x48) ApplyUpdater(p, op, 0f, birthFrame);
             }
             return p;
         }
@@ -1181,6 +1187,16 @@ namespace Gordian.Engine.Graphics
                 }
 
                 case 0x49: Clock(slot, frame.DayFraction, t => p.LightTheta = t); break; // point-light theta by time of day
+                case 0x5A: // Unnamed by the references. A particle born at scale 0 grows with its distance to the camera, up to the first three floats (see particles.md)
+                    if (p.Scale == Vector3.Zero) p.SizedByDistance = true;
+                    if (p.SizedByDistance)
+                    {
+                        float perYalm = op.Float(4);
+                        p.Scale = perYalm > 0f
+                            ? Vector3.Min(op.Vector(0), new Vector3(perYalm * Vector3.Distance(frame.CameraRawPosition, p.WorldPosition)))
+                            : op.Vector(0);
+                    }
+                    break;
                 case 0x5B: Progress(p, slot, p.LightTheta, t => p.LightTheta = t); break;
                 case 0x5C: Progress(p, slot, p.LightRange, r => p.LightRange = r); break;
                 case 0x5D: Progress(p, slot, p.LightThetaMultiplier, m => p.LightThetaMultiplier = m); break;

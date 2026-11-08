@@ -220,6 +220,7 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 | Hpemde (`hebi`, or `2dl0` / `2tl0` with `sp20` / `sp30`) | 0 or 6 surfaced → 0, 3 open mouth → 1, 5 diving → 2 | `mixins/families/hpemde.lua` |
 | Omega (`omeg`, or `1dl0` / `1lk0` / `1un0`) | 0 quadruped → 0, 1 biped → 1 | LandSandBoat Apollyon / Proto-Omega skill lists |
 | Any model with mode-1 / mode-2 clips | 1 → 1, 2 → 2 | GordianXI convention, not from a reference |
+| Any fixed model with the routine `@scd` | 3 (7 in LandSandBoat's spawn packet, which sets bit 2 under any non-zero value) while idle → loops `@scd`, the NPC at work ([#455](https://github.com/jimmy58663/GordianXI/issues/455)); the stance is unchanged | LandSandBoat `npcs.yaml` (85 of its 86 sub-animation-3 fixed-model NPCs); *inference* |
 
 ## Entity kinds and looks
 
@@ -292,7 +293,7 @@ Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExi
 
 Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTYPE` in `battle_entity.h`; `StockUiItems.Target*`): 0x001 self, 0x002 party, 0x004 enemy, 0x008 alliance, 0x010 player, 0x020 dead player, 0x040 NPC, 0x080 party (Pianissimo), 0x100 pet. 0 means the item cannot be used (the Items window greys Use).
 
-DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing. Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
+DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing, 12 flowerpot (Brass Flowerpot 217), 14 mannequin (256-263; types 12 and 14 checked against the retail item DAT 2026-11-02, `MogHouseFurniture.*ItemType`, #93). Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
 
 ## Collision terrain types (`CollisionTriangle.Terrain`)
 
@@ -301,7 +302,7 @@ The terrain of a collision triangle, from bit 3 of each of its four index words'
 | Index | xim name | Footprint (`ROM/0/0` `fmrk`) | GordianXI |
 |---|---|---|---|
 | 0 | Object | no | silent: no zone has an `00xx` pointer |
-| 1 | Path | no | dirt steps; dust (`fefs`) in 70 zones, a ripple in the rain |
+| 1 | Path | no | dirt steps; dust (`fefs`) in 70 zones, a ripple in the rain (outdoors only) |
 | 2 | Grass | no | |
 | 3 | Sand | yes | sand puff and print |
 | 4 | Snow | yes | powder puff and print |

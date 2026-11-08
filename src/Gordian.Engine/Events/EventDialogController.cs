@@ -74,6 +74,7 @@ namespace Gordian.Engine.Events
         private WorldState? _world;
         private LocalPlayerState? _player;
         private StockUiChat? _chat;
+        private int? _mapOptionShown;
         private StockUiMenuController? _menus;
         private Func<string> _playerName = () => string.Empty;
 
@@ -379,6 +380,8 @@ namespace Gordian.Engine.Events
         /// <summary>Advances the running event; starts a queued one.</summary>
         public void Tick(TimeSpan elapsed)
         {
+            // A line in the chat log, each time the cursor comes to it (round 2 of the 2026-11-03 test).
+            if (_eventMap.CameToNoMap(SelectedQueryOption, ref _mapOptionShown)) _chat?.Log.Add(ChatLogChannel.Error, EventMapFocus.NoMapText);
             CutsceneEventInfo? start;
             lock (_sync)
             {

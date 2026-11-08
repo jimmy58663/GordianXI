@@ -26,6 +26,7 @@ namespace Gordian.Core.Resources
     {
         private readonly object _lock = new();
         private readonly string _gameDirectory;
+        private Lazy<Tables.RecordsOfEminenceTables?>? _recordsOfEminence;
         private readonly IVirtualFileSystem _vfs;
         // Replaced whole on a reload (built off to the side, then swapped), so readers never see a half-built table.
         private volatile FileTableResolver _fileTable = new();
@@ -49,6 +50,11 @@ namespace Gordian.Core.Resources
         public IVirtualFileSystem Vfs => _vfs;
         public FileTableResolver FileTable => _fileTable;
 
+        /// <summary>The Records of Eminence tables (ROM/307/16, ROM/307/24; #493), read once on first use; null without them.</summary>
+        public Tables.RecordsOfEminenceTables? RecordsOfEminence =>
+            LazyInitializer.EnsureInitialized(ref _recordsOfEminence, () => new Lazy<Tables.RecordsOfEminenceTables?>(
+                () => Tables.RecordsOfEminenceTables.Load(LoadDatBytes))).Value;
+
         public ResourceManager(string gameDirectory)
             : this(gameDirectory, null, null)
         {
@@ -60,6 +66,7 @@ namespace Gordian.Core.Resources
             _vfs = vfs ?? new VirtualFileSystem(_gameDirectory, resourcesDirectory);
             // A VFS reload (hot reload, a pack toggled, the VFS switched off) can change what any DAT resolves to.
             _vfs.OnReloaded += ClearCache;
+            _furniture = new Lazy<Dictionary<ushort, Tables.FurnitureInfo>>(LoadFurnitureTable);
         }
 
         /// <summary>
@@ -433,6 +440,8 @@ namespace Gordian.Core.Resources
             DMsgCategory.MenuStrings => Path.Combine("ROM", "165", "77.DAT"),
             DMsgCategory.JobPointStrings => Path.Combine("ROM", "314", "62.DAT"),
             DMsgCategory.AlterEgoStrings => Path.Combine("ROM", "384", "121.DAT"),
+            DMsgCategory.MeritStrings => Path.Combine("ROM", "169", "75.DAT"),
+            DMsgCategory.JobGiftStrings => Path.Combine("ROM", "324", "59.DAT"),
             DMsgCategory.MountNames => Path.Combine("ROM", "351", "84.DAT"),
             DMsgCategory.MountHelp => Path.Combine("ROM", "351", "85.DAT"),
             DMsgCategory.QuestsSandoria => Path.Combine("ROM", "176", "60.DAT"),

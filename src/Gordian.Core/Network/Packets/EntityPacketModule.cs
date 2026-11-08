@@ -219,7 +219,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 player.Hpp = pc.Hpp;
-                player.AnimationState = pc.ServerStatus;
+                if (pc.UniqueNo != _localPlayer.ServerId || !_localPlayer.IsVanishing) player.AnimationState = pc.ServerStatus;
                 // The mount (#87): the status says whether they ride, Flags6 which mount (kept after a dismount). Only a General
                 // update that carries Flags6 says which (round 6: a short one, read as "mount 0", drew everyone as a chocobo);
                 // without it the last known mount number stands.
@@ -536,7 +536,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew)
             {
                 GordianLog.Debug("ENTITY", $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
-                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} " +
+                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} sub={npcPacket.AnimationSub} " +
                     $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
 
@@ -680,7 +680,7 @@ namespace Gordian.Core.Network.Packets
                 localEnt.Appearance.ModelId = charStatus.CostumeId is 0 or 0xFFFF ? 0u : charStatus.CostumeId;
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
-                localEnt.AnimationState = charStatus.ServerStatus;
+                if (!_localPlayer.IsVanishing) localEnt.AnimationState = charStatus.ServerStatus;
                 localEnt.Mount = _localPlayer.Mount;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a

@@ -42,6 +42,56 @@ namespace Gordian.App.Tests.Graphics
             Assert.Equal(ground + slope * ZoneTerrainRenderer.FootprintLift, tilted.Translation);
         }
 
+        /// <summary>
+        /// Rain wets the street, not a room: the Carpenters' Guild's dirt floor (interior 349, Northern San d'Oria) starts no
+        /// rain ripple, as in retail (the maintainer, round 3, 2026-11-07), while the grass outside does (the zone has no
+        /// outdoor dirt).
+        /// </summary>
+        [Fact]
+        public void NorthernSandoria_RainWetsTheGrassOutsideButNotTheGuildFloor()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(231, out var zone, out var textures) || zone.Collision is not { } street) return;
+            Assert.NotNull(zone.FootEffects!.RootFor((int)CollisionTerrain.Path, wet: true));
+            Assert.NotNull(zone.FootEffects.RootFor((int)CollisionTerrain.Grass, wet: true));
+            var merged = ZoneCollisionMesh.Merge(street, new[] { rm.TryLoadSubAreaCollision(349)! });
+            Vector3? indoor = null, outdoor = null;
+            foreach (var t in merged.Triangles)
+            {
+                if (t.IsWall || t.Terrain != (t.Interior ? CollisionTerrain.Path : CollisionTerrain.Grass) || t.Normal.Y > -0.9f ||
+                    Vector3.Cross(t.B - t.A, t.C - t.A).Length() < 0.5f) continue;
+                Vector3 centre = (t.A + t.B + t.C) / 3f;
+                var foot = new Vector3(-centre.X, -centre.Y + 0.05f, centre.Z);
+                // Only a point whose ground is this triangle's (no floor just above it).
+                if (!merged.TryGetGround(centre with { Y = centre.Y - 0.05f }, 1.0f, 2.0f, out var hit) ||
+                    merged.Triangles[hit.TriangleIndex] != t) continue;
+                if (t.Interior) indoor ??= foot; else outdoor ??= foot;
+            }
+            Assert.True(indoor != null, "no dirt floor in the guild");
+            Assert.True(outdoor != null, "no grass outside");
+
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, Width, Height, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), Width, Height, GraphicsBackendPreference.Direct3D11, vsync: false);
+            try
+            {
+                var renderer = new ZoneTerrainRenderer(devMgr.Device!) { World = new WorldState { CurrentZoneId = 231 } };
+                renderer.LoadZone(zone, textures);
+                Assert.Equal(CollisionTerrain.Path, renderer.StartFootfall(indoor!.Value, 0f, merged, wet: true, rm));
+                Assert.Equal(0, renderer.FootEffectCount);
+                Assert.Equal(CollisionTerrain.Grass, renderer.StartFootfall(outdoor!.Value, 0f, merged, wet: true, rm));
+                Assert.Equal(1, renderer.FootEffectCount);
+                renderer.Dispose();
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         [Fact]
         public void BibikiBaySand_FootfallLeavesAPrintThatFades()
         {

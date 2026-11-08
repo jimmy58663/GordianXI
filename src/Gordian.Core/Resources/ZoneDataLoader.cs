@@ -229,6 +229,35 @@ namespace Gordian.Core.Resources
         /// (<c>mant</c>) are authored in the vessel's frame, where every scenery effect is hundreds of yalms out (round 2:
         /// the water around the boat was missing). Within the vessel's footprint plus 10 yalms counts.
         /// </summary>
+        /// <remarks>
+        /// A generator that spans the scenery is not, though it is centred on the origin too: the Manaclipper's base seas
+        /// (<c>s_pa/effe/umi1</c> <c>g000</c> and <c>g001</c>, 4,260 and 2,469 yalms out) have a dark open sea and teal shallows
+        /// around Purgonorgo that the vessel sails through (#430, retail rides of 2026-11-05). Its sparkle overlays (<c>umik</c>,
+        /// <c>umis</c>, <c>umss</c>, <c>kuro</c>, up to 2,285 yalms out) stay with the vessel: in the scenery they fleck the dark sea
+        /// white, which retail does not. Measured, so <see cref="SceneryScaleExtent"/> sits between the two.
+        /// </remarks>
+        private static bool IsOnVessel(ZoneVessel? vessel, WeatherSkyLayer effect) =>
+            IsOnVessel(vessel, effect.Position) && !SpansScenery(effect);
+
+        /// <summary>How far out, in yalms, a generator's mesh must reach to belong to the scenery.</summary>
+        private const float SceneryScaleExtent = 2400f;
+
+        private static bool SpansScenery(WeatherSkyLayer effect)
+        {
+            foreach (var group in effect.MeshGroups)
+            {
+                foreach (var vertex in group.Vertices)
+                {
+                    if (MathF.Abs(vertex.Position.X * effect.Scale.X) >= SceneryScaleExtent ||
+                        MathF.Abs(vertex.Position.Z * effect.Scale.Z) >= SceneryScaleExtent)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         private static bool IsOnVessel(ZoneVessel? vessel, Vector3 position)
         {
             if (vessel is not { IsVoyage: true } || vessel.MeshGroups.Count == 0) return false;
@@ -637,6 +666,7 @@ namespace Gordian.Core.Resources
                                 ZoneMeshTemplates.AddSection(zoneMeshSections, $"{currentWeather}/{header.DatId}", header.DatId, submeshes);
                             }
                             ZoneMeshTemplates.AddSection(zoneMeshSections, header.DatId, header.DatId, submeshes);
+                            ZoneMeshTemplates.AddSection(zoneMeshSections, ZoneMeshTemplates.DirectoryKey(DirectoryPath(dirStack), header.DatId), header.DatId, submeshes);
 
                             if (ZoneDefDecoder.IsSkyMesh(primaryName) || ZoneDefDecoder.IsSkyMesh(header.DatId))
                             {
@@ -1452,7 +1482,7 @@ namespace Gordian.Core.Resources
                 effect.OwnerDoorId = ownerDoor;
                 effect.IsEntranceOverlay = IsEntrancePath(genPath);
                 effect.GeneratorPath = genPath;
-                effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect.Position);
+                effect.OnVessel = IsVesselPath(genPath) || IsOnVessel(zone.Vessel, effect);
                 zone.EffectLayers.Add(effect);
                 layerDirectories[effect] = genPath;
                 if (!actorEffects && !isWeather && effect.Emitter != null)
@@ -1682,7 +1712,8 @@ namespace Gordian.Core.Resources
                 if (effectMeshes == null)
                 {
                     isParticleMesh = false;
-                    if (!string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
+                    effectMeshes = ZoneMeshTemplates.FindInScope(zoneMeshSections, generatorPaths.GetValueOrDefault(gen), linkId);
+                    if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) zoneMeshSections.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                     if (effectMeshes == null) zoneMeshSections.TryGetValue(linkId, out effectMeshes);
                 }
                 if (effectMeshes == null || effectMeshes.Count == 0) return null;

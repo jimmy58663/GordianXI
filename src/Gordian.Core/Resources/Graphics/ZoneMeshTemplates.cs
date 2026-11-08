@@ -69,6 +69,33 @@ namespace Gordian.Core.Resources.Graphics
             }
         }
 
+        /// <summary>The by-section-id key of a 0x2E section within one directory (e.g. <c>f_ro/mode/ligh/g_li</c>).</summary>
+        public static string DirectoryKey(string directory, string sectionId) => $"dir:{directory}/{sectionId}";
+
+        /// <summary>
+        /// The 0x2E section a generator in <paramref name="directory"/> links as <paramref name="sectionId"/>: the one in its
+        /// own directory, else in the nearest directory above it; null when no directory on that path holds one (the caller
+        /// then falls back to the whole file). Section ids are four characters, so one id can name several meshes in a file.
+        /// West Ronfaure (zone 100) holds two sections <c>san_</c>: the zone-line passage <c>san_zone01_m</c> in
+        /// <c>f_ro/mode</c> and, later, the gate interior's light overlay <c>san_gate_inl</c> in <c>f_ro/mode/ligh/g_li</c>,
+        /// next to the generator <c>gin2</c> that links it. Taking the first in the file drew the passage, unturned and
+        /// additive, as translucent beams across the San d'Oria gate (#494); <c>gin1</c>'s <c>san2</c> likewise drew the
+        /// emblem <c>san_emblem</c> instead of <c>san_gate1_inl</c>. The scope order is an *inference* from those data, as
+        /// with the generators' point lists; no reference describes how the client resolves the link.
+        /// </summary>
+        public static List<MeshGroup>? FindInScope(Dictionary<string, List<MeshGroup>> sections, string? directory, string sectionId)
+        {
+            if (directory == null) return null;
+            string dir = directory;
+            while (true)
+            {
+                if (sections.TryGetValue(DirectoryKey(dir, sectionId), out var meshes)) return meshes;
+                if (dir.Length == 0) return null;
+                int slash = dir.LastIndexOf('/');
+                dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
+            }
+        }
+
         private static bool IsNamed(List<MeshGroup> meshes, string sectionId) =>
             meshes.Count > 0 && string.Equals(meshes[0].Name, sectionId, StringComparison.OrdinalIgnoreCase);
 

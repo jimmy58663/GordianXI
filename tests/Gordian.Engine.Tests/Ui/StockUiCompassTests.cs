@@ -119,21 +119,20 @@ namespace Gordian.Engine.Tests.Ui
         {
             // West Ronfaure's one map, at 0.2 px per yalm with its image quad at (-312, -248) (round 2 of #485: no square
             // outside towns). (-100, 0) is map pixel (292, 248): column I, row 8.
-            Assert.Equal("I-8", StockUiCompass.MapSquare(100, -100, 0, (_, _) => new ZoneMapOrigin(-312, -248)));
-            Assert.Null(StockUiCompass.MapSquare(100, -100, 0, (_, _) => null));
+            Assert.Equal("I-8", StockUiCompass.MapSquare(100, 0, -100, 0, (_, _) => new ZoneMapOrigin(-312, -248)));
+            Assert.Null(StockUiCompass.MapSquare(100, 0, -100, 0, (_, _) => null));
         }
 
         [Fact]
-        public void MapSquare_NeedsEveryFloorToAgree()
+        public void MapSquare_ReadsTheFloorTheCharacterIsOn()
         {
-            // Aht Urhgan Whitegate's two maps are both calibrated: one square when they agree, none when they differ.
-            Assert.Equal(2, ZoneMapFiles.MapsOf(50).Count);
-            Assert.NotNull(StockUiCompass.MapSquare(50, 0, 0, (_, _) => new ZoneMapOrigin(-272, -272)));
-            Assert.Null(StockUiCompass.MapSquare(50, 0, 0, (_, map) => new ZoneMapOrigin(map == 0 ? -272 : -100, -272)));
-            // Carpenters' Landing's third map is not calibrated, so the player may be on a floor whose square is unknown.
-            Assert.Null(StockUiCompass.MapSquare(2, 0, 0, (_, _) => new ZoneMapOrigin(-272, -216)));
-            // A zone without maps.
-            Assert.Null(StockUiCompass.MapSquare(0, 0, 0, (_, _) => new ZoneMapOrigin(-256, -256)));
+            // #481: the square comes from the map of the character's floor alone. Castle Zvahl Keep's floor 4 is calibrated
+            // (0.4 px per yalm, corner (-448, -256)): its home point (-554, 66) is map pixel (226, 230), G-7.
+            Assert.Equal("G-7", StockUiCompass.MapSquare(162, 4, -554, 66, (_, _) => new ZoneMapOrigin(-448, -256)));
+            // Carpenters' Landing's third map is not calibrated, so a character on it has no square.
+            Assert.Null(StockUiCompass.MapSquare(2, 2, 0, 0, (_, _) => new ZoneMapOrigin(-272, -216)));
+            // No map: a zone without maps.
+            Assert.Null(StockUiCompass.MapSquare(0, -1, 0, 0, (_, _) => new ZoneMapOrigin(-256, -256)));
         }
 
         [Fact]

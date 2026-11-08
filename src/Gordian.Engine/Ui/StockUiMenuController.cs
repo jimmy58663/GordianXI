@@ -17,7 +17,7 @@ namespace Gordian.Engine.Ui
     /// (a filter that is ON, drawn with the "ON" ball instead of "OFF").
     /// </summary>
     /// <param name="Value">Client text drawn at the row's right (the gamepad key-assignment list's buttons); null for none.</param>
-    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null);
+    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null, UiColor? ValueColor = null, string? Note = null, bool Header = false);
 
     /// <summary>
     /// The client-drawn list pages: rows over the DAT's invisible row buttons. The Chat Filters, Log and Effects lists draw
@@ -1043,6 +1043,7 @@ namespace Gordian.Engine.Ui
         /// <summary>Rebuilds a menu's markers, slider fills and list rows from the current settings.</summary>
         private void Refresh(StockUiOpenMenu menu)
         {
+            RefreshMogHouseMenu(menu);
             if (menu.ConfigPage is { } page)
             {
                 var marked = new HashSet<int>();
@@ -1214,6 +1215,7 @@ namespace Gordian.Engine.Ui
             if (_suspended) return true; // the sub-target cursor has the input
             if (ProcessAuctionPrice(input)) return true; // the Auction House's Price Set (#90)
             if (ProcessMacroField(input)) return true; // a macro title or line being typed (#339)
+            if (ProcessMogHouseLayout(input, elapsed)) return true; // the Mog House layout grid (#93)
             bool wasOpen = IsOpen;
             if (input.WasActionTriggered(InputAction.OpenMenu))
             {
@@ -1304,7 +1306,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveJobPointPage(direction) || TryMoveRoeCategory(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction) || TryMoveMannequin(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();
@@ -1525,6 +1527,7 @@ namespace Gordian.Engine.Ui
                 }
             }
             page.SelectedButtonId = selected != 0 ? selected : FirstSelectable(definition);
+            RefreshMogHouseMenu(page);
             Remember(top);
             _mainMenuPage = next;
 
@@ -1773,7 +1776,8 @@ namespace Gordian.Engine.Ui
             if (!TryGetEntry(top, button.ButtonId, out var entry)) return;
             if (top.IsGreyed(button.ButtonId))
             {
-                NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
+                // Lower at 0 upgrades: the retail client does nothing and says nothing.
+                if (!top.Name.Equals(StockUiProgression.MeritEditMenu, StringComparison.OrdinalIgnoreCase)) NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
                 return;
             }
             // An entry with both a window and a command (the command menu's Magic: Confirm lists all castable magic,
@@ -1953,8 +1957,17 @@ namespace Gordian.Engine.Ui
                     RunSearchAction(entry, from);
                     break;
 
+                case StockUiMenuCommand.MogHouseAction:
+                    RunMogHouseAction(entry, from);
+                    break;
+
                 case StockUiMenuCommand.CurrentTime:
                     NoticePosted?.Invoke(DescribeCurrentTime(DateTime.UtcNow, Clock));
+                    break;
+
+                case StockUiMenuCommand.Map when InMogHouse?.Invoke() == true:
+                    // In the Mog House this button reads Mog House and opens the moogle's menu (#93).
+                    lock (_sync) Push(StockUiMogHouse.MoogleMenu, from, Array.Empty<string>(), null, null);
                     break;
 
                 case StockUiMenuCommand.Map:
@@ -1990,6 +2003,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.MeritMode:
                     SwitchMeritMode(entry, from);
+                    break;
+
+                case StockUiMenuCommand.Progression:
+                    RunProgression((StockUiProgressionAction)entry.Argument, from);
                     break;
 
                 case StockUiMenuCommand.LogOut:
@@ -2125,6 +2142,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.RegionConquest:
                     OpenConquest(from);
+                    break;
+
+                case StockUiMenuCommand.RegionMapPage:
+                    OpenRegionInfo((Core.Resources.Tables.RegionMap)entry.Argument, from);
                     break;
 
                 case StockUiMenuCommand.EquipmentSets:

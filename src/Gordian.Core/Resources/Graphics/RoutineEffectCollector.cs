@@ -53,7 +53,7 @@ namespace Gordian.Core.Resources.Graphics
                     if (routines.TryGetValue(command.Name, out var child))
                     {
                         if (depth < MaxLinkDepth) Walk(child, at, depth + 1);
-                        if (command.Op is 0x3B or 0x3C) shift += child.TotalTicks;
+                        if (command.Op is 0x3B or 0x3C) shift += MotionRoutineDecoder.WaitTicks(child, routines);
                     }
                     else if (!IsNotAnEffect(command.Name))
                     {

@@ -442,6 +442,27 @@ void main()
                 new UiVertex { Position = new Vector2(x + width, y + height), TexCoord = new Vector2(u1, v1), Color = c });
         }
 
+        /// <summary>Draws a solid line between two screen points (the Mog House layout's grid, #93).</summary>
+        public void DrawLine(Vector2 from, Vector2 to, float thickness, UiColor color)
+        {
+            var along = to - from;
+            float length = along.Length();
+            if (length < 0.001f) return;
+            if (!_textures.TryGetValue(WhiteTexel.Name, out var entry))
+            {
+                entry = Upload(WhiteTexel);
+                _textures[WhiteTexel.Name] = entry;
+            }
+            if (entry is not { } e) return;
+            var side = new Vector2(-along.Y, along.X) * (thickness * 0.5f / length);
+            uint c = Pack(color, null);
+            AddQuad(e.Set, UiBlendMode.Alpha,
+                new UiVertex { Position = from - side, TexCoord = Vector2.Zero, Color = c },
+                new UiVertex { Position = to - side, TexCoord = Vector2.UnitX, Color = c },
+                new UiVertex { Position = from + side, TexCoord = Vector2.UnitY, Color = c },
+                new UiVertex { Position = to + side, TexCoord = Vector2.One, Color = c });
+        }
+
         /// <summary>
         /// Draws a whole texture that does not come from the UI library (status icons), cached under
         /// <paramref name="cacheKey"/> (prefix it so it cannot collide with library texture names).

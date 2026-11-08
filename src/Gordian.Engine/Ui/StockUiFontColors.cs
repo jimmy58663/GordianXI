@@ -240,8 +240,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// The fixed colour of lines without a Font Colors row (half scale): violet, about (200, 100, 255), for server
-        /// text sent as chat (the welcome message, a retail capture 2026-09-27); client notices pale blue and client
-        /// errors red (GordianXI's own lines); white otherwise.
+        /// text sent as chat (the welcome message, a retail capture 2026-09-27); client notices pale blue (GordianXI's own
+        /// lines); client errors pink, about (255, 134, 191), retail's "There is no map for this area." (capture of
+        /// 2026-11-07, Selbina's home point list on Pso'Xja #1; other client errors are taken to share it); white otherwise.
         /// </summary>
         public static UiColor FixedColor(ChatLogChannel channel) => channel switch
         {
@@ -251,7 +252,7 @@ namespace Gordian.Engine.Ui
             // maintainer's retail captures 2026-10-13 of "/echo 9999/9999" and "[Provoke] 0:00"; round 1 sampled the help bar's
             // lavender by mistake). No Font Colors row has this colour, so it is fixed (#362).
             ChatLogChannel.Echo => new UiColor(0x7F, 0x7F, 0x72, 0x7F),
-            ChatLogChannel.Error => new UiColor(0x7F, 0x48, 0x48, 0x7F),
+            ChatLogChannel.Error => new UiColor(0x7F, 0x43, 0x60, 0x7F),
             _ => new UiColor(0x7F, 0x7F, 0x7F, 0x7F),
         };
     }

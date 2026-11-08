@@ -349,6 +349,7 @@ namespace Gordian.Engine.Actions
                 WindowSkinSelected = skin => UiLayout.SetWindowSkin(skin),
                 CurrentPartyIcons = () => UiLayout.ShowPartyStatusIcons,
                 PartyIconsSelected = on => UiLayout.SetShowPartyStatusIcons(on),
+                ShowMeritCategoryTotals = () => UiLayout.ShowMeritCategoryTotals,
                 TargetCommand = RunMenuTargetCommandAsync,
                 Clock = _world.Clock,
             };
@@ -2759,7 +2760,7 @@ namespace Gordian.Engine.Actions
         }
 
         private const string UiLayoutUsage =
-            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
+            "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | merits <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
             "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop, dead, check. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
             "While unlocked, drag the outlined windows with the mouse.";
 
@@ -2814,6 +2815,12 @@ namespace Gordian.Engine.Actions
             {
                 layout.SetShowPartyTp(parts[1].Equals("on", StringComparison.OrdinalIgnoreCase));
                 return PlayerActionResult.Ok($"Party window TP {(layout.ShowPartyTp ? "shown" : "hidden (retail)")}.", Kind);
+            }
+            if (first == "merits" && parts.Length == 2 && parts[1].ToLowerInvariant() is "on" or "off")
+            {
+                // Opt-in (not in the legacy client, #491): each merit category's "upgrades/most" in the categories list.
+                layout.SetShowMeritCategoryTotals(parts[1].Equals("on", StringComparison.OrdinalIgnoreCase));
+                return PlayerActionResult.Ok($"Merit category totals {(layout.ShowMeritCategoryTotals ? "shown" : "hidden (retail)")}.", Kind);
             }
             if (first == "buffs" && parts.Length == 2 && parts[1].ToLowerInvariant() is "on" or "off" or "left" or "right")
             {
@@ -2889,6 +2896,7 @@ namespace Gordian.Engine.Actions
         {
             var sb = new StringBuilder($"Stock UI scale {layout.Scale:0.##}, window skin {layout.WindowSkin}{(layout.ShowPartyTp ? ", party TP shown" : string.Empty)}" +
                 (layout.ShowPartyStatusIcons ? $", party status icons on the {layout.PartyStatusIconSide.ToString().ToLowerInvariant()}" : string.Empty) +
+                (layout.ShowMeritCategoryTotals ? ", merit category totals shown" : string.Empty) +
                 (layout.NamePlateScale != 1.0f ? $", name plates {layout.NamePlateScale:0.##}x" : string.Empty));
             var overrides = layout.GetOverrides();
             if (overrides.Count == 0) return sb.Append("; every window at its retail placement.").ToString();

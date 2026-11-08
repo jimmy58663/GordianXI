@@ -347,7 +347,8 @@ namespace Gordian.Engine.Input
             if (chat == null && Chat is { } hiddenChat) ReleaseHiddenChat(hiddenChat);
             // The sub-target cursor (an action waiting for its target) takes the menu keys as a menu does.
             bool subTargeting = _actionService?.SubTargeting != null;
-            bool menuOpen = (menus?.IsOpen ?? false) || subTargeting;
+            // The Mog House Layout takes the menu keys with no menu open (#93).
+            bool menuOpen = (menus?.IsOpen ?? false) || subTargeting || (menus?.MogHouseLayout.Active ?? false);
             // A selected log window takes the menu navigation keys (Up/Down scroll it) as an open menu does.
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
@@ -861,7 +862,8 @@ namespace Gordian.Engine.Input
                 _world.UpsertEntity(localEnt);
             }
             // The player's status (S2C 0x037) on its entity, also when the entity was made after the status came (#343).
-            localEnt.AnimationState = _localPlayer.ServerStatus;
+            // Not while the server sends the living character away: status 3 there is no death (round 2 of the 2026-11-03 test).
+            if (!_localPlayer.IsVanishing) localEnt.AnimationState = _localPlayer.ServerStatus;
             localEnt.Mount = _localPlayer.Mount;
 
             float dt = (float)elapsed.TotalSeconds;
@@ -905,8 +907,9 @@ namespace Gordian.Engine.Input
                 _inputState.AutorunActive = false;
             }
 
-            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops.
-            if (InputBlocked)
+            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops. The Mog House Layout
+            // has the keys and the view too (#93).
+            if (InputBlocked || _actionService?.Menus.MogHouseLayout.Active == true)
             {
                 _inputState.AutorunActive = false;
                 localEnt.Speed = 0;

@@ -21,6 +21,11 @@ namespace Gordian.Core.World
     );
 
     /// <summary>
+    /// What a mannequin wears (S2C 0x026): the model ids as they go in an entity's look (slot prefix included), its race and pose.
+    /// </summary>
+    public readonly record struct MannequinLook(ushort Head, ushort Body, ushort Hands, ushort Legs, ushort Feet, ushort Main, ushort Sub, ushort Range, byte Race, byte Pose);
+
+    /// <summary>
     /// Individual container state containing size information and slot items.
     /// </summary>
     public sealed class ContainerState
@@ -159,6 +164,21 @@ namespace Gordian.Core.World
         public event Action<ContainerId, byte, ushort>? ContainerSizesChanged;
         public event Action<EquipSlotId, ContainerId, byte>? EquipChanged;
         public event Action? CurrenciesChanged;
+
+        /// <summary>A mannequin's look arrived (S2C 0x026, #93).</summary>
+        public event Action? MannequinLooksChanged;
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(ContainerId, byte), MannequinLook> _mannequinLooks = new();
+
+        /// <summary>The last look the server sent for a mannequin, or null.</summary>
+        public MannequinLook? GetMannequinLook(ContainerId container, byte slot) => _mannequinLooks.TryGetValue((container, slot), out var look) ? look : null;
+
+        internal void SetMannequinLook(ContainerId container, byte slot, MannequinLook look)
+        {
+            _mannequinLooks[(container, slot)] = look;
+            MannequinLooksChanged?.Invoke();
+        }
+
         public event Action? TradeChanged;
         public event Action? ShopChanged;
 

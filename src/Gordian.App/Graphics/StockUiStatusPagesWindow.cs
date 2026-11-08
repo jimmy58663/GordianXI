@@ -31,13 +31,21 @@ namespace Gordian.App.Graphics
         /// <summary>The gap between the docked Unity Points box and the party window (the target window's).</summary>
         private const float DockGap = 2;
 
-        /// <summary>The points box the open windows show, or null: the top one of Merit Points, Job Points, Alter Ego Points, Unity.</summary>
+        /// <summary>
+        /// The points box the open windows show, or null: the top one of Merit Points, Job Points, Alter Ego Points, Unity; over
+        /// the merit categories and merits <c>meritinf</c> (#491).
+        /// </summary>
         public static string? BoxOf(IReadOnlyList<StockUiOpenMenu> open)
         {
             for (int i = open.Count - 1; i >= 0; i--)
             {
                 var menu = open[i];
                 if (menu.Name.Equals(StockUiStatusPages.MeritModeMenu, StringComparison.OrdinalIgnoreCase)) return StockUiStatusPages.MeritBox;
+                if (menu.Name.Equals(StockUiProgression.MeritEditMenu, StringComparison.OrdinalIgnoreCase)) return StockUiProgression.MeritInfoBox;
+                switch (menu.ProgressionList)
+                {
+                    case StockUiProgressionList.MeritCategories or StockUiProgressionList.Merits: return StockUiProgression.MeritInfoBox;
+                }
                 switch (menu.StatusWindow)
                 {
                     case StockUiStatusPage.MeritPoints: return StockUiStatusPages.MeritBox;
@@ -54,13 +62,39 @@ namespace Gordian.App.Graphics
         public static bool DocksOverParty(StockUiMenuController menus) =>
             !menus.Suspended && menus.IsStatusOpen && BoxOf(menus.OpenMenus) == StockUiStatusPages.UnityBox;
 
-        /// <summary>Whether the box stands in the level box's place (16,208): the merit box does; Unity's sits over the party window.</summary>
-        public static bool ReplacesLevelBox(string? box) => box == StockUiStatusPages.MeritBox;
+        /// <summary>
+        /// Whether the box stands in the level box's place (16,208): the merit box does, and the info boxes of #491 (16,240) take
+        /// it too; Unity's sits over the party window.
+        /// </summary>
+        public static bool ReplacesLevelBox(string? box) => box is StockUiStatusPages.MeritBox or StockUiProgression.MeritInfoBox;
 
-        /// <summary>The help bar's title over a Status list: its window's title (ROM/165/76).</summary>
-        public static string TitleOf(StockUiOpenMenu list) => list.StatusWindow is StockUiStatusPage.Currencies or StockUiStatusPage.Currencies2
-            ? StockUiStatusPages.CurrenciesTitle
-            : StockUiStatusPages.CategoriesTitle;
+        /// <summary>
+        /// The Status list window that covers the stats side, or null: the top window, or the list under <c>merit3</c> or a prompt
+        /// opened over it (#491).
+        /// </summary>
+        public static StockUiOpenMenu? TopList(IReadOnlyList<StockUiOpenMenu> open)
+        {
+            for (int i = open.Count - 1; i >= 0; i--)
+            {
+                var menu = open[i];
+                if (menu.IsStatusValueList) return menu;
+                if (!menu.IsPrompt && !menu.Name.Equals(StockUiProgression.MeritEditMenu, StringComparison.OrdinalIgnoreCase)) return null;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The help bar's title over a Status list: its window's title (ROM/165/76); "Unity" (title 173) over Unity's windows, whose
+        /// headings ("Unity Information") do not fit the title box.
+        /// </summary>
+        public static string TitleOf(StockUiOpenMenu list) => list.ProgressionList switch
+        {
+            StockUiProgressionList.UnityInfo or StockUiProgressionList.UnityRanking or StockUiProgressionList.UnityRankingList or StockUiProgressionList.UnityLeaders => "Unity",
+            _ when list.IsRoeList => StockUiRecordsOfEminence.HelpTitle,
+            _ => list.StatusWindow is StockUiStatusPage.Currencies or StockUiStatusPage.Currencies2
+                ? StockUiStatusPages.CurrenciesTitle
+                : StockUiStatusPages.CategoriesTitle,
+        };
 
         /// <summary>Whether the help bar shows the selected entry's help line of this window (the Status list and its own windows).</summary>
         public static bool ShowsHelp(StockUiOpenMenu menu) =>
@@ -72,7 +106,7 @@ namespace Gordian.App.Graphics
         /// <paramref name="party"/> (the party window's placement) when it is shown.
         /// </summary>
         public static void DrawBox(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, string box, IReadOnlyList<StockUiOpenMenu> open,
-            StockUiStatusPoints? points, float scale, uint width, uint height, StockUiPlacement? party = null)
+            StockUiStatusPoints? points, float scale, uint width, uint height, StockUiPlacement? party = null, StockUiMenuController? menus = null)
         {
             if (!library.TryGetMenu(box, out var window)) return;
             var at = Place(window, box, scale, width, height, party);
@@ -89,7 +123,8 @@ namespace Gordian.App.Graphics
                     int job = JobUnderCursor(open, points);
                     var totals = StockUiStatusPages.JobPointsOf(points, job);
                     Value(renderer, font, at, string.Create(inv, $"{totals.CapacityPoints}/{StockUiStatusPages.MaxCapacityPoints}"), UpperValueY);
-                    Value(renderer, font, at, string.Create(inv, $"{totals.JobPoints}/{StockUiStatusPages.MaxJobPoints} P"), LowerValueY);
+                    Value(renderer, font, at, string.Create(inv, $"{totals.JobPoints}/{StockUiStatusPages.MaxJobPoints} P"), LowerValueY,
+                        totals.JobPoints >= StockUiStatusPages.MaxJobPoints ? StockUiProgression.AtMost : null);
                     break;
                 case StockUiStatusPages.AlterEgoBox:
                     Value(renderer, font, at, string.Create(inv, $"{points.AlterEgoPoints}/{StockUiStatusPages.MaxAlterEgoPoints}"), SingleValueY);
@@ -98,7 +133,100 @@ namespace Gordian.App.Graphics
                     Value(renderer, font, at, string.Create(inv,
                         $"{points.Currency1(Currency1Kind.UnityAccolades)}/{StockUiStatusPages.MaxUnityAccolades}"), SingleValueY);
                     break;
+                case StockUiProgression.MeritInfoBox:
+                {
+                    // meritinf (#491; retail client, 2026-11-06): the merit points held ("15 P") under "Merit Points", the category's
+                    // upgrades and most under "Combo Total/Max", a job's two groups side by side, the first yellow.
+                    Value(renderer, font, at, string.Create(inv, $"{points.MeritPoints} P"), InfoUpperValueY);
+                    if (MeritCategoryOf(open) is > 0 and var category && menus?.Merits?.Invoke() is { } merits)
+                    {
+                        string? help = menus.MeritText?.Invoke(category * 2 + 1);
+                        string Group(int g) => string.Create(inv, $"{StockUiProgression.GroupTotal(category, g, merits)}/{StockUiProgression.GroupMax(help, g)}");
+                        if (StockUiProgression.HasMeritGroups(category))
+                        {
+                            float ts = at.Scale * StockUiPartyWindow.TextScale;
+                            string first = Group(1);
+                            renderer.DrawText(font, first, at.X + FirstGroupValueRight * at.Scale - font.MeasureWidth(first) * ts, at.Y + InfoLowerValueY * at.Scale, ts,
+                                StockUiProgression.GroupYellow);
+                            Value(renderer, font, at, Group(2), InfoLowerValueY);
+                        }
+                        else
+                        {
+                            int max = StockUiProgression.CategoryMax(help);
+                            int total = StockUiProgression.CategoryTotal(category, merits);
+                            Value(renderer, font, at, max > 0 ? string.Create(inv, $"{total}/{max}") : total.ToString(inv), InfoLowerValueY);
+                        }
+                    }
+                    break;
+                }
             }
+        }
+
+        /// <summary>The Job Points pages' title bar in <c>jbpcat</c> (image-30, image-31): left, top, height and its text's places.</summary>
+        private const float TitleBarX = 4, TitleBarY = 2, TitleBarHeight = 14, TitleTextX = 28, ComboTotalX = 170, TitleBarRightPad = 14;
+
+        /// <summary>The title bar's blue-grey, top to bottom, read by eye from image-30 (PROVISIONAL).</summary>
+        private static readonly (byte R, byte G, byte B)[] TitleBarShades =
+        [
+            (112, 124, 150), (100, 114, 142), (90, 104, 134), (82, 96, 126), (74, 88, 118), (66, 80, 110), (58, 72, 102), (50, 64, 94),
+        ];
+
+        /// <summary>The red page arrows of <c>frames</c>, the paging window's (<c>quest01</c> buttons 9, 10).</summary>
+        private const int LeftArrowImage = 25, RightArrowImage = 26;
+
+        /// <summary>
+        /// The title bar of the Job Points pages, over <c>jbpcat</c>'s rows: "Job Points", or "Gifts" and "Combo Total:" the job
+        /// points spent, between the red arrows at the DAT's buttons 11 and 12 (the frame has the room, nothing in the DAT draws it).
+        /// </summary>
+        public static void DrawJobPointTitle(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement at)
+        {
+            bool gifts = menu.ProgressionList == StockUiProgressionList.JobGifts;
+            if (!gifts && menu.ProgressionList != StockUiProgressionList.JobPointCategories) return;
+            float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
+            var f = menu.Menu.Frame;
+            StockUiMenuWindow.DrawShades(renderer, TitleBarShades, at.X + TitleBarX * s, at.Y + TitleBarY * s, at.X + (f.Width - TitleBarRightPad) * s, TitleBarHeight * s);
+            float y = at.Y + (TitleBarY + 1) * s;
+            renderer.DrawText(font, gifts ? StockUiProgression.JobGiftsPageTitle : StockUiProgression.JobPointsPageTitle, at.X + TitleTextX * s, y, ts, White);
+            if (gifts)
+            {
+                string combo = string.Create(CultureInfo.InvariantCulture, $"{StockUiProgression.ComboTotalLabel} {menu.JobGiftsSpent}");
+                renderer.DrawText(font, combo, at.X + ComboTotalX * s, y, ts, White);
+            }
+            if (library.TryGetGroup("frames", out var frames) && frames.Images.Count > RightArrowImage)
+            {
+                renderer.DrawImage(frames.Images[LeftArrowImage], at.X + 9 * s, at.Y + 3 * s, s);
+                renderer.DrawImage(frames.Images[RightArrowImage], at.X + 336 * s, at.Y + 3 * s, s);
+            }
+        }
+
+        /// <summary>The right edge of a job's first group's figure in <c>meritinf</c> (retail client, 2026-11-06).</summary>
+        private const float FirstGroupValueRight = 49;
+
+        /// <summary>A job's group header row (retail client, 2026-11-06): "Group1" and its limit in the title bar's blue-grey.</summary>
+        public static void DrawGroupHeader(StockUiRenderer renderer, UiFont font, StockUiListRow row, StockUiPlacement at, float rowY, float rowHeight)
+        {
+            float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
+            StockUiMenuWindow.DrawShades(renderer, TitleBarShades, at.X + TitleBarX * s, rowY + s, at.X + GroupBarRight * s, (rowHeight - 2) * s);
+            float y = rowY + (rowHeight * s - font.LineHeight * ts) * 0.5f;
+            renderer.DrawText(font, row.Text, at.X + GroupNameX * s, y, ts, White);
+            if (row.Note is { Length: > 0 } limit) renderer.DrawText(font, limit, at.X + GroupLimitX * s, y, ts, White);
+        }
+
+        /// <summary>The group header's right end and its text's places.</summary>
+        private const float GroupBarRight = 362, GroupNameX = 8, GroupLimitX = 104;
+
+        /// <summary>The value tops in <c>meritinf</c> (112 x 56): under "Merit Points" and under "Combo Total/Max".</summary>
+        private const float InfoUpperValueY = 16, InfoLowerValueY = 39;
+
+        /// <summary>The merit category the open windows show: the one under the categories' cursor, or the merits list's.</summary>
+        private static int MeritCategoryOf(IReadOnlyList<StockUiOpenMenu> open)
+        {
+            for (int i = open.Count - 1; i >= 0; i--)
+            {
+                if (open[i].ProgressionList == StockUiProgressionList.Merits) return open[i].ProgressionKey;
+                if (open[i].ProgressionList == StockUiProgressionList.MeritCategories) return open[i].SelectedRowKey;
+            }
+            return -1;
         }
 
         /// <summary>Where a box goes: Unity's on top of the party window (when it is up), the rest at their DAT places.</summary>
@@ -124,7 +252,43 @@ namespace Gordian.App.Graphics
             string menuName;
             int nameId;
             Func<int, string?>? strings;
-            switch (top.StatusWindow)
+            switch (top.ProgressionList)
+            {
+                case StockUiProgressionList.MeritCategories when top.SelectedRowKey > 0:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = top.SelectedRowKey * 2;
+                    strings = menus.MeritText;
+                    break;
+                case StockUiProgressionList.Merits when top.SelectedRowKey == 0:
+                    // A group header: the box stays, empty (retail client).
+                    if (library.TryGetMenu(StockUiStatusPages.InfoBox, out var empty))
+                    {
+                        var e = empty.Frame;
+                        renderer.DrawMenu(empty, StockUiLayout.Place(e.Anchor, e.X, e.Y, e.Width, e.Height, scale, width, height), includeButtons: false, opaqueBody: true);
+                    }
+                    return;
+                case StockUiProgressionList.Merits when top.SelectedRowKey > 0:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = top.SelectedRowKey;
+                    strings = menus.MeritText;
+                    break;
+                case StockUiProgressionList.JobPointCategories when top.SelectedRowKey >= 0:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = StockUiProgression.JobPointCategoryNameId(top.ProgressionKey, top.SelectedRowKey);
+                    strings = menus.JobPointText;
+                    break;
+                case StockUiProgressionList.JobGifts when top.SelectedRowKey >= 0:
+                    menuName = StockUiStatusPages.InfoBox;
+                    nameId = StockUiProgression.JobGiftNameId(top.ProgressionKey, top.SelectedRowKey);
+                    strings = menus.JobGiftText;
+                    break;
+                default:
+                    menuName = string.Empty;
+                    nameId = -1;
+                    strings = null;
+                    break;
+            }
+            if (top.ProgressionList == StockUiProgressionList.None) switch (top.StatusWindow)
             {
                 case StockUiStatusPage.JobPoints:
                     menuName = StockUiStatusPages.InfoBox;
@@ -144,7 +308,7 @@ namespace Gordian.App.Graphics
                 default:
                     return;
             }
-            if (!library.TryGetMenu(menuName, out var window)) return;
+            if (nameId < 0 || !library.TryGetMenu(menuName, out var window)) return;
             var f = window.Frame;
             var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, scale, width, height);
             renderer.DrawMenu(window, at, includeButtons: false, opaqueBody: true);
@@ -160,15 +324,27 @@ namespace Gordian.App.Graphics
         {
             for (int i = open.Count - 1; i >= 0; i--)
             {
+                if (open[i].ProgressionList is StockUiProgressionList.JobPointCategories or StockUiProgressionList.JobGifts) return open[i].ProgressionKey;
                 if (open[i].StatusWindow == StockUiStatusPage.JobPoints && open[i].SelectedStatusRow is >= 0 and var row) return row + 1;
             }
             return points.MainJob;
         }
 
-        private static void Value(StockUiRenderer renderer, UiFont font, StockUiPlacement at, string text, float y)
+        /// <summary>
+        /// The Records of Eminence lists' help bar (#493), drawn by the HUD while one is on top: "RoE" with no line (retail client).
+        /// </summary>
+        public static void DrawRoe(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiMenuController menus,
+            float scale, uint width, uint height)
+        {
+            var open = menus.OpenMenus;
+            if (open.Count == 0 || open[^1] is not { IsRoeList: true } top) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, logFont, StockUiRecordsOfEminence.HelpTitle, null, scale, width, height);
+        }
+
+        private static void Value(StockUiRenderer renderer, UiFont font, StockUiPlacement at, string text, float y, UiColor? color = null)
         {
             float s = at.Scale, ts = s * StockUiPartyWindow.TextScale;
-            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, White);
+            renderer.DrawText(font, text, at.X + ValueRight * s - font.MeasureWidth(text) * ts, at.Y + y * s, ts, color ?? White);
         }
     }
 }

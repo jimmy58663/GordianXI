@@ -11,6 +11,12 @@ namespace Gordian.App.Graphics
     public sealed partial class ZoneTerrainRenderer
     {
         /// <summary>
+        /// Leaves out scenery wholly above this display height: the Mog House Layout looks down through the room's ceiling
+        /// (#93; San d'Oria's <c>m_san01_b</c> is 5-7.4 yalms up, its lamp starts at 4.6 and stays, as in the retail video).
+        /// </summary>
+        public float? HideSceneryAbove { get; set; }
+
+        /// <summary>
         /// Culling tables, draw distances and detail levels on (default); off draws every placement's high-detail variant
         /// to the frustum, as before #70 (for comparisons and the offscreen harness).
         /// </summary>
@@ -72,6 +78,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         private bool PassesZoneVisibility(GpuSubmesh submesh, bool sceneryFrame = true)
         {
+            if (HideSceneryAbove is { } ceiling && submesh.MinBounds.Y >= ceiling) return false;
             if (submesh.Visibility.IsUnplaced) return true;
             if (!EnableZoneVisibility) return (submesh.Visibility.Slots & Gordian.Core.Resources.Models.LodSlots.High) != 0;
             var tables = EnableCullingTables ? LoadedZone?.CullingTables : null;

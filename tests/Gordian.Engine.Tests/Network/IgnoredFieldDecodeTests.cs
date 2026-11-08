@@ -97,6 +97,33 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Fact]
+        public void S2C_0x00A_DecodesTheShipRun()
+        {
+            // Retail's barge Central -> South (Retail Captures/Ship_Rides_Retail_0x00A_Packets.txt): reverse bit at +35, a start
+            // and length. The route shares its byte with other flags, so a stray low bit stays out of it.
+            byte[] p = LoginPayload();
+            p[35] = 0x04;
+            p[38] = 0x19;
+            U32(p, 116, 0x2EBC78C9);
+            p[120] = 0xFC;
+            p[121] = 0x01;
+            ZoneLoginInfo info = new S2C_0x00A_LoginAck(p).GetZoneInfo();
+
+            Assert.Equal(new VoyageRun(3, true, 0x2EBC78C9, 508), info.ShipRun);
+        }
+
+        [Fact]
+        public void S2C_0x00A_HasNoShipRunWhenTheServerSendsNone()
+        {
+            // LandSandBoat leaves both 0; the client needs both to start its ship clock.
+            byte[] p = LoginPayload();
+            p[38] = 0x08;
+            Assert.Null(new S2C_0x00A_LoginAck(p).GetZoneInfo().ShipRun);
+            U32(p, 116, 1000);
+            Assert.Null(new S2C_0x00A_LoginAck(p).GetZoneInfo().ShipRun);
+        }
+
+        [Fact]
         public void S2C_0x00A_ShortPayloadReadsZeroForMissingFields()
         {
             var ack = new S2C_0x00A_LoginAck(new byte[60]);

@@ -27,6 +27,9 @@ namespace Gordian.Engine.Actions
         /// <summary>The local player's pet, for <c>&lt;pethpp&gt;</c>, <c>&lt;petmpp&gt;</c> and <c>&lt;pettp&gt;</c>.</summary>
         public Func<LocalPet?>? PetSnapshot { get; set; }
 
+        /// <summary>The character's map grid square ("F-8"), or null off a calibrated map (the <c>&lt;pos&gt;</c> placeholder, #387); set by the HUD.</summary>
+        public Func<string?>? MapSquare { get; set; }
+
         private (ushort Crystal, ushort[] Ingredients)? _lastSynthesis;
 
         private void RememberSynthesis(ushort crystal, (ushort ItemId, byte Slot)[] ingredients)
@@ -304,6 +307,8 @@ namespace Gordian.Engine.Actions
                 case "pethpp": return PetSnapshot?.Invoke() is { } p1 ? ChatTextTokens.Percent(p1.Hpp) : null;
                 case "petmpp": return PetSnapshot?.Invoke() is { } p2 ? ChatTextTokens.Percent(p2.Mpp) : null;
                 case "pettp": return PetSnapshot?.Invoke() is { } p3 ? p3.Tp.ToString(CultureInfo.InvariantCulture) : null;
+                // The map grid square in brackets, as the compass writes it ("(F-8)", #387); as typed off a calibrated map.
+                case "pos": return MapSquare?.Invoke() is { } square ? ChatTextTokens.MapPosition(square) : null;
             }
             if (word.StartsWith("recast=", StringComparison.Ordinal))
             {

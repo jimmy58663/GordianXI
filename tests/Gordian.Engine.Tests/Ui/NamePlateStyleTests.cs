@@ -76,6 +76,15 @@ namespace Gordian.Engine.Tests.Ui
                 Assert.False(NamePlateStyle.ShowsName(npc, NamePlateFlags.None));
             }
 
+            // HELM points (#475): Logging Point 2423 and Mining Point 2424, as the maintainer's 2026-10-30 log sends them.
+            foreach (uint model in new uint[] { 2423, 2424 })
+            {
+                var point = new WorldEntity(7, 7, EntityType.Npc) { Name = "Mining Point" };
+                point.Appearance.ModelId = model;
+                Assert.False(NamePlateStyle.ShowsName(point, NamePlateFlags.None));
+                Assert.False(NamePlateStyle.ShowsTargetHealthBar(point, NamePlateFlags.None));
+            }
+
             var door = new WorldEntity(6, 6, EntityType.Door) { Name = "Door: Chocobo Stables" };
             Assert.False(NamePlateStyle.ShowsTargetHealthBar(door, NamePlateFlags.None));
             Assert.False(NamePlateStyle.HasNamePlate(door, NamePlateFlags.None));
