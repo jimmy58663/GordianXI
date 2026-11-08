@@ -302,7 +302,7 @@ The terrain of a collision triangle, from bit 3 of each of its four index words'
 | Index | xim name | Footprint (`ROM/0/0` `fmrk`) | GordianXI |
 |---|---|---|---|
 | 0 | Object | no | silent: no zone has an `00xx` pointer |
-| 1 | Path | no | dirt steps; dust (`fefs`) in 70 zones, a ripple in the rain |
+| 1 | Path | no | dirt steps; dust (`fefs`) in 70 zones, a ripple in the rain (outdoors only) |
 | 2 | Grass | no | |
 | 3 | Sand | yes | sand puff and print |
 | 4 | Snow | yes | powder puff and print |

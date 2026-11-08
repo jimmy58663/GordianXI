@@ -190,6 +190,18 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void Merge_MarksTheInteriorsTrianglesAsIndoors()
+        {
+            var street = Floor(-10, -10, 10, 10);
+            var room = Floor(20, 20, 30, 30, 1f);
+            var merged = ZoneCollisionMesh.Merge(street, new[] { room });
+            Assert.All(street.Triangles.ToArray(), t => Assert.False(t.Interior));
+            Assert.Equal(room.Triangles.Length, merged.Triangles.ToArray().Count(t => t.Interior));
+            Assert.True(merged.TryGetGround(new Vector3(25, 0, 25), 2f, 4f, out var hit));
+            Assert.True(merged.Triangles[hit.TriangleIndex].Interior);
+        }
+
+        [Fact]
         public void CollisionFor_AddsTheInteriorsOnlyForTheWorldsOwnZone()
         {
             var zone = Floor(-10, -10, 10, 10);
@@ -216,13 +228,12 @@ namespace Gordian.Core.Tests.World
             var merged = ZoneCollisionMesh.Merge(zone, interiors);
             // !pos -87.19 -0.10 -186.15 245: every wall within 1.5 yalms there is an interior's own.
             var at = new Vector3(-87.19f, -0.10f, -186.15f);
-            var interiorWalls = new HashSet<CollisionTriangle>(interiors.SelectMany(i => i.Triangles.ToArray()));
             foreach (var triangle in merged.Triangles)
             {
                 if (MathF.Abs(triangle.Normal.Y) > 0.5f) continue;
                 var centroid = (triangle.A + triangle.B + triangle.C) / 3f;
                 if (Vector2.Distance(new Vector2(centroid.X, centroid.Z), new Vector2(at.X, at.Z)) > 1.5f || MathF.Abs(centroid.Y - at.Y) > 2f) continue;
-                Assert.Contains(triangle, interiorWalls);
+                Assert.True(triangle.Interior, $"a zone wall at {centroid}");
             }
         }
 

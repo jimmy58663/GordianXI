@@ -32,6 +32,8 @@ namespace Gordian.Core.World.Collision
     /// <param name="CameraTransparent">The camera and line of sight pass through this triangle.</param>
     /// <param name="CullingTable">The ZoneDef culling table its collision transform names at +0xA8 (the table a camera
     /// over this floor draws with, #70); -1 for none.</param>
+    /// <param name="Interior">The triangle is a building interior's (<see cref="ZoneCollisionMesh.Merge"/>): under a roof, where
+    /// rain does not wet the floor.</param>
     public readonly record struct CollisionTriangle(
         Vector3 A,
         Vector3 B,
@@ -40,7 +42,8 @@ namespace Gordian.Core.World.Collision
         bool IsWall,
         CollisionTerrain Terrain,
         bool CameraTransparent,
-        int CullingTable = -1);
+        int CullingTable = -1,
+        bool Interior = false);
 
     /// <summary>
     /// A ground hit below a query point.
@@ -171,10 +174,11 @@ namespace Gordian.Core.World.Collision
             {
                 if (!InsideAnyFootprint(triangle, interiors)) triangles.Add(triangle);
             }
-            // An interior's culling tables are its own DAT's, not the zone's: its floors pick none.
+            // An interior's culling tables are its own DAT's, not the zone's: its floors pick none. Its triangles are marked
+            // as indoors (no rain foot effects there).
             foreach (var interior in interiors)
             {
-                foreach (var triangle in interior._triangles) triangles.Add(triangle with { CullingTable = -1 });
+                foreach (var triangle in interior._triangles) triangles.Add(triangle with { CullingTable = -1, Interior = true });
             }
             return new ZoneCollisionMesh(triangles)
             {

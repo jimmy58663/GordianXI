@@ -176,10 +176,13 @@ namespace Gordian.App.Graphics
         /// <summary>
         /// Starts a footfall's effects at a foot (display space): on the ground under it, the zone's foot effect for its
         /// terrain and, on sand or snow, the footprint. Returns the terrain, or null when no ground is found under the foot.
+        /// A building interior's floor takes the dry set in the rain: retail draws no rain ripple indoors (the maintainer,
+        /// round 3, 2026-11-07).
         /// </summary>
         internal CollisionTerrain? StartFootfall(Vector3 foot, float headingRadians, ZoneCollisionMesh collision, bool wet, ResourceManager resourceManager)
         {
-            if (!TryFindGround(foot, collision, out Vector3 ground, out Vector3 normal, out CollisionTerrain terrain)) return null;
+            if (!TryFindGround(foot, collision, out Vector3 ground, out Vector3 normal, out CollisionTerrain terrain, out bool indoors)) return null;
+            wet &= !indoors;
             Matrix4x4 toWorld = FootEffectFrame(headingRadians, ground, normal);
             if (LoadedZone?.FootEffects is { } zoneFeet && zoneFeet.RootFor((int)terrain, wet) is { } root) StartFootEffect(zoneFeet.Effects, root, toWorld);
             if (terrain is CollisionTerrain.Sand or CollisionTerrain.Snow &&
@@ -208,11 +211,16 @@ namespace Gordian.App.Graphics
             return found;
         }
 
-        /// <summary>The ground under a foot (display space): its point, normal and collision terrain; false when none.</summary>
-        private static bool TryFindGround(Vector3 foot, ZoneCollisionMesh collision, out Vector3 ground, out Vector3 normal, out CollisionTerrain terrain)
+        /// <summary>
+        /// The ground under a foot (display space): its point, normal, collision terrain and whether it is a building interior's
+        /// floor; false when none.
+        /// </summary>
+        private static bool TryFindGround(Vector3 foot, ZoneCollisionMesh collision, out Vector3 ground, out Vector3 normal, out CollisionTerrain terrain,
+            out bool indoors)
         {
             ground = normal = default;
             terrain = CollisionTerrain.Object;
+            indoors = false;
             // Display space is (-x, -y, z) of the internal space the collision uses (internal Y is height, -Y up).
             var internalFoot = new Vector3(-foot.X, -foot.Y, foot.Z);
             if (!collision.TryGetGround(internalFoot, 1.0f, 2.0f, out GroundHit hit)) return false;
@@ -220,6 +228,7 @@ namespace Gordian.App.Graphics
             normal = Vector3.Normalize(new Vector3(-hit.Normal.X, -hit.Normal.Y, hit.Normal.Z));
             if (!(normal.Y > 0.1f)) normal = Vector3.UnitY;
             terrain = hit.Terrain;
+            indoors = hit.TriangleIndex >= 0 && collision.Triangles[hit.TriangleIndex].Interior;
             return true;
         }
 
