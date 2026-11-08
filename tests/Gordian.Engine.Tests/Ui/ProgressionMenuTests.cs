@@ -64,6 +64,10 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { 1, 6 }, categories);
             var rows = StockUiProgression.MeritCategoryRows(categories, text);
             Assert.Equal(("HP/MP", (string?)null), (rows[0].Text, rows[0].Value));
+            // The opt-in totals (not retail): "upgrades/most", the most from the category's line.
+            var withTotals = StockUiProgression.MeritCategoryRows(categories, text, totals: merits);
+            Assert.Equal(19, StockUiProgression.CategoryTotal(1, merits));
+            Assert.Equal(StockUiProgression.CategoryMostOf(1, text) > 0 ? $"19/{StockUiProgression.CategoryMostOf(1, text)}" : "19", withTotals[0].Value);
             Assert.Equal(19, StockUiProgression.CategoryTotal(1, merits));
             var hp = StockUiProgression.MeritsOf(1, merits, text);
             Assert.Equal(new[] { 0x40, 0x42 }, hp.Select(m => m.Id));

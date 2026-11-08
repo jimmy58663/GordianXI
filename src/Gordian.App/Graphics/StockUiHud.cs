@@ -788,10 +788,11 @@ namespace Gordian.App.Graphics
                         y = Math.Clamp(listTop - frame.Height * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
                     }
                     float scale = root.Scale;
-                    if (menu.ListKind == StockUiListKind.MapAreas && _window1Top is { } chatTop && _window1Left.Scale > 0)
+                    if ((menu.ListKind == StockUiListKind.MapAreas || menu.ProgressionList == StockUiProgressionList.UnityLeaders)
+                        && _window1Top is { } chatTop && _window1Left.Scale > 0)
                     {
                         // The Change Map lists sit on the chat log at its left edge and scale, moving with it (#23, round 2;
-                        // retail round 1 image-6).
+                        // retail round 1 image-6); Unity Lists, also arealist, does the same (#94, round 3).
                         scale = _window1Left.Scale;
                         x = Math.Clamp(_window1Left.X, 0, Math.Max(0, width - frame.Width * scale));
                         y = Math.Clamp(chatTop - frame.Height * scale, 0, Math.Max(0, height - frame.Height * scale));

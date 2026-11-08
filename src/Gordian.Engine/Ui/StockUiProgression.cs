@@ -231,16 +231,29 @@ namespace Gordian.Engine.Ui
             return total;
         }
 
+        /// <summary>A category's most upgrades, from its table line (Weapon Skills' "Total ability increases: 15." included).</summary>
+        public static int CategoryMostOf(int category, Func<int, string?>? text) => CategoryMax(text?.Invoke(category * 2 + 1));
+
         /// <summary>
         /// The categories list's rows: the names alone (the retail list has no figures, <c>meritinf</c> shows the one under the
-        /// cursor); Weapon Skills is greyed without <paramref name="weaponSkillsOpen"/>.
+        /// cursor); Weapon Skills is greyed without <paramref name="weaponSkillsOpen"/>. With <paramref name="totals"/> (the
+        /// opt-in <c>StockUiLayout.ShowMeritCategoryTotals</c>, not retail) each row also has "upgrades/most" ("12/75"; the
+        /// upgrades alone when no most is known).
         /// </summary>
-        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, Func<int, string?>? text, bool weaponSkillsOpen = true)
+        public static IReadOnlyList<StockUiListRow> MeritCategoryRows(IReadOnlyList<int> categories, Func<int, string?>? text, bool weaponSkillsOpen = true,
+            IReadOnlyList<StockUiMerit>? totals = null)
         {
             var rows = new List<StockUiListRow>(categories.Count);
             foreach (int c in categories)
             {
-                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false, c == WeaponSkillsCategory && !weaponSkillsOpen ? Greyed : null));
+                string? value = null;
+                if (totals != null)
+                {
+                    int max = CategoryMostOf(c, text);
+                    int total = CategoryTotal(c, totals);
+                    value = max > 0 ? string.Create(CultureInfo.InvariantCulture, $"{total}/{max}") : total.ToString(CultureInfo.InvariantCulture);
+                }
+                rows.Add(new StockUiListRow(rows.Count + 1, text?.Invoke(c * 2) ?? string.Empty, false, c == WeaponSkillsCategory && !weaponSkillsOpen ? Greyed : null, value));
             }
             return rows;
         }

@@ -64,6 +64,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The merit table's strings by id (ROM/169/75): categories at 2 n, merits at their id. Set by the HUD.</summary>
         public Func<int, string?>? MeritText { get; set; }
 
+        /// <summary>Whether the merit categories list shows each category's "upgrades/most" (opt-in, not retail); set by the session from the UI layout.</summary>
+        public Func<bool>? ShowMeritCategoryTotals { get; set; }
+
         /// <summary>The job point gifts' strings by id (ROM/324/59). Set by the HUD.</summary>
         public Func<int, string?>? JobGiftText { get; set; }
 
@@ -169,7 +172,8 @@ namespace Gordian.Engine.Ui
                 case StockUiProgressionList.MeritCategories:
                 {
                     var categories = StockUiProgression.MeritCategories(MeritText);
-                    return (StockUiProgression.MeritCategoryRows(categories, MeritText, WeaponSkillsOpen), categories);
+                    return (StockUiProgression.MeritCategoryRows(categories, MeritText, WeaponSkillsOpen,
+                        ShowMeritCategoryTotals?.Invoke() == true ? CurrentMerits() : null), categories);
                 }
                 case StockUiProgressionList.Merits:
                     return StockUiProgression.MeritListRows(key, CurrentMerits(), MeritText, ShortText(StockUiProgression.NextLabel, "NEXT"), StatusPoints?.Invoke()?.MainJob ?? 0);
