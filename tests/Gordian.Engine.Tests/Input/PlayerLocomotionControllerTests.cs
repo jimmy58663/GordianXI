@@ -264,13 +264,14 @@ namespace Gordian.Engine.Tests.Input
         public void Update_WhenHoldingStrafeRight_MovesToTheSameSideAsCameraRelativeRight()
         {
             var (controller, input, world, player, localEnt) = CreateTestHarness();
+            controller.Profile.Bind(InputAction.StrafeRight, new InputChord(GordianKey.X)); // no compact key since round 5
 
             localEnt.Direction = 0;
             localEnt.Position = Vector3.Zero;
             controller.CameraYaw = 0.0f;
 
-            // E strafes without turning; it must land on the side D (camera-relative right) runs to: -Z.
-            input.SetKeyDown(GordianKey.E);
+            // Strafe Right steps without turning; it must land on the side D (camera-relative right) runs to: -Z.
+            input.SetKeyDown(GordianKey.X);
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(0, localEnt.Direction);
@@ -580,7 +581,7 @@ namespace Gordian.Engine.Tests.Input
             controller.CameraYaw = NorthYaw;
             me.Direction = 192;
 
-            input.SetKeyDown(GordianKey.E);
+            input.SetKeyDown(GordianKey.D); // the left stick pushed right
             controller.Update(TimeSpan.FromSeconds(1.0));
 
             Assert.Equal(LocomotionDirection.Right, me.LocomotionDirection);
@@ -626,7 +627,6 @@ namespace Gordian.Engine.Tests.Input
             float before = YawOffFromNorth(controller);
 
             // Run around the target with no camera input: the camera holds its world yaw while it can, then rides the limit.
-            input.SetKeyDown(GordianKey.Q);
             input.SetKeyDown(GordianKey.A);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromMilliseconds(33));
 

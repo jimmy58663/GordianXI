@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Engine.Actions;
 using Gordian.Core.Diagnostics;
@@ -41,8 +42,11 @@ namespace Gordian.Engine.Ui
         /// <summary>The spell lists' Options window (<see cref="StockUiActionMenu.OptionsMenu"/>) opened over a list with + / Y.</summary>
         public bool IsActionOptions { get; init; }
 
-        /// <summary>Whether this is a spell list opened from the main menu, which shows the Options window at the top right.</summary>
-        public bool ShowsActionOptions => ActionList == StockUiActionList.Spells && ActionTarget == null;
+        /// <summary>
+        /// Whether this spell list shows the Options window at the top right: every list, from the main menu or the command
+        /// menu. Retail's command menu magic lists have none (image-14); the maintainer wants them anyway (#476 round 2).
+        /// </summary>
+        public bool ShowsActionOptions => ActionList == StockUiActionList.Spells;
     }
 
     public sealed partial class StockUiMenuController
@@ -95,6 +99,7 @@ namespace Gordian.Engine.Ui
             var target = CommandTargetOf(parent);
             IReadOnlyList<StockUiActionRow>? rows = ActionRowsProvider?.Invoke(list, category, target)
                 ?? (list == StockUiActionList.Mounts ? Array.Empty<StockUiActionRow>() : null);
+            if (rows != null) rows = OrderedActionRows(list, category, rows);
             if (rows == null)
             {
                 NoticePosted?.Invoke("Magic and abilities are not available in this session (the game's spell tables are not loaded).");
@@ -155,6 +160,7 @@ namespace Gordian.Engine.Ui
                 if (rows == null) continue;
                 lock (_sync)
                 {
+                    rows = OrderedActionRows(menu.ActionList, menu.ActionCategory, rows);
                     ushort? id = menu.SelectedActionRow?.Id;
                     SetActionRows(menu, rows);
                     int index = -1;
@@ -191,6 +197,11 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private void ActivateActionRow(StockUiOpenMenu list)
         {
+            if (list.IsManualSort)
+            {
+                ActionManualSortStep(list);
+                return;
+            }
             if (list.SelectedActionRow is not { } row || row.Type == StockUiActionType.Trait) return;
             if (row.Type == StockUiActionType.PetList)
             {
@@ -265,7 +276,7 @@ namespace Gordian.Engine.Ui
                 CloseMenu(top);
                 return true;
             }
-            if (top is not { ShowsActionOptions: true } || library == null) return false;
+            if (top is not { ShowsActionOptions: true, IsManualSort: false } || library == null) return false;
             string name = OptionsMenuFor(top.ActionCategory);
             if (!library.TryGetMenu(name, out var definition)) return false;
             var options = new StockUiOpenMenu(definition, top, Array.Empty<string>(), null) { IsActionOptions = true };
@@ -289,8 +300,8 @@ namespace Gordian.Engine.Ui
             : CanSetBlueSpells ? StockUiBlueMagic.OptionsMenu : StockUiActionMenu.BlueOptionsMenu;
 
         /// <summary>
-        /// The Options window: Auto sorts the list back into the spell table's order and returns to it; Manual (retail: pick
-        /// a spell, then where to put it, as the item list's Manual) is not built yet.
+        /// The Options window: Auto sorts the list back into the spell table's order and returns to it; Manual returns to the
+        /// list to move spells, as the item list's Manual (#476; the maintainer: every Manual sort works the same).
         /// </summary>
         private void ActivateActionOptions(StockUiOpenMenu options, int buttonId)
         {
@@ -304,7 +315,17 @@ namespace Gordian.Engine.Ui
             }
             if (buttonId == StockUiActionMenu.OptionsManualButton)
             {
-                NoticePosted?.Invoke("Manual sorting is not available yet.");
+                var sorted = options.Parent;
+                CloseMenu(options);
+                if (sorted != null)
+                {
+                    lock (_sync)
+                    {
+                        sorted.IsManualSort = true;
+                        sorted.ManualSortFrom = null;
+                    }
+                    Changed?.Invoke();
+                }
                 return;
             }
             CloseMenu(options);
@@ -312,12 +333,56 @@ namespace Gordian.Engine.Ui
             {
                 lock (_sync)
                 {
+                    _actionOrder.Remove(list.ActionCategory);
                     list.FirstRow = 0;
                     list.ScrollFrom = 0;
                     list.SelectedButtonId = list.ActionRows.Count > 0 ? 1 : 0;
                 }
             }
             RefreshActionLists();
+        }
+
+        /// <summary>
+        /// The spell kinds' Manual orders (spell ids, by <see cref="StockUiOpenMenu.ActionCategory"/>). The client's, as the
+        /// item lists' are: nothing to send, kept for the session. A kind's order also applies where the command menu lists it.
+        /// </summary>
+        private readonly Dictionary<int, List<ushort>> _actionOrder = new();
+
+        /// <summary>A spell list's rows in its Manual order: the ordered spells first, any others after them in table order.</summary>
+        private IReadOnlyList<StockUiActionRow> OrderedActionRows(StockUiActionList list, int category, IReadOnlyList<StockUiActionRow> rows)
+        {
+            if (list != StockUiActionList.Spells || !_actionOrder.TryGetValue(category, out var order)) return rows;
+            var rank = new Dictionary<ushort, int>(order.Count);
+            for (int i = 0; i < order.Count; i++) rank[order[i]] = i;
+            return rows.OrderBy(r => rank.TryGetValue(r.Id, out int place) ? place : int.MaxValue).ToList(); // stable
+        }
+
+        /// <summary>
+        /// Manual sort: the first Confirm picks the spell, the second the place; the first takes the second's place and the
+        /// mode stays for the next pair until Cancel, as <see cref="ManualSortStep"/> for the item lists.
+        /// </summary>
+        private void ActionManualSortStep(StockUiOpenMenu list)
+        {
+            int index = list.EntryIndex(list.SelectedButtonId);
+            if (index < 0 || index >= list.ActionRows.Count) return;
+            lock (_sync)
+            {
+                if (list.ManualSortFrom is not { } from)
+                {
+                    list.ManualSortFrom = index;
+                }
+                else
+                {
+                    var rows = list.ActionRows.ToList();
+                    var moved = rows[from];
+                    rows.RemoveAt(from);
+                    rows.Insert(index, moved);
+                    _actionOrder[list.ActionCategory] = rows.ConvertAll(r => r.Id);
+                    list.ManualSortFrom = null;
+                    SetActionRows(list, rows);
+                }
+            }
+            Changed?.Invoke();
         }
     }
 }

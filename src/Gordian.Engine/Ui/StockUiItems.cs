@@ -156,7 +156,22 @@ namespace Gordian.Engine.Ui
         public const int EquipDescriptionX = 130;
 
         /// <summary>Help text ids (ROM/165/75): "Select an item.", "Select item to move.", "Sort list?".</summary>
-        public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80;
+        public const int HelpSelectItem = 3, HelpSelectItemToMove = 5, HelpSortList = 80, HelpDisposeOfItem = 242;
+
+        /// <summary>The item flags of Rare and Ex items (LandSandBoat <c>ItemFlag::Rare</c>, <c>ItemFlag::Exclusive</c>).</summary>
+        public const uint RareFlag = 0x8000, ExclusiveFlag = 0x4000;
+
+        /// <summary>
+        /// Whether dropping the item asks a second Yes / No: Rare and Ex items (the maintainer, round 3 of 2026-11-07).
+        /// </summary>
+        public static bool AsksTwiceToDrop(ItemRecord record) => (record.Flags & (RareFlag | ExclusiveFlag)) != 0;
+
+        /// <summary>
+        /// The second question before dropping a Rare or Ex item, with the item's name as the list shows it: "Really dispose
+        /// of the Kraken Club?" (retail client on local LSB, round 4 of the 2026-11-03 test, image-50.png). Not in the
+        /// menu text tables.
+        /// </summary>
+        public static string ReallyDisposePrompt(string itemName) => $"Really dispose of the {itemName}?";
 
         /// <summary>Title text ids (ROM/165/76): "Items", "Equipment", "No. of Items", "Recycling Bin".</summary>
         public const string TitleItems = "Items", TitleEquipment = "Equipment", TitleQuantity = "No. of Items", TitleRecycleBin = "Recycling Bin";
@@ -486,7 +501,6 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// The Drop prompt (PROVISIONAL wording: retail's is not captured): "Drop a Ronfaure chestnut?", "Drop 12 Ronfaure chestnuts?".
         /// </summary>
-        public static string DropPrompt(ItemRecord record, uint count) => $"Drop {StockUiShop.DescribeCount(record, count)}?";
 
         private static readonly Dictionary<string, EquipSlotId> SlotWords = new(StringComparer.OrdinalIgnoreCase)
         {

@@ -174,6 +174,8 @@ namespace Gordian.App.Graphics
                 // The list pages' row text comes from the config row table (ROM/165/74).
                 menus.ConfigRowText = i => strings.TryGetString(DMsgCategory.MenuConfigRows, i, out var text) ? text : null;
                 menus.MenuHelpText = i => strings.TryGetString(DMsgCategory.MenuHelp, i, out var help) ? help : null;
+                // The window titles (ROM/165/76) for the help bar's title box (#313).
+                menus.MenuTitleText = i => strings.TryGetString(DMsgCategory.MenuTitles, i, out var title) ? title : null;
                 // The menus' own texts (ROM/165/72): "Examine %s?", "Remove piece.", the equipment set prompts (#91, #92).
                 menus.MenuMessageText = i => strings.TryGetString(DMsgCategory.MenuMessages, i, out var text) ? text : null;
                 // The Status window's currency names (ROM/165/77, #487).
@@ -311,6 +313,8 @@ namespace Gordian.App.Graphics
             }
             if (!zoning)
             {
+                // Every window drawn from here on (menus, the item info window and other boxes they draw) hides the compass (#506).
+                int coverFrom = renderer.DrawnWindows.Count;
                 DrawMogHouseLayout(renderer, library, menus, width, height);
                 DrawMenus(renderer, library, session, menus, width, height);
                 if (!cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawActionHelpBar(renderer, library, session, width, height);
@@ -323,8 +327,10 @@ namespace Gordian.App.Graphics
                     DrawBlueMagicHelpBar(renderer, library, session, width, height);
                     DrawRoe(renderer, library, session, width, height);
                     DrawVitals(renderer, library, session, width, height);
+                    // Last: the help bar for an open menu whose window drew none of its own (#313).
+                    DrawMenuHelpBar(renderer, library, session, width, height);
                 }
-                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, width, height);
+                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, coverFrom, width, height);
             }
             if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;
@@ -393,7 +399,9 @@ namespace Gordian.App.Graphics
             // Set Spells over the Magic list draws its own help bar; only one is ever drawn (round 1, N11, image-19).
             if (actions.Menus.OpenMenus.Any(m => m.IsBlueMagicWindow)) return;
             string title = list.ActionList == StockUiActionList.Spells ? "Magic List" : "Abilities";
-            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, list.SelectedActionRow?.Help, Layout.Scale, width, height);
+            // Manual sort shows the item lists' "Select item to move." (#476).
+            string? help = list.IsManualSort ? actions.Menus.MenuHelpText?.Invoke(StockUiItems.HelpSelectItemToMove) : list.SelectedActionRow?.Help;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
         /// <summary>
@@ -413,6 +421,20 @@ namespace Gordian.App.Graphics
             StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
         }
 
+
+        /// <summary>
+        /// The help bar over any open menu that drew no bar of its own this frame (#313): the window's title and the selected
+        /// entry's help line (<see cref="StockUiMenuHelpBar"/>). Retail shows the bar whenever a menu is open.
+        /// </summary>
+        private void DrawMenuHelpBar(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        {
+            var menus = session.ActionService.Menus;
+            if (renderer.HelpBarsDrawn > 0 || _font is not { } font || menus.Suspended || session.Chat.HidesMenus
+                || menus.OpenMenus.LastOrDefault() is not { } top) return;
+            var (title, help) = StockUiMenuHelpBar.Of(top, menus.MenuTitleText, menus.MenuHelpText);
+            if (title == null && help == null) return;
+            StockUiHelpBar.DrawOnScreen(renderer, library, font, _logFont, title, help, Layout.Scale, width, height);
+        }
 
         /// <summary>The Map window's zone map and help bar under the open <c>map0</c> list (#23); maps decode once and stay cached.</summary>
         private void DrawMap(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
@@ -485,19 +507,16 @@ namespace Gordian.App.Graphics
         private readonly List<StockUiCompassDot> _compassDots = new();
 
         /// <summary>
-        /// The compass above the log (#485): hidden while a window sits in its place (the target command menu and the like).
+        /// The compass above the log (#485): hidden while a window sits in its place (the target command menu and the like),
+        /// any window drawn after the log, from <paramref name="coverFrom"/> in <see cref="StockUiRenderer.DrawnWindows"/>: a
+        /// menu placement or a box a window draws beside it, such as the item info window (#506).
         /// </summary>
-        private void DrawCompass(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
+        private void DrawCompass(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, int coverFrom, uint width, uint height)
         {
             if (_font is not { } font) return;
             float s = Layout.Scale;
             float lineBottom = StockUiCompass.LineBottom(_window1Top, height, s);
-            var bounds = StockUiCompass.Bounds(lineBottom, s);
-            foreach (var p in _menuPlacements)
-            {
-                var f = p.Menu.Menu.Frame;
-                if (StockUiCompass.Overlaps(bounds, p.X, p.Y, f.Width * p.Scale, f.Height * p.Scale)) return;
-            }
+            if (StockUiCompass.IsCovered(StockUiCompass.Bounds(lineBottom, s), renderer.DrawnWindows, coverFrom)) return;
 
             var world = session.World;
             _compassDots.Clear();
@@ -813,10 +832,7 @@ namespace Gordian.App.Graphics
                 {
                     var frame = menu.Menu.Frame;
                     var authored = StockUiLayout.Place(frame.Anchor, frame.X, frame.Y, frame.Width, frame.Height, root.Scale, width, height);
-                    // The shop's list and quantity prompt, the Treasure Pool windows and the Items / Equipment windows keep their
-                    // own places; the other windows follow the root.
-                    bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
-                        || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
+                    bool shopWindow = StockUiWindowPlacement.KeepsOwnPlace(menu);
                     bool underHelp = rootOnLog && !StockUiMogHouse.StandsOnLog(menu.Name);
                     float x = shopWindow ? authored.X : Math.Clamp(authored.X + (underHelp ? mainDx : dx), 0, Math.Max(0, width - frame.Width * root.Scale));
                     float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + (underHelp ? mainDy : dy), 0, Math.Max(0, height - frame.Height * root.Scale));
@@ -839,6 +855,12 @@ namespace Gordian.App.Graphics
                         // A book's options open beside its row, left of the book list (PROVISIONAL: authored at 0,0; retail's place not captured).
                         x = Math.Max(0, listAt.X - (frame.Width + 4) * root.Scale);
                         y = Math.Clamp(listAt.Y + (bookRow.Y - 6) * root.Scale, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    }
+                    else if (menu.IsPrompt && !shopWindow && _window1Top is { } promptLogTop)
+                    {
+                        // The confirm windows (comyn, yesno) stand on Window 1's top edge whatever its line count, at their
+                        // DAT offset from its left edge (round 1 of the 2026-11-03 test; authored for the eight-line log only).
+                        (x, y) = StockUiWindowPlacement.OnLog(frame, _window1Left.X, promptLogTop, root.Scale, width, height);
                     }
                     else if (StockUiMogHouse.StandsOnLog(menu.Name) && _window1Top is { } roomLogTop)
                     {
@@ -866,8 +888,12 @@ namespace Gordian.App.Graphics
                 }
                 // A View House list with the cursor on the inventory draws at the inventory's place, the storage beside it (#23).
                 if (menu.StorageInventorySide) placement = placement with { X = placement.X + (StockUiViewHouse.InventoryX - menu.Menu.Frame.X) * placement.Scale };
+                int drawnBefore = renderer.DrawnWindows.Count;
                 StockUiMenuWindow.Draw(renderer, library, _font, menu, placement, timestamp, logFont: _logFont,
                     screen: new StockUiScreen(width, height, _window1Top));
+                // A confirm window beside the compass leaves it up (round 2 of the 2026-11-03 test: it only reaches the E's edge).
+                if (menu.IsPrompt && !StockUiWindowPlacement.KeepsOwnPlace(menu) && StockUiCompass.ClearsDial(placement.X, placement.Scale))
+                    renderer.ForgetDrawnWindows(drawnBefore);
                 if (menu.IsTreasureList && !open.Any(m => m.IsTreasureDone) && library.TryGetMenu(StockUiTreasurePool.DoneMenu, out var spoils))
                 {
                     // The Spoils Options window shows beside the Treasure Pool list (retail screenshots); + / Y puts the cursor on its Done.

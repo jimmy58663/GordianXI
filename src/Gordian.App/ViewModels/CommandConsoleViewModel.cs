@@ -126,7 +126,7 @@ namespace Gordian.App.ViewModels
 
             // Welcome banner
             AddEntry(CommandConsoleItemViewModel.CreateSystem("GordianXI Interactive Command Console (CLI) initialized."));
-            AddEntry(CommandConsoleItemViewModel.CreateInfo("Type '/help' for standard commands, '/gmhelp' for GM commands, or '/moveto x y z'."));
+            AddEntry(CommandConsoleItemViewModel.CreateInfo("Type '/help' for standard commands, '/gmhelp' for GM commands, or '/moveto x height y'."));
         }
 
         public void AddEntry(CommandConsoleItemViewModel entry)

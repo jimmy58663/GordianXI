@@ -35,6 +35,64 @@ namespace Gordian.Engine.Tests.Input
             _world.UpsertEntity(ent);
         }
 
+        private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Me) CompactHarness()
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 1001 };
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = 30f };
+            var me = new PlayerEntity(1001, 0) { Position = new Vector3(100f, 0f, 0f), Direction = 0, IsSpawned = true };
+            world.UpsertEntity(me);
+            return (controller, input, me);
+        }
+
+        private static GamepadState Pad(Vector2 left, Vector2 right) =>
+            new(isConnected: true, buttons: GamepadButton.None, leftThumb: left, rightThumb: right, leftTrigger: 0f, rightTrigger: 0f);
+
+        [Theory]
+        [InlineData(GordianKey.A, -1f, 0f)]
+        [InlineData(GordianKey.D, 1f, 0f)]
+        [InlineData(GordianKey.W, 0f, 1f)]
+        public void CompactMovementKeys_MoveExactlyAsTheLeftStick(GordianKey key, float x, float y)
+        {
+            // Round 5 of the 2026-11-03 test (the maintainer on retail): A / D move as the left stick pushed left / right.
+            var (keys, keyInput, keyMe) = CompactHarness();
+            var (stick, stickInput, stickMe) = CompactHarness();
+            keyInput.SetKeyDown(key);
+            stickInput.SetGamepadState(Pad(new Vector2(x, y), Vector2.Zero));
+            for (int i = 0; i < 30; i++)
+            {
+                keys.Update(TimeSpan.FromMilliseconds(33));
+                stick.Update(TimeSpan.FromMilliseconds(33));
+            }
+            Assert.Equal(stickMe.Direction, keyMe.Direction);
+            Assert.Equal(stickMe.Position.X, keyMe.Position.X, 3);
+            Assert.Equal(stickMe.Position.Z, keyMe.Position.Z, 3);
+            Assert.Equal(stick.CameraYaw, keys.CameraYaw, 3);
+            Assert.True(Vector3.Distance(keyMe.Position, new Vector3(100f, 0f, 0f)) > 1f, "the key moved the character");
+        }
+
+        [Theory]
+        [InlineData(GordianKey.Q, -1f)]
+        [InlineData(GordianKey.E, 1f)]
+        public void CompactPanKeys_TurnTheCameraExactlyAsTheRightStick(GordianKey key, float x)
+        {
+            // Round 5 of the 2026-11-03 test (the maintainer on retail): Q / E pan the camera as the right stick does.
+            var (keys, keyInput, keyMe) = CompactHarness();
+            var (stick, stickInput, _) = CompactHarness();
+            keyInput.SetKeyDown(key);
+            stickInput.SetGamepadState(Pad(Vector2.Zero, new Vector2(x, 0f)));
+            for (int i = 0; i < 10; i++)
+            {
+                keys.Update(TimeSpan.FromMilliseconds(33));
+                stick.Update(TimeSpan.FromMilliseconds(33));
+            }
+            Assert.True(Math.Abs(keys.CameraYaw - 30f) > 5f, "the key turned the camera");
+            Assert.Equal(stick.CameraYaw, keys.CameraYaw, 3);
+            Assert.Equal(0, keyMe.Direction); // the character does not turn
+            Assert.Equal(100f, keyMe.Position.X, 3);
+        }
+
         [Fact]
         public void CameraRelativeLocomotion_FacesAndMovesInCameraForwardDirection()
         {

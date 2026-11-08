@@ -60,7 +60,7 @@ namespace Gordian.App.Graphics
         private static readonly UiColor SynthesisPlacedTint = new(0x80, 0x34, 0x34, 0x80);
 
         /// <summary>The item picked to move in Manual sort (orange, as the selected label look; PROVISIONAL).</summary>
-        private static readonly UiColor PickedTint = new(0x80, 0x60, 0x2E, 0x80);
+        internal static readonly UiColor PickedTint = new(0x80, 0x60, 0x2E, 0x80);
 
         /// <summary>The stats side's main job (peak (58, 161, 214), blue) and bonuses (peak (110, 212, 116), green).</summary>
         private static readonly UiColor MainJobTint = new(0x1D, 0x50, 0x6B, 0x80), BonusTint = new(0x37, 0x6A, 0x3A, 0x80),

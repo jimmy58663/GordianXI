@@ -378,6 +378,30 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
+        public void CommandMenuMagicLists_HaveTheOptionsWindow()
+        {
+            // #476: round 1 asked for it on Trust, round 2 on the others too, though image-14's magic list has none.
+            LoadMenus();
+            Learn(TestCatalog.Cure, TestCatalog.Shantotto);
+            var menus = _service.Menus;
+            var target = new StockUiTargetContext(StockUiTargetKind.Self, SelfId, "Me");
+            Assert.True(menus.OpenCommandMenu(target));
+            var command = menus.Top!;
+            var trust = menus.OpenActionList(StockUiActionList.Spells, StockUiActionMenu.TrustKind, command)!;
+            Assert.NotNull(trust.ActionTarget);
+            Assert.True(trust.ShowsActionOptions);
+            Assert.True(menus.ToggleActionOptions());
+            Assert.True(menus.Top!.IsActionOptions);
+            menus.CloseTop();
+            menus.CloseTop();
+
+            var magic = menus.OpenActionList(StockUiActionList.Spells, 0, command)!;
+            Assert.True(magic.ShowsActionOptions);
+            Assert.True(menus.ToggleActionOptions());
+            Assert.True(menus.Top!.IsActionOptions);
+        }
+
+        [Fact]
         public async Task AbilitiesWindow_GreyedRowsPostWhyEmptyListsShowTheirTextAndAbilitiesAskForTheTarget()
         {
             LoadMenus();
@@ -438,7 +462,7 @@ namespace Gordian.Engine.Tests.Actions
             menus.Move(InputAction.MenuDown);
             menus.Activate();
             var list = menus.Top!;
-            Assert.Equal((StockUiActionList.Spells, 0, false), (list.ActionList, list.ActionCategory, list.ShowsActionOptions));
+            Assert.Equal((StockUiActionList.Spells, 0, true), (list.ActionList, list.ActionCategory, list.ShowsActionOptions));
             Assert.Equal(new[] { "Cure" }, list.ActionRows.Select(r => r.Name)); // no Fire (BLM), no Shantotto (Trust)
             menus.CloseTop();
             menus.Move(InputAction.MenuRight); // the categories

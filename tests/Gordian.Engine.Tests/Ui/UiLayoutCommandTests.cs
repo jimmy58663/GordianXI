@@ -126,6 +126,45 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Theory]
+        [InlineData("chat")]
+        [InlineData("log")]
+        public void ChatAndLog_HideAndShowTheWholeChatWindow(string window)
+        {
+            // Round 2 of the 2026-11-03 test: "/uilayout chat hide" hid only the input line, the log stayed up.
+            var service = CreateService();
+            var layout = service.UiLayout;
+            var frame = new UiMenuFrame { Width = 100, Height = 50 };
+            bool Hidden(string id) => layout.Resolve(id, frame, 1280, 720).Hidden;
+
+            Assert.True(service.ApplyUiLayoutCommand($"{window} hide").Success);
+            Assert.True(Hidden(StockUiWindowIds.Log)); // what StockUiHud.DrawLogWindows reads for both windows
+            Assert.True(Hidden(StockUiWindowIds.ChatInput));
+
+            Assert.True(service.ApplyUiLayoutCommand($"{window} show").Success);
+            Assert.False(Hidden(StockUiWindowIds.Log));
+            Assert.False(Hidden(StockUiWindowIds.ChatInput));
+
+            // A reset brings the pair back too, and leaves the other one where it was placed.
+            service.ApplyUiLayoutCommand("chat move 40 60");
+            service.ApplyUiLayoutCommand("log move 20 30");
+            service.ApplyUiLayoutCommand($"{window} hide");
+            Assert.True(service.ApplyUiLayoutCommand($"{window} reset").Success);
+            Assert.False(Hidden(StockUiWindowIds.Log));
+            Assert.False(Hidden(StockUiWindowIds.ChatInput));
+            string other = window == "log" ? StockUiWindowIds.ChatInput : StockUiWindowIds.Log;
+            Assert.True(layout.HasPositionOverride(other));
+        }
+
+        [Fact]
+        public void HidingAnotherWindow_LeavesTheChatWindowAlone()
+        {
+            var service = CreateService();
+            Assert.True(service.ApplyUiLayoutCommand("party hide").Success);
+            Assert.False(service.UiLayout.Windows.ContainsKey(StockUiWindowIds.Log));
+            Assert.False(service.UiLayout.Windows.ContainsKey(StockUiWindowIds.ChatInput));
+        }
+
+        [Theory]
         [InlineData("sideways")]
         [InlineData("party")]
         [InlineData("party move 1")]

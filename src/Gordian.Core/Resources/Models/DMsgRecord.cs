@@ -64,6 +64,12 @@ namespace Gordian.Core.Resources.Models
         /// </summary>
         MenuHelp,
         /// <summary>
+        /// The menus' window titles by id (ROM/165/76.DAT, 201 entries, #19): the <c>TitleTextId</c> of menu frames ("Config",
+        /// "Gameplay") and of the main menu's buttons (the title of the window each opens), shown in the help bar's title box
+        /// (<c>titlewin</c>, #313).
+        /// </summary>
+        MenuTitles,
+        /// <summary>
         /// The menus' own message texts (ROM/165/72.DAT): "Examine %s?" (95), "You do not possess any key items." (96), the
         /// equipment set editor's "Remove piece." / "Keep same piece." (275, 276) and its prompts (277-279) (#91, #92).
         /// </summary>

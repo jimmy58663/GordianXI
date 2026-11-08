@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Gordian.Core.Diagnostics;
@@ -526,14 +527,21 @@ namespace Gordian.Engine.Input
         {
             var p = new InputProfile("Compact (WASD)", "Standard FFXI Compact keyboard layout with WASD movement and IJKL camera.");
 
+            // Retail's compact keys (the key assignment windows of the retail client on local LSB, 2026-11-07, keys the
+            // maintainer left at their defaults): A / D move left / right as the left stick does, Q / E pan the camera as
+            // the right stick does (round 5), . / , zoom, Y / N confirm / cancel, V change view, H heal, F select window,
+            // Z walk / run. GordianXI's older keys stay beside them where no retail key needs them (Enter, Escape,
+            // Page Up / Down, keypad / and +).
+
             // Locomotion
             p.Bind(InputAction.MoveForward, new InputChord(GordianKey.W));
             p.Bind(InputAction.MoveBackward, new InputChord(GordianKey.S));
             p.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
             p.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
-            p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
-            p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
+            p.Bind(InputAction.CameraPanLeft, new InputChord(GordianKey.Q));
+            p.Bind(InputAction.CameraPanRight, new InputChord(GordianKey.E));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
+            p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.Z));
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
 
             // Camera
@@ -545,17 +553,21 @@ namespace Gordian.Engine.Input
             p.Bind(InputAction.CameraYawLeft, new InputChord(GordianKey.Left));
             p.Bind(InputAction.CameraYawRight, new InputChord(GordianKey.L));
             p.Bind(InputAction.CameraYawRight, new InputChord(GordianKey.Right));
+            p.Bind(InputAction.CameraZoomIn, new InputChord(GordianKey.OemPeriod));
             p.Bind(InputAction.CameraZoomIn, new InputChord(GordianKey.PageUp));
+            p.Bind(InputAction.CameraZoomOut, new InputChord(GordianKey.OemComma));
             p.Bind(InputAction.CameraZoomOut, new InputChord(GordianKey.PageDown));
             p.Bind(InputAction.ResetCamera, new InputChord(GordianKey.End));
-            p.Bind(InputAction.ResetCamera, new InputChord(GordianKey.H));
+            p.Bind(InputAction.ToggleCameraMode, new InputChord(GordianKey.V));
+            p.Bind(InputAction.Heal, new InputChord(GordianKey.H));
 
             // Targeting & Interaction
+            p.Bind(InputAction.Confirm, new InputChord(GordianKey.Y));
             p.Bind(InputAction.Confirm, new InputChord(GordianKey.Enter));
             p.Bind(InputAction.Confirm, new InputChord(GordianKey.Space));
+            p.Bind(InputAction.Cancel, new InputChord(GordianKey.N));
             p.Bind(InputAction.Cancel, new InputChord(GordianKey.Escape));
             p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.Tab));
-            p.Bind(InputAction.TargetNearest, new InputChord(GordianKey.F));
             p.Bind(InputAction.TargetPrevious, new InputChord(GordianKey.Tab, InputModifiers.Shift));
             p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.NumPadMultiply));
             p.Bind(InputAction.ToggleLockOn, new InputChord(GordianKey.T));
@@ -569,7 +581,8 @@ namespace Gordian.Engine.Input
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.M));
             p.Bind(InputAction.OpenMenu, new InputChord(GordianKey.NumPadSubtract)); // retail's default (maintainer, 2026-10-12)
             p.Bind(InputAction.OpenChat, new InputChord(GordianKey.OemSlash));
-            p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.NumPadAdd));
+            p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.NumPadAdd)); // first: the button hints show "+"
+            p.Bind(InputAction.CycleLogWindow, new InputChord(GordianKey.F));
             BindMenuNavigationDefaults(p);
 
             // Macro Palettes
@@ -579,6 +592,74 @@ namespace Gordian.Engine.Input
             BindDefaultGamepadButtons(p);
 
             return p;
+        }
+
+        /// <summary>
+        /// Gives a Compact profile saved before round 3 of the 2026-11-07 test retail's compact keys (see
+        /// <see cref="CreateCompact"/>): A / D strafe and Q / E turn where the old A / D turn, Q / E strafe still stand, and
+        /// V, H, F, Z, Y, N, . and , where no other action has them (H first leaves Reset Camera and F Target Nearest, as
+        /// the old defaults gave them). An empty <see cref="InputAction.Heal"/> entry marks the profile as migrated.
+        /// </summary>
+        public void EnsureRetailCompactKeys()
+        {
+            if (Bindings.ContainsKey(InputAction.Heal)) return;
+            if (Name.StartsWith("Compact", StringComparison.OrdinalIgnoreCase))
+            {
+                bool Has(InputAction action, GordianKey key) => GetChords(action).Contains(new InputChord(key));
+                if (Has(InputAction.TurnLeft, GordianKey.A) && Has(InputAction.TurnRight, GordianKey.D)
+                    && Has(InputAction.StrafeLeft, GordianKey.Q) && Has(InputAction.StrafeRight, GordianKey.E))
+                {
+                    Unbind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+                    Unbind(InputAction.TurnRight, new InputChord(GordianKey.D));
+                    Unbind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
+                    Unbind(InputAction.StrafeRight, new InputChord(GordianKey.E));
+                    Bind(InputAction.StrafeLeft, new InputChord(GordianKey.A));
+                    Bind(InputAction.StrafeRight, new InputChord(GordianKey.D));
+                    Bind(InputAction.TurnLeft, new InputChord(GordianKey.Q));
+                    Bind(InputAction.TurnRight, new InputChord(GordianKey.E));
+                }
+                if (Has(InputAction.ResetCamera, GordianKey.H)) Unbind(InputAction.ResetCamera, new InputChord(GordianKey.H));
+                if (Has(InputAction.TargetNearest, GordianKey.F)) Unbind(InputAction.TargetNearest, new InputChord(GordianKey.F));
+                foreach (var (action, key) in new[]
+                {
+                    (InputAction.ToggleCameraMode, GordianKey.V), (InputAction.Heal, GordianKey.H),
+                    (InputAction.CycleLogWindow, GordianKey.F), (InputAction.ToggleWalkRun, GordianKey.Z),
+                    (InputAction.Confirm, GordianKey.Y), (InputAction.Cancel, GordianKey.N),
+                    (InputAction.CameraZoomIn, GordianKey.OemPeriod), (InputAction.CameraZoomOut, GordianKey.OemComma),
+                })
+                {
+                    var chord = new InputChord(key);
+                    if (!Bindings.Values.Any(c => c.Contains(chord))) Bind(action, chord);
+                }
+            }
+            if (!Bindings.ContainsKey(InputAction.Heal)) Bindings[InputAction.Heal] = new List<InputChord>();
+        }
+
+        /// <summary>
+        /// Gives a Compact profile saved with round 3's keys (A / D on Strafe, Q / E on Turn) round 5's: A / D on Move Left /
+        /// Right (<see cref="InputAction.TurnLeft"/> / <see cref="InputAction.TurnRight"/>, the left stick's sideways push)
+        /// and Q / E on <see cref="InputAction.CameraPanLeft"/> / <see cref="InputAction.CameraPanRight"/> (the right
+        /// stick's), only where those keys still stand. Runs after <see cref="EnsureRetailCompactKeys"/>, which brings older
+        /// profiles to round 3's keys first. An empty <see cref="InputAction.CameraPanLeft"/> entry marks the profile as migrated.
+        /// </summary>
+        public void EnsureCompactStickKeys()
+        {
+            if (Bindings.ContainsKey(InputAction.CameraPanLeft)) return;
+            if (Name.StartsWith("Compact", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var (from, to, key) in new[]
+                {
+                    (InputAction.StrafeLeft, InputAction.TurnLeft, GordianKey.A),
+                    (InputAction.StrafeRight, InputAction.TurnRight, GordianKey.D),
+                    (InputAction.TurnLeft, InputAction.CameraPanLeft, GordianKey.Q),
+                    (InputAction.TurnRight, InputAction.CameraPanRight, GordianKey.E),
+                })
+                {
+                    var chord = new InputChord(key);
+                    if (Bindings.TryGetValue(from, out var chords) && chords.Remove(chord)) Bind(to, chord);
+                }
+            }
+            if (!Bindings.ContainsKey(InputAction.CameraPanLeft)) Bindings[InputAction.CameraPanLeft] = new List<InputChord>();
         }
 
         /// <summary>
@@ -734,6 +815,8 @@ namespace Gordian.Engine.Input
             profile.EnsureGamepadStickBindings();
             profile.EnsureDPadBindings();
             profile.EnsureNoHiddenGamepadBindings();
+            profile.EnsureRetailCompactKeys();
+            profile.EnsureCompactStickKeys();
             return profile;
         }
 

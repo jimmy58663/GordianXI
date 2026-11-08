@@ -41,7 +41,7 @@ namespace Gordian.Engine.Ui
     public sealed partial class StockUiMenuController
     {
         /// <summary>Opens a people list once its players arrive (from the search server), or posts why there are none.</summary>
-        private async Task OpenPeopleAsync(StockUiPeoplePurpose purpose, Task<StockUiPeopleResult> fetch, StockUiOpenMenu parent,
+        private async Task OpenPeopleAsync(StockUiPeoplePurpose purpose, Task<StockUiPeopleResult> fetch, StockUiOpenMenu? parent,
             string menuName = StockUiPeople.ResultsMenu)
         {
             StockUiPeopleResult result;
@@ -63,21 +63,22 @@ namespace Gordian.Engine.Ui
             lock (_sync)
             {
                 // The menus may have closed while the search server answered.
-                if (Array.IndexOf(_open, parent) < 0) return;
+                if (parent != null && Array.IndexOf(_open, parent) < 0) return;
                 OpenPeopleList(purpose, result.People, parent, menuName);
             }
         }
 
         /// <summary>
         /// Pushes a people list (<c>scresult</c>, or another window of its frame) with a row per player: the name at the left,
-        /// the jobs and area at the right. A list with nobody in it posts a notice instead. Call under the lock.
+        /// the jobs and area at the right. A list with nobody in it posts a notice instead. Without a
+        /// <paramref name="parent"/> the list opens on its own (<c>/sea</c>, #495). Call under the lock.
         /// </summary>
-        private StockUiOpenMenu? OpenPeopleList(StockUiPeoplePurpose purpose, IReadOnlyList<StockUiPerson> people, StockUiOpenMenu parent,
-            string menuName = StockUiPeople.ResultsMenu)
+        private StockUiOpenMenu? OpenPeopleList(StockUiPeoplePurpose purpose, IReadOnlyList<StockUiPerson> people, StockUiOpenMenu? parent,
+            string menuName = StockUiPeople.ResultsMenu, bool opensEmpty = false)
         {
             // The friend list and the messages open empty, as retail's do ("No friends registered.", image-39; the message
-            // list's column bar, image-40); the others post why there is nothing to list.
-            bool opensEmpty = purpose is StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Messages;
+            // list's column bar, image-40), and so does /sea (its "[0]" bar, 2026-11-06); the others post why there is nothing to list.
+            opensEmpty |= purpose is StockUiPeoplePurpose.Friends or StockUiPeoplePurpose.Messages;
             if (people.Count == 0 && !opensEmpty)
             {
                 NoticePosted?.Invoke(StockUiPeople.EmptyNotice(purpose));

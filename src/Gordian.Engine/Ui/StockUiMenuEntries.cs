@@ -585,6 +585,10 @@ namespace Gordian.Engine.Ui
             // Retail's Gamepad boots the external Gamepad Config program (help 1092); GordianXI opens its own
             // key-assignment list in its place (#21).
             [(ConfigMenu, 13)] = new("Gamepad", Command: StockUiMenuCommand.GamepadAssign),
+            // Misc. 2's Key Assignment: Movement, Commands, Default (#337; StockUiMenuController.Keyboard runs them).
+            [(StockUiConfigPages.Misc2Page, 8)] = new("Key Assignment: Movement"),
+            [(StockUiConfigPages.Misc2Page, 9)] = new("Key Assignment: Commands"),
+            [(StockUiConfigPages.Misc2Page, 10)] = new("Key Assignment: Default"),
 
             // Font Colors: the category lists (label sprites keytops3 #272 Chat, #273 For Self, windowps #432 For
             // Others, keytops3 #277 System, #278 Default), then the colour editor's OK and Cancel.

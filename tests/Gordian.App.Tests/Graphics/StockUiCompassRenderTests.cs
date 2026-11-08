@@ -79,6 +79,52 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(light, "time text");
         }
 
+        [Fact]
+        public void ItemInfoWindowOnTheLog_CoversTheCompass()
+        {
+            // #506: the item info window over the log's top edge is no menu placement, yet hides the compass.
+            using var screen = StockUiOffscreen.TryCreate(640, 480);
+            if (screen == null) return;
+            const float logTop = 400;
+            int coverFrom = 0;
+            screen.Render(r =>
+            {
+                coverFrom = r.DrawnWindows.Count;
+                float h = StockUiItemInfoWindow.HeightOf(screen.Library, null, 1);
+                StockUiItemInfoWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, null, 0, null,
+                    new StockUiPlacement(16, logTop - h, 1, false), 0);
+            });
+            Assert.True(screen.Renderer.DrawnWindows.Count > coverFrom);
+            Assert.True(StockUiCompass.IsCovered(StockUiCompass.Bounds(StockUiCompass.LineBottom(logTop, 480, 1), 1),
+                screen.Renderer.DrawnWindows, coverFrom));
+        }
+
+        [Fact]
+        public void ConfirmWindowBesideTheCompass_LeavesItUp_AWindowOverTheDialDoesNot()
+        {
+            // Round 2 of the 2026-11-03 test: comyn keeps the DAT's x 130, past the dial's centre, and the compass stays.
+            Assert.True(StockUiCompass.ClearsDial(130, 1));
+            Assert.True(StockUiCompass.ClearsDial(114, 1)); // the log moved to the screen's left edge
+            Assert.False(StockUiCompass.ClearsDial(16, 1));
+
+            using var screen = StockUiOffscreen.TryCreate(640, 480);
+            if (screen == null) return;
+            const float logTop = 400;
+            var bounds = StockUiCompass.Bounds(StockUiCompass.LineBottom(logTop, 480, 1), 1);
+            Assert.True(screen.Library.TryGetMenu("comyn", out var comyn));
+            bool coveredBefore = false, coveredAfter = true;
+            screen.Render(r =>
+            {
+                int before = r.DrawnWindows.Count;
+                r.DrawMenu(comyn, new StockUiPlacement(130, logTop - comyn.Frame.Height, 1, false), includeButtons: false, opaqueBody: true);
+                coveredBefore = StockUiCompass.IsCovered(bounds, r.DrawnWindows, before);
+                r.ForgetDrawnWindows(before);
+                coveredAfter = StockUiCompass.IsCovered(bounds, r.DrawnWindows, before);
+            });
+            Assert.True(coveredBefore);
+            Assert.False(coveredAfter);
+        }
+
         private static bool HasReddishPixel(StockUiOffscreen screen, byte[] shot, int x0, int x1, int y0, int y1)
         {
             for (int y = y0; y <= y1; y++)

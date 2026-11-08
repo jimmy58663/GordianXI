@@ -22,6 +22,7 @@ namespace Gordian.Engine.Tests.Ui
             profile.Unbind(action, new InputChord(GamepadButton.Y));
             profile.Bind(action, new InputChord(GamepadButton.X));
             profile.Unbind(action, new InputChord(GordianKey.NumPadAdd));
+            profile.Unbind(action, new InputChord(GordianKey.F)); // retail's compact Select Window key (2026-11-07)
             profile.Bind(action, new InputChord(GordianKey.F5));
             Assert.Equal("X", StockUiButtonHints.Label(profile, action, gamepad: true));
             Assert.Equal("Square", StockUiButtonHints.Label(profile, action, gamepad: true, playStation: true));
@@ -32,6 +33,7 @@ namespace Gordian.Engine.Tests.Ui
             keyboardOnly.Unbind(action, new InputChord(GamepadButton.Y));
             Assert.Equal("+", StockUiButtonHints.Label(keyboardOnly, action, gamepad: true));
             keyboardOnly.Unbind(action, new InputChord(GordianKey.NumPadAdd));
+            keyboardOnly.Unbind(action, new InputChord(GordianKey.F));
             Assert.Equal("-", StockUiButtonHints.Label(keyboardOnly, action, gamepad: false));
         }
 

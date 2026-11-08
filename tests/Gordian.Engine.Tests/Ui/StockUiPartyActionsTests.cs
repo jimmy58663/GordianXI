@@ -527,6 +527,8 @@ namespace Gordian.Engine.Tests.Ui
             var entity = new SearchEntity("Gordian", 243, 0, 2, 5, 99, 49, 3, 3, (uint)(SearchFlags.SeekingParty | SearchFlags.HasComment), 0, 7, 0x11, 0x0A, 0, 0, 0, 0);
             var row = StockUiPeople.FromSearch(entity, null, z => z == 243 ? "Ru'Lude Gardens" : "Port Jeuno", currentZone: 243);
             Assert.Equal(("[MNK99/RDM49]Elv", (byte)3, (byte)0, "E F", true), (row.Jobs, row.MissionRank, row.Nation, row.Languages, row.HasComment));
+            Assert.True(row.IsSeeking);
+            Assert.False(StockUiPeople.FromSearch(entity with { Flags1 = 0 }, null, null, 243).IsSeeking);
             Assert.Equal((0x11u, "Gordian (Lv99 Monk / Lv49 Red Mage):"), (row.CommentType, row.CommentHeader));
             Assert.Equal(1, StockUiSearch.CommentGenreOf(row.CommentType));
             Assert.Null(row.Area); // your own area is left blank

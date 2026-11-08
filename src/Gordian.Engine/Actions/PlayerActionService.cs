@@ -1310,10 +1310,11 @@ namespace Gordian.Engine.Actions
         #region Locomotion & Inspection Subsystem
 
         /// <summary>
-        /// Formats an internal position (Y = height) in FFXI/Windower display order: X, Y (north/south), Z (height).
+        /// Formats an internal position (Y = height) in the server's order, as <c>!pos</c> and <c>/moveto</c> take it (#496):
+        /// X, height, Y (north/south).
         /// </summary>
         private static string FormatDisplayPosition(Vector3 pos, string format) =>
-            $"X={pos.X.ToString(format)}, Y={pos.Z.ToString(format)}, Z={pos.Y.ToString(format)}";
+            $"X={pos.X.ToString(format)}, Height={pos.Y.ToString(format)}, Y={pos.Z.ToString(format)}";
 
         /// <summary>
         /// Moves towards target coordinates (internal axes, Y = height; a NaN Y keeps the current height).
@@ -1444,7 +1445,7 @@ namespace Gordian.Engine.Actions
             {
                 float dist = Vector3.Distance(center, ent.Position);
                 string name = string.IsNullOrWhiteSpace(ent.Name) ? "<Unknown>" : ent.Name;
-                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Z:F1}, {ent.Position.Y:F1})");
+                sb.AppendLine($" - [{ent.Type}] {name} (ID: 0x{ent.ServerId:X8}, Idx: {ent.TargetIndex}) Dist: {dist:F1}y HP: {ent.Hpp}% Pos: ({ent.Position.X:F1}, {ent.Position.Y:F1}, {ent.Position.Z:F1})");
             }
             return sb.ToString().TrimEnd();
         }
@@ -1468,7 +1469,7 @@ namespace Gordian.Engine.Actions
             }
 
             float dist = Vector3.Distance(myPos, t.Position);
-            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Z:F2}, {t.Position.Y:F2})";
+            return $"[Target] {name} | Type: {t.Type} | ID: 0x{t.ServerId:X8} | Index: {t.TargetIndex} | HP: {t.Hpp}% | Dist: {dist:F1}y | Pos: ({t.Position.X:F2}, {t.Position.Y:F2}, {t.Position.Z:F2})";
         }
 
         /// <summary>
@@ -1500,7 +1501,7 @@ namespace Gordian.Engine.Actions
                     case "moveto" or "goto":
                         if (_profile.IsRestricted(FeatureRestrictions.Movement))
                             return "Command '/moveto' is blocked by server feature restrictions (Movement).";
-                        return "Usage: /moveto <x> <y> [z] - Move to FFXI/Windower coordinates (z = height, optional).";
+                        return "Usage: /moveto <x> <height> <y> | /moveto <x> <y> - Move to coordinates in the server's order (as !pos); without a height (or with _) the current height is kept.";
                     case "playsound":
                         return "Usage: /playsound <id> | stop - Debug: play sound effect <id> on this client (looped files loop until stop).";
                     case "playmusic":
@@ -1647,7 +1648,7 @@ namespace Gordian.Engine.Actions
             sb.AppendLine("  /nearby [radius]          - Scan nearby entities within radius (default 50y)");
             if (!_profile.IsRestricted(FeatureRestrictions.Movement))
             {
-                sb.AppendLine("  /moveto <x> <y> [z]       - Move to target coordinates (/goto)");
+                sb.AppendLine("  /moveto <x> <height> <y>  - Move to target coordinates, server order (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
@@ -2095,10 +2096,11 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// <c>/sea [all] [name] [job] [level] [party] [friend]</c>: searches players on the search server (the current zone, or
-        /// every zone with <c>all</c>). A three-letter job code picks the job, <c>75</c> or <c>70-75</c> (also <c>lv75</c>) the level,
-        /// <c>party</c> players seeking a party, <c>friend</c> friends, and any other word is a name or name prefix. The full
-        /// result is in <c>SearchService.State.LastSearch</c>; the message lists the first names.
+        /// <c>/sea</c>, not case-sensitive (the maintainer's grammar, #495 round 1): searches players on the search server in
+        /// the current zone, a named zone, or every zone with <c>all</c>. Filters combine (<see cref="ParseSearchQuery"/>):
+        /// <c>/sea all inv brd 24-35</c>. With the stock menus wired (<see cref="StockUiMenuController.Social"/>) the results
+        /// open in the Search menu's results window and the log gets <see cref="SearchResultLine"/> or an error; without them
+        /// the message lists the first names. The full result is in <c>SearchService.State.LastSearch</c>.
         /// </summary>
         public async Task<PlayerActionResult> PlayerSearchAsync(string arguments)
         {
@@ -2106,14 +2108,32 @@ namespace Gordian.Engine.Actions
             var service = SearchService;
             if (service == null || !service.IsConfigured) return PlayerActionResult.Fail("/sea is unavailable: the search server address is not known yet.", Kind);
 
-            var query = ParseSearchQuery(arguments, _world.CurrentZoneId);
+            bool nobody = !SearchTargetName(ref arguments, out string? targetName);
+            var query = ParseSearchQuery(arguments, _world.CurrentZoneId, ZoneName, Menus.ZoneCompactName);
+            if (targetName != null) query.Name = targetName;
+            if (Menus.Social is { } social)
+            {
+                try
+                {
+                    var people = nobody ? new StockUiPeopleResult(Array.Empty<StockUiPerson>()) : await social.SearchAsync(query).ConfigureAwait(false);
+                    if (people.Error is { Length: > 0 } error) return PlayerActionResult.Warn(error, Kind);
+                    Menus.OpenSearchResults(people.People);
+                    return PlayerActionResult.Info(SearchResultLine(query, people.People.Count), Kind);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
+                    return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
+                }
+            }
+            if (nobody) return PlayerActionResult.Info(SearchResultLine(query, 0), Kind);
             try
             {
                 var result = await service.SearchAsync(query).ConfigureAwait(false);
                 if (result.Players.Count == 0)
                 {
                     return result.Complete
-                        ? PlayerActionResult.Info("No players found.", Kind)
+                        ? PlayerActionResult.Info(SearchResultLine(query, 0), Kind)
                         : PlayerActionResult.Warn("The search server did not answer.", Kind);
                 }
 
@@ -2130,27 +2150,168 @@ namespace Gordian.Engine.Actions
             }
         }
 
-        /// <summary>Turns the arguments of <c>/sea</c> into a search; see <see cref="PlayerSearchAsync"/>.</summary>
-        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone)
+        /// <summary>
+        /// The log line of a search, by the count and <c>all</c> (retail client on local LSB, 2026-11-06 and 2026-11-07,
+        /// Sea_Found_Lines.png): "Search result: 0 people found in this area." / "... in all known areas.", "Search result: Only
+        /// one person found in this area." / "... in the entire world." (<c>/sea all</c> finding one, name or not), "Search
+        /// result: 2 people found in this area." / "... in all known areas.". A search of another named zone says "this area" too.
+        /// </summary>
+        private static string SearchResultLine(SearchQuery query, int found) => found == 1
+            ? $"Search result: Only one person found in {(query.AllAreas ? "the entire world" : "this area")}."
+            : $"Search result: {found} people found in {(query.AllAreas ? "all known areas" : "this area")}.";
+
+        /// <summary>
+        /// <c>/sea &lt;t&gt;</c> (#495 round 2): a placeholder is the player's name, as <c>/sea Cybin</c>. It leaves the arguments,
+        /// so a name that reads as a zone or a job stays a name. False when it names nobody to search for: retail then opens
+        /// the empty window with nothing targeted (2026-11-06). PROVISIONAL: a target that is no player, taken the same way.
+        /// </summary>
+        private bool SearchTargetName(ref string arguments, out string? name)
+        {
+            name = null;
+            var words = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (!Array.Exists(words, ChatCommandRouter.IsTargetToken)) return true;
+            bool found = true;
+            var rest = new List<string>(words.Length);
+            foreach (string word in words)
+            {
+                if (!ChatCommandRouter.IsTargetToken(word))
+                {
+                    rest.Add(word);
+                    continue;
+                }
+                if (ResolveTargetToken(word[1..^1].ToLowerInvariant(), out _) is { Type: EntityType.Player } entity) name = entity.Name;
+                else found = false;
+            }
+            arguments = string.Join(' ', rest);
+            return found;
+        }
+
+        /// <summary>
+        /// Turns the arguments of <c>/sea</c> into a search; words are not case-sensitive and combine (the maintainer's
+        /// retail grammar, #495 round 1, 2026-11-04): <c>all</c> every zone; a zone's name, joined or as words (<c>selbina</c>,
+        /// <c>port jeuno</c>, through <paramref name="zoneName"/>), or its short name from the Map screen's zone list
+        /// (<c>lowjeuno</c>, <c>ssandoria</c>, through <paramref name="compactName"/>; the maintainer, round 3 of 2026-11-07),
+        /// else the current zone; a job code; <c>24-35</c>, <c>75</c> or <c>lv75</c> the level; <c>rank 10</c>; a race (the
+        /// three letters the search windows show, <c>hum</c>, <c>elv</c>, <c>tar</c>, <c>mit</c>, <c>gal</c> (the maintainer,
+        /// round 3), or the whole word; not <c>taru</c>); a nation (<c>sandoria</c>,
+        /// <c>bastok</c>, <c>windurst</c>); <c>inv</c> (also <c>party</c>, <c>pt</c>) players seeking a party; <c>friend</c>
+        /// friends. Any other word is a name or name prefix. A zone's several words are read first, so <c>bastok markets</c>
+        /// is the zone and <c>bastok</c> alone the nation; a zone name's first word, when no other zone's starts with it, is that
+        /// zone (<c>valkurm</c>). Retail client on local LSB, 2026-11-07: <c>tar</c>, <c>tarutaru</c>, <c>mit</c>, <c>mithra</c>
+        /// and <c>valkurm</c> search as these do; <c>taru</c> finds no Tarutaru. PROVISIONAL: first words in general, and a
+        /// one-word zone name beating a player of that name.
+        /// </summary>
+        public static SearchQuery ParseSearchQuery(string arguments, ushort currentZone, Func<int, string?>? zoneName = null,
+            Func<int, string?>? compactName = null)
         {
             var query = new SearchQuery();
-            foreach (string raw in (arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            var words = (arguments ?? string.Empty).Split(new[] { ' ', '_' }, StringSplitOptions.RemoveEmptyEntries);
+            Dictionary<string, ushort>? zones = null;
+            bool TryZone(string text, out ushort zone)
             {
+                zone = 0;
+                if (zoneName == null && compactName == null) return false;
+                zones ??= SearchZones(zoneName, compactName);
+                return zones.TryGetValue(SearchKey(text), out zone);
+            }
+
+            for (int i = 0; i < words.Length; i++)
+            {
+                bool named = false;
+                for (int count = Math.Min(MaxZoneWords, words.Length - i); count >= 2 && !named; count--)
+                {
+                    string joined = string.Concat(words.Skip(i).Take(count));
+                    if (SearchNation(joined) is { } several)
+                    {
+                        query.Nation = several;
+                        named = true;
+                    }
+                    else if (TryZone(joined, out ushort zone))
+                    {
+                        query.Areas.Add(zone);
+                        named = true;
+                    }
+                    if (named) i += count - 1;
+                }
+                if (named) continue;
+
+                string raw = words[i];
                 string token = raw.ToLowerInvariant();
                 if (token == "all") { query.AllAreas = true; continue; }
-                if (token is "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
+                if (token is "inv" or "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
                 if (token == "friend" || token == "friends") { query.FriendsOnly = true; continue; }
+                if (token == "rank" && i + 1 < words.Length && TryParseLevelRange(words[i + 1], out var ranks))
+                {
+                    query.Rank = ranks;
+                    i++;
+                    continue;
+                }
 
                 string levelText = token.StartsWith("lv", StringComparison.Ordinal) ? token[2..] : token;
                 if (TryParseLevelRange(levelText, out var range)) { query.Level = range; continue; }
 
                 if (token.Length == 3 && SearchJobCodes.TryGetValue(token, out var job)) { query.Job = (byte)job; continue; }
+                if (SearchRaces.TryGetValue(token, out byte race)) { query.Race = race; continue; }
+                if (SearchNation(token) is { } nation) { query.Nation = nation; continue; }
+                if (TryZone(token, out ushort oneWord)) { query.Areas.Add(oneWord); continue; }
 
                 query.Name ??= raw;
             }
-            if (!query.AllAreas && currentZone != 0) query.Areas.Add(currentZone);
+            if (query.AllAreas) query.Areas.Clear();
+            else if (query.Areas.Count == 0 && currentZone != 0) query.Areas.Add(currentZone);
             return query;
         }
+
+        /// <summary>The most words <c>/sea</c> tries as one zone name.</summary>
+        private const int MaxZoneWords = 6;
+
+        /// <summary>A name as <c>/sea</c> compares it: lower case letters and digits only ("Ru'Lude Gardens" = "ruludegardens").</summary>
+        private static string SearchKey(string name) => string.Concat(name.Where(char.IsLetterOrDigit)).ToLowerInvariant();
+
+        /// <summary>
+        /// The zones by their whole names, then by their short names (ROM/165/85: "LowJeuno", "SSandoria"), then by a first
+        /// word no other zone's name starts with (<c>valkurm</c>).
+        /// </summary>
+        private static Dictionary<string, ushort> SearchZones(Func<int, string?>? zoneName, Func<int, string?>? compactName)
+        {
+            var zones = new Dictionary<string, ushort>();
+            var firstWords = new Dictionary<string, ushort?>();
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (zoneName?.Invoke(zone) is { Length: > 0 } full) zones.TryAdd(SearchKey(full), zone);
+            }
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (compactName?.Invoke(zone) is { Length: > 0 } compact) zones.TryAdd(SearchKey(compact), zone);
+            }
+            for (ushort zone = 1; zone < 300; zone++)
+            {
+                if (zoneName?.Invoke(zone) is not { Length: > 0 } name) continue;
+                string first = SearchKey(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0]);
+                firstWords[first] = firstWords.TryGetValue(first, out var seen) && seen != zone ? null : zone;
+            }
+            foreach (var (word, zone) in firstWords)
+            {
+                if (zone is { } only) zones.TryAdd(word, only);
+            }
+            return zones;
+        }
+
+        /// <summary>A nation's number in the search request (the Search menu's: 0 San d'Oria, 1 Bastok, 2 Windurst), or null.</summary>
+        private static byte? SearchNation(string text) => SearchKey(text) switch
+        {
+            "sandoria" => (byte)0,
+            "bastok" => (byte)1,
+            "windurst" => (byte)2,
+            _ => null,
+        };
+
+        /// <summary>A race's number in the search request (the Search menu's, both genders).</summary>
+        private static readonly Dictionary<string, byte> SearchRaces = new()
+        {
+            ["hume"] = 0, ["hum"] = 0, ["elvaan"] = 1, ["elv"] = 1, ["tarutaru"] = 2, ["tar"] = 2,
+            ["mithra"] = 3, ["mit"] = 3, ["galka"] = 4, ["gal"] = 4,
+        };
 
         private static bool TryParseLevelRange(string text, out (byte Min, byte Max) range)
         {
@@ -2508,7 +2669,7 @@ namespace Gordian.Engine.Actions
             var sb = new StringBuilder();
             sb.AppendLine($"--- Game Master (GM) Commands [Restrictions: {restrictions}] ---");
             sb.AppendLine("[Locomotion & Teleportation]");
-            sb.AppendLine("  !pos [x y z [zone]]       - Query or set coordinates (Windower order, z = height)");
+            sb.AppendLine("  !pos [x height y [zone]]  - Query or set coordinates (server order)");
             sb.AppendLine("  !goto <player>            - Teleport to player");
             sb.AppendLine("  !bring <player>           - Teleport player to you");
             sb.AppendLine("  !zone <zone_id>           - Teleport to specified zone");
@@ -2686,16 +2847,26 @@ namespace Gordian.Engine.Actions
             string? window = Array.Find(UiWindowIds, id => id == first);
             if (window == null || parts.Length < 2) return PlayerActionResult.Warn(UiLayoutUsage, Kind);
 
+            // The log and its input line are one chat window to hide or show: "chat" alone used to take only the input line.
+            string? chatPartner = window switch
+            {
+                StockUiWindowIds.Log => StockUiWindowIds.ChatInput,
+                StockUiWindowIds.ChatInput => StockUiWindowIds.Log,
+                _ => null,
+            };
             switch (parts[1].ToLowerInvariant())
             {
                 case "hide":
                     layout.SetHidden(window, true);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, true);
                     return PlayerActionResult.Ok($"Stock {window} window hidden.", Kind);
                 case "show":
                     layout.SetHidden(window, false);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, false);
                     return PlayerActionResult.Ok($"Stock {window} window shown.", Kind);
                 case "reset":
                     layout.Reset(window);
+                    if (chatPartner != null) layout.SetHidden(chatPartner, false);
                     return PlayerActionResult.Ok($"Stock {window} window restored to its retail placement.", Kind);
                 case "scale" when parts.Length == 3:
                     if (parts[2].Equals("default", StringComparison.OrdinalIgnoreCase))

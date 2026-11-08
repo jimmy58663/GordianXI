@@ -232,6 +232,7 @@ namespace Gordian.Engine.Ui
             StockUiListKind.LogRouting => LogListRows,
             StockUiListKind.Effects => EffectRows,
             StockUiListKind.GamepadAssign => GamepadAssignRows,
+            StockUiListKind.KeyAssign => StockUiMenuController.KeyAssignRows,
             StockUiListKind.MapAreas => StockUiMap.ListRows,
             _ => 0,
         };
@@ -353,7 +354,8 @@ namespace Gordian.Engine.Ui
                 new StockUiSliderRow("Animation Frame Rate", StockUiSettingKey.AnimationFrameRate, 4),
                 new StockUiOptionRow("Keyboard Size", StockUiSettingKey.KeyboardSize, new(5, 0, "Full"), new(6, 1, "Compact 1"), new(11, 2, "Compact 2")),
                 new StockUiSliderRow("Background Aspect Ratio", StockUiSettingKey.BackgroundAspectRatio, 7),
-                new StockUiOptionRow("Key Assignment", StockUiSettingKey.KeyAssignment, new(8, 0, "Movement"), new(9, 1, "Commands"), new(10, 2, "Default")),
+                // Key Assignment's Movement / Commands / Default (8, 9, 10) open the keyboard windows and reset the keys
+                // (StockUiMenuController.Keyboard, #337): buttons, not a choice.
                 new StockUiOptionRow("Macro Palette Size", StockUiSettingKey.MacroPaletteSize, new(12, 0, "Full"), new(13, 1, "Compact")),
                 new StockUiOptionRow("Macro Palette Position", StockUiSettingKey.MacroPalettePosition, new(14, 0, "Dynamic"), new(15, 1, "Static"))));
 

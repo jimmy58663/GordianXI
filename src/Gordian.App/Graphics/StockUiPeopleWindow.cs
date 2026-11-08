@@ -11,7 +11,7 @@ namespace Gordian.App.Graphics
     /// friend list) as retail draws them in <c>scresult</c> and its sister windows (round 1 image-26, image-28, image-33,
     /// image-44, all at about 1:1 to the 366-px frame): the jobs and race in the log font at 0.8 from x 21 ("[MNK99/RDM49]Elv",
     /// round 2 image-54: 106 px for those 16 characters, 9 px tall with the brackets; 0.7 since round 4), the nation's emblem at x 132 with the
-    /// mission rank's digit at its right edge, the search comment's dot just before the name (in the comment type's colour,
+    /// mission rank's digit at its right edge, a seeker's Seek Party icon left of the jobs, the search comment's dot just before the name (in the comment type's colour,
     /// round 2), the name in the menu font from x 154, yellow for your party's leader, cyan for its members and white for the
     /// rest, the seeker's languages at x 247 ("E F") and the area at the right, blank for your own. The cursor's row keeps its
     /// names' colours over the red bar (image-28; round 2: the selection's orange was too close to the leader's yellow). A search's list starts with the "Search Results [3]  ▶more..." bar. A linkshell's members show their rank's
@@ -35,7 +35,7 @@ namespace Gordian.App.Graphics
         /// <summary>The comment dot: 6 px, its left 2 px before the name, 4 px below the row's top (image-54).</summary>
         private const float CommentDotSize = 6, CommentDotX = NameX - 6, CommentDotY = 4;
         private const float HeaderTitleX = 9, HeaderCountX = 157, HeaderMoreX = 281;
-        private const float IconX = 3, IconSize = 16, IconClipInset = 2;
+        private const float IconX = 3, IconSize = 16, IconClipInset = 2, SeekIconX = 7, SeekIconScale = 0.7f, SeekIconDrop = 1.5f;
 
         /// <summary>The names' colours (half scale): yellow leader, cyan party (round 1 image-28: about FFE070 and 90E8FF).</summary>
         private static readonly UiColor LeaderTint = new(0x80, 0x70, 0x38, 0x80), PartyTint = new(0x48, 0x74, 0x80, 0x80);
@@ -91,7 +91,7 @@ namespace Gordian.App.Graphics
             // The linkshell lists' icons start 3-5 px into the frame (image-30, image-33), left of the other lists' 8-px clip
             // (round 2: they were cut off), so those lists clip at the frame's border instead.
             bool icons = menu.PeoplePurpose is StockUiPeoplePurpose.LinkshellItems or StockUiPeoplePurpose.LinkshellMembers
-                || (menu.People.Count > 0 && menu.People[0].LinkshellRank != 0);
+                || (menu.People.Count > 0 && menu.People[0].LinkshellRank != 0) || AnySeeking(menu);
             float clipInset = icons ? IconClipInset : StockUiMenuWindow.ListClipInset;
             renderer.SetClip(placement.X + clipInset * s, areaY, (frame.Width - clipInset) * s, menu.VisibleRows * pitch * s);
             int selected = menu.EntryIndex(menu.SelectedButtonId);
@@ -138,6 +138,7 @@ namespace Gordian.App.Graphics
                     var (r, g, b) = StockUiLinkshellColors.Rgb(person.LinkshellColor);
                     StockUiMenuWindow.DrawItemIcon(renderer, menu, item, areaX + IconX * s, ry, IconSize * s, StockUiNamePlates.PearlTint(r, g, b));
                 }
+                if (person.IsSeeking) DrawSeekIcon(renderer, font, areaX + SeekIconX * s, ry + ((firstRow.Height - IconSize * SeekIconScale) * 0.5f + SeekIconDrop) * s, s * SeekIconScale);
                 if (person.Jobs is { Length: > 0 } jobs)
                 {
                     if (logFont != null)
@@ -181,6 +182,25 @@ namespace Gordian.App.Graphics
             }
             renderer.ClearClip();
             if (menu.CanScroll) StockUiMenuWindow.DrawScrollbar(renderer, placement, frame, first, menu.Rows.Count, menu.VisibleRows);
+        }
+
+        private static bool AnySeeking(StockUiOpenMenu menu)
+        {
+            foreach (var person in menu.People)
+                if (person.IsSeeking) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The Seek Party icon (the name plate's, <see cref="StockUiPartyWindow.SeekPartyIconIndex"/>) in the space left of the
+        /// jobs (round 2 of the 2026-11-03 test): about 11 px, 7 px into the frame (retail client on local LSB, 2026-11-06,
+        /// Search_Results_Seek_Icon.png).
+        /// </summary>
+        private static void DrawSeekIcon(StockUiRenderer renderer, UiFont font, float x, float y, float s)
+        {
+            if (StockUiPartyWindow.SeekPartyIconIndex >= font.Group.Images.Count) return;
+            var image = font.Group.Images[StockUiPartyWindow.SeekPartyIconIndex];
+            if (image.Parts.Count > 0) renderer.DrawImage(image, x, y, s);
         }
 
         /// <summary>The jobs column's scale for the whole list: <see cref="JobsScale"/>, or less if the widest row would run past the emblem.</summary>

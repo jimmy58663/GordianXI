@@ -9,6 +9,76 @@ namespace Gordian.Engine.Tests.Input
     public sealed class InputProfileTests
     {
         [Fact]
+        public void RetailCompactKeys_ReachAProfileSavedWithTheOldDefaults()
+        {
+            // A compact profile as saved before round 3 of the 2026-11-07 test: A / D turn, Q / E strafe, H resets the
+            // camera, F targets, and no V / Y / N / Z / . / , keys.
+            var old = InputProfile.CreateCompact();
+            foreach (var key in new[] { GordianKey.A, GordianKey.D, GordianKey.Q, GordianKey.E, GordianKey.H, GordianKey.F,
+                GordianKey.V, GordianKey.Y, GordianKey.N, GordianKey.Z, GordianKey.OemPeriod, GordianKey.OemComma })
+            {
+                foreach (var chords in old.Bindings.Values) chords.Remove(new InputChord(key));
+            }
+            old.Bindings.Remove(InputAction.Heal);
+            old.Bindings.Remove(InputAction.CameraPanLeft);
+            old.Bindings.Remove(InputAction.CameraPanRight);
+            old.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            old.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
+            old.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.Q));
+            old.Bind(InputAction.StrafeRight, new InputChord(GordianKey.E));
+            old.Bind(InputAction.ResetCamera, new InputChord(GordianKey.H));
+            old.Bind(InputAction.TargetNearest, new InputChord(GordianKey.F));
+            old.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.Y)); // the player's own key stays theirs
+
+            var profile = InputProfile.FromJson(old.SaveToJson());
+
+            InputAction Action(GordianKey key) => profile.TryGetAction(new InputChord(key), out var a) ? a : InputAction.None;
+            Assert.Equal(InputAction.TurnLeft, Action(GordianKey.A));
+            Assert.Equal(InputAction.TurnRight, Action(GordianKey.D));
+            Assert.Equal(InputAction.CameraPanLeft, Action(GordianKey.Q));
+            Assert.Equal(InputAction.CameraPanRight, Action(GordianKey.E));
+            Assert.Empty(profile.GetChords(InputAction.StrafeLeft));
+            Assert.Equal(InputAction.Heal, Action(GordianKey.H));
+            Assert.Equal(InputAction.CycleLogWindow, Action(GordianKey.F));
+            Assert.Equal(InputAction.ToggleCameraMode, Action(GordianKey.V));
+            Assert.Equal(InputAction.ToggleWalkRun, Action(GordianKey.Y));
+            Assert.DoesNotContain(new InputChord(GordianKey.Y), profile.GetChords(InputAction.Confirm));
+            Assert.Equal(InputAction.CameraZoomIn, Action(GordianKey.OemPeriod));
+
+            // Once migrated, the player's later changes stay.
+            profile.Unbind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            profile.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.A));
+            Assert.Equal(InputAction.StrafeLeft, InputProfile.FromJson(profile.SaveToJson()).TryGetAction(new InputChord(GordianKey.A), out var again) ? again : InputAction.None);
+        }
+
+        [Fact]
+        public void StickKeys_ReachAProfileSavedWithRound3sKeys()
+        {
+            // Round 3 of the 2026-11-03 test saved A / D on Strafe and Q / E on Turn (its Heal entry marks it as migrated
+            // once); round 5 moves them to the left stick's sideways push and the camera pan.
+            var saved = InputProfile.CreateCompact();
+            saved.Bindings.Remove(InputAction.CameraPanLeft);
+            saved.Bindings.Remove(InputAction.CameraPanRight);
+            foreach (var key in new[] { GordianKey.A, GordianKey.D, GordianKey.Q, GordianKey.E })
+            {
+                foreach (var chords in saved.Bindings.Values) chords.Remove(new InputChord(key));
+            }
+            saved.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.A));
+            saved.Bind(InputAction.StrafeRight, new InputChord(GordianKey.D));
+            saved.Bind(InputAction.TurnLeft, new InputChord(GordianKey.Q));
+            saved.Bind(InputAction.TurnRight, new InputChord(GordianKey.E));
+
+            var profile = InputProfile.FromJson(saved.SaveToJson());
+
+            InputAction Action(GordianKey key) => profile.TryGetAction(new InputChord(key), out var a) ? a : InputAction.None;
+            Assert.Equal(InputAction.TurnLeft, Action(GordianKey.A));
+            Assert.Equal(InputAction.TurnRight, Action(GordianKey.D));
+            Assert.Equal(InputAction.CameraPanLeft, Action(GordianKey.Q));
+            Assert.Equal(InputAction.CameraPanRight, Action(GordianKey.E));
+            Assert.Equal(new[] { new InputChord(GordianKey.A) }, profile.GetChords(InputAction.TurnLeft));
+        }
+
+        [Fact]
         public void CreateCompact_BindsExpectedDefaultActions()
         {
             var profile = InputProfile.CreateCompact();
@@ -23,16 +93,16 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(InputAction.MoveBackward, actS);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.A), out var actA));
-            Assert.Equal(InputAction.TurnLeft, actA);
+            Assert.Equal(InputAction.TurnLeft, actA); // retail: A / D the left stick's left / right, Q / E pan the camera (round 5)
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.D), out var actD));
             Assert.Equal(InputAction.TurnRight, actD);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.Q), out var actQ));
-            Assert.Equal(InputAction.StrafeLeft, actQ);
+            Assert.Equal(InputAction.CameraPanLeft, actQ);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.E), out var actE));
-            Assert.Equal(InputAction.StrafeRight, actE);
+            Assert.Equal(InputAction.CameraPanRight, actE);
 
             Assert.True(profile.TryGetAction(new InputChord(GordianKey.R), out var actR));
             Assert.Equal(InputAction.ToggleAutorun, actR);

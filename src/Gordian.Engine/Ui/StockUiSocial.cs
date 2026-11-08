@@ -34,6 +34,9 @@ namespace Gordian.Engine.Ui
         /// <summary>The languages of a player seeking a party, as letters ("E F"); null for none.</summary>
         public string? Languages { get; init; }
 
+        /// <summary>The player is seeking a party (<c>SearchFlags.SeekingParty</c>): the Seek Party icon at the row's left.</summary>
+        public bool IsSeeking { get; init; }
+
         /// <summary>Whether the player is in your party, or leads it: the name's colour.</summary>
         public StockUiPersonStanding Standing { get; init; }
 
@@ -306,6 +309,7 @@ namespace Gordian.Engine.Ui
                 MissionRank = anonymous ? (byte)0 : entity.Rank,
                 Nation = entity.Nation,
                 Area = entity.ZoneId == currentZone && currentZone != 0 ? null : zoneName?.Invoke(entity.ZoneId),
+                IsSeeking = (entity.Flags & SearchFlags.SeekingParty) != 0,
                 Languages = (entity.Flags & SearchFlags.SeekingParty) != 0 ? LanguageLetters(entity.Languages) : null,
                 HasComment = (entity.Flags & SearchFlags.HasComment) != 0,
                 CommentType = (entity.Flags & SearchFlags.HasComment) != 0 ? entity.CommentType : 0,

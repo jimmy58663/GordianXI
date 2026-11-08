@@ -435,6 +435,7 @@ namespace Gordian.Core.Resources
             DMsgCategory.MiscStrings => Path.Combine("ROM", "165", "61.DAT"),
             DMsgCategory.MenuConfigRows => Path.Combine("ROM", "165", "74.DAT"),
             DMsgCategory.MenuHelp => Path.Combine("ROM", "165", "75.DAT"),
+            DMsgCategory.MenuTitles => Path.Combine("ROM", "165", "76.DAT"),
             DMsgCategory.MenuMessages => Path.Combine("ROM", "165", "72.DAT"),
             DMsgCategory.MenuStrings => Path.Combine("ROM", "165", "77.DAT"),
             DMsgCategory.JobPointStrings => Path.Combine("ROM", "314", "62.DAT"),

@@ -299,30 +299,94 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task Drop_AStackAsksTheCountThenConfirms()
+        public async Task Drop_AStackDropsWhole_WithNoCountBox()
         {
+            // The maintainer on the official retail server (round 5 of the 2026-11-03 test): Drop on a stack asks no count;
+            // it takes the single item's path and drops the whole stack.
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
             h.SelectItem(list, Chestnut);
+            uint stack = list.ItemRows.First(r => r.ItemId == Chestnut).Count;
+            Assert.True(stack > 1);
             h.Menus.Activate();
             h.Menus.Activate(); // Drop (Use is greyed)
-            var quantity = h.Menus.Top!;
-            Assert.True(quantity.IsQuantity);
-            Assert.Equal(12u, quantity.QuantityMax);
-            Assert.True(list.ShowsQuantity);
-            Assert.Equal(new StockUiItemHelpBar("No. of Items", null, null, 268), list.ItemHelpBar); // "Set the number of items."
-            h.Menus.Move(InputAction.MenuUp);
-            h.Menus.Move(InputAction.MenuUp);
-            Assert.Equal(3u, quantity.Quantity);
-            h.Menus.Activate();
+            // Auto-sort's Yes / No under Use / Drop, "Dispose of item?", No under the cursor.
             var prompt = h.Menus.Top!;
-            Assert.Equal("Drop 3 Ronfaure chestnuts?", prompt.Message);
-            Assert.Equal(2, prompt.SelectedButtonId); // No under the cursor
+            Assert.False(prompt.IsQuantity);
             Assert.False(list.ShowsQuantity);
-            prompt.SelectedButtonId = 1;
+            Assert.Equal(StockUiItems.SortConfirmMenu, prompt.Name);
+            Assert.Equal(stack, prompt.ItemDropCount);
+            Assert.Equal(StockUiItems.SortNoButton, prompt.SelectedButtonId);
+            Assert.Equal(StockUiItems.HelpDisposeOfItem, list.ItemHelpBar!.Value.HelpTextId);
+            prompt.SelectedButtonId = StockUiItems.SortYesButton;
             h.Menus.Activate();
             var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            Assert.Equal((ContainerId.Inventory, (byte)1, 3u), dropped);
+            Assert.Equal((ContainerId.Inventory, (byte)1, stack), dropped);
+        }
+
+        [Fact]
+        public async Task Drop_OneItemAsksUnderUseDrop_NoReturnsToIt()
+        {
+            // Retail client on local LSB, 2026-11-07 (Items_Drop_Confirm.png): Drop on one item asks in auto-sort's Yes / No,
+            // drawn under the Use / Drop window, with "Dispose of item?" in the help bar and No under the cursor.
+            var h = new Harness();
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, BronzeCap);
+            h.Menus.Activate();
+            var action = h.Menus.Top!;
+            action.SelectedButtonId = StockUiItems.DropButton;
+            h.Menus.Activate();
+            var confirm = h.Menus.Top!;
+            Assert.Equal(StockUiItems.SortConfirmMenu, confirm.Name);
+            Assert.Same(action, confirm.Parent);
+            Assert.True(confirm.IsItemWindow);
+            Assert.Equal(StockUiItems.SortNoButton, confirm.SelectedButtonId);
+            Assert.Equal(StockUiItems.HelpDisposeOfItem, list.ItemHelpBar!.Value.HelpTextId);
+            h.Menus.Activate(); // No: back to Use / Drop
+            Assert.Same(action, h.Menus.Top);
+            Assert.False(h.Dropped.Task.IsCompleted);
+
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+            var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal((ContainerId.Inventory, (byte)4, 1u), dropped);
+            Assert.Same(list, h.Menus.Top);
+        }
+
+        [Fact]
+        public async Task Drop_ARareExItemAsksTwice()
+        {
+            // The maintainer, round 3 of 2026-11-07: retail asks a second time before dropping a Rare or Ex item.
+            var h = new Harness();
+            var plain = h.Menus.ItemLookup!;
+            h.Menus.ItemLookup = id => id == BronzeCap
+                ? new ItemRecord { ItemId = BronzeCap, Name = "Bronze Cap", Flags = StockUiItems.RareFlag | StockUiItems.ExclusiveFlag }
+                : plain(id);
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, BronzeCap);
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.DropButton;
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+
+            // Retail (round 4, image-50.png): the message prompt on the log, "Really dispose of the Kraken Club?", No first.
+            var second = h.Menus.Top!;
+            Assert.Equal(StockUiMenuEntries.MessageYesNoMenu, second.Name);
+            Assert.Equal("Really dispose of the Bronze Cap?", second.Message);
+            Assert.Equal(2, second.SelectedButtonId);
+            h.Menus.Activate(); // No: nothing dropped
+            Assert.False(h.Dropped.Task.IsCompleted);
+
+            h.Menus.Activate(); // Use / Drop's Drop again
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = 1;
+            h.Menus.Activate();
+            var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal((ContainerId.Inventory, (byte)4, 1u), dropped);
+            Assert.Same(list, h.Menus.Top);
         }
 
         [Fact]

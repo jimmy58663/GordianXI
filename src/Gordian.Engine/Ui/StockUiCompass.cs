@@ -1,5 +1,6 @@
 // src/Gordian.Engine/Ui/StockUiCompass.cs
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
@@ -254,8 +255,26 @@ namespace Gordian.Engine.Ui
             return (0, top, right, lineBottom - top);
         }
 
+        /// <summary>Whether a window with this left edge stays right of the dial's centre, so it only reaches the compass's right side.</summary>
+        public static bool ClearsDial(float windowX, float scale) => windowX >= CenterX * scale;
+
         /// <summary>Whether a window's screen rectangle overlaps the compass's.</summary>
         public static bool Overlaps((float X, float Y, float Width, float Height) compass, float x, float y, float width, float height) =>
             x < compass.X + compass.Width && x + width > compass.X && y < compass.Y + compass.Height && y + height > compass.Y;
+
+        /// <summary>
+        /// Whether any of the window rectangles from <paramref name="from"/> on overlaps the compass: every window drawn over
+        /// the HUD after the log, the menus and the boxes they draw outside them (the item info window, #506).
+        /// </summary>
+        public static bool IsCovered((float X, float Y, float Width, float Height) compass,
+            IReadOnlyList<(float X, float Y, float Width, float Height)> windows, int from = 0)
+        {
+            for (int i = Math.Max(0, from); i < windows.Count; i++)
+            {
+                var w = windows[i];
+                if (Overlaps(compass, w.X, w.Y, w.Width, w.Height)) return true;
+            }
+            return false;
+        }
     }
 }

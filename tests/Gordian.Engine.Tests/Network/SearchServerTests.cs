@@ -710,6 +710,130 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Fact]
+        public void ParseSearchQuery_AZoneNamesFirstWordIsTheZone()
+        {
+            // Retail client on local LSB, 2026-11-07: /sea valkurm listed both players in Valkurm Dunes.
+            var query = PlayerActionService.ParseSearchQuery("valkurm", 230, ZoneNames);
+            Assert.Equal(new ushort[] { 103 }, query.Areas.ToArray());
+            Assert.Null(query.Name);
+        }
+
+        [Theory]
+        [InlineData("lowjeuno", 245)]
+        [InlineData("LowJeuno", 245)]
+        [InlineData("ssandoria", 230)]
+        [InlineData("all ssandoria war", 0)] // all still wins
+        public void ParseSearchQuery_AZonesShortNameIsTheZone(string words, int zone)
+        {
+            // The maintainer, round 3 of 2026-11-07: the short names of the Map screen's zone list (ROM/165/85) work too.
+            var query = PlayerActionService.ParseSearchQuery(words, 248, ZoneNames, ShortZoneNames);
+            Assert.Equal(zone == 0 ? Array.Empty<ushort>() : new[] { (ushort)zone }, query.Areas.ToArray());
+            Assert.Null(query.Name);
+        }
+
+        private static string? ShortZoneNames(int zone) => zone switch
+        {
+            230 => "SSandoria",
+            245 => "LowJeuno",
+            248 => "Selbina",
+            _ => null,
+        };
+
+        private static string? ZoneNames(int zone) => zone switch
+        {
+            103 => "Valkurm Dunes",
+            230 => "Southern San d'Oria",
+            232 => "Port San d'Oria",
+            235 => "Bastok Markets",
+            246 => "Port Jeuno",
+            248 => "Selbina",
+            _ => null,
+        };
+
+        [Theory]
+        [InlineData("Cybin")]
+        [InlineData("cybin")]
+        [InlineData("taru")] // retail client on local LSB, 2026-11-07: /sea all taru found no Tarutaru
+        [InlineData("port")] // the first word of more than one zone
+        public void ParseSearchQuery_AnyOtherWordIsAName(string words)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(words, query.Name);
+            Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray());
+        }
+
+        [Theory]
+        [InlineData("hum", (byte)0)] // the maintainer, round 3: the three letters the search windows show
+        [InlineData("elv", (byte)1)]
+        [InlineData("gal", (byte)4)]
+        [InlineData("ELVAAN", (byte)1)]
+        [InlineData("Hume", (byte)0)]
+        [InlineData("galka", (byte)4)]
+        [InlineData("tar", (byte)2)] // retail client on local LSB, 2026-11-07: tar, tarutaru, mit and mithra found its players
+        [InlineData("tarutaru", (byte)2)]
+        [InlineData("mit", (byte)3)]
+        [InlineData("mithra", (byte)3)]
+        public void ParseSearchQuery_Races(string words, byte race)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(race, query.Race);
+            Assert.Null(query.Name);
+        }
+
+        [Theory]
+        [InlineData("sandoria", (byte)0)]
+        [InlineData("San d'Oria", (byte)0)]
+        [InlineData("BASTOK", (byte)1)]
+        [InlineData("windurst", (byte)2)]
+        public void ParseSearchQuery_Nations(string words, byte nation)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 230, ZoneNames);
+            Assert.Equal(nation, query.Nation);
+            Assert.Null(query.Name);
+            Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray()); // the current zone: a nation is no zone
+        }
+
+        [Theory]
+        [InlineData("selbina", 248)]
+        [InlineData("Port Jeuno", 246)]
+        [InlineData("port_jeuno", 246)]
+        [InlineData("bastok markets", 235)]
+        [InlineData("southern san d'oria", 230)]
+        public void ParseSearchQuery_AZoneNameTakesThePlaceOfTheCurrentZone(string words, int zone)
+        {
+            var query = PlayerActionService.ParseSearchQuery(words, 1, ZoneNames);
+            Assert.Equal(new[] { (ushort)zone }, query.Areas.ToArray());
+            Assert.False(query.AllAreas);
+            Assert.Null(query.Name);
+            Assert.Null(query.Nation);
+        }
+
+        [Fact]
+        public void ParseSearchQuery_TheMaintainersCombinations()
+        {
+            var seeking = PlayerActionService.ParseSearchQuery("all inv brd 24-35", 230, ZoneNames);
+            Assert.True(seeking.AllAreas);
+            Assert.Empty(seeking.Areas);
+            Assert.Equal((ushort)SearchFlags.SeekingParty, seeking.Flags1);
+            Assert.Equal((byte)10, seeking.Job);
+            Assert.Equal(((byte)24, (byte)35), seeking.Level);
+
+            var anyone = PlayerActionService.ParseSearchQuery("ALL INV 12-16", 230, ZoneNames);
+            Assert.True(anyone.AllAreas);
+            Assert.Equal((ushort)SearchFlags.SeekingParty, anyone.Flags1);
+            Assert.Null(anyone.Job);
+            Assert.Equal(((byte)12, (byte)16), anyone.Level);
+
+            var rank = PlayerActionService.ParseSearchQuery("rank 10", 230, ZoneNames);
+            Assert.Equal(((byte)10, (byte)10), rank.Rank);
+            Assert.Null(rank.Level);
+
+            var none = PlayerActionService.ParseSearchQuery("", 230, ZoneNames);
+            Assert.Equal(new ushort[] { 230 }, none.Areas.ToArray());
+            Assert.False(none.AllAreas);
+        }
+
+        [Fact]
         public async Task SeaCommand_ListsTheFoundPlayers()
         {
             var session = NewSession(_ => new[]
@@ -723,6 +847,101 @@ namespace Gordian.Engine.Tests.Network
             Assert.Contains("Ayame (WhiteMage 75)", result.Message);
             Assert.Contains("Hidden", result.Message);
             Assert.Contains("2 player(s)", result.Message);
+        }
+
+        private static (Session Session, Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial Social) SeaSession()
+        {
+            var session = NewSession(_ => Array.Empty<(byte[], int)>());
+            session.Actions.SearchService = session.Parser.Search;
+            var social = new Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial
+            {
+                SearchResult = new(new[] { new Gordian.Engine.Ui.StockUiPerson("Cybin", CharacterId: 7) }),
+            };
+            var menus = session.Actions.Menus;
+            menus.Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.SharedMenus());
+            menus.Social = social;
+            session.Parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(0x100, 1, Gordian.Core.World.EntityType.Player) { Name = "Selbina" });
+            session.Parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(0x101, 2, Gordian.Core.World.EntityType.Monster) { Name = "Forest_Hare" });
+            return (session, social);
+        }
+
+        [Theory]
+        [InlineData("<t>", false, "Search result: Only one person found in this area.")]
+        [InlineData("<T>", false, "Search result: Only one person found in this area.")]
+        [InlineData("all <t>", true, "Search result: Only one person found in the entire world.")]
+        public async Task SeaCommand_TheTargetPlaceholderIsThePlayersName(string arguments, bool all, string line)
+        {
+            // Round 2: /sea <t> is /sea Cybin. A name that reads as a zone ("Selbina") stays a name.
+            var (session, social) = SeaSession();
+            session.Actions.SetTargetByName("Selbina");
+
+            var result = await session.Actions.PlayerSearchAsync(arguments);
+
+            Assert.Equal(line, result.Message);
+            Assert.Equal("Selbina", social.LastQuery!.Name);
+            Assert.Equal(all, social.LastQuery.AllAreas);
+        }
+
+        [Theory]
+        [InlineData("all", 2, "Search result: 2 people found in all known areas.")] // retail client on local LSB, 2026-11-06
+        [InlineData("Cybin", 2, "Search result: 2 people found in this area.")] // retail client on local LSB, 2026-11-07
+        [InlineData("all", 1, "Search result: Only one person found in the entire world.")] // the same, with no name
+        public async Task SeaCommand_LogsHowManyPeopleWereFound(string arguments, int found, string line)
+        {
+            var (session, social) = SeaSession();
+            social.SearchResult = new(Enumerable.Range(1, found).Select(id => new Gordian.Engine.Ui.StockUiPerson($"Cybin{id}", CharacterId: (uint)id)).ToArray());
+
+            Assert.Equal(line, (await session.Actions.PlayerSearchAsync(arguments)).Message);
+            Assert.Equal(found, session.Actions.Menus.Top!.People.Count);
+        }
+
+        [Fact]
+        public async Task SeaCommand_ATargetThatIsNoPlayer_OpensTheEmptyWindow()
+        {
+            // Retail client on local LSB, 2026-11-06: nothing targeted opens the "[0]" window with this line.
+            var (session, social) = SeaSession();
+
+            Assert.Equal("Search result: 0 people found in this area.", (await session.Actions.PlayerSearchAsync("<t>")).Message);
+            var window = session.Actions.Menus.Top!;
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeoplePurpose.SearchResults, window.PeoplePurpose);
+            Assert.Empty(window.People);
+            Assert.Equal("[0]", window.Rows[0].Value);
+            session.Actions.Menus.CloseAll();
+
+            session.Actions.SetTargetByName("Forest_Hare");
+            Assert.Equal("Search result: 0 people found in all known areas.", (await session.Actions.PlayerSearchAsync("all <t>")).Message);
+            Assert.Null(social.LastQuery);
+        }
+
+        [Fact]
+        public async Task SeaCommand_OpensTheSearchResultsWindow()
+        {
+            // #495: /sea BRD 37-99 builds the Search menu's query and opens its results window, with nothing open before.
+            var session = NewSession(_ => Array.Empty<(byte[], int)>());
+            session.Actions.SearchService = session.Parser.Search;
+            var social = new Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.FakeSocial
+            {
+                SearchResult = new(new[] { new Gordian.Engine.Ui.StockUiPerson("Ayame", CharacterId: 7, Detail: "BRD75/WHM37") }),
+            };
+            var menus = session.Actions.Menus;
+            menus.Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(Gordian.Engine.Tests.Ui.StockUiPartyActionsTests.SharedMenus());
+            menus.Social = social;
+
+            var result = await session.Actions.PlayerSearchAsync("all BRD 37-99");
+
+            Assert.Equal("Search result: Only one person found in the entire world.", result.Message);
+            Assert.True(social.LastQuery!.AllAreas);
+            Assert.Equal((byte)10, social.LastQuery.Job);
+            Assert.Equal(((byte)37, (byte)99), social.LastQuery.Level);
+            var list = menus.Top!;
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeople.ResultsMenu, list.Name);
+            Assert.Equal(Gordian.Engine.Ui.StockUiPeoplePurpose.SearchResults, list.PeoplePurpose);
+            Assert.Null(list.Parent);
+            Assert.Equal("Ayame", list.People.Single().Name);
+
+            // Confirm on the "Search Results" bar closes it, as over the Search menu.
+            menus.Activate();
+            Assert.False(menus.IsOpen);
         }
 
         /// <summary>

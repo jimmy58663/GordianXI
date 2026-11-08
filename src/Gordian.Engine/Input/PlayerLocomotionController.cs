@@ -353,6 +353,8 @@ namespace Gordian.Engine.Input
             _inputState.MenuContext = menuOpen || (chat?.IsSelecting ?? false);
             // The gamepad key-assignment list is waiting for a button: the pad drives nothing until it is let go (#21).
             _inputState.SuppressGamepadActions = menus?.IsCapturingGamepad ?? false;
+            // A keyboard key-assignment window is waiting for a key: the keyboard drives nothing until it is let go (#337).
+            _inputState.SuppressKeyboardActions = menus?.IsCapturingKeyboard ?? false;
             _inputState.Update(_profile, elapsed);
 
             // 1a. The macro palettes (#339): Ctrl / Alt (LT / RT) show them and their keys run macros, except while a menu,
@@ -627,12 +629,14 @@ namespace Gordian.Engine.Input
                 pitchDelta += mouse.InvertY ? -my : my;
             }
 
-            // Gamepad Analog Camera Look (Right Thumbstick)
+            // Gamepad Analog Camera Look (Right Thumbstick). The camera pan keys (Q / E on the compact keyboard) push it
+            // fully sideways while the stick itself is idle, so they pan exactly as the stick does (round 5 of the
+            // 2026-11-03 test: the maintainer on retail).
             var pad = _inputState.CurrentGamepad;
-            if (pad.IsConnected)
             {
                 var padSettings = _profile.GamepadSettings ?? new GamepadSettings();
-                var filteredRightStick = GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone);
+                var filteredRightStick = pad.IsConnected ? GamepadState.ApplyRadialDeadzone(pad.RightThumb, padSettings.RightStickDeadzone) : Vector2.Zero;
+                if (filteredRightStick == Vector2.Zero) filteredRightStick = KeyboardRightStick();
                 if (filteredRightStick != Vector2.Zero)
                 {
                     var stick = padSettings.Camera(firstPerson);
@@ -803,6 +807,30 @@ namespace Gordian.Engine.Input
             });
         }
 
+        /// <summary>
+        /// The movement keys as a stick: Move Left / Right (<see cref="InputAction.TurnLeft"/> / <see cref="InputAction.TurnRight"/>,
+        /// A / D on the compact keyboard) its X, Move Up / Down (W / S) its Y, at full tilt (a diagonal is scaled to 1).
+        /// </summary>
+        private Vector2 KeyboardLeftStick()
+        {
+            float x = 0f, y = 0f;
+            if (_inputState.IsActionHeld(InputAction.TurnRight)) x += 1.0f;
+            if (_inputState.IsActionHeld(InputAction.TurnLeft)) x -= 1.0f;
+            if (_inputState.IsActionHeld(InputAction.MoveForward)) y += 1.0f;
+            if (_inputState.IsActionHeld(InputAction.MoveBackward)) y -= 1.0f;
+            var stick = new Vector2(x, y);
+            return stick.LengthSquared() > 1f ? Vector2.Normalize(stick) : stick;
+        }
+
+        /// <summary>The camera pan keys (<see cref="InputAction.CameraPanLeft"/> / <see cref="InputAction.CameraPanRight"/>, Q / E) as the right stick pushed fully sideways.</summary>
+        private Vector2 KeyboardRightStick()
+        {
+            float x = 0f;
+            if (_inputState.IsActionHeld(InputAction.CameraPanRight)) x += 1.0f;
+            if (_inputState.IsActionHeld(InputAction.CameraPanLeft)) x -= 1.0f;
+            return new Vector2(x, 0f);
+        }
+
         private bool HasMovementInput()
         {
             if (_inputState.AutorunActive) return true;
@@ -918,6 +946,10 @@ namespace Gordian.Engine.Input
             Vector2 leftStick = pad.IsConnected
                 ? GamepadState.ApplyRadialDeadzone(pad.LeftThumb, padSettings.LeftStickDeadzone)
                 : Vector2.Zero;
+            // The movement keys are a virtual left stick (W / S up and down, A / D left and right on the compact keyboard),
+            // taken while the stick itself is idle, so they move exactly as the stick does (round 5 of the 2026-11-03 test:
+            // the maintainer on retail).
+            if (leftStick == Vector2.Zero) leftStick = KeyboardLeftStick();
 
             // Lock-On Locomotion:
             // When locked onto a target, the character continuously faces the target directly.
@@ -932,12 +964,11 @@ namespace Gordian.Engine.Input
                 float distSq = (toTgtX * toTgtX) + (toTgtZ * toTgtZ);
 
                 float lockFwd = 0f;
-                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) lockFwd += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.MoveBackward)) lockFwd -= 1.0f;
+                if (_inputState.AutorunActive && leftStick.Y <= 0f) lockFwd += 1.0f;
 
                 float lockStrafe = 0f;
-                if (_inputState.IsActionHeld(InputAction.StrafeRight) || _inputState.IsActionHeld(InputAction.TurnRight)) lockStrafe += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.StrafeLeft) || _inputState.IsActionHeld(InputAction.TurnLeft)) lockStrafe -= 1.0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeRight)) lockStrafe += 1.0f;
+                if (_inputState.IsActionHeld(InputAction.StrafeLeft)) lockStrafe -= 1.0f;
 
                 if (leftStick != Vector2.Zero)
                 {
@@ -1019,10 +1050,7 @@ namespace Gordian.Engine.Input
             }
             if (_inputState.AutorunActive)
             {
-                float steer = 0f;
-                if (_inputState.IsActionHeld(InputAction.TurnRight)) steer += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.TurnLeft)) steer -= 1.0f;
-                steer = Math.Clamp(steer + leftStick.X, -1.0f, 1.0f);
+                float steer = Math.Clamp(leftStick.X, -1.0f, 1.0f);
                 if (steer != 0f)
                 {
                     float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
@@ -1067,54 +1095,8 @@ namespace Gordian.Engine.Input
                 return;
             }
 
-            // Keyboard camera-relative facing + movement (mirrors the gamepad CameraRelative
-            // stick above): W/S/A/D are treated as a virtual analog stick (W/S = forward/back,
-            // A/D = left/right) and always face the character relative to the camera before
-            // moving - like pushing a controller stick - instead of turning in place or walking
-            // along whatever direction the character happened to already be facing.
-            if (leftStick == Vector2.Zero)
-            {
-                float keyX = 0f;
-                if (_inputState.IsActionHeld(InputAction.TurnRight)) keyX += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.TurnLeft)) keyX -= 1.0f;
-
-                float keyY = 0f;
-                if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive) keyY += 1.0f;
-                if (_inputState.IsActionHeld(InputAction.MoveBackward)) keyY -= 1.0f;
-
-                if (keyX != 0f || keyY != 0f)
-                {
-                    // Same formula as the gamepad stick above.
-                    float stickAngleDeg = MathF.Atan2(keyX, keyY) * (180.0f / MathF.PI);
-                    TurnTowards(localEnt, NormalizeDegrees(CameraYaw + stickAngleDeg), dt);
-                    localEnt.LocomotionDirection = LocomotionDirection.Forward;
-                    if (keyY > 0f) FollowHeadingWithCamera(localEnt, dt);
-
-                    byte effectiveRun = GetEffectiveRunSpeed(localEnt);
-                    byte effectiveWalk = GetEffectiveWalkSpeed(localEnt);
-                    byte keySpeed = _inputState.IsWalking ? effectiveWalk : effectiveRun;
-
-                    localEnt.Speed = keySpeed;
-                    float speedYalmsPerSec = keySpeed * 0.1f;
-                    float distance = speedYalmsPerSec * dt;
-
-                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
-                    LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
-                    return;
-                }
-            }
-
-            // 1. Determine Forward/Backward intent
+            // 1. Determine Forward/Backward intent (the movement keys are in the stick, above)
             float forwardInput = 0;
-            if (_inputState.IsActionHeld(InputAction.MoveForward) || _inputState.AutorunActive)
-            {
-                forwardInput += 1.0f;
-            }
-            if (_inputState.IsActionHeld(InputAction.MoveBackward))
-            {
-                forwardInput -= 1.0f;
-            }
 
             // Character-relative analog stick injection
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CharacterRelative)
@@ -1122,8 +1104,7 @@ namespace Gordian.Engine.Input
                 forwardInput += leftStick.Y;
             }
 
-            // 2. Determine Strafe intent, and Turn intent from the gamepad's tank-style mode
-            // (keyboard Turn keys are handled above via camera-relative facing, not here).
+            // 2. Determine Strafe intent, and Turn intent from the gamepad's tank-style mode (the stick, keys included).
             float turnInput = 0;
             if (leftStick != Vector2.Zero && padSettings.LocomotionMode == GamepadLocomotionMode.CharacterRelative)
             {
@@ -1567,6 +1548,16 @@ namespace Gordian.Engine.Input
                         Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"L3 with no target: {result.Message}");
                     });
                 }
+            }
+            if (_inputState.WasActionTriggered(InputAction.Heal))
+            {
+                // Retail's Heal key (H on the compact keyboard): /heal.
+                var service = _actionService;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var result = await service.HealAsync().ConfigureAwait(false);
+                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Heal key: {result.Message}");
+                });
             }
             if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
             _actionService.ToggleLockOn();
