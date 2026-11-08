@@ -10,9 +10,9 @@ namespace Gordian.Engine.Ui
     /// <summary>
     /// The mannequins standing in the Mog House (#93). A mannequin is a character model, not a furniture mesh, so each placed one is a
     /// client-side entity, as the room's door is: no name (nothing targets it), the race of its item, what it wears from S2C 0x026
-    /// (LandSandBoat sends that at zone-in and after 0x03B). Faces are the mannequins' own model 31 (LandSandBoat's note in
-    /// <c>0x026_item_subcontainer.cpp</c>). While its window is open it spins, clockwise from above (retail capture
-    /// <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06).
+    /// (LandSandBoat sends that at zone-in and after 0x03B). Faces are the mannequins' own carved head, which also gives the model
+    /// its held pose in place of the breathing idle (<c>CharacterEquipmentResolver.MannequinFace</c>). While its window is open it
+    /// spins, clockwise from above (retail capture <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06).
     /// </summary>
     public sealed class MogHouseMannequins
     {
@@ -20,8 +20,8 @@ namespace Gordian.Engine.Ui
         private const uint FirstServerId = 0x7FFF0800;
         private const ushort FirstTargetIndex = 0x7E00;
 
-        /// <summary>The mannequins' face and hair model (LandSandBoat <c>0x026_item_subcontainer.cpp</c>).</summary>
-        public const byte FaceModel = 31;
+        /// <summary>The mannequins' face and hair model, a carved head (index 30 of each race's face table).</summary>
+        public const byte FaceModel = Gordian.Core.Resources.Tables.CharacterEquipmentResolver.MannequinFace;
 
         /// <summary>One turn in 2.0 s (retail capture <c>Mog_House_Mannequin_Spin.mp4</c>, 2026-11-06).</summary>
         public const float SpinSecondsPerTurn = 2f;
@@ -92,7 +92,11 @@ namespace Gordian.Engine.Ui
                 _shown[id] = entity;
                 _world.UpsertEntity(entity);
             }
-            entity.Position = new Vector3(-display.X, -display.Y, display.Z);
+            // The target too: a position alone leaves the first one as the target, and the entity walked back to it after every
+            // menu change (round 3: Idle -> Walk 0.39 yalm in the log each time).
+            var position = new Vector3(-display.X, -display.Y, display.Z);
+            entity.TargetPosition = position;
+            entity.Position = position;
             entity.Direction = FacingOf(rotation);
             var look = _inventory.GetMannequinLook(piece.Container, piece.Slot);
             byte race = look is { Race: > 0 } known ? known.Race : RaceInExtData(piece) is > 0 and var stored ? stored : RaceOf(piece.ItemId);

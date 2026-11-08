@@ -507,7 +507,29 @@ namespace Gordian.Core.Resources
                 model.RebuildMotionRoutines();
             }
 
+            // Last, as the motion packs above regroup the clips.
+            if (faceId == CharacterEquipmentResolver.MannequinFace) ApplyMannequinPose(model, race, datByPath);
             return model;
+        }
+
+        /// <summary>
+        /// A mannequin stands still in its pose: its idle is the race's <c>mq0</c>, joined from the pose file's legs and upper body
+        /// and the next file's waist, in place of the race's breathing idle (retail, 2026-11-07: the mannequin holds still while
+        /// its window spins it). The pose byte of the item's extra data (LandSandBoat <c>Exdata::Mannequin::Pose</c>) would pick
+        /// <c>mq1</c>-<c>mq4</c>; it is not read yet, as no retail mannequin was seen in another pose.
+        /// </summary>
+        public static void ApplyMannequinPose(EntityModel model, CharacterRace race, Func<string, byte[]?> datByPath, int pose = 0)
+        {
+            var (partsPath, waistPath) = CharacterEquipmentResolver.GetMannequinPosePaths(race);
+            if (partsPath.Length == 0 || datByPath(partsPath) is not { Length: > 0 } parts) return;
+            var clips = new List<AnimationClip>(ParseDatContainer(parts, "MannequinPose").Animations);
+            if (datByPath(waistPath) is { Length: > 0 } waist) clips.AddRange(ParseDatContainer(waist, "MannequinPoseWaist").Animations);
+            string stem = $"mq{pose}";
+            clips.RemoveAll(c => !c.Name.StartsWith(stem, StringComparison.OrdinalIgnoreCase) || c.Name.Length != stem.Length + 1);
+            var joined = JoinBodyRegionParts(clips).Find(c => c.Name.Equals(stem, StringComparison.OrdinalIgnoreCase));
+            if (joined == null) return;
+            foreach (var name in new[] { "idl", "idl0", "idl1", "idl2", "std", "std0" }) model.Animations.Remove(name);
+            model.Animations["idl"] = joined;
         }
 
         /// <summary>

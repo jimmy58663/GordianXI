@@ -727,6 +727,7 @@ namespace Gordian.App.Graphics
                 : open[0].Pinned && open[0].Name.Equals(StockUiDeathMenu.MenuName, StringComparison.OrdinalIgnoreCase) ? StockUiWindowIds.Death
                 : StockUiWindowIds.MainMenu;
             var root = ResolveWindow(rootId, rootFrame, width, height, out bool rootMoved);
+            var unclampedRoot = root;
             if ((open[0].IsCommandMenu || open[0].IsShopMenu || StockUiMogHouse.StandsOnLog(open[0].Name)) && !rootMoved && _window1Top is { } logTop)
             {
                 // Retail keeps the command menu's bottom on Window 1's top edge whatever the log's line count
@@ -743,6 +744,10 @@ namespace Gordian.App.Graphics
             }
             var authoredRoot = StockUiLayout.Place(rootFrame.Anchor, rootFrame.X, rootFrame.Y, rootFrame.Width, rootFrame.Height, root.Scale, width, height);
             float dx = root.X - authoredRoot.X, dy = root.Y - authoredRoot.Y;
+            // The moogle's menu stands on the log, but what it opens (View House, the Storage and Safe lists) stays under the help
+            // bar where the main menu's windows sit, not moving with the log (round 3).
+            bool rootOnLog = StockUiMogHouse.StandsOnLog(open[0].Name);
+            float mainDx = unclampedRoot.X - authoredRoot.X, mainDy = unclampedRoot.Y - authoredRoot.Y;
 
             for (int i = 0; i < open.Count; i++)
             {
@@ -769,8 +774,9 @@ namespace Gordian.App.Graphics
                     // own places; the other windows follow the root.
                     bool shopWindow = menu.ShopSide != null || menu.IsTreasureWindow || menu.IsItemWindow || menu.IsAuctionWindow || menu.IsBlueMagicWindow
                         || menu.MacroView is StockUiMacroView.PaletteEditor or StockUiMacroView.Editor or StockUiMacroView.LineOptions or StockUiMacroView.ButtonOptions;
-                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + dx, 0, Math.Max(0, width - frame.Width * root.Scale));
-                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + dy, 0, Math.Max(0, height - frame.Height * root.Scale));
+                    bool underHelp = rootOnLog && !StockUiMogHouse.StandsOnLog(menu.Name);
+                    float x = shopWindow ? authored.X : Math.Clamp(authored.X + (underHelp ? mainDx : dx), 0, Math.Max(0, width - frame.Width * root.Scale));
+                    float y = shopWindow ? authored.Y : Math.Clamp(authored.Y + (underHelp ? mainDy : dy), 0, Math.Max(0, height - frame.Height * root.Scale));
                     if (menu.ItemDropRow != null)
                     {
                         // A Drop / Recycling Bin count box sits at the bottom left, its description beside it (retail capture 2026-10-11).

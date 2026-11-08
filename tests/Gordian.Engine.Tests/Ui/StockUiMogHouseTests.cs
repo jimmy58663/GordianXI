@@ -522,6 +522,16 @@ namespace Gordian.Engine.Tests.Ui
             mannequins.Spin(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin), MogHouseMannequins.SpinSecondsPerTurn / 4);
             Assert.Equal((byte)(facing + 64), shown.Direction);
 
+            // Moved in hand, it is placed where the hand is, not left to walk back to where it was first shown.
+            var layout = h.Menus.MogHouseLayout;
+            var start = shown.Position;
+            Assert.Equal(start, shown.TargetPosition);
+            layout.Held = layout.Pieces.Single(p => p.ItemId == HumeMannequin);
+            (layout.HeldX, layout.HeldZ) = (layout.Held.Value.X + 2, layout.Held.Value.Z);
+            mannequins.Sync(inRoom: true);
+            Assert.NotEqual(start, shown.Position);
+            Assert.Equal(shown.Position, shown.TargetPosition);
+
             mannequins.Sync(inRoom: false);
             Assert.Empty(world.Entities);
         }
