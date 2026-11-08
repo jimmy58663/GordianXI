@@ -102,6 +102,7 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public static string Title(ContainerId container) => container switch
         {
+            ContainerId.MogSafe2 => "Safe 2",
             ContainerId.MogLocker => "Locker",
             ContainerId.MogSatchel => "Satchel",
             ContainerId.MogSack => "Sack",
@@ -143,7 +144,7 @@ namespace Gordian.Engine.Ui
             var greyed = new HashSet<int>();
             foreach (var (button, container) in StockUiViewHouse.Storages)
             {
-                if (!StockUiItems.IsAvailable(Inventory, container)) greyed.Add(button);
+                if (!StockUiItems.IsAvailable(Inventory, container) || (container == ContainerId.MogSafe2 && Safe2Locked)) greyed.Add(button);
             }
             menu.SetGreyed(greyed.Count > 0 ? greyed : null);
             return menu;

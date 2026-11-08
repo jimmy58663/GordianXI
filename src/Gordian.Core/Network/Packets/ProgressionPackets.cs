@@ -1723,6 +1723,28 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
+        /// Builds C2S 0x0FB (GP_CLI_COMMAND_MYROOM_BANKIN): clears a placed furnishing away (back into its Mog Safe, no
+        /// longer installed). 8 bytes: u16 item no (+4), item index (+6), container (+7); the server answers with S2C 0x020
+        /// for the item and 0x01C for the Storage size.
+        /// Protocol specification referenced from XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/client/0x00FB)
+        /// and LandSandBoat (https://github.com/LandSandBoat/server/blob/base/src/map/packets/c2s/0x0fb_myroom_bankin.h).
+        /// </summary>
+        public static byte[] BuildMyRoomBankIn(ushort itemNo, byte itemIndex, byte category, ushort sequenceId = 0)
+        {
+            // Size: 8 bytes (Header: 4, Payload: 4)
+            var packet = new byte[8];
+            ushort headerWord = (ushort)(0x0FB | (2 << 9));
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(0, 2), headerWord);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(2, 2), sequenceId);
+
+            BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4, 2), itemNo);
+            packet[6] = itemIndex;
+            packet[7] = category;
+
+            return packet;
+        }
+
+        /// <summary>
         /// Builds C2S 0x0BE (GP_CLI_COMMAND_MERITS): Spend merit points or toggle EXP/Limit mode.
         /// </summary>
         public static byte[] BuildMerits(MeritCommandKind kind, byte param1, ushort param2, uint param3 = 0, ushort sequenceId = 0)

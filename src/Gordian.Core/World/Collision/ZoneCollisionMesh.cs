@@ -32,6 +32,8 @@ namespace Gordian.Core.World.Collision
     /// <param name="CameraTransparent">The camera and line of sight pass through this triangle.</param>
     /// <param name="CullingTable">The ZoneDef culling table its collision transform names at +0xA8 (the table a camera
     /// over this floor draws with, #70); -1 for none.</param>
+    /// <param name="MapFloor">The zone map (the <c>m_ZZZ_FF</c> number) its collision transform names at +0xA4 (the
+    /// floor the Map window shows for a character standing here, #481); 0 for none.</param>
     /// <param name="Interior">The triangle is a building interior's (<see cref="ZoneCollisionMesh.Merge"/>): under a roof, where
     /// rain does not wet the floor.</param>
     public readonly record struct CollisionTriangle(
@@ -43,6 +45,7 @@ namespace Gordian.Core.World.Collision
         CollisionTerrain Terrain,
         bool CameraTransparent,
         int CullingTable = -1,
+        int MapFloor = 0,
         bool Interior = false);
 
     /// <summary>
@@ -648,6 +651,38 @@ namespace Gordian.Core.World.Collision
         /// </summary>
         public int CullingTableUnder(Vector3 eye, float maxDrop = 1000.0f) =>
             TryGetGround(eye, 0.0f, maxDrop, out GroundHit hit) ? _triangles[hit.TriangleIndex].CullingTable : -1;
+
+        /// <summary>
+        /// The zone map of the floor under <paramref name="feet"/> (internal space, #481): the map number the highest floor
+        /// at or below the feet (a step up allowed) names, or 0 when there is no floor there or it names none.
+        /// </summary>
+        public int MapFloorUnder(Vector3 feet, float maxDrop = 1000.0f) =>
+            TryGetGround(feet, MapFloorStepUp, maxDrop, out GroundHit hit) ? _triangles[hit.TriangleIndex].MapFloor : 0;
+
+        /// <summary>
+        /// The zone map of the highest floor at (<paramref name="x"/>, <paramref name="z"/>) that names one, for a point
+        /// without a height (a home point of the retail table, #481); 0 when no floor there names a map.
+        /// </summary>
+        public int MapFloorAt(float x, float z)
+        {
+            if (!TryGetCell(x, z, out int cell)) return 0;
+            int map = 0;
+            float best = float.MaxValue;
+            for (int k = _cellStart[cell], end = _cellStart[cell + 1]; k < end; k++)
+            {
+                ref readonly var t = ref _triangles[_cellTriangles[k]];
+                if (t.MapFloor == 0 || t.Normal.Y > -MinFloorNormalY || !TryHeightAt(t, x, z, out float height)) continue;
+                if (height < best)
+                {
+                    best = height;
+                    map = t.MapFloor;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>How far above the feet <see cref="MapFloorUnder"/> still takes a floor (a stair tread mid-step).</summary>
+        private const float MapFloorStepUp = 1.0f;
 
         /// <summary>
         /// Height of the triangle's plane at (x, z) when that point lies inside the triangle's XZ projection.

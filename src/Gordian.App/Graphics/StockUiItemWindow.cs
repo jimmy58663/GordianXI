@@ -213,6 +213,25 @@ namespace Gordian.App.Graphics
                 placement.Y + (DescriptionTop - frame.Y) * s);
         }
 
+        /// <summary>
+        /// The Mannequin window (#93, image-49): what it wears over the <c>inspect</c> grid, the Storage's equipment beside it until a
+        /// slot's list opens there, the help bar and, under both, the item window with the item under the cursor.
+        /// </summary>
+        public static void DrawMannequin(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont, StockUiOpenMenu menu,
+            StockUiPlacement placement, long timestamp, StockUiScreen screen)
+        {
+            float s = placement.Scale;
+            var frame = menu.Menu.Frame;
+            StockUiItemGrid.Draw(renderer, menu.ItemLookup, menu.Menu, placement, menu.MannequinItemIn);
+            if (!menu.IsListOpen && library.TryGetMenu(StockUiItems.ListMenu, out var inventor))
+            {
+                var at = StockUiWindowPlacement.Beside(placement, frame, StockUiMogHouse.MannequinListX, inventor.Frame.Y);
+                DrawCompanion(renderer, library, font, menu, inventor, at, menu.CompanionRows);
+            }
+            if (menu.ItemHelpBar is { } bar) DrawHelpBar(renderer, library, font, logFont, menu, bar, placement, screen);
+            if (!menu.IsListOpen) DrawDescription(renderer, library, font, logFont, menu, placement, timestamp, frame.X, placement.Y + (DescriptionTop - frame.Y) * s, emptyWhenNone: true);
+        }
+
         /// <summary>The stats side (<c>persona</c>, authored at 16,48 left of the grid), as the retail capture lays it out.</summary>
         internal static void DrawStats(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiOpenMenu menu, StockUiPlacement placement)
         {

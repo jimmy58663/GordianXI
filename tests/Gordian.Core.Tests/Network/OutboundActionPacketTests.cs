@@ -238,18 +238,19 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
-        public async Task UnityMenu_SendsBlockZeroThenBlockOne()
+        public async Task UnityMenu_SendsBlockOneThenBlockZero()
         {
+            // The retail client's order on local LandSandBoat, 2026-11-07: kind 1, then kind 0.
             await _progressionModule.SendUnityMenuAsync();
 
             Assert.Equal(2, _sent.Count);
-            for (uint block = 0; block < 2; block++)
+            for (int i = 0; i < 2; i++)
             {
-                byte[] p = _sent[(int)block];
+                byte[] p = _sent[i];
                 Assert.True(PacketHeader.TryParse(p, out var header));
                 Assert.Equal(0x116, header.PacketId);
                 Assert.Equal(8, p.Length);
-                Assert.Equal(block, BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(4)));
+                Assert.Equal((uint)(1 - i), BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(4)));
             }
         }
 

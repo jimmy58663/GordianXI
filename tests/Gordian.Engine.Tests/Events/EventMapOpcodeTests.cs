@@ -95,6 +95,38 @@ namespace Gordian.Engine.Tests.Events
         }
 
         [Fact]
+        public void TheQueryMap_OpensOnThePointsFloor_AndShowsSurvivalGuides()
+        {
+            // #481: Castle Zvahl Keep's home point (global 58) is on the zone's map 4, not its first floor.
+            var state = EventMapState.Closed
+                .WithQueryEntry(0, new EventQueryMapEntry(1, EventQueryMapEntry.HomePointKind, 58, 0, 0, 0))
+                .WithQueryEntry(1, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, Gordian.Core.Resources.Tables.SurvivalGuides.ListNumberOf(0), 0, 0, 0))
+                .WithQueryEntry(2, new EventQueryMapEntry(1, EventQueryMapEntry.SurvivalGuideKind, 162, 0, 0, 0))
+                .WithQueryEntry(3, new EventQueryMapEntry(1, EventQueryMapEntry.HomePointKind, 82, 0, 0, 0))
+                .WithQueryMap();
+            var homePoint = state.Focus(0)!;
+            Assert.Equal((162, 4), (homePoint.Zone, homePoint.MapNumber));
+            // #479: kind 2 is the survival guides: Northern San d'Oria's guide, with the book and its label.
+            var guide = state.Focus(1)!;
+            Assert.Equal((231, 0), (guide.Zone, guide.MapNumber));
+            Assert.Equal(-174f, guide.X!.Value, 3);
+            Assert.Equal(80f, guide.Z!.Value, 3);
+            Assert.Equal(EventMapPin.SurvivalGuide, guide.Pin);
+            Assert.Equal(EventMapState.SurvivalGuideLabel, Assert.Single(guide.Markers).Name);
+            // The maintainer's log of round 1: West Ronfaure's list sends 162 for Fort Ghelsba's guide (zone 141).
+            Assert.Equal(141, state.Focus(2)!.Zone);
+            // Pso'Xja's home point stands on a floor without a map: retail writes "There is no map for this area.".
+            Assert.Equal(EventMapFocus.NoMap, state.Focus(3)!.MapNumber);
+            // Its chat line comes once each time the cursor reaches it, not every frame.
+            int? shown = null;
+            Assert.False(state.CameToNoMap(2, ref shown));
+            Assert.True(state.CameToNoMap(3, ref shown));
+            Assert.False(state.CameToNoMap(3, ref shown));
+            Assert.False(state.CameToNoMap(2, ref shown));
+            Assert.True(state.CameToNoMap(3, ref shown));
+        }
+
+        [Fact]
         public void TheEventMap_CentresOnTheLastMarker_UntilItCloses()
         {
             var state = EventMapState.Closed.Open(230, 0);

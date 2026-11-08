@@ -29,6 +29,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Merit Points' Mode Switch list (<c>merit2</c>): sends the merit mode (the Argument: 0 EXP, 1 Limit Points).</summary>
         MeritMode,
 
+        /// <summary>A Status entry of #491 (the Argument is a <see cref="StockUiProgressionAction"/>): merit categories, Raise / Lower, Unity.</summary>
+        Progression,
+
         /// <summary>Main menu Map: opens the Map window on the zone's map (<see cref="StockUiMap"/>).</summary>
         Map,
 
@@ -191,6 +194,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Region Info's Conquest: the conquest page for the current region (<see cref="StockUiConquest"/>, #488).</summary>
         RegionConquest,
 
+        /// <summary>Region Info's Besieged, Campaign or Colonization map (#492); the argument is the <c>RegionMap</c>.</summary>
+        RegionMapPage,
+
         /// <summary>
         /// A Party menu entry that runs through the party commands (#489, <see cref="StockUiParty"/>); the Argument is a
         /// <see cref="StockUiPartyAction"/>, with the value it sets in its upper bits (<see cref="StockUiParty.Action"/>).
@@ -202,6 +208,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>A Search, Linkshell or Communication entry (#490, <see cref="StockUiSearch"/>); the Argument packs a <see cref="StockUiSearchAction"/>.</summary>
         SearchAction,
+
+        /// <summary>A Mog House menu entry (#93, <see cref="StockUiMogHouse"/>); the Argument is a <see cref="StockUiMogHouseAction"/>.</summary>
+        MogHouseAction,
     }
 
     /// <summary>
@@ -286,9 +295,9 @@ namespace Gordian.Engine.Ui
             [(StockUiQuestLog.GroupMenu, 7)] = new("Adoulin", Command: StockUiMenuCommand.MissionGroup, Argument: 7),
             [(StockUiQuestLog.GroupMenu, 6)] = new("Add-ons", Command: StockUiMenuCommand.MissionGroup, Argument: 6),
             [(StockUiConquest.RegionMenu, StockUiConquest.ConquestButton)] = new("Conquest", Command: StockUiMenuCommand.RegionConquest),
-            [(StockUiConquest.RegionMenu, StockUiConquest.BesiegedButton)] = new("Besieged", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiConquest.RegionMenu, StockUiConquest.CampaignButton)] = new("Campaign", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiConquest.RegionMenu, StockUiConquest.ColonizationButton)] = new("Colonization", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiConquest.RegionMenu, StockUiConquest.BesiegedButton)] = new("Besieged", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Besieged),
+            [(StockUiConquest.RegionMenu, StockUiConquest.CampaignButton)] = new("Campaign", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Campaign),
+            [(StockUiConquest.RegionMenu, StockUiConquest.ColonizationButton)] = new("Colonization", Command: StockUiMenuCommand.RegionMapPage, Argument: (int)Core.Resources.Tables.RegionMap.Colonization),
 
             // Macros ("mcrmenu", "Macro"): Edit Macro (help 829, #339) and Edit Equip. Set (help 830, #92).
             // View House (#23): mogcont's storages.
@@ -307,6 +316,34 @@ namespace Gordian.Engine.Ui
             [(StockUiViewHouse.MenuName, 13)] = new("Mog Wardrobe 6", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe6),
             [(StockUiViewHouse.MenuName, 14)] = new("Mog Wardrobe 7", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe7),
             [(StockUiViewHouse.MenuName, 15)] = new("Mog Wardrobe 8", Command: StockUiMenuCommand.ViewStorage, Argument: (int)Gordian.Core.Network.Packets.ContainerId.Wardrobe8),
+
+            // The Mog House (#93): the moogle's menu (myroom; mogext away from home), the Layout menus (rmlo1-4).
+            [(StockUiMogHouse.MoogleMenu, 1)] = StockUiMogHouse.Entry("Storage", StockUiMogHouseAction.Storages),
+            [(StockUiMogHouse.MoogleMenu, 2)] = StockUiMogHouse.Entry("Delivery Box", StockUiMogHouseAction.Delivery),
+            [(StockUiMogHouse.MoogleMenu, 3)] = StockUiMogHouse.Entry("Change Jobs", StockUiMogHouseAction.ChangeJobs),
+            [(StockUiMogHouse.MoogleMenu, 4)] = StockUiMogHouse.Entry("Gardening", StockUiMogHouseAction.Gardening),
+            [(StockUiMogHouse.MoogleMenu, 5)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Layout),
+            [(StockUiMogHouse.MoogleMenu, 6)] = StockUiMogHouse.Entry("Open Mog House", StockUiMogHouseAction.OpenHouse),
+            [(StockUiMogHouse.MoogleMenu, 7)] = StockUiMogHouse.Entry("Remodel", StockUiMogHouseAction.Remodel),
+            [(StockUiMogHouse.AwayMoogleMenu, 1)] = StockUiMogHouse.Entry("Storage", StockUiMogHouseAction.Storages),
+            [(StockUiMogHouse.AwayMoogleMenu, 2)] = StockUiMogHouse.Entry("Delivery Box", StockUiMogHouseAction.Delivery),
+            [(StockUiMogHouse.AwayMoogleMenu, 3)] = StockUiMogHouse.Entry("Change Jobs", StockUiMogHouseAction.ChangeJobs),
+            [(StockUiMogHouse.SafeMenu, 1)] = StockUiMogHouse.Entry("Mog Safe", StockUiMogHouseAction.PlaceFromSafe),
+            [(StockUiMogHouse.SafeMenu, 2)] = StockUiMogHouse.Entry("Mog Safe 2", StockUiMogHouseAction.PlaceFromSafe2),
+            [(StockUiMogHouse.LayoutFloorMenu, 1)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutFloorMenu, 2)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
+            [(StockUiMogHouse.LayoutFloorMenu, 3)] = StockUiMogHouse.Entry("Back", StockUiMogHouseAction.QuitLayout),
+            [(StockUiMogHouse.LayoutPieceMenu, 1)] = StockUiMogHouse.Entry("Rearrange", StockUiMogHouseAction.Move),
+            [(StockUiMogHouse.LayoutPieceMenu, 2)] = StockUiMogHouse.Entry("Remove", StockUiMogHouseAction.ClearAway),
+            [(StockUiMogHouse.LayoutPieceMenu, 3)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutPieceMenu, 4)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
+            [(StockUiMogHouse.ClearAllMenu, 1)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAllConfirm),
+            [(StockUiMogHouse.ClearAllMenu, 2)] = StockUiMogHouse.Entry("Exit", StockUiMogHouseAction.Return),
+            [(StockUiMogHouse.LayoutMannequinMenu, 1)] = StockUiMogHouse.Entry("Equip", StockUiMogHouseAction.Mannequin),
+            [(StockUiMogHouse.LayoutMannequinMenu, 2)] = StockUiMogHouse.Entry("Rearrange", StockUiMogHouseAction.Move),
+            [(StockUiMogHouse.LayoutMannequinMenu, 3)] = StockUiMogHouse.Entry("Remove", StockUiMogHouseAction.ClearAway),
+            [(StockUiMogHouse.LayoutMannequinMenu, 4)] = StockUiMogHouse.Entry("Layout", StockUiMogHouseAction.Place),
+            [(StockUiMogHouse.LayoutMannequinMenu, 5)] = StockUiMogHouse.Entry("Remove All", StockUiMogHouseAction.ClearAll),
 
             // Map (#23).
             [(StockUiMap.MenuName, StockUiMap.MarkersButton)] = new("Markers", Command: StockUiMenuCommand.NotAvailable),
@@ -328,13 +365,21 @@ namespace Gordian.Engine.Ui
             [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobPoints),
             [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.AlterEgoPoints),
             // Merit Points and Unity (#487): merit1, merit2 and ut_menu. Categories and the Unity lists are not done yet.
-            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritCategoriesButton)] = new("Categories", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritCategoriesButton)] = new("Categories", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritCategories),
+            [(StockUiProgression.MeritEditMenu, StockUiProgression.MeritRaiseButton)] = new("Raise", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritRaise),
+            [(StockUiProgression.MeritEditMenu, StockUiProgression.MeritLowerButton)] = new("Lower", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritLower),
             [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritModeSwitchButton)] = new("Mode Switch", Opens: StockUiStatusPages.MeritModeMenu),
             [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeExpButton)] = new("EXP", Command: StockUiMenuCommand.MeritMode, Argument: 0),
             [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeLimitButton)] = new("Limit Points", Command: StockUiMenuCommand.MeritMode, Argument: 1),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityInfoButton)] = new("Unity Info", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityRankingButton)] = new("Ranking Info", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityListsButton)] = new("Unity Lists", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityInfoButton)] = new("Unity Info", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityInfo),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityRankingButton)] = new("Ranking Info", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityRanking),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityListsButton)] = new("Unity Lists", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityLists),
 
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),

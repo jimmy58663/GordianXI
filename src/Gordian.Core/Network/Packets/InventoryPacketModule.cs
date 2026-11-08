@@ -203,6 +203,8 @@ namespace Gordian.Core.Network.Packets
             if (!p.IsValid) return;
 
             GordianLog.Info("INVENTORY", $"Subcontainer item in {p.Container} slot {p.Slot}: Head={p.ModelIdHead}, Body={p.ModelIdBody}");
+            _inventoryState.SetMannequinLook(p.Container, p.Slot, new MannequinLook(p.ModelIdHead, p.ModelIdBody, p.ModelIdHands, p.ModelIdLegs, p.ModelIdFeet,
+                p.ModelIdMain, p.ModelIdSub, p.ModelIdRange, p.Race, p.Pose));
         }
 
         private void HandleShopList(PacketHeader header, ReadOnlySpan<byte> payload)
