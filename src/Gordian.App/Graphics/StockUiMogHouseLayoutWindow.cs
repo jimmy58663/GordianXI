@@ -18,7 +18,13 @@ namespace Gordian.App.Graphics
     {
         private static readonly UiColor GridColor = new(0x48, 0x38, 0x70, 0x60);
         private static readonly UiColor FootprintColor = new(0x78, 0x48, 0x60, 0x80);
-        private static readonly UiColor RefusedColor = new(0x80, 0x18, 0x18, 0x80);
+        private static readonly UiColor RefusedColor = new(0x58, 0x58, 0x58, 0x80);
+
+        /// <summary>
+        /// How far each cell's inner square sits inside its edges where the piece can go: retail draws a placeable footprint (or wall
+        /// frame) in pink double lines and a refused one in plain grey single lines (retail, 2026-11-07, an Oak Bed over a mannequin).
+        /// </summary>
+        private const float InsetYalms = 0.05f;
 
         /// <summary>A wall section's frame: half its length along the wall and its height range (video at 0:36, <b>provisional</b>).</summary>
         private const float WallHalf = 2.4f, WallBottom = 0.6f, WallTop = 4.4f;
@@ -44,7 +50,9 @@ namespace Gordian.App.Graphics
                 {
                     DrawGrid(renderer, layout, view, line);
                     var (w, d) = MogHouseFurniture.Footprint(info, layout.Rotation);
-                    DrawCells(renderer, layout, view, layout.HeldX, layout.HeldZ, w, d, layout.HeldLevel() * 0.1f, layout.CanPlaceHeld() ? FootprintColor : RefusedColor, line);
+                    float y = layout.HeldLevel() * 0.1f;
+                    if (layout.CanPlaceHeld()) DrawDoubleCells(renderer, layout, view, layout.HeldX, layout.HeldZ, w, d, y, line);
+                    else DrawCells(renderer, layout, view, layout.HeldX, layout.HeldZ, w, d, y, RefusedColor, line);
                 }
             }
             else if (layout.Selected is { } shown && hasModel?.Invoke(shown.ItemId) == false && !layout.InfoFor(shown.ItemId).IsWall)
@@ -81,12 +89,42 @@ namespace Gordian.App.Graphics
             for (int z = z0; z <= z0 + d; z++) Segment(renderer, view, Corner(x0, z, second, y), Corner(x0 + w, z, second, y), color, line);
         }
 
+        /// <summary>A placeable footprint: its outline, and each cell's square a little inside it.</summary>
+        private static void DrawDoubleCells(StockUiRenderer renderer, MogHouseLayoutState layout, in Projection view, int x0, int z0, int w, int d, float y, float line)
+        {
+            bool second = layout.SecondFloor;
+            Rectangle(renderer, view, Corner(x0, z0, second, y), Corner(x0 + w, z0 + d, second, y), 0f, line);
+            for (int x = x0; x < x0 + w; x++)
+            {
+                for (int z = z0; z < z0 + d; z++) Rectangle(renderer, view, Corner(x, z, second, y), Corner(x + 1, z + 1, second, y), InsetYalms, line);
+            }
+        }
+
+        /// <summary>A flat square between two opposite corners, drawn <paramref name="inset"/> yalms inside them.</summary>
+        private static void Rectangle(StockUiRenderer renderer, in Projection view, Vector3 p, Vector3 q, float inset, float line)
+        {
+            float x0 = MathF.Min(p.X, q.X) + inset, x1 = MathF.Max(p.X, q.X) - inset;
+            float z0 = MathF.Min(p.Z, q.Z) + inset, z1 = MathF.Max(p.Z, q.Z) - inset;
+            Vector3 a = new(x0, p.Y, z0), b = new(x1, p.Y, z0), c = new(x1, p.Y, z1), d = new(x0, p.Y, z1);
+            Segment(renderer, view, a, b, FootprintColor, line);
+            Segment(renderer, view, b, c, FootprintColor, line);
+            Segment(renderer, view, c, d, FootprintColor, line);
+            Segment(renderer, view, d, a, FootprintColor, line);
+        }
+
         private static void DrawWallFrame(StockUiRenderer renderer, MogHouseLayoutState layout, in Projection view, float line)
         {
             if (layout.HeldTransform()?.Translation is not { } at) return;
-            Vector3 a = new(at.X, WallBottom, at.Z - WallHalf), b = new(at.X, WallBottom, at.Z + WallHalf);
-            Vector3 c = new(at.X, WallTop, at.Z + WallHalf), d = new(at.X, WallTop, at.Z - WallHalf);
-            var color = layout.CanPlaceHeld() ? FootprintColor : RefusedColor;
+            bool placeable = layout.CanPlaceHeld();
+            var color = placeable ? FootprintColor : RefusedColor;
+            WallRectangle(renderer, view, at, 0f, color, line);
+            if (placeable) WallRectangle(renderer, view, at, InsetYalms * 4f, color, line);
+        }
+
+        private static void WallRectangle(StockUiRenderer renderer, in Projection view, Vector3 at, float inset, UiColor color, float line)
+        {
+            Vector3 a = new(at.X, WallBottom + inset, at.Z - WallHalf + inset), b = new(at.X, WallBottom + inset, at.Z + WallHalf - inset);
+            Vector3 c = new(at.X, WallTop - inset, at.Z + WallHalf - inset), d = new(at.X, WallTop - inset, at.Z - WallHalf + inset);
             Segment(renderer, view, a, b, color, line);
             Segment(renderer, view, b, c, color, line);
             Segment(renderer, view, c, d, color, line);

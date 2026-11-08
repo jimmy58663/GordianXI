@@ -247,8 +247,9 @@ Dates in the evidence column are the dates the docs give.
 | Walls at x +-6.5; wall pieces 2.5 up; slots at z +-4.8, 0 | `MogHouseFurniture` | video and XiPackets' slot diagram, provisional |
 | Mannequin spin 2.0 s per turn, clockwise from above | `MogHouseMannequins.SpinSecondsPerTurn` | retail capture `Mog_House_Mannequin_Spin.mp4`, 2026-11-06 |
 | Mannequin window view 2.8 yalms away | `MogHouseLayoutCamera.MannequinDistance` | same capture: body about 60% of the screen's height at the 60 degree field of view; heights 1.3 / 1.1 provisional |
-| Mannequin faces wire direction 128 - 64 x rotation | `MogHouseMannequins.FacingOf` | retail 0x0FA packets and images, 2026-11-06: v2 east, v1 south measured; v0 west, v3 north from images only |
-| A menu press lowers the rotation by 1 | `MogHouseLayoutState.TurnHeld` | retail 0x0FA packets, 2026-11-06 (v2 to v1) |
+| Mannequin faces wire direction 64 x rotation (v0 east, v1 south) | `MogHouseMannequins.FacingOf` | retail, 2026-11-07: v0 and v1 seen side on from the room, against 0x0FA packets |
+| A menu press lowers the rotation by 1, an anticlockwise turn from above; a mesh turns clockwise as v rises | `MogHouseLayoutState.TurnHeld`, `MogHouseFurniture.FloorTransform` | retail 0x0FA packets, 2026-11-06/07: Oak Bed headboard N, E, S, W at v0-v3 |
+| First-floor wall slots: east 0 north, 1 south; west 2 south, 3 middle, 4 north | `MogHouseFurniture.WallSlotToward` | XiPackets' diagram; slot 1 confirmed by retail 0x0FA, 2026-11-07 |
 | Ceiling left out above 4.9 yalms | `MogHouseFurnitureScene.CeilingHeight` | San d'Oria room's meshes (`m_san01_b` 5-7.4, lamp from 4.6) |
 
 ## Player size

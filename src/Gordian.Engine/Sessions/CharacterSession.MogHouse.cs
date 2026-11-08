@@ -39,14 +39,10 @@ namespace Gordian.Engine.Sessions
         private void SyncMannequins() => _mannequins?.Sync(World.MogHouseRoom != 0);
 
         /// <summary>
-        /// Whether Mog Safe 2 is open. The server does not say: LandSandBoat gives every character the container, and the flag
-        /// (<c>mhflag</c> 0x20) that the unlock cutscene sets never reaches the client. So: the three quests done (the cutscene follows
-        /// at home), or the safe in use, or the second floor.
+        /// Whether Mog Safe 2 is open: it has a size in S2C 0x01C. The retail client lights it for a character with none of the
+        /// unlock quests when the server gives it a size (2026-11-07, LandSandBoat sends 50 to everyone), so the size is its signal.
         /// </summary>
-        private bool MogSafe2Unlocked =>
-            StockUiMogHouse.Safe2Quests.All(q => Progression.IsQuestComplete(q.Area, q.Quest))
-            || ActionService.Menus.MogHouseLayout.SecondFloor
-            || Inventory.SnapshotItems(ContainerId.MogSafe2).Any(i => i.ItemId != 0);
+        private bool MogSafe2Unlocked => StockUiItems.IsAvailable(Inventory, ContainerId.MogSafe2);
 
         /// <summary>A frame of the Mog House view: the Layout's camera, and the mannequin spinning while its window is open.</summary>
         public void UpdateMogHouseView(float seconds)

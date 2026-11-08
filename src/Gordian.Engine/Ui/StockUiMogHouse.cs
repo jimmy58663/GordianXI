@@ -95,15 +95,6 @@ namespace Gordian.Engine.Ui
         /// <summary><c>bankmenu</c>'s Mog Safe 2 button; <c>mogcont</c>'s is 8.</summary>
         public const int SafeMenuSafe2Button = 2, ViewHouseSafe2Button = 8;
 
-        /// <summary>
-        /// The Quests that open Mog Safe 2 and the second floor: Growing Flowers (San d'Oria 58), A Lady's Heart (Bastok 50) and
-        /// Flower Child (Windurst 65); returning home then plays a cutscene (LandSandBoat <c>moghouse.lua</c>; the maintainer, round 2).
-        /// </summary>
-        public static readonly IReadOnlyList<(QuestLogArea Area, int Quest)> Safe2Quests = new[]
-        {
-            (QuestLogArea.SandOria, 58), (QuestLogArea.Bastok, 50), (QuestLogArea.Windurst, 65),
-        };
-
         /// <summary>The menus that stand on the log window, as the command menu does (round 2).</summary>
         public static bool StandsOnLog(string menuName) =>
             menuName is MoogleMenu or AwayMoogleMenu or LayoutFloorMenu or LayoutPieceMenu or ClearAllMenu or LayoutMannequinMenu;
@@ -388,7 +379,12 @@ namespace Gordian.Engine.Ui
             if (HeldInfo is not { } info) return;
             if (info.IsWall)
             {
-                int slots = SecondFloor ? MogHouseFurniture.SecondFloorWallSlots : MogHouseFurniture.FirstFloorWallSlots;
+                if (!SecondFloor)
+                {
+                    HeldX = MogHouseFurniture.WallSlotToward(HeldX, dx, dz);
+                    return;
+                }
+                int slots = MogHouseFurniture.SecondFloorWallSlots;
                 HeldX = (HeldX + (dx + dz > 0 ? 1 : slots - 1)) % slots;
                 return;
             }
@@ -400,7 +396,7 @@ namespace Gordian.Engine.Ui
         internal void TurnHeld()
         {
             if (HeldInfo is not { IsWall: false }) return;
-            Rotation = (byte)((Rotation + 3) & 3); // a press lowers v (retail 0x0FA, 2026-11-06)
+            Rotation = (byte)((Rotation + 3) & 3); // a press lowers v, an anticlockwise turn from above (retail 0x0FA, 2026-11-06/07)
             ClampHeld();
         }
 

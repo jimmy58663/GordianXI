@@ -133,6 +133,20 @@ namespace Gordian.Core.Tests.World
         }
 
         [Fact]
+        public void WallSlots_AreWalkedByPlace()
+        {
+            // East: 0 north, 1 south. West: 2 south, 3 middle, 4 north (retail 0x0FA, 2026-11-07: slot 1 on the east wall's south end).
+            Assert.Equal(1, MogHouseFurniture.WallSlotToward(0, 0, -1));
+            Assert.Equal(0, MogHouseFurniture.WallSlotToward(0, 0, 1));
+            Assert.Equal(4, MogHouseFurniture.WallSlotToward(0, -1, 0));
+            Assert.Equal(2, MogHouseFurniture.WallSlotToward(1, -1, 0));
+            Assert.Equal(1, MogHouseFurniture.WallSlotToward(2, 1, 0));
+            Assert.Equal(2, MogHouseFurniture.WallSlotToward(2, -1, 0));
+            Assert.Equal(3, MogHouseFurniture.WallSlotToward(2, 0, 1));
+            Assert.Equal(4, MogHouseFurniture.WallSlotToward(3, 0, 1));
+        }
+
+        [Fact]
         public void Placement_PutsTheMeshAtTheFootprintsMiddle()
         {
             var bed = new FurnitureInfo(FurnitureFlags.Floor, 4, 6, 70);

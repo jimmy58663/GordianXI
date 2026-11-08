@@ -27,10 +27,11 @@ namespace Gordian.Engine.Ui
         public const float SpinSecondsPerTurn = 2f;
 
         /// <summary>
-        /// The wire direction a mannequin faces at rotation 0, west; each step of rotation is a quarter turn back from it: v2 faces
-        /// east, v1 south, v3 north (retail, 2026-11-06: v2 east and v1 south against 0x0FA packets, v0 and v3 from the images).
+        /// The wire direction a mannequin faces at rotation 0, east; each step of rotation is a quarter turn clockwise from above, as
+        /// furniture turns: v1 faces south, v2 west, v3 north (retail, 2026-11-07: v0 east and v1 south seen side on from the room,
+        /// against the 0x0FA packets).
         /// </summary>
-        private const byte FacingAtRotationZero = 128;
+        private const byte FacingAtRotationZero = 0;
 
         private readonly WorldState _world;
         private readonly InventoryState _inventory;
@@ -104,7 +105,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>The wire direction a mannequin stands at for a 0x0FA rotation.</summary>
-        public static byte FacingOf(int rotation) => (byte)(FacingAtRotationZero - rotation * 64);
+        public static byte FacingOf(int rotation) => (byte)(FacingAtRotationZero + rotation * 64);
 
         /// <summary>The race in the item's extra data, which wins over the item id: retail's item 260 held Hume (2026-11-06).</summary>
         private byte RaceInExtData(FurniturePlacement piece) =>

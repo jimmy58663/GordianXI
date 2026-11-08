@@ -110,7 +110,10 @@ namespace Gordian.Core.World
         /// <summary>How high a wall piece's origin hangs (<b>provisional</b>: the top-down video does not show it).</summary>
         public const float WallHeight = 2.5f;
 
-        /// <summary>The first floor's wall slots' places along the walls: slots 0-1 on the east wall, 2-4 on the west (XiPackets' diagram).</summary>
+        /// <summary>
+        /// The first floor's wall slots' places along the walls: slots 0-1 on the east wall (north, south), 2-4 on the west (south,
+        /// middle, north) (XiPackets' diagram; slot 1 on the east wall's south end confirmed by retail 0x0FA, 2026-11-07).
+        /// </summary>
         private static readonly (bool East, float Z)[] FirstFloorWalls = { (true, 4.8f), (true, -4.8f), (false, -4.8f), (false, 0f), (false, 4.8f) };
 
         /// <summary>A cell corner's place on the floor, internal space: x east, z north (the room's middle is the origin).</summary>
@@ -132,6 +135,41 @@ namespace Gordian.Core.World
             var (w, d) = Footprint(info, rotation);
             var (cx, cz) = CellCorner(x + w / 2f, z + d / 2f, secondFloor);
             return Matrix4x4.CreateRotationY(-rotation * MathF.PI / 2) * Matrix4x4.CreateTranslation(-cx, level * 0.1f, cz);
+        }
+
+        /// <summary>
+        /// The first-floor wall slot a direction leads to from <paramref name="slot"/>, as retail moves a wall piece (2026-11-07): Up
+        /// and Down go to the next slot north or south on the same wall, Left and Right to the west or east wall's slot nearest the
+        /// same place; the same slot when there is none that way.
+        /// </summary>
+        public static int WallSlotToward(int slot, int dx, int dz)
+        {
+            if (slot < 0 || slot >= FirstFloorWalls.Length) return 0;
+            var (east, z) = FirstFloorWalls[slot];
+            int best = slot;
+            float bestDistance = float.MaxValue;
+            for (int i = 0; i < FirstFloorWalls.Length; i++)
+            {
+                var (otherEast, otherZ) = FirstFloorWalls[i];
+                float distance;
+                if (dx != 0)
+                {
+                    if (otherEast != dx > 0 || otherEast == east) continue;
+                    distance = MathF.Abs(otherZ - z);
+                }
+                else if (dz != 0)
+                {
+                    if (otherEast != east || (otherZ - z) * dz <= 0) continue;
+                    distance = MathF.Abs(otherZ - z);
+                }
+                else continue;
+                if (distance < bestDistance)
+                {
+                    best = i;
+                    bestDistance = distance;
+                }
+            }
+            return best;
         }
 
         /// <summary>A first-floor wall slot's place, display space, its mesh's back on the wall and facing into the room; null for a slot with no known place.</summary>

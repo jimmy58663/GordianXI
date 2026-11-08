@@ -373,17 +373,22 @@ namespace Gordian.Engine.Tests.Ui
             for (int i = 0; i < 200 && h.House.Sent.Count < 2; i++) Task.Delay(5).Wait();
             Assert.Equal(new[] { $"0x0FA {Vase} {(byte)ContainerId.MogSafe}:5 f0 4,10,9 r0", $"0x0FA {OakTable} {(byte)ContainerId.MogSafe}:4 f0 3,0,8 r0" }, h.House.Sent);
 
-            // A wall piece: the slots, not the cells; the rotation stays 0.
+            // A wall piece: the slots, not the cells, moved as retail moves them (Up / Down along a wall, Left / Right across).
             h.Menus.ConfirmLayoutCell();
             h.Choose(3);
             h.Choose(1);
             h.Pick(Flag);
-            Assert.Equal(0, layout.HeldX);
+            Assert.Equal(0, layout.HeldX); // east wall, north
             h.Menus.MoveLayoutCursor(1, 0);
-            Assert.Equal(1, layout.HeldX);
+            Assert.Equal(0, layout.HeldX); // no wall further east
+            h.Menus.MoveLayoutCursor(0, -1);
+            Assert.Equal(1, layout.HeldX); // east wall, south
             h.Menus.MoveLayoutCursor(-1, 0);
-            h.Menus.MoveLayoutCursor(-1, 0);
-            Assert.Equal(4, layout.HeldX);
+            Assert.Equal(2, layout.HeldX); // west wall, south
+            h.Menus.MoveLayoutCursor(0, 1);
+            h.Menus.MoveLayoutCursor(0, 1);
+            h.Menus.MoveLayoutCursor(0, 1);
+            Assert.Equal(4, layout.HeldX); // west wall, north, and no further
             h.Menus.TurnHeldPiece();
             h.Menus.ConfirmLayoutCell();
             Assert.Equal($"0x0FA {Flag} {(byte)ContainerId.MogSafe}:6 f0 4,0,0 r0", h.House.Sent.Last());
@@ -512,7 +517,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(0x1012, shown.Appearance.Head);
             Assert.Equal((3 << 8) | MogHouseMannequins.FaceModel, shown.Appearance.FaceModel);
             Assert.Equal(MogHouseMannequins.FacingOf(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin).Rotation), shown.Direction);
-            Assert.Equal(new byte[] { 128, 64, 0, 192 }, new[] { 0, 1, 2, 3 }.Select(MogHouseMannequins.FacingOf)); // W, S, E, N
+            Assert.Equal(new byte[] { 0, 64, 128, 192 }, new[] { 0, 1, 2, 3 }.Select(MogHouseMannequins.FacingOf)); // E, S, W, N
             byte facing = shown.Direction;
             mannequins.Spin(h.Menus.MogHouseLayout.Pieces.Single(p => p.ItemId == HumeMannequin), MogHouseMannequins.SpinSecondsPerTurn / 4);
             Assert.Equal((byte)(facing + 64), shown.Direction);
