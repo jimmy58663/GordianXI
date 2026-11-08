@@ -137,6 +137,85 @@ namespace Gordian.Core.Tests.World
             Assert.Contains(merged.Triangles.ToArray(), t => t.A.X == -10f);
         }
 
+        /// <summary>
+        /// Bastok Metalworks (#468): interior 310 (<c>m6li</c>) is a room 0.56 to 8 yalms below the street, under the street
+        /// from X -35.6 to -20.6. The merge kept the zone's walls and floors within a yalm above an interior's top, so the
+        /// street over it went: the maintainer was stopped at X -20 (no floor under the next step) and, going round, fell to
+        /// Elayne's floor. The street stays now, and the basement keeps its floor.
+        /// </summary>
+        [Fact]
+        public void Metalworks_StreetOverTheBasementRoom_StaysAFloor()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var zone = rm.TryLoadZoneCollision(237)!;
+            var basement = rm.TryLoadSubAreaCollision(310)!;
+            Assert.InRange(basement.MinBounds.Y, 0.5f, 0.6f);
+            var merged = ZoneCollisionMesh.Merge(zone, new[] { basement });
+
+            int streetPoints = 0;
+            for (float x = -34f; x <= -20f; x += 1f)
+            {
+                for (float z = -5f; z <= 5f; z += 1f)
+                {
+                    var feet = new Vector3(x, 0f, z);
+                    if (!zone.TryGetGround(feet, 0.5f, 60f, out var street) || MathF.Abs(street.Height) > 0.01f) continue;
+                    streetPoints++;
+                    Assert.True(merged.TryGetGround(feet, 0.5f, 60f, out var kept), $"no ground at ({x}, {z})");
+                    Assert.True(MathF.Abs(kept.Height) < 0.01f, $"ground {kept.Height} at ({x}, {z})");
+                }
+            }
+            Assert.True(streetPoints > 60, $"{streetPoints} street points");
+            Assert.True(merged.TryGetGround(new Vector3(-27f, 7.5f, 0f), 0.5f, 60f, out var floor));
+            Assert.Equal(8f, floor.Height, 0.01f);
+        }
+
+        /// <summary>
+        /// Northern San d'Oria's Carpenters' Guild (round 2): Andreas stands on a platform at 11, up steps from the room's main
+        /// floor at 12 (interior 349; retail client on LandSandBoat, 2026-11-06). The zone's closed building has only the 12, and
+        /// the entity pass grounded him on the zone's mesh, a yalm into the platform.
+        /// </summary>
+        [Fact]
+        public void CarpentersGuild_CharactersStandOnTheRoomsFloor()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var zone = rm.TryLoadZoneCollision(231)!;
+            var merged = ZoneCollisionMesh.Merge(zone, new[] { rm.TryLoadSubAreaCollision(349)! });
+            var andreas = new Vector3(-189.282f, 10.999f, 262.626f);
+            Assert.Equal(12f, EntityGrounding.GetDisplayHeight(andreas, zone), 0.01f);
+            Assert.Equal(11f, EntityGrounding.GetDisplayHeight(andreas, merged), 0.01f);
+        }
+
+        [Fact]
+        public void Merge_MarksTheInteriorsTrianglesAsIndoors()
+        {
+            var street = Floor(-10, -10, 10, 10);
+            var room = Floor(20, 20, 30, 30, 1f);
+            var merged = ZoneCollisionMesh.Merge(street, new[] { room });
+            Assert.All(street.Triangles.ToArray(), t => Assert.False(t.Interior));
+            Assert.Equal(room.Triangles.Length, merged.Triangles.ToArray().Count(t => t.Interior));
+            Assert.True(merged.TryGetGround(new Vector3(25, 0, 25), 2f, 4f, out var hit));
+            Assert.True(merged.Triangles[hit.TriangleIndex].Interior);
+        }
+
+        [Fact]
+        public void CollisionFor_AddsTheInteriorsOnlyForTheWorldsOwnZone()
+        {
+            var zone = Floor(-10, -10, 10, 10);
+            var merged = Floor(-10, -10, 10, 10, 1f);
+            var otherZone = Floor(-10, -10, 10, 10, 2f);
+            var world = new WorldState { Collision = zone };
+
+            Assert.Same(zone, world.CollisionFor(zone));
+            world.SetSubAreaCollision(zone, merged);
+            Assert.Same(merged, world.CollisionFor(zone));
+            Assert.Same(otherZone, world.CollisionFor(otherZone));
+            Assert.Null(world.CollisionFor(null));
+        }
+
         [Fact]
         public void LowerJeuno_StablesRoom_HasNoZoneWallWhereTheMaintainerWasBlocked()
         {
@@ -149,13 +228,12 @@ namespace Gordian.Core.Tests.World
             var merged = ZoneCollisionMesh.Merge(zone, interiors);
             // !pos -87.19 -0.10 -186.15 245: every wall within 1.5 yalms there is an interior's own.
             var at = new Vector3(-87.19f, -0.10f, -186.15f);
-            var interiorWalls = new HashSet<CollisionTriangle>(interiors.SelectMany(i => i.Triangles.ToArray()));
             foreach (var triangle in merged.Triangles)
             {
                 if (MathF.Abs(triangle.Normal.Y) > 0.5f) continue;
                 var centroid = (triangle.A + triangle.B + triangle.C) / 3f;
                 if (Vector2.Distance(new Vector2(centroid.X, centroid.Z), new Vector2(at.X, at.Z)) > 1.5f || MathF.Abs(centroid.Y - at.Y) > 2f) continue;
-                Assert.Contains(triangle, interiorWalls);
+                Assert.True(triangle.Interior, $"a zone wall at {centroid}");
             }
         }
 

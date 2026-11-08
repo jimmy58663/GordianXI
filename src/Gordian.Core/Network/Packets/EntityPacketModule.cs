@@ -536,7 +536,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew)
             {
                 GordianLog.Debug("ENTITY", $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
-                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} " +
+                    $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} sub={npcPacket.AnimationSub} " +
                     $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
 

@@ -602,8 +602,11 @@ namespace Gordian.App.Graphics
                 // follows its seat (round 2: the bob, idle included). A mount left from the last frame frees its palette.
                 bool isLocalEntity = entity.ServerId == localPlayerServerId;
                 bool engagedNow = isLocalEntity ? isLocalPlayerEngaged : (entity.ClaimServerId != 0 || entity.AnimationState == 1);
+                // Once per frame in wall time, however many viewports draw this world (#307). The rider and its mount advance
+                // by the same claim, so a gait of the same length stays in phase (#499).
+                float frameSeconds = entity.Animation.ClaimFrameTime(deltaSeconds);
                 var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
-                    ? PrepareMount(cl, entity, mountFrame, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, deltaSeconds)
+                    ? PrepareMount(cl, entity, mountFrame, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, frameSeconds)
                     : null;
                 var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
                 if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
@@ -673,8 +676,7 @@ namespace Gordian.App.Graphics
                     // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion.
                     if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
                     {
-                        // Once per frame in wall time, however many viewports draw this world (#307).
-                        entity.Animation.Advance(entity.Animation.ClaimFrameTime(deltaSeconds), category, entity.AnimationSub, skinnedModel);
+                        entity.Animation.Advance(frameSeconds, category, entity.AnimationSub, skinnedModel);
                     }
                     else
                     {
