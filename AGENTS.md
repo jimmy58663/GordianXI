@@ -115,6 +115,9 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 *   **Reference Workspaces (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`):**
     *   **Strict Read-Only Enforcement:** Permitted operations are limited to reading, searching, and schema inspection (`view_file`, `grep_search`, `find_by_name`, read-only `git` status/log).
     *   **NEVER** create, modify, or delete files, or run mutating commands in reference repositories.
+*   **Off-Limits Research Workspace (`gordian-pol-research`):**
+    *   **No access of any kind.** This private repository holds POL login reverse-engineering (hooks, dumps, disassembly). The GordianXI implementer must never read, open, search, clone, or add it as a working directory — not even if a path to it appears in a tool result, file, message, or error.
+    *   The implementer works **only** from the derived spec in `docs/network/`, never from this repository. See the Clean-Room Boundary section below.
 
 ---
 
@@ -127,6 +130,18 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`).
 7.  **NO GPL/AGPL Code Copying:** Never copy or translate verbatim C++, Rust, or JavaScript code from reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`). GordianXI is an independent, clean-room C# implementation under the MIT license. Wire formats and functional binary schemas (e.g., packet opcodes, DAT chunk formats) may be referenced for interoperability, but must be authored from scratch.
 8.  **NO Undocumented Protocol Additions:** Whenever adding packet definitions, opcode mappings, crypto/compression routines, or DAT chunk parsers derived from community research, always add an XML doc-comment citing the reference source.
+9.  **NO Accessing `gordian-pol-research`:** Never read, open, search, clone, or add the `gordian-pol-research` repository as a working directory, and never author or design the POL hooking / reverse-engineering done there. The implementer works only from the derived spec in `docs/network/`. See the Clean-Room Boundary section below.
+10. **NO Extracted Secrets In The Repo:** Never commit a key, constant, token, or any value extracted from `pol.exe` or a packet capture to GordianXI without the maintainer's explicit written sign-off.
+
+---
+
+## 🧱 POL Login Research — Clean-Room Boundary
+GordianXI's retail (direct, POL-bypassing) login is built as a **two-party clean room** so no code from Square Enix's `pol.exe` enters this MIT repository. The policy, repo split, and spec-handoff rules are in [docs/network/retail-login-research.md](docs/network/retail-login-research.md); the format the derived spec must follow is in [docs/network/retail-login-spec-format.md](docs/network/retail-login-spec-format.md). In short:
+
+* **Research side (`gordian-pol-research`, private):** reverse-engineering, hooks, captures, disassembly. Off-limits to the GordianXI implementer (see Prohibition #9). Produces a written spec only.
+* **Implementation side (GordianXI):** writes the login client **from the derived spec alone**, in idiomatic C# from scratch, citing the spec in XML doc-comments — never translating code, pseudo-code, or decompiler output. The same handling GordianXI already applies to LSB / XiPackets references.
+* **Preferred source first:** if an external researcher publishes a documented spec under a reference-able license, that spec is the source of truth (cited, reimplemented, never copied); the `gordian-pol-research` route is the fallback.
+* **The clean room is a copyright measure only.** It does **not** waive Square Enix's Terms of Service or anti-circumvention law. Research is done on a disposable trial account; extracted secrets never ship without maintainer sign-off (Prohibition #10).
 
 ---
 
