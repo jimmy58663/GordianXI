@@ -29,6 +29,9 @@ namespace Gordian.Engine.Ui
         /// <summary>Merit Points' Mode Switch list (<c>merit2</c>): sends the merit mode (the Argument: 0 EXP, 1 Limit Points).</summary>
         MeritMode,
 
+        /// <summary>A Status entry of #491 (the Argument is a <see cref="StockUiProgressionAction"/>): merit categories, Raise / Lower, Unity.</summary>
+        Progression,
+
         /// <summary>Main menu Map: opens the Map window on the zone's map (<see cref="StockUiMap"/>).</summary>
         Map,
 
@@ -331,13 +334,21 @@ namespace Gordian.Engine.Ui
             [(StockUiStatus.CommandMenu, StockUiStatus.JobPointsButton)] = new("Job Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.JobPoints),
             [(StockUiStatus.CommandMenu, StockUiStatus.AlterEgoButton)] = new("Alter Ego Points", Command: StockUiMenuCommand.StatusPage, Argument: (int)StockUiStatusPage.AlterEgoPoints),
             // Merit Points and Unity (#487): merit1, merit2 and ut_menu. Categories and the Unity lists are not done yet.
-            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritCategoriesButton)] = new("Categories", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritCategoriesButton)] = new("Categories", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritCategories),
+            [(StockUiProgression.MeritEditMenu, StockUiProgression.MeritRaiseButton)] = new("Raise", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritRaise),
+            [(StockUiProgression.MeritEditMenu, StockUiProgression.MeritLowerButton)] = new("Lower", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.MeritLower),
             [(StockUiStatusPages.MeritMenu, StockUiStatusPages.MeritModeSwitchButton)] = new("Mode Switch", Opens: StockUiStatusPages.MeritModeMenu),
             [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeExpButton)] = new("EXP", Command: StockUiMenuCommand.MeritMode, Argument: 0),
             [(StockUiStatusPages.MeritModeMenu, StockUiStatusPages.MeritModeLimitButton)] = new("Limit Points", Command: StockUiMenuCommand.MeritMode, Argument: 1),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityInfoButton)] = new("Unity Info", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityRankingButton)] = new("Ranking Info", Command: StockUiMenuCommand.NotAvailable),
-            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityListsButton)] = new("Unity Lists", Command: StockUiMenuCommand.NotAvailable),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityInfoButton)] = new("Unity Info", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityInfo),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityRankingButton)] = new("Ranking Info", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityRanking),
+            [(StockUiStatusPages.UnityMenu, StockUiStatusPages.UnityListsButton)] = new("Unity Lists", Command: StockUiMenuCommand.Progression,
+                Argument: (int)StockUiProgressionAction.UnityLists),
 
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditMacroButton)] = new("Edit Macro", Command: StockUiMenuCommand.MacroBooks),
             [(StockUiEquipSets.MacroMenu, StockUiEquipSets.EditEquipSetButton)] = new("Edit Equip. Set", Command: StockUiMenuCommand.EquipmentSets),

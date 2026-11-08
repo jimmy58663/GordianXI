@@ -72,6 +72,14 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(service.ApplyUiLayoutCommand("tp on").Success);
             Assert.True(layout.ShowPartyTp);
 
+            // Opt-in merit category totals (#491): off by default, as retail.
+            Assert.False(layout.ShowMeritCategoryTotals);
+            Assert.True(service.ApplyUiLayoutCommand("merits on").Success);
+            Assert.True(layout.ShowMeritCategoryTotals);
+            Assert.True(service.Menus.ShowMeritCategoryTotals!());
+            Assert.True(service.ApplyUiLayoutCommand("merits off").Success);
+            Assert.False(layout.ShowMeritCategoryTotals);
+
             // Name plate size: a multiple of the default, clamped; "default" restores it.
             Assert.True(service.ApplyUiLayoutCommand("names 1.25").Success);
             Assert.Equal(1.25f, layout.NamePlateScale);

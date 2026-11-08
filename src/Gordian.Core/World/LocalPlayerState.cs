@@ -112,6 +112,12 @@ namespace Gordian.Core.World
         public byte HighestItemLevel { get; private set; }
         public byte UnityFaction { get; private set; }
         public uint UnityPoints { get; private set; }
+
+        /// <summary>S2C 0x061 <c>unity_points1</c>: the partial Unity personal evaluation (the Unity Info window, #491).</summary>
+        public ushort UnityPoints1 { get; private set; }
+
+        /// <summary>S2C 0x061 <c>unity_points2</c>: the Unity personal evaluation (the Unity Info window, #491).</summary>
+        public ushort UnityPoints2 { get; private set; }
         public byte GmLevel { get; set; }
 
         /// <summary>The local player's name plate flags, from S2C 0x037.</summary>
@@ -675,6 +681,8 @@ namespace Gordian.Core.World
                 HighestItemLevel = cliStatus.HighestItemLevel;
                 UnityFaction = cliStatus.UnityFaction;
                 UnityPoints = cliStatus.UnityPoints;
+                UnityPoints1 = cliStatus.UnityPoints1;
+                UnityPoints2 = cliStatus.UnityPoints2;
 
                 for (int i = 0; i < 7; i++)
                 {

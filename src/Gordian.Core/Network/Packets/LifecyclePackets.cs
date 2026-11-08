@@ -1150,10 +1150,14 @@ namespace Gordian.Core.Network.Packets
             _ = _sendChunkCallback(gameOk, true);
         }
 
+        /// <summary>S2C 0x008's table of the zones the character has visited (one bit a zone, XiPackets <c>EnterZoneTbl</c>).</summary>
+        public event Action<byte[]>? ZonesVisitedReceived;
+
         private void HandleEnterZone(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var enterZone = new S2C_0x008_EnterZone(payload);
             GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_ENTERZONE (0x008). Table valid={enterZone.IsValid}");
+            if (enterZone.IsValid) ZonesVisitedReceived?.Invoke(enterZone.EnterZoneTable.ToArray());
 
             // 1. Send 0x00D (NetEnd)
             byte[] netEnd = LifecycleOutboundPackets.BuildNetEnd(sequenceId: 0);

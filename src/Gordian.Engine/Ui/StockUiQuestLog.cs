@@ -242,8 +242,17 @@ namespace Gordian.Engine.Ui
         /// <summary>A mission page's headings (retail image-11).</summary>
         public const string CurrentHeading = "Current:", CompletedHeading = "Completed:";
 
-        /// <summary><c>quest00</c>: rows at x 39, y 31 + 37 n, 320 x 18; the first two used (Current, Completed).</summary>
-        public const int KindRowX = 39, KindRowY = 31, KindRowPitch = 37;
+        /// <summary>
+        /// <c>quest00</c>'s rows, 320 x 18 at x 39, moved from the DAT's y 31 + 37 n to where retail image-34 has them: Current,
+        /// Completed, then Records of Eminence's Current and Objective List. Vana'Bout's row below them is drawn, not selectable.
+        /// </summary>
+        public const int KindRowX = 39;
+
+        /// <inheritdoc cref="KindRowX"/>
+        public static readonly int[] KindRowYs = { 13, 46, 109, 141 };
+
+        /// <summary>The tops of <c>quest00</c>'s Records of Eminence heading, Vana'Bout row and two figure lines (image-34).</summary>
+        public const int KindHeadingY = 78, KindVanaBoutY = 173, KindFiguresY = 198, KindFiguresPitch = 23;
 
         /// <summary><c>quest00</c>'s rows (retail image-12).</summary>
         public const string CurrentKind = "Current", CompletedKind = "Completed";

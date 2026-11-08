@@ -281,7 +281,7 @@ namespace Gordian.Engine.Tests.Ui
             var kind = h.Choose(2);
             Assert.Equal(StockUiQuestLogView.QuestKind, kind.QuestLogView);
             Assert.Equal(StockUiQuestLog.QuestKindMenu, kind.Name);
-            Assert.Equal(new[] { "Current", "Completed" }, kind.Rows.Select(r => r.Text));
+            Assert.Equal(new[] { "Current", "Completed", "Current", "Objective List" }, kind.Rows.Select(r => r.Text)); // rows 3-4: #493
 
             var completed = h.Choose(2);
             Assert.Equal(StockUiQuestLogView.Pages, completed.QuestLogView);

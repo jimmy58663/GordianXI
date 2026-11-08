@@ -17,7 +17,7 @@ namespace Gordian.Engine.Ui
     /// (a filter that is ON, drawn with the "ON" ball instead of "OFF").
     /// </summary>
     /// <param name="Value">Client text drawn at the row's right (the gamepad key-assignment list's buttons); null for none.</param>
-    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null);
+    public readonly record struct StockUiListRow(int ButtonId, string Text, bool Marked, UiColor? Color = null, string? Value = null, UiColor? ValueColor = null, string? Note = null, bool Header = false);
 
     /// <summary>
     /// The client-drawn list pages: rows over the DAT's invisible row buttons. The Chat Filters, Log and Effects lists draw
@@ -1296,7 +1296,7 @@ namespace Gordian.Engine.Ui
             bool changed = false;
             (StockUiSettingKey Key, int Value)? edit = null;
             bool pageMoved;
-            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
+            lock (_sync) pageMoved = TryMoveStatusPage(direction) || TryMoveJobPointPage(direction) || TryMoveRoeCategory(direction) || TryMoveStorageSide(direction) || TryMoveQuestLog(direction);
             if (pageMoved)
             {
                 Changed?.Invoke();
@@ -1758,7 +1758,8 @@ namespace Gordian.Engine.Ui
             if (!TryGetEntry(top, button.ButtonId, out var entry)) return;
             if (top.IsGreyed(button.ButtonId))
             {
-                NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
+                // Lower at 0 upgrades: the retail client does nothing and says nothing.
+                if (!top.Name.Equals(StockUiProgression.MeritEditMenu, StringComparison.OrdinalIgnoreCase)) NoticePosted?.Invoke(DescribeGreyed(top, button.ButtonId, entry));
                 return;
             }
             // An entry with both a window and a command (the command menu's Magic: Confirm lists all castable magic,
@@ -1975,6 +1976,10 @@ namespace Gordian.Engine.Ui
 
                 case StockUiMenuCommand.MeritMode:
                     SwitchMeritMode(entry, from);
+                    break;
+
+                case StockUiMenuCommand.Progression:
+                    RunProgression((StockUiProgressionAction)entry.Argument, from);
                     break;
 
                 case StockUiMenuCommand.LogOut:

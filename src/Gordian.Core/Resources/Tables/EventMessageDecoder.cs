@@ -376,10 +376,37 @@ namespace Gordian.Core.Resources.Tables
 
         private static int ReadU16(ReadOnlySpan<byte> raw, int index) => ArgumentAt(raw, index) | (ArgumentAt(raw, index + 1) << 8);
 
+        /// <summary>
+        /// The bytes with the client's own quote marks 0x87 0xB2 / 0x87 0xB3 (around the objective's name in message 704, "You
+        /// have undertaken ..."; Code Page 932 has no such characters) as '"'. PROVISIONAL glyph: no retail capture of the line.
+        /// </summary>
+        private static byte[] QuoteMarks(List<byte> text)
+        {
+            var result = new List<byte>(text.Count);
+            for (int i = 0; i < text.Count; i++)
+            {
+                byte b = text[i];
+                bool lead = b is (>= 0x81 and <= 0x9F) or (>= 0xE0 and <= 0xFC);
+                if (!lead || i + 1 >= text.Count)
+                {
+                    result.Add(b);
+                    continue;
+                }
+                if (b == 0x87 && text[i + 1] is 0xB2 or 0xB3) result.Add((byte)'"');
+                else
+                {
+                    result.Add(b);
+                    result.Add(text[i + 1]);
+                }
+                i++;
+            }
+            return result.ToArray();
+        }
+
         private static void FlushText(List<EventMessageSegment> segments, List<byte> text)
         {
             if (text.Count == 0) return;
-            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Text, Cp932.GetString(text.ToArray())));
+            segments.Add(new EventMessageSegment(EventMessageSegmentKind.Text, Cp932.GetString(QuoteMarks(text))));
             text.Clear();
         }
 
@@ -470,7 +497,12 @@ namespace Gordian.Core.Resources.Tables
                     pending = new PendingSelector(EventMessageSegmentKind.Selector, code, argument);
                     return i + 3;
                 case 0x8F:
-                    // A job ability name from number n (xi-tools ABILITY_NAME2): "uses {7F 8F 00}." (file 7027).
+                case 0xB0:
+                case 0xB1:
+                    // A job ability name from number n (xi-tools ABILITY_NAME2): "uses {7F 8F 00}." (file 7027). 0xB0 / 0xB1:
+                    // a merit's and a job point category's name from number n ("Your {7F B0 00} modification has risen to
+                    // level {12 01}.", messages 380 / 381 / 720; LandSandBoat sends the merit id / 2 and the job point index).
+                    // **Beyond xi-tools:** its code table names neither.
                     segments.Add(new EventMessageSegment(EventMessageSegmentKind.ActionName, Argument: argument, Code: code));
                     return i + 3;
                 case 0x9B:
@@ -508,8 +540,6 @@ namespace Gordian.Core.Resources.Tables
                 case 0x97:
                 case 0xAB:
                 case 0xAC:
-                case 0xB0:
-                case 0xB1:
                 case 0xB5:
                 case 0xB7:
                     // 0xB7: "{7F B7 00} attribute increased to {12 01}." (file 7027 message 828): one argument byte.
