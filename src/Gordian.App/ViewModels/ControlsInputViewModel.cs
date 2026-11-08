@@ -724,8 +724,8 @@ namespace Gordian.App.ViewModels
             // Locomotion
             AddBindingRow(InputAction.MoveForward, "Locomotion", "Move Forward");
             AddBindingRow(InputAction.MoveBackward, "Locomotion", "Move Backward");
-            AddBindingRow(InputAction.TurnLeft, "Locomotion", "Turn Left");
-            AddBindingRow(InputAction.TurnRight, "Locomotion", "Turn Right");
+            AddBindingRow(InputAction.TurnLeft, "Locomotion", "Move Left (as the left stick)");
+            AddBindingRow(InputAction.TurnRight, "Locomotion", "Move Right (as the left stick)");
             AddBindingRow(InputAction.StrafeLeft, "Locomotion", "Strafe Left");
             AddBindingRow(InputAction.StrafeRight, "Locomotion", "Strafe Right");
             AddBindingRow(InputAction.ToggleAutorun, "Locomotion", "Toggle Autorun");
@@ -736,6 +736,8 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.CameraPitchDown, "Camera", "Pitch Down (Look Down)");
             AddBindingRow(InputAction.CameraYawLeft, "Camera", "Yaw Left (Rotate Left)");
             AddBindingRow(InputAction.CameraYawRight, "Camera", "Yaw Right (Rotate Right)");
+            AddBindingRow(InputAction.CameraPanLeft, "Camera", "Pan Left (as the right stick)");
+            AddBindingRow(InputAction.CameraPanRight, "Camera", "Pan Right (as the right stick)");
             AddBindingRow(InputAction.CameraZoomIn, "Camera", "Zoom In (Closer)");
             AddBindingRow(InputAction.CameraZoomOut, "Camera", "Zoom Out (Farther)");
             AddBindingRow(InputAction.ResetCamera, "Camera", "Reset / Center Camera");

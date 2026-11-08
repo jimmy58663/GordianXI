@@ -119,6 +119,15 @@ namespace Gordian.Engine.Input
         LockOnOrHeal = 114,
 
         /// <summary>/heal: retail's Heal key (H on the compact keyboard, 2026-11-07).</summary>
-        Heal = 115
+        Heal = 115,
+
+        /// <summary>
+        /// Pans the camera left exactly as the gamepad's right stick pushed fully left does (retail's compact Q, "Turn
+        /// Left"; round 5 of the 2026-11-03 test). <see cref="CameraYawLeft"/> keeps its own rate.
+        /// </summary>
+        CameraPanLeft = 116,
+
+        /// <summary>The right-hand counterpart of <see cref="CameraPanLeft"/> (retail's compact E, "Turn Right").</summary>
+        CameraPanRight = 117
     }
 }

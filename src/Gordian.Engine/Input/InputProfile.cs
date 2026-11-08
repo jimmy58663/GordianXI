@@ -528,17 +528,18 @@ namespace Gordian.Engine.Input
             var p = new InputProfile("Compact (WASD)", "Standard FFXI Compact keyboard layout with WASD movement and IJKL camera.");
 
             // Retail's compact keys (the key assignment windows of the retail client on local LSB, 2026-11-07, keys the
-            // maintainer left at their defaults): A / D move left / right, Q / E turn, . / , zoom, Y / N confirm / cancel,
-            // V change view, H heal, F select window, Z walk / run. GordianXI's older keys stay beside them where no
-            // retail key needs them (Enter, Escape, Page Up / Down, keypad / and +).
+            // maintainer left at their defaults): A / D move left / right as the left stick does, Q / E pan the camera as
+            // the right stick does (round 5), . / , zoom, Y / N confirm / cancel, V change view, H heal, F select window,
+            // Z walk / run. GordianXI's older keys stay beside them where no retail key needs them (Enter, Escape,
+            // Page Up / Down, keypad / and +).
 
             // Locomotion
             p.Bind(InputAction.MoveForward, new InputChord(GordianKey.W));
             p.Bind(InputAction.MoveBackward, new InputChord(GordianKey.S));
-            p.Bind(InputAction.StrafeLeft, new InputChord(GordianKey.A));
-            p.Bind(InputAction.StrafeRight, new InputChord(GordianKey.D));
-            p.Bind(InputAction.TurnLeft, new InputChord(GordianKey.Q));
-            p.Bind(InputAction.TurnRight, new InputChord(GordianKey.E));
+            p.Bind(InputAction.TurnLeft, new InputChord(GordianKey.A));
+            p.Bind(InputAction.TurnRight, new InputChord(GordianKey.D));
+            p.Bind(InputAction.CameraPanLeft, new InputChord(GordianKey.Q));
+            p.Bind(InputAction.CameraPanRight, new InputChord(GordianKey.E));
             p.Bind(InputAction.ToggleAutorun, new InputChord(GordianKey.R));
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.Z));
             p.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.NumPadDivide));
@@ -632,6 +633,33 @@ namespace Gordian.Engine.Input
                 }
             }
             if (!Bindings.ContainsKey(InputAction.Heal)) Bindings[InputAction.Heal] = new List<InputChord>();
+        }
+
+        /// <summary>
+        /// Gives a Compact profile saved with round 3's keys (A / D on Strafe, Q / E on Turn) round 5's: A / D on Move Left /
+        /// Right (<see cref="InputAction.TurnLeft"/> / <see cref="InputAction.TurnRight"/>, the left stick's sideways push)
+        /// and Q / E on <see cref="InputAction.CameraPanLeft"/> / <see cref="InputAction.CameraPanRight"/> (the right
+        /// stick's), only where those keys still stand. Runs after <see cref="EnsureRetailCompactKeys"/>, which brings older
+        /// profiles to round 3's keys first. An empty <see cref="InputAction.CameraPanLeft"/> entry marks the profile as migrated.
+        /// </summary>
+        public void EnsureCompactStickKeys()
+        {
+            if (Bindings.ContainsKey(InputAction.CameraPanLeft)) return;
+            if (Name.StartsWith("Compact", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var (from, to, key) in new[]
+                {
+                    (InputAction.StrafeLeft, InputAction.TurnLeft, GordianKey.A),
+                    (InputAction.StrafeRight, InputAction.TurnRight, GordianKey.D),
+                    (InputAction.TurnLeft, InputAction.CameraPanLeft, GordianKey.Q),
+                    (InputAction.TurnRight, InputAction.CameraPanRight, GordianKey.E),
+                })
+                {
+                    var chord = new InputChord(key);
+                    if (Bindings.TryGetValue(from, out var chords) && chords.Remove(chord)) Bind(to, chord);
+                }
+            }
+            if (!Bindings.ContainsKey(InputAction.CameraPanLeft)) Bindings[InputAction.CameraPanLeft] = new List<InputChord>();
         }
 
         /// <summary>
@@ -788,6 +816,7 @@ namespace Gordian.Engine.Input
             profile.EnsureDPadBindings();
             profile.EnsureNoHiddenGamepadBindings();
             profile.EnsureRetailCompactKeys();
+            profile.EnsureCompactStickKeys();
             return profile;
         }
 

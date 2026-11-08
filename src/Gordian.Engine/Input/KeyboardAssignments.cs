@@ -42,8 +42,9 @@ namespace Gordian.Engine.Input
     /// Screenshot, Toggle Walk/Run, Zoom In, Zoom Out, Ranged Attack, Call For Help, Equipment, Change View, Heal, Check,
     /// then the Chat: rows /Say, /Party, /Tell, /Linkshell, /Reply to tell, /Unity, /Linkshell2, /AssistE or /AssistJ).
     /// A function in both windows showed the same key in both, so it is one function listed in both here. Only the rows
-    /// GordianXI has an action for are listed. Retail's Move Left / Right step sideways (A / D) and its Turn Left / Right
-    /// turn (Q / E), as GordianXI's compact defaults now do (round 3 of the 2026-11-07 test). GordianXI's own keyboard
+    /// GordianXI has an action for are listed. Retail's Move Left / Right (A / D) move as the left stick pushed sideways
+    /// does and its Turn Left / Right (Q / E) pan the camera as the right stick does (the maintainer on retail, round 5 of
+    /// the 2026-11-03 test); GordianXI's compact defaults and these rows do the same. GordianXI's own keyboard
     /// functions (camera reset, lock-on, target cycling, the chat line) follow the Commands window's retail rows, with
     /// GordianXI wording.
     /// </para>
@@ -71,8 +72,8 @@ namespace Gordian.Engine.Input
         {
             new KeyboardFunction("Move Up", 89, InputAction.MoveForward),
             new KeyboardFunction("Move Down", 90, InputAction.MoveBackward),
-            new KeyboardFunction("Move Left", 92, InputAction.StrafeLeft),
-            new KeyboardFunction("Move Right", 91, InputAction.StrafeRight),
+            new KeyboardFunction("Move Left", 92, InputAction.TurnLeft),
+            new KeyboardFunction("Move Right", 91, InputAction.TurnRight),
             new KeyboardFunction("Menu Cursor & Camera Up", 101, InputAction.MenuUp, InputAction.CameraPitchUp),
             new KeyboardFunction("Menu Cursor & Camera Down", 102, InputAction.MenuDown, InputAction.CameraPitchDown),
             new KeyboardFunction("Move Camera Up", 93, InputAction.CameraPitchUp),
@@ -91,9 +92,9 @@ namespace Gordian.Engine.Input
             SelectWindow,
             OpenMainMenu,
             ToggleWalkRun,
-            // Retail's last two rows; the config row table has no text for them.
-            new KeyboardFunction("Turn Right", -1, InputAction.TurnRight),
-            new KeyboardFunction("Turn Left", -1, InputAction.TurnLeft),
+            // Retail's last two rows (the config row table has no text for them): they pan the camera as the right stick does.
+            new KeyboardFunction("Turn Right", -1, InputAction.CameraPanRight),
+            new KeyboardFunction("Turn Left", -1, InputAction.CameraPanLeft),
         };
 
         /// <summary>The Commands window's functions (<c>k2assign</c>), in retail's list order, then GordianXI's own.</summary>

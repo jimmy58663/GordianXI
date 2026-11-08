@@ -737,7 +737,10 @@ namespace Gordian.Engine.Ui
             return false;
         }
 
-        /// <summary>Use: as <see cref="UseItem"/>. Drop: the count (for a stack), then the yes/no prompt.</summary>
+        /// <summary>
+        /// Use: as <see cref="UseItem"/>. Drop: the yes/no prompt for the whole stack, with no count box (the maintainer on
+        /// the official retail server, round 5 of the 2026-11-03 test).
+        /// </summary>
         private void ActivateItemAction(StockUiOpenMenu menu, UiMenuButton button, StockUiItemRow row)
         {
             var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
@@ -754,12 +757,7 @@ namespace Gordian.Engine.Ui
                 return;
             }
             if (button.ButtonId != StockUiItems.DropButton) return;
-            if (row.Count > 1)
-            {
-                OpenItemQuantity(menu, menu.Parent ?? menu, row, restore: false);
-                return;
-            }
-            ConfirmDrop(menu, row, 1);
+            ConfirmDrop(menu, row, Math.Max(1u, row.Count));
         }
 
         /// <summary>
@@ -872,7 +870,7 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The quantity prompt (<c>itemctrl</c>) for dropping part of a stack or restoring part of a bin stack, starting at 1;
+        /// The quantity prompt (<c>itemctrl</c>) for restoring part of a bin stack or moving part of a storage stack, starting at 1;
         /// the HUD draws it at the bottom left with the description beside it (retail capture 2026-10-11, the bin's restore).
         /// </summary>
         private void OpenItemQuantity(StockUiOpenMenu over, StockUiOpenMenu list, StockUiItemRow row, bool restore, bool storageMove = false)
@@ -899,7 +897,7 @@ namespace Gordian.Engine.Ui
             Changed?.Invoke();
         }
 
-        /// <summary>Confirm on a Drop / restore quantity prompt: closes it, then asks to confirm the drop or restores at once.</summary>
+        /// <summary>Confirm on a restore / storage-move quantity prompt: closes it, then restores or moves at once.</summary>
         private void RunDropQuantity(StockUiOpenMenu prompt, StockUiItemRow row)
         {
             uint count = prompt.Quantity;
@@ -914,23 +912,13 @@ namespace Gordian.Engine.Ui
                 RestoreItem(row, count);
                 return;
             }
-            if (prompt.ItemStorageMove)
-            {
-                if (prompt.Parent is { } storageList) SendStorageMove(storageList, row, count);
-                return;
-            }
-            StockUiOpenMenu? action = null;
-            foreach (var m in _open)
-            {
-                if (m.ItemAction is { } a && a.Container == row.Container && a.Slot == row.Slot) action = m;
-            }
-            ConfirmDrop(action, row, count);
+            if (prompt.ItemStorageMove && prompt.Parent is { } storageList) SendStorageMove(storageList, row, count);
         }
 
         /// <summary>
         /// Asks to drop in auto-sort's Yes / No under the Use / Drop window ("Commands", No under the cursor), the help bar
         /// "Dispose of item?" (help 242): retail client on local LSB, 2026-11-07 (Items_Drop_Confirm.png, a single Fire
-        /// Crystal). After a stack's count box it drops that many (the maintainer, round 3 of 2026-11-07). Yes sends 0x028
+        /// Crystal). A stack drops whole, with no count box (the maintainer on retail, round 5). Yes sends 0x028
         /// and closes the Use / Drop window; a Rare or Ex item asks a second time first (<see cref="ActivateDropConfirm"/>).
         /// </summary>
         private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count)

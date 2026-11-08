@@ -299,33 +299,29 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public async Task Drop_AStackAsksTheCountThenConfirms()
+        public async Task Drop_AStackDropsWhole_WithNoCountBox()
         {
+            // The maintainer on the official retail server (round 5 of the 2026-11-03 test): Drop on a stack asks no count;
+            // it takes the single item's path and drops the whole stack.
             var h = new Harness();
             var list = h.OpenFromMainMenu(4);
             h.SelectItem(list, Chestnut);
+            uint stack = list.ItemRows.First(r => r.ItemId == Chestnut).Count;
+            Assert.True(stack > 1);
             h.Menus.Activate();
             h.Menus.Activate(); // Drop (Use is greyed)
-            var quantity = h.Menus.Top!;
-            Assert.True(quantity.IsQuantity);
-            Assert.Equal(12u, quantity.QuantityMax);
-            Assert.True(list.ShowsQuantity);
-            Assert.Equal(new StockUiItemHelpBar("No. of Items", null, null, 268), list.ItemHelpBar); // "Set the number of items."
-            h.Menus.Move(InputAction.MenuUp);
-            h.Menus.Move(InputAction.MenuUp);
-            Assert.Equal(3u, quantity.Quantity);
-            h.Menus.Activate();
-            // Retail client on local LSB, 2026-11-07: auto-sort's Yes / No under Use / Drop, "Dispose of item?", No under the cursor.
+            // Auto-sort's Yes / No under Use / Drop, "Dispose of item?", No under the cursor.
             var prompt = h.Menus.Top!;
+            Assert.False(prompt.IsQuantity);
+            Assert.False(list.ShowsQuantity);
             Assert.Equal(StockUiItems.SortConfirmMenu, prompt.Name);
-            Assert.Equal(3u, prompt.ItemDropCount);
+            Assert.Equal(stack, prompt.ItemDropCount);
             Assert.Equal(StockUiItems.SortNoButton, prompt.SelectedButtonId);
             Assert.Equal(StockUiItems.HelpDisposeOfItem, list.ItemHelpBar!.Value.HelpTextId);
-            Assert.False(list.ShowsQuantity);
             prompt.SelectedButtonId = StockUiItems.SortYesButton;
             h.Menus.Activate();
             var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            Assert.Equal((ContainerId.Inventory, (byte)1, 3u), dropped);
+            Assert.Equal((ContainerId.Inventory, (byte)1, stack), dropped);
         }
 
         [Fact]
