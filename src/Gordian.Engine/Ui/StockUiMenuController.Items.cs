@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
 
@@ -71,9 +72,6 @@ namespace Gordian.Engine.Ui
 
         /// <summary>How many of <see cref="ItemDropConfirm"/> the Yes drops.</summary>
         public uint ItemDropCount { get; init; }
-
-        /// <summary>Whether this Drop Yes / No is the second one a Rare or Ex item asks (<see cref="StockUiItems.AsksTwiceToDrop"/>).</summary>
-        public bool ItemDropSecond { get; init; }
 
         /// <summary>The Equipment list's storage choice (<see cref="StockUiItems.EquipStorageMenu"/>).</summary>
         public bool IsEquipStorageMenu { get; init; }
@@ -933,9 +931,9 @@ namespace Gordian.Engine.Ui
         /// Asks to drop in auto-sort's Yes / No under the Use / Drop window ("Commands", No under the cursor), the help bar
         /// "Dispose of item?" (help 242): retail client on local LSB, 2026-11-07 (Items_Drop_Confirm.png, a single Fire
         /// Crystal). After a stack's count box it drops that many (the maintainer, round 3 of 2026-11-07). Yes sends 0x028
-        /// and closes the Use / Drop window; a Rare or Ex item asks a second time first (<paramref name="second"/>).
+        /// and closes the Use / Drop window; a Rare or Ex item asks a second time first (<see cref="ActivateDropConfirm"/>).
         /// </summary>
-        private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count, bool second = false)
+        private void ConfirmDrop(StockUiOpenMenu? action, StockUiItemRow row, uint count)
         {
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiItems.SortConfirmMenu, out var definition))
@@ -947,7 +945,6 @@ namespace Gordian.Engine.Ui
             {
                 ItemDropConfirm = row,
                 ItemDropCount = count,
-                ItemDropSecond = second,
             };
             confirm.SelectedButtonId = StockUiItems.SortNoButton;
             lock (_sync) PushOpen(confirm);
@@ -955,8 +952,10 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// A Drop's Yes: closes the Use / Drop window and sends 0x028; No returns to it. A Rare or Ex item's first Yes asks
-        /// again (the maintainer, round 3 of 2026-11-07: retail asks a second time for them).
+        /// A Drop's Yes: closes the Use / Drop window and sends 0x028; No returns to it. A Rare or Ex item's Yes asks again
+        /// in the message prompt on the log's top edge (<c>comyn</c>, <see cref="OpenYesNo"/>): "Really dispose of the
+        /// Kraken Club?" with No under the cursor (retail client on local LSB, round 4 of the 2026-11-03 test,
+        /// image-50.png). Yes there drops; No or cancel returns to Use / Drop.
         /// </summary>
         private void ActivateDropConfirm(StockUiOpenMenu confirm, UiMenuButton button, StockUiItemRow row)
         {
@@ -964,12 +963,22 @@ namespace Gordian.Engine.Ui
             if (button.ButtonId != StockUiItems.SortYesButton) return;
             uint count = confirm.ItemDropCount;
             var record = StockUiShop.Lookup(ItemLookup, row.ItemId);
-            if (!confirm.ItemDropSecond && StockUiItems.AsksTwiceToDrop(record))
+            var action = confirm.Parent is { ItemAction: not null } parent ? parent : null;
+            if (StockUiItems.AsksTwiceToDrop(record))
             {
-                ConfirmDrop(confirm.Parent?.ItemAction != null ? confirm.Parent : null, row, count, second: true);
+                OpenYesNo(StockUiItems.ReallyDisposePrompt(record.Name), defaultYes: false, answer =>
+                {
+                    if (answer == true) DropNow(action, row, count, record);
+                });
                 return;
             }
-            if (confirm.Parent is { ItemAction: not null } action) CloseMenu(action);
+            DropNow(action, row, count, record);
+        }
+
+        /// <summary>Closes the Use / Drop window (if open) and sends C2S 0x028 for <paramref name="count"/> of the row.</summary>
+        private void DropNow(StockUiOpenMenu? action, StockUiItemRow row, uint count, ItemRecord record)
+        {
+            if (action != null) CloseMenu(action);
             var drop = ItemDrop;
             if (drop == null)
             {

@@ -375,13 +375,18 @@ namespace Gordian.Engine.Tests.Ui
             h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
             h.Menus.Activate();
 
+            // Retail (round 4, image-50.png): the message prompt on the log, "Really dispose of the Kraken Club?", No first.
             var second = h.Menus.Top!;
-            Assert.Equal(StockUiItems.SortConfirmMenu, second.Name);
-            Assert.True(second.ItemDropSecond);
-            Assert.Equal(StockUiItems.SortNoButton, second.SelectedButtonId);
+            Assert.Equal(StockUiMenuEntries.MessageYesNoMenu, second.Name);
+            Assert.Equal("Really dispose of the Bronze Cap?", second.Message);
+            Assert.Equal(2, second.SelectedButtonId);
+            h.Menus.Activate(); // No: nothing dropped
             Assert.False(h.Dropped.Task.IsCompleted);
 
-            second.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate(); // Use / Drop's Drop again
+            h.Menus.Top!.SelectedButtonId = StockUiItems.SortYesButton;
+            h.Menus.Activate();
+            h.Menus.Top!.SelectedButtonId = 1;
             h.Menus.Activate();
             var dropped = await h.Dropped.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.Equal((ContainerId.Inventory, (byte)4, 1u), dropped);

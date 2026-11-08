@@ -798,6 +798,9 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(font.MeasureWidth(StockUiMenuController.GamepadResetPrompt) <= comyn.Frame.Width - 16,
                     $"prompt {font.MeasureWidth(StockUiMenuController.GamepadResetPrompt)} px in a {comyn.Frame.Width} px window");
                 Assert.False(font.MeasureWidth("Reset gamepad assignment to default?") <= comyn.Frame.Width - 16, "the round-2 wording overflowed");
+                // A Rare / Ex item's second drop question wraps where retail's does (round 4, image-50.png).
+                Assert.Equal(new[] { "Really dispose of the Kraken", "Club?" },
+                    StockUiTextLayout.Wrap(StockUiItems.ReallyDisposePrompt("Kraken Club"), t => font.MeasureWidth(t), comyn.Frame.Width - 16, 3));
 
                 // Font Colors: the Chat list draws the message types in white and the box above it the selected row's
                 // sample in its colour (the tell row pink: red and blue over green); the R/G/B editor fills its bars
