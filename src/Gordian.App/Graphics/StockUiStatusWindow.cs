@@ -79,7 +79,8 @@ namespace Gordian.App.Graphics
             var points = menus.StatusPoints?.Invoke();
             var open = menus.OpenMenus;
             // The Currencies, Job Points and Alter Ego Points lists (16,48) stand where the stats side and level box are (#487).
-            bool list = open.Count > 0 && open[^1].IsStatusValueList;
+            var topList = StockUiStatusPagesWindow.TopList(open);
+            bool list = topList != null;
             string? box = StockUiStatusPagesWindow.BoxOf(open);
             if (!list && library.TryGetMenu(StockUiStatus.WindowMenu, out var window))
             {
@@ -93,17 +94,17 @@ namespace Gordian.App.Graphics
                 renderer.DrawMenu(level, at, includeButtons: false, opaqueBody: true);
                 if (info != null) DrawLevel(renderer, font, info, at, ExpSectionGreyed(info, points));
             }
-            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, points, scale, width, height, party);
-            if (open.Count > 0) StockUiStatusPagesWindow.DrawInfo(renderer, library, font, logFont, open[^1], menus, scale, width, height);
+            if (box != null) StockUiStatusPagesWindow.DrawBox(renderer, library, font, box, open, points, scale, width, height, party, menus);
+            if (topList != null) StockUiStatusPagesWindow.DrawInfo(renderer, library, font, logFont, topList, menus, scale, width, height);
 
             string? help = null, title = null;
             if (open.Count > 0 && open[^1].StatusPage == StockUiStatusPage.Profile)
             {
                 help = info is { Title.Length: > 0 } ? "Title: " + info.Title : null;
             }
-            else if (list)
+            else if (list && open[^1] == topList)
             {
-                var top = open[^1];
+                var top = topList;
                 help = top.SelectedStatusRowHelp is >= 0 and var id ? menus.MenuHelpText?.Invoke(id) : null;
                 title = StockUiStatusPagesWindow.TitleOf(top);
             }

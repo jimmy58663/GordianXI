@@ -35,9 +35,9 @@ namespace Gordian.App.Tests.Graphics
             using var screen = StockUiOffscreen.TryCreate(64, 64);
             if (screen == null) return;
             ZoneMapOrigin? OriginOf(int zone, int map) => ZoneMapFiles.LoadWithOrigin(screen.Resources, zone, map)?.Origin;
-            Assert.Equal("I-5", StockUiCompass.MapSquare(100, -176f, 382.4f, OriginOf));
-            Assert.NotNull(StockUiCompass.MapSquare(108, 0, 0, OriginOf));
-            Assert.Equal("J-5", StockUiCompass.MapSquare(245, 31.353f, 70.201f, OriginOf));
+            Assert.Equal("I-5", StockUiCompass.MapSquare(100, 0, -176f, 382.4f, OriginOf));
+            Assert.NotNull(StockUiCompass.MapSquare(108, 0, 0, 0, OriginOf));
+            Assert.Equal("J-5", StockUiCompass.MapSquare(245, 0, 31.353f, 70.201f, OriginOf));
         }
 
         [Fact]

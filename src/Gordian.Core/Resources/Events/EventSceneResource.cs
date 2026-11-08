@@ -104,6 +104,41 @@ namespace Gordian.Core.Resources.Events
                 CatmullRom(before.Roll, a.Roll, b.Roll, after.Roll, u));
         }
 
+        /// <summary>
+        /// The <see cref="Evaluate"/> progress at <paramref name="fraction"/> of the eye's path length (0-1). Keys are evenly
+        /// spaced in time but not in distance, so a vessel, which moves at constant speed along its path, needs this mapping.
+        /// </summary>
+        public float ProgressAtDistance(float fraction)
+        {
+            float[] lengths = _pathLengths ??= MeasurePath();
+            float want = Math.Clamp(fraction, 0f, 1f) * lengths[^1];
+            if (lengths[^1] <= 0f) return fraction;
+            int found = Array.BinarySearch(lengths, want);
+            if (found >= 0) return found / (float)PathSamples;
+            int above = ~found;
+            if (above <= 0) return 0f;
+            if (above > PathSamples) return 1f;
+            float span = lengths[above] - lengths[above - 1];
+            return (above - 1 + (span > 0f ? (want - lengths[above - 1]) / span : 0f)) / PathSamples;
+        }
+
+        private const int PathSamples = 1024;
+
+        private float[]? _pathLengths;
+
+        private float[] MeasurePath()
+        {
+            var lengths = new float[PathSamples + 1];
+            Vector3 previous = Evaluate(0f).Eye;
+            for (int i = 1; i <= PathSamples; i++)
+            {
+                Vector3 eye = Evaluate(i / (float)PathSamples).Eye;
+                lengths[i] = lengths[i - 1] + (eye - previous).Length();
+                previous = eye;
+            }
+            return lengths;
+        }
+
         /// <summary>The progress curve of an easing mode (see the class notes).</summary>
         public static float Ease(float t, int mode) => mode switch
         {

@@ -304,7 +304,8 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>A category's items with their upgrade level and its most ("0/60", image-9).</summary>
-        public static IReadOnlyList<StockUiListRow> AlterEgoItemRows(int group, StockUiStatusPoints? points, Func<int, string?>? strings)
+        public static IReadOnlyList<StockUiListRow> AlterEgoItemRows(int group, StockUiStatusPoints? points, Func<int, string?>? strings,
+            bool inMogHouse = true, Func<AlterEgoCategory, int>? nextCost = null, string nextLabel = "NEXT")
         {
             var (_, first, count) = AlterEgoGroups[Math.Clamp(group, 0, AlterEgoGroups.Count - 1)];
             var rows = new List<StockUiListRow>(count);
@@ -313,8 +314,12 @@ namespace Gordian.Engine.Ui
             {
                 int level = points != null && i < points.AlterEgoUpgrades.Count ? points.AlterEgoUpgrades[i] : 0;
                 string? name = strings?.Invoke(AlterEgoItemNameId(i));
+                // Outside a Mog House the items are grey with no NEXT; in one, "NEXT 0 P" (retail client on local LandSandBoat,
+                // 2026-11-07; the cost is S2C 0x08E's, 0 from LandSandBoat).
                 rows.Add(new StockUiListRow(rows.Count + 1, name is { Length: > 0 } ? name : AlterEgoCategories[i].Name, false,
-                    Value: string.Create(inv, $"{level}/{MaxAlterEgoUpgrade}")));
+                    inMogHouse ? null : StockUiProgression.Greyed, Value: string.Create(inv, $"{level}/{MaxAlterEgoUpgrade}"),
+                    ValueColor: inMogHouse ? null : StockUiProgression.Greyed,
+                    Note: inMogHouse ? string.Create(inv, $"{nextLabel} {nextCost?.Invoke(AlterEgoCategories[i].Category) ?? 0} P") : null));
             }
             return rows;
         }

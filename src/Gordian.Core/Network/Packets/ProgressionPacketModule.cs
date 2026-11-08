@@ -13,7 +13,7 @@ namespace Gordian.Core.Network.Packets
     /// mog house menus, merits, job points, Records of Eminence, conquest, and minigames.
     /// Operates zero-allocation on the inbound pipeline.
     /// </summary>
-    public sealed class ProgressionPacketModule
+    public sealed partial class ProgressionPacketModule
     {
         private readonly ProgressionState _progressionState;
         private readonly LocalPlayerState _localPlayerState;
@@ -61,6 +61,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Register(S2C_0x111_RoeActiveLog.PacketId, HandleRoeActiveLog);
             dispatcher.Register(S2C_0x112_RoeLog.PacketId, HandleRoeLog);
             dispatcher.Register(S2C_0x05E_Conquest.PacketId, HandleConquest);
+            dispatcher.Register(S2C_0x071_Influence.PacketId, HandleInfluence);
             dispatcher.Register(S2C_0x115_Fish.PacketId, HandleFish);
             dispatcher.Register(S2C_0x073_ChocoboToteboard.PacketId, HandleChocoboToteboard);
             dispatcher.Register(S2C_0x110_Unity.PacketId, HandleUnity);
@@ -92,6 +93,7 @@ namespace Gordian.Core.Network.Packets
             dispatcher.Unregister(S2C_0x111_RoeActiveLog.PacketId);
             dispatcher.Unregister(S2C_0x112_RoeLog.PacketId);
             dispatcher.Unregister(S2C_0x05E_Conquest.PacketId);
+            dispatcher.Unregister(S2C_0x071_Influence.PacketId);
             dispatcher.Unregister(S2C_0x115_Fish.PacketId);
             dispatcher.Unregister(S2C_0x073_ChocoboToteboard.PacketId);
             dispatcher.Unregister(S2C_0x110_Unity.PacketId);
@@ -549,13 +551,14 @@ namespace Gordian.Core.Network.Packets
         }
 
         /// <summary>
-        /// Requests the Unity Concord menu data as retail does: block 0, then block 1 (C2S 0x116); each is
-        /// answered with 32 S2C 0x063 packets.
+        /// Requests the Unity Concord menu data as retail does: block 1, then block 0 (C2S 0x116; the retail client on local
+        /// LandSandBoat, 2026-11-07, sent kind 1 first); each is answered with 32 S2C 0x063 packets.
         /// </summary>
         public async Task SendUnityMenuAsync()
         {
-            for (uint blockIndex = 0; blockIndex < 2; blockIndex++)
+            for (int block = 1; block >= 0; block--)
             {
+                uint blockIndex = (uint)block;
                 byte[] packet = ProgressionPacketBuilder.BuildUnityMenu(blockIndex, NextSequence());
                 LogOutbound(0x116, packet);
                 await _sendChunkCallback(packet, true).ConfigureAwait(false);

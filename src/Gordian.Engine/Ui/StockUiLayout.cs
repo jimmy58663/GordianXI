@@ -116,6 +116,12 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public bool ShowPartyStatusIcons { get; set; }
 
+        /// <summary>
+        /// Opt-in enhancement (not in the legacy client, #491): show each merit category's upgrades and most ("12/75") in the
+        /// merit categories list. Retail's list has names only; <c>meritinf</c> shows the figure of the one under the cursor.
+        /// </summary>
+        public bool ShowMeritCategoryTotals { get; set; }
+
         /// <summary>The side of the party window the party member status icons are drawn on.</summary>
         public PartyStatusIconSide PartyStatusIconSide { get; set; } = PartyStatusIconSide.Left;
 
@@ -268,6 +274,12 @@ namespace Gordian.Engine.Ui
             Changed?.Invoke();
         }
 
+        public void SetShowMeritCategoryTotals(bool show)
+        {
+            lock (_sync) ShowMeritCategoryTotals = show;
+            Changed?.Invoke();
+        }
+
         public void SetShowPartyStatusIcons(bool show, PartyStatusIconSide? side = null)
         {
             lock (_sync)
@@ -331,6 +343,7 @@ namespace Gordian.Engine.Ui
                 Unlocked = false;
                 ShowPartyTp = false;
                 ShowPartyStatusIcons = false;
+                ShowMeritCategoryTotals = false;
                 PartyStatusIconSide = PartyStatusIconSide.Left;
                 NamePlateScale = 1.0f;
             }

@@ -76,6 +76,31 @@ namespace Gordian.App.Tests.Graphics
             Assert.InRange(bottomX, 128 - 8, 128 + 8);
         }
 
+        /// <summary>#479: the survival guide's open book (<c>mapsg</c>) is drawn upright and wider than tall, centred on its point.</summary>
+        [Fact]
+        public void SurvivalGuideBook_IsDrawnCentred()
+        {
+            using var screen = StockUiOffscreen.TryCreate(256, 256);
+            if (screen == null) return;
+            var empty = screen.Render(_ => { });
+            var shot = screen.Render(r => StockUiEventMapWindow.DrawPin(r, null, EventMapPin.SurvivalGuide, string.Empty, 128, 128, 8),
+                "gpu_event_map_guide.png");
+            int minX = int.MaxValue, maxX = 0, minY = int.MaxValue, maxY = 0;
+            for (int y = 0; y < 256; y++)
+            {
+                for (int x = 0; x < 256; x++)
+                {
+                    var p = screen.Pixel(shot, x, y);
+                    var q = screen.Pixel(empty, x, y);
+                    if (Math.Abs(p.R - q.R) + Math.Abs(p.G - q.G) + Math.Abs(p.B - q.B) < 40) continue;
+                    (minX, maxX, minY, maxY) = (Math.Min(minX, x), Math.Max(maxX, x), Math.Min(minY, y), Math.Max(maxY, y));
+                }
+            }
+            Assert.True(maxX - minX > maxY - minY, $"book {minX}-{maxX} x {minY}-{maxY}");
+            Assert.InRange((minX + maxX) * 0.5f, 128 - 8, 128 + 8);
+            Assert.InRange((minY + maxY) * 0.5f, 128 - 12, 128 + 12);
+        }
+
         private static bool HasPin(StockUiOffscreen screen, byte[] shot, int x, int y, int radius)
         {
             for (int dy = -radius; dy <= radius; dy++)

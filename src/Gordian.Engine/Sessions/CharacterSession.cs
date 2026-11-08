@@ -389,8 +389,33 @@ namespace Gordian.Engine.Sessions
             Progression.MeritsUpdated += ActionService.Menus.OnStatusPointsChanged;
             Progression.JobPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
             Progression.AlterEgoPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
+            // Alter Ego Points' items: S2C 0x08E's costs, spent with C2S 0x0C1 (retail client, 2026-11-07).
+            ActionService.Menus.AlterEgoNextCost = category => Progression.GetAlterEgoNextCost(category);
+            ActionService.Menus.AlterEgoSpent = category => LoginDataModule.SendAlterEgoUpgradeAsync(category);
+            // Merit Points' Categories, spending job points, the Unity windows (#491, #94) and Records of Eminence (#493): C2S
+            // 0x0BE kind 3, 0x0BF, 0x116-0x118, 0x10C / 0x10D; the open lists follow S2C 0x08C / 0x08D / 0x063 / 0x111 / 0x112.
+            ActionService.Menus.Merits = Merits;
+            ActionService.Menus.JobPointLevel = (job, k) => new Ui.StockUiJobPointCategory(Progression.GetJobPointLevel(job, k),
+                Progression.GetJobPointNextCost(job, k));
+            ActionService.Menus.MeritChanged = (id, raise) => ProgressionModule.SendMeritsAsync(MeritCommandKind.EditMode, raise ? (byte)1 : (byte)0, (ushort)(id >> 1));
+            ActionService.Menus.JobPointSpent = index => ProgressionModule.SendJobPointsSpendAsync(index);
+            ActionService.Menus.UnityMenuOpened = () => _ = ProgressionModule.SendUnityMenuAsync();
+            ActionService.Menus.UnityQuestRequested = () => _ = ProgressionModule.SendUnityQuestAsync();
+            ActionService.Menus.UnityChatChanged = active => ProgressionModule.SendUnityToggleAsync(active);
+            ActionService.Menus.UnityInfo = UnityInfo;
+            ActionService.Menus.RoeState = RoeState;
+            ActionService.Menus.RoeTotals = RoeTotals;
+            ActionService.Menus.RoeStarted = id => ProgressionModule.SendRoeStartAsync((ushort)(id & 0xFFF));
+            ActionService.Menus.RoeRemoved = id => ProgressionModule.SendRoeRemoveAsync((ushort)(id & 0xFFF));
+            Progression.UnityUpdated += ActionService.Menus.OnStatusPointsChanged;
+            Progression.RecordsOfEminenceUpdated += ActionService.Menus.OnStatusPointsChanged;
             // The Map window (#23): the zone's map, and Wide Scan as /widescan.
             ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            // A living character the server sends away fades out rather than dying.
+            LocalPlayer.ServerStatusChanged += (_, _) => FadeOutIfVanishing();
+            // ...on the floor the character stands on (#481).
+            ActionService.Menus.CurrentMapFloor = () =>
+                World.TryGetByServerId(LocalPlayer.ServerId, out var self) && self != null ? Ui.StockUiMap.FloorOf(World, self.Position) : -1;
             ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
             // View House (#23): the Mog Safes, Storage and Mog Locker give up their items only in the Mog House (S2C 0x00A).
             ActionService.Menus.InMogHouse = () => World.ZoneLoginInfo?.InMogHouse == true;
@@ -593,6 +618,42 @@ namespace Gordian.Engine.Sessions
             return new Ui.StockUiStatusPoints(g.LimitPoints, g.MeritPoints, g.MaxMeritPoints, g.CanUseMeritMode, g.MeritModeEnabled,
                 jobs, g.AlterEgoPoints, upgrades, Inventory.GetCurrency, Inventory.GetCurrency, World.PlayTimeSecondsNow, (byte)LocalPlayer.MainJob,
                 g.XpCappedOrMeritMode);
+        }
+
+        /// <summary>The merits S2C 0x08C listed (#491).</summary>
+        private IReadOnlyList<Ui.StockUiMerit> Merits()
+        {
+            var merits = Progression.GetMerits();
+            var list = new Ui.StockUiMerit[merits.Count];
+            for (int i = 0; i < list.Length; i++) list[i] = new Ui.StockUiMerit(merits[i].Id, merits[i].Next, merits[i].Count);
+            return list;
+        }
+
+        /// <summary>The Unity windows' figures (#491, #94): S2C 0x061's Unity and evaluations, S2C 0x063 type 0x07's weeks.</summary>
+        private Ui.StockUiUnityInfo UnityInfo()
+        {
+            var weeks = Progression.UnityWeeks;
+            return new Ui.StockUiUnityInfo(LocalPlayer.UnityFaction, LocalPlayer.UnityPoints1, LocalPlayer.UnityPoints2,
+                (uint[])weeks[0].Points.Clone(), (uint[])weeks[1].Points.Clone());
+        }
+
+        /// <summary>The Records of Eminence log (#493): S2C 0x111's slots and S2C 0x112's completed bits.</summary>
+        private Ui.StockUiRoeTotals RoeTotals() => new(Ui.StockUiRecordsOfEminence.ActiveCount(RoeState()), Progression.UnitySparks,
+            ActionService.Menus.StatusPoints?.Invoke()?.Currency1(Gordian.Core.Network.Packets.Currency1Kind.UnityAccolades) ?? 0,
+            Progression.UnityDeeds, Progression.UnityPlaudits, Progression.CountRoeObjectivesCompleted());
+
+        private Ui.StockUiRoeState RoeState()
+        {
+            var slots = Progression.GetRoeSlots();
+            var list = new Ui.StockUiRoeSlot[slots.Count];
+            for (int i = 0; i < list.Length; i++) list[i] = new Ui.StockUiRoeSlot(slots[i].Slot, slots[i].ObjectiveId, (int)slots[i].Progress);
+            return new Ui.StockUiRoeState(list, id => id is >= 0 and < 4096 && Progression.IsRoeObjectiveCompleted((ushort)id))
+            {
+                ZoneVisited = Progression.HasVisitedZone,
+                UnityLeader = UnityInfo()?.Leader ?? 0,
+                UnitySharedRotation = Progression.UnityReceived ? Progression.RoEUnityShared : -1,
+                UnityLeaderRotation = Progression.UnityReceived ? Progression.RoEUnityLeader : -1,
+            };
         }
 
         private string? ResolveEntityNameByIndex(ushort targetIndex)

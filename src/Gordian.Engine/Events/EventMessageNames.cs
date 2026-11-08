@@ -51,6 +51,12 @@ namespace Gordian.Engine.Events
                     int sub = kind == EventMessageFormatter.StatusAdjectiveKind && subs.Count > 1 && !string.IsNullOrEmpty(subs[1]) ? 1 : 0;
                     return subs.Count > sub && !string.IsNullOrEmpty(subs[sub]) ? subs[sub] : null;
                 }
+                case EventMessageFormatter.MeritKind:
+                    return resources.TryGetString(DMsgCategory.MeritStrings, id * 2, out var merit) ? merit : null;
+                case EventMessageFormatter.JobPointKind:
+                    return resources.TryGetString(DMsgCategory.JobPointStrings, id * 2, out var jobPoint) ? jobPoint : null;
+                case EventMessageFormatter.RoeObjectiveKind:
+                    return resources.RecordsOfEminence?.Objective(id)?.Name;
                 case EventMessageFormatter.UnityLeaderKind:
                     return id is > 0 and <= UnityLeaderCount
                         && resources.TryGetString(DMsgCategory.MiscStrings, UnityLeaderRow + id, out var leader) ? leader : null;

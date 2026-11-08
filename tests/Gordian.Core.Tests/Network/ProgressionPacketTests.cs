@@ -319,6 +319,20 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(3, state.GetMeritLevel(0x40));
             Assert.Equal(0, state.GetMeritLevel(0x42));
             Assert.Equal(0, state.GetMeritLevel(0x43));
+            // Kept at 0 for the Merit Points list (#491), in id order.
+            Assert.Equal(new (ushort, byte, byte)[] { (0x40, 1, 3), (0x42, 1, 0) }, state.GetMerits());
+        }
+
+        [Fact]
+        public void S2C_0x111_RoeActiveLog_KeepsTheSlotOrder()
+        {
+            var state = new ProgressionState();
+            byte[] payload = new byte[256];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 12u | (37u << 12));
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4, 4), 1u);
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(63 * 4, 4), 4000u | (2u << 12)); // LSB's time-limited record
+            state.UpdateRoeActiveLog(new S2C_0x111_RoeActiveLog(payload));
+            Assert.Equal(new (int, ushort, uint)[] { (0, 12, 37), (1, 1, 0), (63, 4000, 2) }, state.GetRoeSlots());
         }
 
         [Fact]
@@ -430,6 +444,49 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(9876u, conquest.ImperialStanding);
 
             Assert.False(new S2C_0x05E_Conquest(new byte[175]).IsValid);
+        }
+
+        /// <summary>#492: S2C 0x071's Campaign (mode 2, two halves of 13 zones) and Colonization (mode 3) figures.</summary>
+        [Fact]
+        public void S2C_0x071_Influence_FillsTheCampaignAndColonizationFigures()
+        {
+            byte[] campaign = new byte[200];
+            campaign[0] = S2C_0x071_Influence.CampaignMode;
+            campaign[5] = 13; // the second half
+            BinaryPrimitives.WriteInt32LittleEndian(campaign.AsSpan(8), 5000);
+            BinaryPrimitives.WriteUInt32LittleEndian(campaign.AsSpan(12), 3u | 4u << 5 | 5u << 10 | 14u << 15);
+            BinaryPrimitives.WriteUInt32LittleEndian(campaign.AsSpan(16), 7u | 60u << 18 | 80u << 25); // San d'Oria
+            BinaryPrimitives.WriteUInt32LittleEndian(campaign.AsSpan(44), 4u << 1 | 300u << 4 | 200u << 14 | 9u << 24); // zone 13
+            campaign[48] = 10; campaign[51] = 90;
+            BinaryPrimitives.WriteUInt32LittleEndian(campaign.AsSpan(52), 1000u | 500u << 10);
+            var state = new ProgressionState();
+            int updates = 0;
+            state.InfluenceUpdated += () => updates++;
+            Assert.Null(state.Campaign);
+            state.UpdateInfluence(new S2C_0x071_Influence(campaign));
+            var info = state.Campaign!;
+            Assert.Equal(5000, info.AlliedNotes);
+            Assert.Equal(new[] { 3, 4, 5, 14 }, info.ControlledZones);
+            Assert.Equal(new CampaignNation(7, 60, 80), info.Nations[0]);
+            Assert.Equal(new CampaignZone(4, 300, 200, 9, 10, 0, 0, 90, 1000, 500), info.Zones[13]);
+            Assert.Equal(default, info.Zones[0]);
+
+            byte[] colonization = new byte[56];
+            colonization[0] = S2C_0x071_Influence.ColonizationMode;
+            BinaryPrimitives.WriteUInt32LittleEndian(colonization.AsSpan(12), 1u | 2u << 4 | 3u << 8 | 4u << 12 | 5u << 16 | 6u << 20);
+            BinaryPrimitives.WriteUInt32LittleEndian(colonization.AsSpan(20), 55u | 2u << 7 | 3u << 10); // Yahse Hunting Grounds
+            BinaryPrimitives.WriteInt32LittleEndian(colonization.AsSpan(52), 4321);
+            state.UpdateInfluence(new S2C_0x071_Influence(colonization));
+            var colony = state.Colonization!;
+            Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, colony.CoalitionRanks);
+            Assert.Equal(new ColonizationZone(55, 2, 3), colony.Zones[0]);
+            Assert.Equal(4321, colony.Bayld);
+            Assert.Equal(2, updates);
+
+            byte[] short3 = new byte[55];
+            short3[0] = S2C_0x071_Influence.ColonizationMode;
+            Assert.False(new S2C_0x071_Influence(short3).IsValid);
+            Assert.False(new S2C_0x071_Influence(new byte[200]).IsValid); // mode 0
         }
 
         [Fact]

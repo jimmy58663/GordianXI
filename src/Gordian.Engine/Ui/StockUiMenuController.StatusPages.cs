@@ -75,8 +75,11 @@ namespace Gordian.Engine.Ui
         /// <summary>A line the menus write to the log in the echo colour (Play Time, round 1 of #487).</summary>
         public event Action<string>? EchoPosted;
 
-        /// <summary>Where Alter Ego Points' item values end ("0/60" under the header's middle, round 1 image-9).</summary>
-        private const float AlterEgoValueRight = 252;
+        /// <summary>
+        /// Where Alter Ego Points' item values end and their NEXT starts (retail client, 2026-11-07, UI 1:1: "0/60" ends at 276,
+        /// "NEXT 0 P" from 290 in a Mog House; round 1's image-9 had put the value at 252).
+        /// </summary>
+        private const float AlterEgoValueRight = 276, AlterEgoNoteX = 290;
 
         /// <summary>
         /// The Status list's (<c>statcom2</c>) greyed entries, their kind-4 labels: Job Points without the job breaker key
@@ -122,8 +125,13 @@ namespace Gordian.Engine.Ui
                         new[] { StockUiStatusPages.AlterEgoGroupHelp }, 0);
                 case StockUiStatusPage.MeritPoints:
                 case StockUiStatusPage.Unity:
-                    // Unity's points box shows the Unity Accolades of S2C 0x113.
-                    if (page == StockUiStatusPage.Unity) CurrenciesRequested?.Invoke(false);
+                    // Unity's points box shows the Unity Accolades of S2C 0x113; its windows read the S2C 0x063 type 0x07 blocks
+                    // retail asks for with C2S 0x116 kinds 0 and 1 (#94).
+                    if (page == StockUiStatusPage.Unity)
+                    {
+                        CurrenciesRequested?.Invoke(false);
+                        UnityMenuOpened?.Invoke();
+                    }
                     var menu = Push(page == StockUiStatusPage.Unity ? StockUiStatusPages.UnityMenu : StockUiStatusPages.MeritMenu, from,
                         Array.Empty<string>(), null, null);
                     if (menu != null) menu.StatusWindow = page;
@@ -138,7 +146,8 @@ namespace Gordian.Engine.Ui
             StockUiStatusPage.Currencies => StockUiStatusPages.CurrencyListRows(false, points, MenuStringText),
             StockUiStatusPage.Currencies2 => StockUiStatusPages.CurrencyListRows(true, points, MenuStringText),
             StockUiStatusPage.JobPoints => StockUiStatusPages.JobPointRows(JobPointText),
-            StockUiStatusPage.AlterEgoPoints when group >= 0 => StockUiStatusPages.AlterEgoItemRows(group, points, AlterEgoText),
+            StockUiStatusPage.AlterEgoPoints when group >= 0 => StockUiStatusPages.AlterEgoItemRows(group, points, AlterEgoText,
+                InMogHouse?.Invoke() == true, AlterEgoNextCost, ShortText(StockUiProgression.NextLabel, "NEXT")),
             StockUiStatusPage.AlterEgoPoints => StockUiStatusPages.AlterEgoGroupRows(AlterEgoText),
             _ => Array.Empty<StockUiListRow>(),
         };
@@ -150,10 +159,12 @@ namespace Gordian.Engine.Ui
         /// Call under the lock.
         /// </summary>
         private StockUiOpenMenu? OpenStatusList(StockUiStatusPage page, string menuName, StockUiOpenMenu from, IReadOnlyList<StockUiListRow> rows,
-            IReadOnlyList<int> help, int cursor, int group = -1)
+            IReadOnlyList<int> help, int cursor, int group = -1, StockUiProgressionList progression = StockUiProgressionList.None, int key = -1,
+            IReadOnlyList<int>? keys = null, UiMenuDefinition? listWindow = null)
         {
             var library = _library;
-            if (library == null || !library.TryGetMenu(menuName, out var window))
+            UiMenuDefinition? window = listWindow;
+            if (window == null && (library == null || !library.TryGetMenu(menuName, out window)))
             {
                 NoticePosted?.Invoke("Status: this page is not available in this session.");
                 return null;
@@ -190,6 +201,10 @@ namespace Gordian.Engine.Ui
                 StatusRowHelp = help,
                 Rows = rows,
                 StatusValueRight = group >= 0 ? AlterEgoValueRight : null,
+                StatusNoteX = group >= 0 ? AlterEgoNoteX : null,
+                ProgressionList = progression,
+                ProgressionKey = key,
+                RowKeys = keys ?? Array.Empty<int>(),
             };
             cursor = Math.Clamp(cursor, 0, Math.Max(0, rows.Count - 1));
             menu.FirstRow = Math.Clamp(cursor - visible + 1, 0, Math.Max(0, rows.Count - visible));
@@ -200,8 +215,8 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The currencies, job points, merits or alter ego points changed (S2C 0x113 / 0x118 / 0x063 / 0x08E): the open Status
-        /// lists show the new values, the cursor kept.
+        /// The currencies, job points, merits, alter ego points, Unity or Records of Eminence changed (S2C 0x113 / 0x118 / 0x063 /
+        /// 0x08C / 0x08D / 0x08E / 0x111 / 0x112): the open Status and progression lists show the new values, the cursor kept.
         /// </summary>
         public void OnStatusPointsChanged()
         {
@@ -211,7 +226,17 @@ namespace Gordian.Engine.Ui
                 StockUiStatusPoints? points = null;
                 foreach (var menu in _open)
                 {
+                    if (menu.QuestLogView == StockUiQuestLogView.QuestKind)
+                    {
+                        menu.Rows = QuestKindRows();
+                        changed = true;
+                    }
                     if (!menu.IsStatusValueList) continue;
+                    if (RefreshProgressionList(menu))
+                    {
+                        changed = true;
+                        continue;
+                    }
                     points ??= StatusPoints?.Invoke();
                     menu.Rows = StatusListRows(menu.StatusWindow, menu.AlterEgoGroup, points);
                     changed = true;
@@ -221,15 +246,23 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// Confirm on a Status list's row: an Alter Ego Points category lists its items (<c>fp_cat2</c>); spending job points and
-        /// alter ego points is not done yet (#491).
+        /// Confirm on a Status list's row: a job lists its job point categories (<c>jbpcat</c>, #491), an Alter Ego Points
+        /// category its items (<c>fp_cat2</c>), an item asks to spend on it (<see cref="SpendAlterEgoPoint"/>); the lists of
+        /// #491 / #493 go to <see cref="ActivateProgressionList"/>.
         /// </summary>
         private void ActivateStatusList(StockUiOpenMenu list)
         {
+            if (list.ProgressionList != StockUiProgressionList.None)
+            {
+                ActivateProgressionList(list);
+                return;
+            }
             switch (list.StatusWindow)
             {
                 case StockUiStatusPage.JobPoints:
-                    NoticePosted?.Invoke("Job Points: spending job points is not available yet.");
+                    if (list.SelectedStatusRow is not (>= 0 and var row)) return;
+                    lock (_sync) OpenProgressionList(StockUiProgressionList.JobPointCategories, row + 1, list, 0);
+                    Changed?.Invoke();
                     break;
                 case StockUiStatusPage.AlterEgoPoints when list.AlterEgoGroup < 0:
                     int group = list.SelectedStatusRow;
@@ -243,7 +276,7 @@ namespace Gordian.Engine.Ui
                     Changed?.Invoke();
                     break;
                 case StockUiStatusPage.AlterEgoPoints:
-                    NoticePosted?.Invoke("Alter Ego Points: spending alter ego points is not available yet.");
+                    SpendAlterEgoPoint(list);
                     break;
             }
         }

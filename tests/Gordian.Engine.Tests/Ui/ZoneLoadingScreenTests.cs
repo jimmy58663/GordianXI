@@ -65,6 +65,38 @@ namespace Gordian.Engine.Tests.Ui
             Assert.InRange(t - blackAt, ZoneLoadingScreen.MinimumBlackSeconds - 0.06, ZoneLoadingScreen.MinimumBlackSeconds + 0.06);
         }
 
+        /// <summary>
+        /// A home point's event fades the scene to black and ends; S2C 0x00B follows 0.34 s later (the capture of 2026-11-07).
+        /// The screen stays black from the event's end through the zone change: no glimpse of the old scene, no second fade.
+        /// </summary>
+        [Fact]
+        public void EventEndedBlack_StaysBlackIntoTheZoneChange()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Update(SessionState.ActiveInWorld, 248, 0, 248, 0);
+            screen.TakeOverEventBlack(1.0);
+            double t = 1.0;
+            for (; t < 1.34; t += 0.02) Assert.Equal(1f, screen.Update(SessionState.ActiveInWorld, 248, 0, 248, t));
+            for (; t < 4.0; t += 0.02) Assert.Equal(1f, screen.Update(SessionState.LoadingWorldData, 248, 0, 248, t));
+            // In the new zone with its geometry on screen: the hold and the minimum black are long over, so it fades in.
+            screen.Update(SessionState.ActiveInWorld, 9, 0, 9, t);
+            Assert.True(screen.Update(SessionState.ActiveInWorld, 9, 0, 9, t + 0.5) < 1f);
+        }
+
+        /// <summary>Without a zone change the held black fades back in after <see cref="ZoneLoadingScreen.EventBlackHoldSeconds"/>.</summary>
+        [Fact]
+        public void EventEndedBlack_WithoutAZoneChange_FadesBackIn()
+        {
+            var screen = new ZoneLoadingScreen();
+            screen.Update(SessionState.ActiveInWorld, 248, 0, 248, 0);
+            screen.TakeOverEventBlack(1.0);
+            double t = 1.0;
+            for (; t < 1.0 + ZoneLoadingScreen.EventBlackHoldSeconds - 0.05; t += 0.05) Assert.Equal(1f, screen.Update(SessionState.ActiveInWorld, 248, 0, 248, t));
+            for (; t < 4.0; t += 0.05) screen.Update(SessionState.ActiveInWorld, 248, 0, 248, t);
+            Assert.Equal(0f, screen.Opacity);
+            Assert.False(screen.IsLoading);
+        }
+
         [Fact]
         public void EventSceneZone_HoldsBlackUntilTheEventPlacesItsCamera()
         {

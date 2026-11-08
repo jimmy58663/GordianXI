@@ -113,8 +113,10 @@ namespace Gordian.Core.Network.Packets
     /// <param name="WeatherTime">When the current weather started, in minutes (+104); the client multiplies it by 60.</param>
     /// <param name="WeatherTime2">When the previous weather started, in minutes (+108).</param>
     /// <param name="WeatherOffsetTime">The weather offset (+112); the previous weather uses the high word, in hours.</param>
-    /// <param name="ShipStart">The airship/ferry schedule start (+116).</param>
-    /// <param name="ShipEnd">The airship/ferry schedule end (+120).</param>
+    /// <param name="ShipStart">When the vessel's run started (+116), in Earth seconds since the Vana'diel epoch, the clock of
+    /// <c>GameTime</c>; 0 when the server sends no run. Retail: 3-6 s before the zone-in packet.</param>
+    /// <param name="ShipEnd">The run's length in seconds (+120). XiPackets' <c>FUNC_ShipInit</c> reads as an end time, but
+    /// retail sends 238-808 here (**Beyond XiPackets**, <c>Retail Captures/Ship_Rides_Retail_0x00A_Packets.txt</c>).</param>
     /// <param name="IsMonstrosity">Monstrosity flags (+122); non-zero while the character is a Monstrosity monster.</param>
     /// <param name="LoginState">The save state (+124): in the game or in the Mog House.</param>
     /// <param name="PlayTime">Seconds played (+156).</param>
@@ -129,14 +131,26 @@ namespace Gordian.Core.Network.Packets
     /// <param name="SubJobUnlocked">Whether the sub job is unlocked (+236).</param>
     /// <param name="MaxHp">Maximum HP (+228).</param>
     /// <param name="MaxMp">Maximum MP (+232).</param>
+    /// <param name="ShipPath">The scenery Route of the vessel's run (bits 3-4 of +38): 0-3 for <c>c000</c>-<c>c003</c>. Part of
+    /// the position header's flags, named only by AirSkyBoat (https://github.com/AirSkyBoat/AirSkyBoat, packets/zone_in.cpp).
+    /// **Beyond XiPackets** (unknown_2_3, unknown_2_4): all eight retail ship rides in the capture above fit.</param>
+    /// <param name="ShipReversed">Whether the run plays its Route backwards (bit 2 of +35, <c>ShipStartMode</c>, which XiPackets
+    /// calls unused). **Beyond XiPackets:** set on retail's Central -> South barge ride only.</param>
     public readonly record struct ZoneLoginInfo(
         ushort MapNumber, ushort SubMapNumber, ushort ZoneSubNo,
         ushort MusicDay, ushort MusicNight, ushort MusicBattleSolo, ushort MusicBattleParty, ushort MusicMount,
         ushort WeatherNumber, ushort WeatherNumber2, uint WeatherTime, uint WeatherTime2, uint WeatherOffsetTime,
         uint ShipStart, ushort ShipEnd, ushort IsMonstrosity, SaveLoginState LoginState,
         uint PlayTime, uint DeadCounter, byte MyroomSubMapNumber, ushort MyroomMapNumber, ushort SendCount,
-        byte MyRoomExitBit, bool MogZoneFlag, byte MainJob, byte SubJob, bool SubJobUnlocked, int MaxHp, int MaxMp)
+        byte MyRoomExitBit, bool MogZoneFlag, byte MainJob, byte SubJob, bool SubJobUnlocked, int MaxHp, int MaxMp,
+        byte ShipPath = 0, bool ShipReversed = false)
     {
+        /// <summary>
+        /// The vessel's run as the server sent it, or null when it sent none (LandSandBoat): the client only sets its ship
+        /// clock when both values are non-zero (XiPackets world/server/0x000A, https://github.com/atom0s/XiPackets).
+        /// </summary>
+        public VoyageRun? ShipRun => ShipStart != 0 && ShipEnd != 0 ? new VoyageRun(ShipPath, ShipReversed, ShipStart, ShipEnd) : null;
+
         /// <summary>True while the character logs in inside the Mog House.</summary>
         public bool InMogHouse => LoginState == SaveLoginState.MyRoom;
 
@@ -304,7 +318,8 @@ namespace Gordian.Core.Network.Packets
                 MyroomSubMapNumber: U8(p, 164), MyroomMapNumber: U16(p, 166), SendCount: U16(p, 168),
                 MyRoomExitBit: U8(p, 170), MogZoneFlag: U8(p, 171) != 0,
                 MainJob: U8(p, 176), SubJob: U8(p, 179), SubJobUnlocked: U8(p, 236) != 0,
-                MaxHp: (int)U32(p, 228), MaxMp: (int)U32(p, 232));
+                MaxHp: (int)U32(p, 228), MaxMp: (int)U32(p, 232),
+                ShipPath: (byte)((U8(p, 38) >> 3) & 3), ShipReversed: (U8(p, 35) & 0x04) != 0);
         }
 
         private static ushort U16(ReadOnlySpan<byte> p, int o) => p.Length >= o + 2 ? BinaryPrimitives.ReadUInt16LittleEndian(p.Slice(o, 2)) : (ushort)0;
@@ -1135,10 +1150,14 @@ namespace Gordian.Core.Network.Packets
             _ = _sendChunkCallback(gameOk, true);
         }
 
+        /// <summary>S2C 0x008's table of the zones the character has visited (one bit a zone, XiPackets <c>EnterZoneTbl</c>).</summary>
+        public event Action<byte[]>? ZonesVisitedReceived;
+
         private void HandleEnterZone(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var enterZone = new S2C_0x008_EnterZone(payload);
             GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_ENTERZONE (0x008). Table valid={enterZone.IsValid}");
+            if (enterZone.IsValid) ZonesVisitedReceived?.Invoke(enterZone.EnterZoneTable.ToArray());
 
             // 1. Send 0x00D (NetEnd)
             byte[] netEnd = LifecycleOutboundPackets.BuildNetEnd(sequenceId: 0);

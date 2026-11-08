@@ -834,7 +834,8 @@ namespace Gordian.Engine.Input
                 _world.UpsertEntity(localEnt);
             }
             // The player's status (S2C 0x037) on its entity, also when the entity was made after the status came (#343).
-            localEnt.AnimationState = _localPlayer.ServerStatus;
+            // Not while the server sends the living character away: status 3 there is no death (round 2 of the 2026-11-03 test).
+            if (!_localPlayer.IsVanishing) localEnt.AnimationState = _localPlayer.ServerStatus;
             localEnt.Mount = _localPlayer.Mount;
 
             float dt = (float)elapsed.TotalSeconds;
