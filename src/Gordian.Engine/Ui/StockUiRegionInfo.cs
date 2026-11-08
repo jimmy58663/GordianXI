@@ -214,12 +214,12 @@ namespace Gordian.Engine.Ui
             new(136.5f, 71.5f, Above, StockUiRegionMarkerLook.Ball, Zone: 267, ColonyIndex: 6), new(65f, 79.5f, Above, StockUiRegionMarkerLook.Ball, Region: 52, ColonyIndex: 7),
         };
 
-        /// <summary>Colonization's sub-zones; a hub is its region or zone number. Marjami Ravine's Woh Gates was out of its capture's view.</summary>
+        /// <summary>Colonization's sub-zones; a hub is its region or zone number. Marjami Ravine's Woh Gates from the capture of 2026-11-07.</summary>
         private static readonly SubZone[] ColonizationZones =
         {
             new(49, 256, 376.5f, 166.5f, Left), new(49, 257, 396.5f, 166.5f, Right), new(49, 258, 386.5f, 169.5f, Below),
             new(261, 268, 244.5f, 191.5f, Below), new(263, 270, 229.5f, 158.5f, Below), new(262, 272, 179.5f, 221.5f, Below), new(265, 269, 239f, 97.5f, Below),
-            new(267, 281, 106f, 67.5f, Below), new(52, 274, 51f, 97.5f, Right), new(52, 276, 44f, 113.5f, Right), new(52, 277, 37f, 129.5f, Right),
+            new(267, 281, 106f, 67.5f, Below), new(266, 273, 144.5f, 129.5f, Below), new(52, 274, 51f, 97.5f, Right), new(52, 276, 44f, 113.5f, Right), new(52, 277, 37f, 129.5f, Right),
         };
 
         private static Point[] PointsOf(RegionMap map) => map switch
