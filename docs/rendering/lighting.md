@@ -39,12 +39,16 @@ Retail client on local LSB, same spot and hour, sunshine (`Valkurm_Sand_*` and `
 | Valkurm cliff | 12:05 | (164, 160, 165) | (180, 177, 178) |
 | Valkurm sand | 06:22 | (142, 132, 104) | (169, 162, 127) |
 | Valkurm sand | 08:05 | (242, 232, 183) | (243, 237, 191) |
+| Valkurm cliff (upper) | 16:23 | (192, 171, 148) | (230, 211, 182) |
+| Valkurm sand | 16:23 | (162, 145, 128) | (209, 190, 162) |
+| Valkurm cliff (upper) | 18:06-18:25 | (137, 100, 80) | (170, 129, 105) |
+| Valkurm sand | 18:06-18:25 | (86, 68, 77) | (119, 97, 101) |
 | Adoulin wall | 01:15 | (29, 29, 38) | (44, 44, 53) |
 | Adoulin wall | 13:05 | (55, 51, 52) | (77, 75, 71) |
 | Adoulin street | 01:15 | (63, 63, 91) | (64, 68, 91) |
 | Adoulin street | 13:05 | (172, 163, 149) | (191, 184, 165) |
 
-Patches are by eye, and the field of view differs. A face that only ambient reaches is about 1.3-1.5x retail at any hour, and the gap closes as the sun reaches it, which points at the ambient share rather than the time of day. Not changed: 16:00 and 18:00 were not captured.
+Patches are by eye, and the field of view differs. A face that only ambient reaches is about 1.3-1.5x retail at any hour, and the gap closes as the sun reaches it, which points at the ambient share rather than the time of day. *Afternoon (2026-11-07, same spot, `Valkurm_Sand_*_1620` and `_1820`):* the afternoon does not fit that reading. In full sun at 16:23 the sand is about 1.3x retail and the cliff about 1.2x, and at dusk (18:06-18:25) the sand is 1.4x and the cliff 1.3x, with our hue greyer and pinker where retail's cliff is a warmer orange. Our actor shadow is also much longer at dusk. So sunlit flat ground is bright too, away from noon (06:22, 16:23, 18:15) but not at 08:05; a sun colour or angle curve that is off away from noon fits better than ambient alone. Not changed: tracked in #516.
 
 ## Actor shadows (#7 rounds 1-2)
 
