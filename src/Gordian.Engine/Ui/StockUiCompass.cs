@@ -220,23 +220,16 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The grid square of world point (<paramref name="x"/>, <paramref name="z"/>) in a zone, from its maps
-        /// (<see cref="ZoneMapFiles.MapsOf"/>) and where each one's image sits (<paramref name="originOf"/>). Which floor
-        /// the player is on is not known, so a zone with several maps has a square only when every map is calibrated
-        /// (<see cref="ZoneMapProjection.ScaleOf"/>) and all of them put the point in the same square; null otherwise.
+        /// The grid square of world point (<paramref name="x"/>, <paramref name="z"/>) on map <paramref name="map"/> of a zone
+        /// (the floor the point is on, <see cref="StockUiMap.FloorOf"/>, #481), from where its image sits
+        /// (<paramref name="originOf"/>); null when the map is not calibrated (<see cref="ZoneMapProjection.ScaleOf"/>) or
+        /// the point is off its grid.
         /// </summary>
-        public static string? MapSquare(int zone, float x, float z, Func<int, int, ZoneMapOrigin?> originOf)
+        public static string? MapSquare(int zone, int map, float x, float z, Func<int, int, ZoneMapOrigin?> originOf)
         {
-            string? square = null;
-            foreach (byte map in ZoneMapFiles.MapsOf(zone))
-            {
-                if (ZoneMapProjection.ScaleOf(zone, map) is not float scale || originOf(zone, map) is not { } origin) return null;
-                var (u, v) = ZoneMapProjection.ToMap(origin, scale, x, z);
-                string? here = GridLabel(u, v);
-                if (here == null || (square != null && square != here)) return null;
-                square = here;
-            }
-            return square;
+            if (map < 0 || ZoneMapProjection.ScaleOf(zone, map) is not float scale || originOf(zone, map) is not { } origin) return null;
+            var (u, v) = ZoneMapProjection.ToMap(origin, scale, x, z);
+            return GridLabel(u, v);
         }
 
         /// <summary>The text after the orb: the time and, when the grid square is known, the square in brackets.</summary>

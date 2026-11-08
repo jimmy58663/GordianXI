@@ -83,6 +83,7 @@ namespace Gordian.Core.Resources.Graphics
             // +0xA8: the culling group, a pointer at the culling table a camera over this object's floor draws with
             // (xi-tools docs/zone/format.md "Visibility"); 0 for none.
             int cullingTable = cullingTables?.TableAt(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(transformOffset + 0xA8, 4))) ?? -1;
+            int mapFloor = MapFloorOf(BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(transformOffset + 0xA4, 4)));
 
             int positions = ReadOffset(payload, meshOffset + 0x00);
             int normals = ReadOffset(payload, meshOffset + 0x04);
@@ -126,9 +127,18 @@ namespace Gordian.Core.Resources.Graphics
                 int terrain = ((w0 >> 15) & 1) + ((w1 >> 14) & 2) + ((w2 >> 13) & 4) + ((w3 >> 12) & 8);
                 bool cameraTransparent = meshFlagged && (w2 & 0x4000) != 0;
 
-                triangles.Add(new CollisionTriangle(a, b, c, normal, isWall, (CollisionTerrain)terrain, cameraTransparent, cullingTable));
+                triangles.Add(new CollisionTriangle(a, b, c, normal, isWall, (CollisionTerrain)terrain, cameraTransparent, cullingTable, mapFloor));
             }
         }
+
+        /// <summary>
+        /// The zone map a collision transform's flag word at +0xA4 names (#481): bits 3-5 are the map number's low three
+        /// bits and bits 26-27 its 8 and 16, so 1-7 and 14-18 all fit (<c>m_162_04</c>: Castle Zvahl Keep's fourth
+        /// floor, word 0x20). Bits 0-2 are other flags. **Beyond xi-tools**, which leaves the tail's words past the
+        /// culling group unnamed: read from every retail zone with maps (2026-11-02), where the numbers found are exactly
+        /// the zone's map files (<see cref="Tables.ZoneMapFiles"/>) on every multi-floor zone, and 0 on single-map zones.
+        /// </summary>
+        public static int MapFloorOf(uint flags) => (int)(((flags >> 3) & 0x7) | (((flags >> 26) & 0x3) << 3));
 
         private static int ReadOffset(ReadOnlySpan<byte> payload, int offset)
         {
