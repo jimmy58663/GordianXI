@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Resources.Tables;
+using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui
 {
@@ -19,9 +20,9 @@ namespace Gordian.Engine.Ui
     /// Area" "(Area)", then every region (ROM/165/78) with the number of its zones that have a map ("San d'Oria [4]", round 1
     /// image-6); a region lists its zones in <c>maplist</c>, each with its compact name (ROM/165/85) at the right ("Southern
     /// San d'Oria (SSandOria)", round 2 image-26), and a zone with more than one map its maps. Both lists sit on the chat log
-    /// and write their rows in the log font (round 2 image-25). Retail opens the map on
-    /// the player with a position marker and the grid square under the help bar ("(F-10)"); GordianXI opens it centred,
-    /// without the marker: the world-to-map scale is not known (see <see cref="ZoneMapFiles"/>).
+    /// and write their rows in the log font (round 2 image-25). The map opens on the floor the character stands on
+    /// (<see cref="FloorOf"/>, #481), centred on the character with a red position dot where the map is calibrated. Retail
+    /// also writes the grid square under the help bar ("(F-10)"); GordianXI does not yet.
     /// </summary>
     public static class StockUiMap
     {
@@ -42,6 +43,18 @@ namespace Gordian.Engine.Ui
         public const float PanPerSecond = 0.5f;
 
         public const string CurrentAreaLabel = "Current Area", CurrentAreaValue = "(Area)";
+
+        /// <summary>
+        /// The map of the floor at <paramref name="position"/> (internal space) in the world's current zone (#481): the map
+        /// the zone's collision floor there names (<see cref="ZoneMapFiles.FloorOf(int, Gordian.Core.World.Collision.ZoneCollisionMesh?, System.Numerics.Vector3)"/>),
+        /// else the zone's first map; -1 for a zone without maps. The collision is used only while it is the zone's own (not a
+        /// Mog House room's).
+        /// </summary>
+        public static int FloorOf(WorldState world, System.Numerics.Vector3 position)
+        {
+            int zone = world.CurrentZoneId;
+            return ZoneMapFiles.FloorOf(zone, world.MapZoneId == zone ? world.ZoneCollision : null, position);
+        }
     }
 
     /// <summary>What a Change Map list row opens.</summary>
@@ -89,13 +102,19 @@ namespace Gordian.Engine.Ui
         /// <summary>What each Change Map list row opens.</summary>
         public IReadOnlyList<StockUiMapListEntry> MapEntries { get; internal set; } = Array.Empty<StockUiMapListEntry>();
 
+        /// <summary>
+        /// Whether the drawer should centre the map on the character the next time it knows the character's map point (set
+        /// when the window opens on the character's floor, #481; cleared once done or when another map is chosen).
+        /// </summary>
+        public bool MapCentreOnPlayer { get; set; }
+
         internal void PanMap(float dx, float dy)
         {
             MapCenterX += dx;
             MapCenterY += dy;
         }
 
-        internal void SetMapCenter(float x, float y)
+        public void SetMapCenter(float x, float y)
         {
             MapCenterX = x;
             MapCenterY = y;
@@ -103,6 +122,7 @@ namespace Gordian.Engine.Ui
 
         internal void ResetMapView()
         {
+            MapCentreOnPlayer = false;
             MapZoom = 1f;
             MapCenterX = MapCenterY = 0.5f;
         }
@@ -125,6 +145,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The Map window's Wide Scan (C2S 0x0F4, as <c>/widescan</c>); set by the session.</summary>
         public Func<Task>? WideScanRequested { get; set; }
+
+        /// <summary>The map number of the floor the character stands on (<see cref="StockUiMap.FloorOf"/>, #481), or -1; set by the session.</summary>
+        public Func<int>? CurrentMapFloor { get; set; }
 
         /// <summary>A zone's name by zone id (ROM/165/84); set by the HUD.</summary>
         public Func<int, string?>? ZoneName { get; set; }
@@ -151,6 +174,13 @@ namespace Gordian.Engine.Ui
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, from, Array.Empty<string>(), null) { MapZone = zone, MapNumbers = maps };
+            // The floor the character stands on (#481), centred on the character once the drawer knows where that is.
+            int floor = CurrentMapFloor?.Invoke() ?? -1;
+            for (int i = 0; i < maps.Count; i++)
+            {
+                if (maps[i] == floor) menu.MapIndex = i;
+            }
+            menu.MapCentreOnPlayer = true;
             menu.SelectedButtonId = FirstSelectable(definition);
             PushOpen(menu);
             return menu;
@@ -172,6 +202,13 @@ namespace Gordian.Engine.Ui
                     // The conquest map's movement moves its cursor; the map scrolls when the cursor nears the screen's
                     // edge (round 3 of #488), and it never zooms (round 1).
                     MoveConquestCursor(map, dx * StockUiConquest.CursorSpeed, dy * StockUiConquest.CursorSpeed);
+                    Changed?.Invoke();
+                    return;
+                }
+                if (map.QuestLogView == StockUiQuestLogView.RegionInfo)
+                {
+                    // Besieged, Campaign and Colonization have the same cursor (the 2026-11-03 captures, #492).
+                    MoveRegionInfoCursor(map, dx * StockUiConquest.CursorSpeed, dy * StockUiConquest.CursorSpeed);
                     Changed?.Invoke();
                     return;
                 }

@@ -15,6 +15,24 @@ namespace Gordian.Engine.Tests.Input
 {
     public sealed class PlayerLocomotionControllerTests
     {
+        /// <summary>
+        /// A survival guide's teleport sends status 3 at 100% HP (round 2 of the 2026-11-03 test): the tick must not copy it to
+        /// the entity, or the death motion starts. A real death's status reaches the entity.
+        /// </summary>
+        [Theory]
+        [InlineData(100, 0)]
+        [InlineData(0, 3)]
+        public void StatusThree_ReachesTheEntityOnlyWithoutHp(byte hpp, byte expected)
+        {
+            var (controller, _, _, player, localEnt) = CreateTestHarness();
+            byte[] payload = new byte[0x60];
+            payload[38] = hpp;
+            payload[44] = LocalPlayerState.StatusDead;
+            player.UpdateFromCharStatus(new Gordian.Core.Network.Packets.S2C_0x037_CharStatus(payload));
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(expected, localEnt.AnimationState);
+        }
+
         private (PlayerLocomotionController controller, InputState input, WorldState world, LocalPlayerState player, PlayerEntity localEnt) CreateTestHarness()
         {
             var world = new WorldState();

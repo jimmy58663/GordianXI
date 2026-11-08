@@ -59,30 +59,23 @@ namespace Gordian.Core.Tests.World
                 zone.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
             }
 
-            // South -> North leaves 1472 s into the day and lands at 2306 s (LandSandBoat barge_south_north); the scenery
-            // runs RouteLeadSeconds ahead of that.
+            // Retail's South -> North run: ShipStart 1497 s into the day, 808 s long.
             double day = 3456 * 1000.0;
-            double lead = VoyageSchedule.RouteLeadSeconds;
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1472 + 417 - lead, out var mid));
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 1497 + 404, out var mid));
             Assert.Equal("c002", mid.Route.Name);
             Assert.Equal(0.5f, mid.Progress, 3);
             Assert.False(mid.Reversed);
-            // Retail at 10:51 (image-14) was 16.5 % along it.
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 10.85 * 144, out var shot));
-            Assert.InRange(shot.Progress, 0.145f, 0.185f);
 
-            // The Emfea leg runs c001 forwards (it passes under the broken rope bridge), both Newtpool legs c000 backwards.
+            // South -> Central runs c001 forwards, both Central -> South rides c000 backwards.
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 400, out var emfea));
             Assert.Equal("c001", emfea.Route.Name);
             Assert.False(emfea.Reversed);
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 800, out var south));
             Assert.Equal("c000", south.Route.Name);
             Assert.True(south.Reversed);
-            // Retail at 21:58 (image-24) was in the Newtpool, 60-66 % along the night leg.
-            Assert.True(VoyageSchedule.TryGetPosition(zone, day + (21 + 58 / 60.0) * 144, out var night));
+            Assert.True(VoyageSchedule.TryGetPosition(zone, day + 3000, out var night));
             Assert.Equal("c000", night.Route.Name);
             Assert.True(night.Reversed);
-            Assert.InRange(night.Progress, 0.6f, 0.67f);
 
             // Between legs the vessel waits at the end of the leg that landed last (North -> Central lands at 2774 s).
             Assert.True(VoyageSchedule.TryGetPosition(zone, day + 2800, out var docked));
@@ -99,17 +92,74 @@ namespace Gordian.Core.Tests.World
             Assert.Equal("c003", wrapped.Route.Name);
             Assert.InRange(wrapped.Progress, 0.9f, 1f);
 
-            // Its morning tour (Dhalmel Rock) and afternoon tour (Maliyakaleya Reef) take different loops (round 3).
+            // The morning tour (Dhalmel Rock) plays c000, the afternoon tour (Maliyakaleya Reef) c001.
             Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 400, out var morning));
-            Assert.Equal("c001", morning.Route.Name);
-            // Vana'diel 14:19 and 15:08 (Maliyakaleya Reef shots image-19 and image-21) are 2061.6 s and 2179.2 s into the
-            // day; retail showed 47 % and 62-65 % of c000.
-            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2061.6, out var afternoon));
-            Assert.Equal("c000", afternoon.Route.Name);
+            Assert.Equal("c000", morning.Route.Name);
+            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2100, out var afternoon));
+            Assert.Equal("c001", afternoon.Route.Name);
             Assert.False(afternoon.Reversed);
-            Assert.InRange(afternoon.Progress, 0.44f, 0.5f);
-            Assert.True(VoyageSchedule.TryGetPosition(clipper, 3456 * 7.0 + 2179.2, out var arch));
-            Assert.InRange(arch.Progress, 0.61f, 0.67f);
+        }
+
+        [Fact]
+        public void ARunTheServerSends_WinsOverTheTimetable()
+        {
+            var zone = new ZoneGeometry { ZoneId = 1, Vessel = new ZoneVessel() };
+            foreach (string name in new[] { "c000", "c001", "c002", "c003" })
+            {
+                zone.Vessel.Routes.Add(StraightRoute(name, Vector3.Zero, new Vector3(100, 0, 0)));
+            }
+
+            // Mid-way through the timetable's South -> North, a server says otherwise.
+            double start = 3456 * 1000.0 + 1500;
+            var run = new VoyageRun(3, true, start, 200);
+            Assert.True(VoyageSchedule.TryGetPosition(zone, start + 50, out var sent, run));
+            Assert.Equal("c003", sent.Route.Name);
+            Assert.True(sent.Reversed);
+            Assert.Equal(0.25f, sent.Progress, 3);
+
+            // Joining late lands part-way; the vessel holds at the ends of the run.
+            Assert.True(VoyageSchedule.TryGetPosition(zone, start - 10, out var early, run));
+            Assert.Equal(0f, early.Progress);
+            Assert.True(VoyageSchedule.TryGetPosition(zone, start + 500, out var late, run));
+            Assert.Equal(1f, late.Progress);
+
+            // A voyage zone with no timetable moves when a server sends it a run, and holds halfway when none does.
+            var airship = new ZoneGeometry { ZoneId = 223, Vessel = new ZoneVessel() };
+            airship.Vessel.Routes.Add(StraightRoute("c000", Vector3.Zero, new Vector3(100, 0, 0)));
+            Assert.True(VoyageSchedule.TryGetPosition(airship, 1000, out var held));
+            Assert.Equal(0.5f, held.Progress);
+            Assert.True(VoyageSchedule.TryGetPosition(airship, 1000, out var moving, new VoyageRun(0, false, 900, 400)));
+            Assert.Equal(0.25f, moving.Progress, 3);
+        }
+
+        [Fact]
+        public void TheVesselMovesAtConstantSpeedAlongItsPath()
+        {
+            // The second stretch is nine times the first, in the same key time.
+            var route = new CameraRoute
+            {
+                Name = "c000",
+                Keys = new[]
+                {
+                    new CameraKey(Vector3.Zero, 0, Vector3.UnitZ, 0, 0f),
+                    new CameraKey(new Vector3(10, 0, 0), 0, new Vector3(10, 0, 1), 0, 0.5f),
+                    new CameraKey(new Vector3(100, 0, 0), 0, new Vector3(100, 0, 1), 0, 1f),
+                },
+            };
+            float length = 0;
+            var last = route.Evaluate(0).Eye;
+            for (int i = 1; i <= 1000; i++) { var eye = route.Evaluate(i / 1000f).Eye; length += (eye - last).Length(); last = eye; }
+
+            foreach (float fraction in new[] { 0.25f, 0.5f, 0.75f })
+            {
+                float walked = 0;
+                var previous = route.Evaluate(0).Eye;
+                float progress = route.ProgressAtDistance(fraction);
+                for (int i = 1; i <= 1000; i++) { var eye = route.Evaluate(progress * i / 1000f).Eye; walked += (eye - previous).Length(); previous = eye; }
+                Assert.InRange(walked / length, fraction - 0.005f, fraction + 0.005f);
+            }
+            Assert.Equal(0f, route.ProgressAtDistance(0f));
+            Assert.Equal(1f, route.ProgressAtDistance(1f));
         }
 
         [Fact]

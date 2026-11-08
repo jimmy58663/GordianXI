@@ -148,7 +148,9 @@ namespace Gordian.App.Tests.Graphics
                     var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
                     if (!string.IsNullOrEmpty(dumpDir)) StockUiRendererTests.SavePng(Path.Combine(dumpDir, name), pixels, (int)width, (int)height);
                 }
-                void WaitIdle() { for (int i = 0; i < 200 && lobby.IsBusy; i++) Thread.Sleep(10); }
+                // Lobby requests run on the thread pool, which the render tests running beside this one can hold up for seconds; a
+                // key sent while the lobby is still busy is dropped, so this must not give up early.
+                void WaitIdle() { for (int i = 0; i < 3000 && lobby.IsBusy; i++) Thread.Sleep(10); Assert.False(lobby.IsBusy, "The lobby request never finished."); }
 
                 lobby.HandleInput(LobbyInput.Down);
                 lobby.HandleInput(LobbyInput.Confirm); // Create Character
@@ -237,7 +239,7 @@ namespace Gordian.App.Tests.Graphics
                 // The lobby drops keys while a request runs: wait for the character list before choosing the character
                 // (under a full test run's load the second key used to arrive while the list was still loading).
                 lobby.HandleInput(LobbyInput.Confirm);
-                for (int i = 0; i < 500 && (lobby.IsBusy || lobby.Screen != LobbyScreen.CharacterList); i++) Thread.Sleep(10);
+                for (int i = 0; i < 3000 && (lobby.IsBusy || lobby.Screen != LobbyScreen.CharacterList); i++) Thread.Sleep(10);
                 lobby.HandleInput(LobbyInput.Confirm);
                 for (int i = 0; i < 500 && lobby.Screen != LobbyScreen.Entering; i++) Thread.Sleep(10);
                 Assert.Equal(LobbyScreen.Entering, lobby.Screen);

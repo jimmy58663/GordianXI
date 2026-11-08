@@ -305,7 +305,7 @@ The decoders already registered now read the fields LandSandBoat sends that they
 
 | Packet | Data | Where it lives | Consumer |
 |---|---|---|---|
-| S2C 0x00A | music, `SubMapNumber`, `ZoneSubNo`, weather schedule, Mog House fields, job/HP/MP block (`ZoneLoginInfo`) | `WorldState.ZoneLoginInfo`, `LifecyclePacketModule.ZoneLoginInfoReceived` | nothing yet ([#114](https://github.com/jimmy58663/GordianXI/issues/114), [#68](https://github.com/jimmy58663/GordianXI/issues/68), [#71](https://github.com/jimmy58663/GordianXI/issues/71), [#93](https://github.com/jimmy58663/GordianXI/issues/93)) |
+| S2C 0x00A | music, `SubMapNumber`, `ZoneSubNo`, weather schedule, ship run (`ShipRun`, read by `VoyageSchedule`), Mog House fields, job/HP/MP block (`ZoneLoginInfo`) | `WorldState.ZoneLoginInfo`, `LifecyclePacketModule.ZoneLoginInfoReceived` | nothing yet ([#114](https://github.com/jimmy58663/GordianXI/issues/114), [#68](https://github.com/jimmy58663/GordianXI/issues/68), [#71](https://github.com/jimmy58663/GordianXI/issues/71), [#93](https://github.com/jimmy58663/GordianXI/issues/93)) |
 | S2C 0x00A, 0x057 | weather start time (minutes) and offset | `WorldState.WeatherTiming`, `LifecyclePacketModule.WeatherTimingReceived` | nothing yet |
 | S2C 0x056 | quest offer/complete and mission bit tables, TVR | `ProgressionState.IsQuestActive` / `IsQuestComplete` / `IsMissionComplete`, `ExpansionTvr`, `QuestLogComplete` | nothing yet (the quest log window) |
 | S2C 0x052 | mode 0 and 3 events; the cancel event id is compared | `ProgressionState.EventControlReleased` / `EventInputCancelled` | nothing yet |

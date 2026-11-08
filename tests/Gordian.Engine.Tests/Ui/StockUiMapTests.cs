@@ -53,6 +53,25 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void Map_OpensOnTheCharactersFloor_CentredOnTheCharacter()
+        {
+            // #481: Castle Zvahl Keep (maps 1-4) with the character on floor 4.
+            var menus = Controller(162, new List<string>());
+            menus.CurrentMapFloor = () => 4;
+            Assert.True(menus.OpenMainMenu());
+            menus.Activate(); // Map
+            var map = menus.MapWindow!;
+            Assert.Equal(4, map.MapNumber);
+            Assert.True(map.MapCentreOnPlayer); // the drawer centres it once it knows the character's map point
+            // A floor the zone has no map for (or none known) keeps the first map.
+            menus.CurrentMapFloor = () => -1;
+            menus.CloseAll();
+            Assert.True(menus.OpenMainMenu());
+            menus.Activate();
+            Assert.Equal(1, menus.MapWindow!.MapNumber);
+        }
+
+        [Fact]
         public void Map_OpensOnTheZonesFirstMap_ChangeMapListsAreasZonesAndMaps()
         {
             var notices = new List<string>();

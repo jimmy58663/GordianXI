@@ -64,7 +64,7 @@ namespace Gordian.Core.World
     /// Thread-safe active state container for character story progression, key items,
     /// missions, merits, job points, Records of Eminence, mog house, conquest, and minigames.
     /// </summary>
-    public sealed class ProgressionState
+    public sealed partial class ProgressionState
     {
         private readonly object _lock = new object();
 

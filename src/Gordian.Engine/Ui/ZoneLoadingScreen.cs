@@ -62,6 +62,7 @@ namespace Gordian.Engine.Ui
             _settledZone = 0;
             _fadingOut = false;
             _blackSince = double.NaN;
+            _eventBlackUntil = double.NaN;
             _eventWaitZone = 0;
             _eventSettledZone = 0;
             IsLoading = black;
@@ -85,6 +86,28 @@ namespace Gordian.Engine.Ui
 
         private bool _fadingOut;
         private double _blackSince = double.NaN;
+
+        /// <summary>
+        /// Longest the screen stays black after an event that blacked it ends, waiting for the zone change the event led to
+        /// (<see cref="TakeOverEventBlack"/>). A home point's teleport on LandSandBoat sent S2C 0x00B 0.34 s after the event's
+        /// end (2026-11-07); the hold itself is a guess with room for a slower server.
+        /// </summary>
+        public const double EventBlackHoldSeconds = 1.0;
+
+        private double _eventBlackUntil = double.NaN;
+
+        /// <summary>
+        /// An event ended with its scene faded to black (<c>EventPresentation.Reset</c> clears its fade at once): the screen
+        /// stays black, as retail's does when a home point or survival guide sends the character to another zone (the capture
+        /// of 2026-11-07: one fade to black, nothing seen until the new zone fades in; GordianXI showed the old scene for
+        /// 0.3 s and faded out again). The zone change takes the black over; without one the scene fades back in after
+        /// <see cref="EventBlackHoldSeconds"/> (what retail does then is not captured).
+        /// </summary>
+        public void TakeOverEventBlack(double nowSeconds)
+        {
+            _opacity = 1f;
+            _eventBlackUntil = nowSeconds + EventBlackHoldSeconds;
+        }
 
         /// <summary>
         /// Whether the view is fully black (a new zone may be swapped in now, unseen). A zone swap waits for this (#350
@@ -170,6 +193,9 @@ namespace Gordian.Engine.Ui
         {
             double dt = double.IsNaN(_lastSeconds) ? 0 : Math.Clamp(nowSeconds - _lastSeconds, 0, 0.25);
             _lastSeconds = nowSeconds;
+            if (loading) _eventBlackUntil = double.NaN;
+            bool eventBlack = !double.IsNaN(_eventBlackUntil) && nowSeconds < _eventBlackUntil;
+            if (!eventBlack) _eventBlackUntil = double.NaN;
             if (loading && _opacity < 1f) _fadingOut = true;
             if (_opacity >= 1f)
             {
@@ -181,7 +207,7 @@ namespace Gordian.Engine.Ui
                 _blackSince = double.NaN;
             }
             bool holdBlack = _opacity >= 1f && !double.IsNaN(_blackSince) && nowSeconds - _blackSince < MinimumBlackSeconds;
-            bool darken = loading || _fadingOut || holdBlack;
+            bool darken = loading || _fadingOut || holdBlack || eventBlack;
             IsLoading = darken;
             float step = (float)(dt / (darken ? FadeOutSeconds : FadeInSeconds));
             _opacity = darken ? Math.Min(1f, _opacity + step) : Math.Max(0f, _opacity - step);

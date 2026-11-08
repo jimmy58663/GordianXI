@@ -780,7 +780,7 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void TerrainTone_DefaultsToTheShoulder_AndRetailBrightnessTurnsItOff()
+        public void TerrainTone_DefaultsToThePlainClamp_AndSoftHighlightsTurnTheShoulderOn()
         {
             if (!OperatingSystem.IsWindows()) return;
             [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -795,9 +795,9 @@ namespace Gordian.App.Tests.Graphics
                 devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 64, 64, GraphicsBackendPreference.Direct3D11, vsync: false);
                 if (devMgr.Device == null) return;
                 using var renderer = new ZoneTerrainRenderer(devMgr.Device);
-                Assert.Equal(new System.Numerics.Vector4(0.8f, 0.9f, 0f, 0f), renderer.TerrainTone);
-                renderer.RetailTerrainBrightness = true;
                 Assert.Equal(System.Numerics.Vector4.Zero, renderer.TerrainTone);
+                renderer.SoftTerrainHighlights = true;
+                Assert.Equal(new System.Numerics.Vector4(0.8f, 0.9f, 0f, 0f), renderer.TerrainTone);
             }
             finally
             {

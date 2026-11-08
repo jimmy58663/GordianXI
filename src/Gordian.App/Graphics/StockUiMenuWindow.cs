@@ -49,6 +49,12 @@ namespace Gordian.App.Graphics
                 StockUiQuestLogWindow.DrawConquestPage(renderer, library, font, logFont, menu, placement, screen ?? default);
                 return;
             }
+            if (font != null && menu.QuestLogView == StockUiQuestLogView.RegionInfo)
+            {
+                // Besieged, Campaign and Colonization (#492): the page's panels at their DAT places.
+                StockUiRegionInfoWindow.Draw(renderer, library, font, logFont, menu, placement, screen ?? default);
+                return;
+            }
             var definition = menu.Menu;
             var frame = definition.Frame;
             float s = placement.Scale;

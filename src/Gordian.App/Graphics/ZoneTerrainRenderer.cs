@@ -190,8 +190,26 @@ namespace Gordian.App.Graphics
         /// effect, the transform from the zone-effect display frame to the world (the actor's placement and joint).
         /// <paramref name="OnModel"/> marks an effect a model or worn gear carries (<see cref="AddActorInstanceDraws"/>), whose
         /// generator z offset is drawn as a depth push behind the wearer (<see cref="WeatherSkyLayer.DepthOffset"/>, #8).
+        /// <paramref name="Surface"/> marks a zone layer drawn as a static mesh (no emitter): a river or sea surface, a cave
+        /// mouth's fog gradient, a lamp's light overlay (<see cref="EffectDrawOrder"/>).
         /// </summary>
-        private readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false);
+        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false);
+        /// <summary>
+        /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
+        /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
+        /// one large mesh sorted by its base position, which says nothing about where its pixels lie: Phanauet Channel's
+        /// river <c>cors</c> spans about 310 x 360 yalms around the barge, its base at the barge's centre, so a summoned
+        /// spirit hovering past the centre sorted before it and the river painted over it, the spirit's particles writing no
+        /// depth to stop it (#458). Drawing the surfaces first, like the blended water submeshes of Pass 3, keeps anything
+        /// above the water in front of it (*inference*; how the client orders its effect lists is not known).
+        /// </summary>
+        internal static int EffectDrawOrder(EffectDraw a, EffectDraw b)
+        {
+            if (a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite) return a.Mesh.Layer.DepthWrite ? -1 : 1;
+            if (a.Surface != b.Surface) return a.Surface ? -1 : 1;
+            return b.Distance.CompareTo(a.Distance);
+        }
+
         private Dictionary<WeatherSkyLayer, ZoneParticleEmitter> _emitters = new(ReferenceEqualityComparer.Instance);
         private ScenePostProcess? _postProcess;
 
@@ -214,8 +232,9 @@ namespace Gordian.App.Graphics
         /// modulate-2x) is above this knee, that channel is compressed smoothly toward <see cref="TerrainHighlightCeiling"/>
         /// (excess e becomes e / (1 + e / (ceiling - knee))) and the other channels scale with it, instead of clipping at
         /// white. Retail clips: at noon Valkurm Dunes' sand saturates to pure white across the frame (maintainer capture
-        /// <c>Bright_Sand.png</c>, 2026-10-17, about 13:17, clear). The maintainer chose a toned-down default over that
-        /// parity. Valkurm's noon sand reaches about 1.5 before the clamp and now draws at about 0.89.
+        /// <c>Bright_Sand.png</c>, 2026-10-17, about 13:17, clear). Valkurm's noon sand reaches about 1.5 before the clamp and
+        /// draws at about 0.89 with the shoulder on. Opt-in since #478 (<see cref="SoftTerrainHighlights"/>): it flattened the
+        /// sand's shading and grain, and the maintainer chose plain retail.
         /// *Round 1 of 2026-10-29:* retail's Eastern Altepa sand at 10:41-11:20 (image-14 to -17: none, sunshine, clouds,
         /// hot spell) matches our untoned output within 5% per channel, red 0.78-0.88. The old per-channel shoulder from
         /// 0.65 pulled red down and left green and blue alone, so that sand came out pale yellow instead of orange
@@ -227,15 +246,15 @@ namespace Gordian.App.Graphics
         public float TerrainHighlightCeiling { get; set; } = 0.9f;
 
         /// <summary>
-        /// Draws terrain with the retail client's plain clamp, so bright sand at noon clips to white (#7); off by default
-        /// (<see cref="ViewportRenderSettings.RetailTerrainBrightness"/>).
+        /// Rolls terrain highlights off (#7). Off by default, for the retail client's plain clamp: bright sand at noon clips
+        /// to white (#478; <see cref="ViewportRenderSettings.SoftTerrainHighlights"/>).
         /// </summary>
-        public bool RetailTerrainBrightness { get; set; }
+        public bool SoftTerrainHighlights { get; set; }
 
         /// <summary>The terrain shaders' highlight shoulder for this frame (zero: plain clamp).</summary>
-        internal Vector4 TerrainTone => RetailTerrainBrightness || TerrainHighlightCeiling <= TerrainHighlightKnee
-            ? Vector4.Zero
-            : new Vector4(TerrainHighlightKnee, TerrainHighlightCeiling, 0.0f, 0.0f);
+        internal Vector4 TerrainTone => SoftTerrainHighlights && TerrainHighlightCeiling > TerrainHighlightKnee
+            ? new Vector4(TerrainHighlightKnee, TerrainHighlightCeiling, 0.0f, 0.0f)
+            : Vector4.Zero;
         private Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _emittersByTemplate = new(ReferenceEqualityComparer.Instance);
         private WeatherRoutinePlayer? _weatherRoutines;
         private ZoneRoutinePlayer? _mapRoutines;
@@ -1298,7 +1317,8 @@ namespace Gordian.App.Graphics
                                 vesselZone.Routes.Find(r => r.Name == pinned.Route) is { } pinnedRoute
                 ? VoyageSchedule.SceneryTransform(new VoyagePosition(pinnedRoute, pinned.Progress, pinned.Reversed))
                 : LoadedZone?.Vessel is { IsVoyage: true }
-                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow))
+                ? VoyageSchedule.GetSceneryTransform(LoadedZone, VoyageClockOverride ?? World?.Clock.GetEarthSecondsSinceEpoch(DateTime.UtcNow) ?? VanaTime.GetEarthSecondsSinceEpoch(DateTime.UtcNow),
+                    VoyageClockOverride == null ? World?.ZoneLoginInfo?.ShipRun : null)
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
@@ -1643,7 +1663,7 @@ namespace Gordian.App.Graphics
                         sortDistance = Vector3.Distance(camera.Position, Vector3.Transform(effectMesh.BasePosition, _sceneryTransform));
                     }
                     var effectEmitter = _emitters.GetValueOrDefault(effectMesh.Layer);
-                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null));
+                    _effectDrawList.Add(new EffectDraw(effectMesh, sortDistance, effectEmitter, effectEmitter != null ? sceneryAnchor : null, Surface: effectEmitter == null));
                 }
                 AddActorEffectDraws(camera);
                 AddWeaponEffectDraws(camera);
@@ -1652,14 +1672,11 @@ namespace Gordian.App.Graphics
                 AddActionEffectDraws(camera);
                 AddFootEffectDraws(camera);
                 AddInteriorEffectDraws(camera);
-                _effectDrawList.Sort((a, b) =>
-                    a.Mesh.Layer.DepthWrite != b.Mesh.Layer.DepthWrite
-                        ? (a.Mesh.Layer.DepthWrite ? -1 : 1)
-                        : b.Distance.CompareTo(a.Distance));
+                _effectDrawList.Sort(EffectDrawOrder);
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _, emitter, anchor, onModel) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor, onModel, _) in _effectDrawList)
                 {
                     var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)

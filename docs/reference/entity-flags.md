@@ -68,7 +68,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 16-23 | b | 0x00D: linkshell blue. 0x00E: low 4 bits GEO Indi element, rest unknown | 0x00D `LsColorB` |
 | 24 | PvPFlag | Gate Breach in PvP | not decoded |
 | 25 | ShadowFlag | the shadow is hidden | `HidesShadow` (both packets), not used: GordianXI draws no entity shadows yet |
-| 26 | ShipStartMode | unused | |
+| 26 | ShipStartMode | read on S2C 0x00A only (`ZoneLoginInfo.ShipReversed`): the ship run plays its Route backwards | **Beyond XiPackets**, which calls it unused: set on retail's Central → South barge rides only ([viewport-and-terrain](../rendering/viewport-and-terrain.md#vessels-and-voyage-zones-403)) |
 | 27 | CharmFlag | charmed | 0x00D `IsCharmed`: for the local player, input is ignored and the server's positions are taken (`EntityPacketModule`, `PlayerLocomotionController`) |
 | 28 | GmIconFlag | a GM hiding the GM icon | 0x00D `NamePlateFlags.GmIconHidden` |
 | 29 | NamedFlag | the name takes no "The" | 0x00E `HasProperName` → `WorldEntity.TakesArticle` (a monster without it takes "the"): the article of client message tables' entity tags (`ClientMessageController`, #334). The combat log's own lines do not use it yet |

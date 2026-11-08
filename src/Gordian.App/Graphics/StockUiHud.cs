@@ -199,6 +199,11 @@ namespace Gordian.App.Graphics
                 session.ActionService.MountName = i => mountStrings.TryGetString(DMsgCategory.MountNames, i, out var name) ? name : null;
                 session.ActionService.MountHelp = i => mountStrings.TryGetString(DMsgCategory.MountHelp, i, out var help) ? help : null;
             }
+            if (session.ActionService.MapSquare == null)
+            {
+                // The <pos> placeholder (#387): the character's map grid square, as the compass shows it.
+                session.ActionService.MapSquare = () => CharacterGrid(session);
+            }
             if (session.ActionService.ZoneName == null && _resources is { } zoneStrings)
             {
                 // The Mog House exit's area list (#354): zone names by zone id (ROM/165/84).
@@ -420,7 +425,8 @@ namespace Gordian.App.Graphics
             if (menus.MapWindow is not { } map) return;
             var loaded = LoadZoneMap(map.MapZone, map.MapNumber);
             string zoneName = _resources != null && _resources.TryGetString(DMsgCategory.ZoneNames, map.MapZone, out var name) ? name : string.Empty;
-            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin);
+            StockUiMapWindow.Draw(renderer, library, font, _logFont, map, loaded?.Texture, zoneName, Layout.Scale, width, height, loaded?.Origin,
+                PlayerOnMap(session, map.MapZone, map.MapNumber));
         }
 
         /// <summary>The zone maps the Map window and the event map have loaded, with where each one's image sits.</summary>
@@ -461,6 +467,11 @@ namespace Gordian.App.Graphics
                 _eventMap.Reset();
                 return;
             }
+            if (focus.MapNumber == Gordian.Engine.Events.EventMapFocus.NoMap)
+            {
+                _eventMap.Reset();
+                return;
+            }
             int mapNumber = Gordian.Core.Resources.Tables.ZoneMapFiles.Resolve(focus.Zone, focus.MapNumber);
             if (mapNumber < 0) return;
             if (LoadZoneMap(focus.Zone, mapNumber) is not { } loaded) return;
@@ -497,7 +508,7 @@ namespace Gordian.App.Graphics
                     if (StockUiCompass.DotOffset(offset.X, offset.Z, CameraBearing) is { } at)
                         _compassDots.Add(new StockUiCompassDot(at, StockUiCompass.Classify(entity.Type)));
                 }
-                grid = CompassGrid(world.CurrentZoneId, me.Position);
+                grid = CompassGrid(world, me.Position);
             }
             var now = DateTime.UtcNow;
             var (hour, minute) = StockUiCompass.TimeOfDay(world.Clock, now);
@@ -505,22 +516,37 @@ namespace Gordian.App.Graphics
                 StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s);
         }
 
-        /// <summary>The map grid square of a position (<see cref="StockUiCompass.MapSquare"/>).</summary>
-        private string? CompassGrid(int zone, Vector3 position) => StockUiCompass.MapSquare(zone, position.X, position.Z, ZoneMapOrigin);
+        /// <summary>
+        /// The map grid square of the character's position on the floor it stands on (<see cref="StockUiCompass.MapSquare"/>,
+        /// <see cref="StockUiMap.FloorOf"/>, #481). Also the <c>&lt;pos&gt;</c> placeholder's, from the chat's thread (#387).
+        /// </summary>
+        private string? CompassGrid(WorldState world, Vector3 position) =>
+            StockUiCompass.MapSquare(world.CurrentZoneId, StockUiMap.FloorOf(world, position), position.X, position.Z, ZoneMapOrigin);
 
-        /// <summary>Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square).</summary>
-        private readonly Dictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+        /// <summary>The character's map grid square, or null (the <c>&lt;pos&gt;</c> placeholder, #387).</summary>
+        private string? CharacterGrid(CharacterSession session) =>
+            session.World.TryGetByServerId(session.LocalPlayer.ServerId, out var me) && me != null ? CompassGrid(session.World, me.Position) : null;
 
-        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map)
+        /// <summary>The character's world x / z when it stands in <paramref name="zone"/> on map <paramref name="mapNumber"/> (#481), else null.</summary>
+        private static (float X, float Z)? PlayerOnMap(CharacterSession session, int zone, int mapNumber)
         {
-            if (!_zoneMapOrigins.TryGetValue((zone, map), out var origin))
-            {
-                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(zone, map);
-                origin = path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
-                _zoneMapOrigins[(zone, map)] = origin;
-            }
-            return origin;
+            var world = session.World;
+            if (world.CurrentZoneId != zone || !world.TryGetByServerId(session.LocalPlayer.ServerId, out var me) || me == null) return null;
+            return StockUiMap.FloorOf(world, me.Position) == mapNumber ? (me.Position.X, me.Position.Z) : null;
         }
+
+        /// <summary>
+        /// Where each zone map's image sits, read from its DAT without decoding the image (the compass's map square). Read from
+        /// the render thread and the chat's (<c>&lt;pos&gt;</c>).
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Zone, int Map), Gordian.Core.Resources.Tables.ZoneMapOrigin?> _zoneMapOrigins = new();
+
+        private Gordian.Core.Resources.Tables.ZoneMapOrigin? ZoneMapOrigin(int zone, int map) =>
+            _zoneMapOrigins.GetOrAdd((zone, map), key =>
+            {
+                string? path = Gordian.Core.Resources.Tables.ZoneMapFiles.PathOf(key.Zone, key.Map);
+                return path != null && _resources?.LoadDatBytes(path) is { } dat ? Gordian.Core.Resources.Tables.ZoneMapProjection.ReadOrigin(dat) : null;
+            });
 
         /// <summary>The Status window's stats side, level box and help bar while its list is open (#23).</summary>
         private void DrawStatus(StockUiRenderer renderer, UiResourceLibrary library, CharacterSession session, uint width, uint height)
@@ -927,6 +953,12 @@ namespace Gordian.App.Graphics
             {
                 // The Conquest map puts its Conquest Points in the target window's place (#488, round 1).
                 StockUiQuestLogWindow.DrawConquestPoints(renderer, library, font, _logFont, conquest, placement, menu.Frame.Width, menu.Frame.Height);
+                return;
+            }
+            if (font != null && session.ActionService.Menus.PannedMap is { RegionInfoView: { BoxWindow.Length: > 0 } regionInfo })
+            {
+                // Besieged, Campaign and Colonization put Imperial Standing, Allied Notes and Bayld there (#492).
+                StockUiRegionInfoWindow.DrawBox(renderer, library, font, _logFont, regionInfo, placement, menu.Frame.Width, menu.Frame.Height);
                 return;
             }
             if (target != null && font != null) _actionInfoAnchor = (placement.X, placement.Y);

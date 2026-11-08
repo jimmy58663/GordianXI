@@ -2117,6 +2117,10 @@ namespace Gordian.Engine.Ui
                     OpenConquest(from);
                     break;
 
+                case StockUiMenuCommand.RegionMapPage:
+                    OpenRegionInfo((Core.Resources.Tables.RegionMap)entry.Argument, from);
+                    break;
+
                 case StockUiMenuCommand.EquipmentSets:
                     OpenEquipmentSets(from);
                     break;
