@@ -83,6 +83,41 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(below.R > 60, $"map's top edge pixel {below}");
         }
 
+        /// <summary>
+        /// #481: the Map window opens centred on the character with the compass's red dot on it, here in Northern San d'Oria
+        /// near the survival guide; another floor's character is not drawn.
+        /// </summary>
+        [Fact]
+        public void OpensOnTheCharacter_WithItsRedDot()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen == null) return;
+            var menus = new StockUiMenuController { Library = screen.Library, CurrentZone = () => 231, CurrentMapFloor = () => 0 };
+            Assert.True(menus.OpenMainMenu());
+            menus.Top!.SelectedButtonId = 12; // Map
+            menus.Activate();
+            var map = menus.MapWindow!;
+            var loaded = ZoneMapFiles.LoadWithOrigin(screen.Resources, map.MapZone, map.MapNumber)!.Value;
+            (float X, float Z) player = (-150, 150);
+            var shot = screen.Render(r => StockUiMapWindow.Draw(r, screen.Library, screen.Font, screen.LogFont, map, loaded.Texture, "Northern San d'Oria", 1,
+                screen.Width, screen.Height, loaded.Origin, player), "gpu_map_character.png");
+            Assert.False(map.MapCentreOnPlayer);
+            var (u, v) = ZoneMapProjection.ToMap(loaded.Origin!.Value, ZoneMapProjection.TownScale, player.X, player.Z);
+            var (x, y, w, h) = StockUiMapWindow.Placement(map, loaded.Texture.Width, loaded.Texture.Height, screen.Width, screen.Height,
+                StockUiMapWindow.Margin(screen.Library, 1, screen.Width, screen.Height));
+            int px = (int)(x + u * w / loaded.Texture.Width), py = (int)(y + v * h / loaded.Texture.Height);
+            bool red = false;
+            for (int dy = -4; dy <= 4 && !red; dy++)
+            {
+                for (int dx = -4; dx <= 4 && !red; dx++)
+                {
+                    var p = screen.Pixel(shot, px + dx, py + dy);
+                    red = p.R > 150 && p.R > p.G + 60 && p.R > p.B + 60;
+                }
+            }
+            Assert.True(red, $"no red dot near ({px}, {py})");
+        }
+
         /// <summary>The zone's home points on the Map window (round 1 of #168): the pale-blue crystal on each, here Northern San d'Oria #4.</summary>
         [Fact]
         public void ShowsTheZonesHomePoints()

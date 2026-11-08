@@ -24,6 +24,9 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Region Info's Conquest map (<see cref="StockUiConquestView"/>).</summary>
         Conquest,
+
+        /// <summary>Region Info's Besieged, Campaign or Colonization map (<see cref="StockUiRegionInfoView"/>, #492).</summary>
+        RegionInfo,
     }
 
     public sealed partial class StockUiOpenMenu
@@ -118,6 +121,7 @@ namespace Gordian.Engine.Ui
 
         /// <summary>The window title the help bar shows: "Missions", "Quests" or "Region Info".</summary>
         public string QuestLogTitle => QuestLogView == StockUiQuestLogView.Conquest ? StockUiConquest.Title
+            : QuestLogView == StockUiQuestLogView.RegionInfo ? RegionInfoView?.Title ?? StockUiConquest.Title
             : IsQuestsWindow ? StockUiQuestLog.QuestsTitle : StockUiQuestLog.MissionsTitle;
     }
 

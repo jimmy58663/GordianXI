@@ -28,6 +28,18 @@ namespace Gordian.Engine.Sessions
             Progression.MissionsUpdated += menus.RefreshQuestLog;
             menus.ConquestRequested = () => ProgressionModule.SendReqConquestAsync();
             Progression.ConquestUpdated += menus.RefreshConquest;
+            // Besieged (S2C 0x05E), Campaign and Colonization (S2C 0x071) pages (#492).
+            menus.RegionInfoView = (map, point) => StockUiRegionInfo.Build(map, point, Progression,
+                new StockUiRegionInfoFigures(Progression.ImperialStanding > 0 ? Progression.ImperialStanding : Inventory.ImperialStanding, Inventory.AlliedNotes, Inventory.Bayld),
+                menus.MenuMessageText, menus.RegionName, menus.ZoneName);
+            menus.RegionInfoFiguresRequested = () =>
+            {
+                _ = InventoryModule.RequestCurrencies1Async();
+                _ = InventoryModule.RequestCurrencies2Async();
+            };
+            Progression.ConquestUpdated += menus.RefreshRegionInfo;
+            Progression.InfluenceUpdated += menus.RefreshRegionInfo;
+            Inventory.CurrenciesChanged += menus.RefreshRegionInfo;
         }
     }
 }

@@ -1029,6 +1029,15 @@ namespace Gordian.App.Graphics
 
                             // Zoning (#36), worked out before the scene so this frame already hides the placeholder: black while the session connects or zones and until its zone and the player's
                             // own model are on screen.
+                            if (_activeSession is { } fadeSession)
+                            {
+                                // An event's fade to black that its end clears at once (a home point's teleport): the black stays
+                                // until the zone change takes it over (ZoneLoadingScreen.TakeOverEventBlack).
+                                var scene = fadeSession.Events.Presentation.SceneColor;
+                                float sceneLevel = MathF.Max(scene.X, MathF.Max(scene.Y, scene.Z));
+                                if (_eventSceneBlack && sceneLevel > 0.5f) _loadingScreen.TakeOverEventBlack(Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
+                                _eventSceneBlack = sceneLevel < 0.02f;
+                            }
                             StockUi.LoadingOpacity = _activeSession is { } loadingSession
                                 ? _loadingScreen.Update(loadingSession.State, loadingSession.World.MapZoneId, loadingSession.World.EventZoneId, _loadedZoneId,
                                     Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, LocalPlayerModelReady(loadingSession, localPlayerServerId) && ArrivalReady(loadingSession),
@@ -1543,6 +1552,9 @@ namespace Gordian.App.Graphics
         public StockUiHud StockUi { get; } = new();
 
         private readonly Gordian.Engine.Ui.ZoneLoadingScreen _loadingScreen = new();
+
+        /// <summary>Whether the active session's event had the scene faded to black last frame.</summary>
+        private bool _eventSceneBlack;
 
         /// <summary>
         /// Whether the session's own character is in the world with a model that loads (its look has arrived): until then

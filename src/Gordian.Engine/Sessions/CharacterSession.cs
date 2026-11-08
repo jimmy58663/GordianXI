@@ -391,6 +391,11 @@ namespace Gordian.Engine.Sessions
             Progression.AlterEgoPointsUpdated += ActionService.Menus.OnStatusPointsChanged;
             // The Map window (#23): the zone's map, and Wide Scan as /widescan.
             ActionService.Menus.CurrentZone = () => World.CurrentZoneId;
+            // A living character the server sends away fades out rather than dying.
+            LocalPlayer.ServerStatusChanged += (_, _) => FadeOutIfVanishing();
+            // ...on the floor the character stands on (#481).
+            ActionService.Menus.CurrentMapFloor = () =>
+                World.TryGetByServerId(LocalPlayer.ServerId, out var self) && self != null ? Ui.StockUiMap.FloorOf(World, self.Position) : -1;
             ActionService.Menus.WideScanRequested = () => ActionService.WideScanAsync();
             // View House (#23): the Mog Safes, Storage and Mog Locker give up their items only in the Mog House (S2C 0x00A).
             ActionService.Menus.InMogHouse = () => World.ZoneLoginInfo?.InMogHouse == true;
