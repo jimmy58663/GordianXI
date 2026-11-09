@@ -54,8 +54,7 @@ namespace Gordian.App.Tests
             vm.FormProfileName = "BlackMage";
             vm.FormUsername = "blm_account";
             vm.FormPassword = "NukePassword123";
-            vm.FormBootloaderPath = "xiloader.exe";
-            vm.FormArguments = "--server 127.0.0.1";
+            vm.FormServerHost = "127.0.0.1";
 
             vm.SaveProfileCommand.Execute(null);
 
@@ -132,7 +131,7 @@ namespace Gordian.App.Tests
 
             var first = vm.LaunchTree.OfType<ProfileItemViewModel>().First();
             first.EditCommand.Execute(null);
-            vm.FormArguments = "--changed";
+            vm.FormUsername = "changed_account";
             vm.SaveProfileCommand.Execute(null);
 
             Assert.Equal(order, vm.LaunchTree.OfType<ProfileItemViewModel>().Select(p => p.ProfileName).ToList());
@@ -143,13 +142,14 @@ namespace Gordian.App.Tests
             {
                 vm.FormProfileName = name;
                 vm.FormFolder = "Grp";
+                vm.FormServerHost = "127.0.0.1";
                 vm.FormUsername = name;
                 vm.SaveProfileCommand.Execute(null);
             }
             var folder = vm.LaunchTree.OfType<LaunchFolderViewModel>().First(f => f.FolderPath == "Grp");
             var a = folder.Children.OfType<ProfileItemViewModel>().First(p => p.ProfileName == "FolderA");
             a.EditCommand.Execute(null);
-            vm.FormArguments = "--x";
+            vm.FormUsername = "changed_account";
             vm.SaveProfileCommand.Execute(null);
             Assert.Equal(new[] { "FolderA", "FolderB" }, folder.Children.OfType<ProfileItemViewModel>().Select(p => p.ProfileName).ToArray());
         }
@@ -181,14 +181,101 @@ namespace Gordian.App.Tests
             item.EditCommand.Execute(null);
 
             Assert.True(vm.IsEditing);
+            Assert.True(vm.IsEditorOpen);
+            Assert.False(vm.IsListVisible);
             Assert.Equal(item.ProfileName, vm.FormProfileName);
+            Assert.True(vm.FormIsRetail);
 
-            vm.FormArguments = "--custom-flag";
+            vm.FormPolId = "NEWPOLID";
             vm.SaveProfileCommand.Execute(null);
 
             Assert.False(vm.IsEditing);
+            Assert.False(vm.IsEditorOpen);
+            Assert.True(vm.IsListVisible);
             Assert.Equal(string.Empty, vm.FormProfileName);
-            Assert.Contains(vm.Profiles, p => p.Profile.Arguments == "--custom-flag");
+            Assert.Contains(vm.Profiles, p => p.Profile.PolId == "NEWPOLID");
+        }
+
+        [Fact]
+        public void NewProfile_OpensABlankEditorInTheSelectedFolder_AndCancelReturnsToTheList()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            Assert.True(vm.IsListVisible);
+
+            vm.SelectedTreeNode = vm.LaunchTree.OfType<LaunchFolderViewModel>().First(f => f.FolderPath == "Test1");
+            vm.NewProfileCommand.Execute(null);
+
+            Assert.True(vm.IsEditorOpen);
+            Assert.False(vm.IsEditing);
+            Assert.Equal("New Profile", vm.FormTitle);
+            Assert.Equal("Test1", vm.FormFolder);
+            Assert.True(vm.FormIsLsb);
+            Assert.True(vm.FormTwoFactorNone);
+
+            vm.ClearFormCommand.Execute(null);
+            Assert.True(vm.IsListVisible);
+        }
+
+        [Fact]
+        public void SaveProfile_RefusesALandSandBoatProfileWithoutAHost_AndABadAuthenticatorKey()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.NewProfileCommand.Execute(null);
+            vm.FormProfileName = "NoHost";
+            vm.SaveProfileCommand.Execute(null);
+            Assert.Equal("A LandSandBoat profile needs a Server Host.", vm.StatusMessage);
+            Assert.True(vm.IsEditorOpen);
+
+            vm.FormServerHost = "127.0.0.1";
+            vm.FormTwoFactorKey = true;
+            vm.FormOtpSeed = "not a key!";
+            vm.SaveProfileCommand.Execute(null);
+            Assert.StartsWith("The authenticator key", vm.StatusMessage);
+            Assert.DoesNotContain(vm.Profiles, p => p.ProfileName == "NoHost");
+        }
+
+        [Fact]
+        public void SaveProfile_KeepsOnlyTheChosenServerTypesFields()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.NewProfileCommand.Execute(null);
+            vm.FormProfileName = "Switched";
+            vm.FormServerHost = "10.0.0.5";
+            vm.FormDataPort = 60000;
+            vm.FormIsRetail = true;
+            vm.FormPolId = "ABCD1234";
+            vm.FormPolPassword = "polpass";
+            vm.FormUsername = "seid";
+            vm.FormTwoFactorAtLaunch = true;
+            vm.SaveProfileCommand.Execute(null);
+
+            var saved = vm.Profiles.Single(p => p.ProfileName == "Switched").Profile;
+            Assert.Equal(ProfileServerType.Retail, saved.ServerType);
+            Assert.Equal(string.Empty, saved.ServerHost);
+            Assert.Equal(0, saved.DataPort);
+            Assert.Equal("ABCD1234", saved.PolId);
+            Assert.Equal("polpass", saved.PolPassword);
+            Assert.Equal(TwoFactorMode.EnterAtLaunch, saved.TwoFactor);
+            Assert.Equal("Retail", vm.Profiles.Single(p => p.ProfileName == "Switched").ServerBadgeText);
+        }
+
+        [Fact]
+        public void ProfileCard_AsksForTheCodeOnlyForEnterAtLaunch_AndKeepsDigitsOnly()
+        {
+            var atLaunch = new ProfileItemViewModel(new AccountProfile { ProfileName = "A", TwoFactor = TwoFactorMode.EnterAtLaunch }, _testRegistry);
+            var keyed = new ProfileItemViewModel(new AccountProfile { ProfileName = "B", OtpSeed = "HXDMVJECJJWSRB3D" }, _testRegistry);
+            var none = new ProfileItemViewModel(new AccountProfile { ProfileName = "C" }, _testRegistry);
+
+            Assert.True(atLaunch.AsksForCode);
+            Assert.False(atLaunch.ShowsComputedCode);
+            Assert.False(keyed.AsksForCode);
+            Assert.True(keyed.ShowsComputedCode);
+            Assert.False(none.AsksForCode);
+            Assert.False(none.ShowsComputedCode);
+
+            atLaunch.EnteredCode = "12 34-567x8";
+            Assert.Equal("123456", atLaunch.EnteredCode);
+            Assert.Equal("123456", atLaunch.Profile.ResolveOneTimeCode());
         }
 
         [Fact]
@@ -217,8 +304,7 @@ namespace Gordian.App.Tests
             vm.FormCharacterName = "Cybin";
             vm.FormUsername = "Cybin";
             vm.FormPassword = "SecretPassword123";
-            vm.FormBootloaderPath = "xiloader.exe";
-            vm.FormArguments = "--server 127.0.0.1";
+            vm.FormServerHost = "127.0.0.1";
 
             vm.SaveProfileCommand.Execute(null);
 
