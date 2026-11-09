@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- **Version**: 1.6.0 (Stage 3 Diffie-Hellman Handshake, 47-Character Custom Base64 USER Token, Server 300 * Handshake, and Shared Secret Blowfish Derivation Fully Specified)
+- **Version**: 1.7.0 (Diffie-Hellman Stage 3 Full Endianness & Wire Exchange Reconciled, Map 0x00A Ticket & 92-Byte Framing Harmonized, Test Vectors 8–10 Complete & Verified)
 - **Date**: 2026-11-09
 - **Provenance**: *Derived by an independent research process; no POL code was consulted by the implementer.*
 - **Source**: In-house protocol observation and clean-room specification (`gordian-pol-research`).
@@ -15,13 +15,13 @@ Retail PlayOnline (`POL`) and Final Fantasy XI (`FFXI`) login uses **raw TCP soc
 
 | Stage | Host / Endpoint | Resolved IP (Observed) | Port (TCP) | Framing / Protocol | Purpose |
 |---|---|---|---|---|---|
-| 1 | `pt008.pol.com` | `124.150.156.107` | `54000` | `POLP` binary framing (16-byte BE header) | PlayOnline Viewer client version check (`"100020110829_E\0"`) |
+| 1 | `pt008.pol.com` | `124.150.156.107` | `54000` | `POLP` binary framing (16-byte BE header) | PlayOnline Viewer client version check (`ProductCode = "W2U\0"`, `VersionString = "100020110829_E\0"`) |
 | 2 | `ci000.pol.com` (`ci%03d.pol.com`) | `202.67.54.52` | `51240` | ASCII IRC line (`\r\n`) | Initial gatekeeper; returns `:<ip> 300 * <token>` redirecting to an active `:51241`–`:51244` session host |
 | 3 | Redirected Core Session Host (`pol-1052-5124x.pol.com`) | `202.67.54.132` | `51241`–`51244` (`51242`, `51244` observed) | ASCII IRC (`300 *`, `USER`) $\rightarrow$ Blowfish-64 OFB + custom 6-bit Base64 IRC (`NICK`, `001`..`376`) | 256-bit Diffie-Hellman key exchange, POL ID (`8-char`) + POL Password (`16-char`) authentication, and session token issuance |
 | 4 | `pp000.pol.com` (`pp%03d.pol.com`) | `202.67.54.51` | `51220` | 40-byte hello $\rightarrow$ 24-byte `0x81`/`0x83` challenge $\rightarrow$ Blowfish-64 OFB + 32-bit additive checksum | Square Enix Account authentication (`SE_ID`, `SE_PASS`, and optional 6-digit `TOTP` via Category `0x04` / Command `0x07`) and redirect to assigned `:51220` session server |
 | 5 | Redirected Presence / Key Server | `202.67.54.159` | `51220` | 40-byte hello $\rightarrow$ 24-byte `0x81` challenge $\rightarrow$ Blowfish-64 OFB + 32-bit additive checksum | Account state queries (`0x04/0x06`, `0x04/0x03`, `0x05/0x09`) and per-service 16-byte Session Key issuance (`0x04/0x05`, used for both PML HTTP auth and the FFXI Lobby Session Key) |
 | 6 | `wh000.pol.com` | `202.67.54.55` | `51304` (`51300`–`51307`) | HTTP/1.1 (`x-MD5-pol` Digest + `X-PlayOnline-Hello`) | PlayOnline PML navigation (`/pml/main/index.pml` $\rightarrow$ `/pml/game/ff11/index.pml`) |
-| 7 | `pc001W2U.pol.com` | `124.150.156.107` | `53001` | `POLP` binary framing (16-byte BE header) | Final Fantasy XI pre-launch version check (`"W20\0000130261006_0\0"`) |
+| 7 | `pc001W2U.pol.com` | `124.150.156.107` | `53001` | `POLP` binary framing (16-byte BE header) | Final Fantasy XI pre-launch version check (`ProductCode = "W20\0"`, `VersionString = "000130261006_0\0"`) |
 | 8 | `ffxi00.pol.com` | `124.150.154.122` | `54001` | 28-byte `IXFF` LE header + 16-byte MD5 packet digest | Final Fantasy XI Lobby server (Opcodes `0x26` $\rightarrow$ `0x05`, `0x1F` $\rightarrow$ `0x20`, `0x24` $\rightarrow$ `0x23`, `0x07` $\rightarrow$ `0x0B`) |
 
 ---
@@ -39,17 +39,18 @@ sequenceDiagram
     participant PmlHttp as wh000.pol.com:51304
     participant FfxiPatch as pc001W2U.pol.com:53001
     participant Lobby as ffxi00.pol.com:54001
+    participant MapServer as Map Server (:54231 UDP)
 
     Client->>Patch54000: 1. Connect & send POLP Type 7 (88B, "W2U\0", "100020110829_E\0")
     Patch54000-->>Client: POLP Type 8 (103B, version OK) -> TCP Close
     Client->>Gate51240: 2. TCP connect :51240
-    Gate51240-->>Client: ":<redirect_ip> 300 * <45-char token>\r\n" (port & server time encoded in token)
+    Gate51240-->>Client: ":<redirect_ip> 300 * <45-char Base32 token>\r\n" (port & server timestamp in token)
     Client->>Core5124x: 3. TCP connect <redirect_ip>:<51241..51244>
-    Core5124x-->>Client: ":<ip> 300 * <44-char token>\r\n" (Server DH Challenge)
-    Client->>Core5124x: "USER x 8 * :<47-char Base64 token>\r\n" (Client 256-bit DH public key A)
-    Core5124x-->>Client: ":<ip> 300 * <47-char Base64 token>\r\n" (Server 256-bit DH public key B -> shared secret S -> 8-byte Blowfish key)
+    Core5124x-->>Client: 3a. ":<ip> 300 * <44-char Base32 token>\r\n" (Server greeting & session parameters)
+    Client->>Core5124x: 3b. "USER x 8 * :<47-char Base64 token>\r\n" (Client 256-bit DH Public Key A)
+    Core5124x-->>Client: 3c. ":<ip> 300 * <47-char Base64 token>\r\n" (Server 256-bit DH Public Key B -> shared secret S -> K8 -> Blowfish OFB)
     Client->>Core5124x: 4. Raw Blowfish-64 OFB "NICK <9-char-Base32-POL-ID>:<32-hex-MD5(POL_PASS)>:<ClientMeta>\r\n"
-    Core5124x-->>Client: Encrypted IRC 001..376 replies (issues 6-byte RoutingToken, 12-byte AccountToken, SessionSecret, FFXIAccountID)
+    Core5124x-->>Client: Encrypted IRC 001..376 replies (issues RoutingToken, AccountToken, SessionSecret, FFXIAccountID)
     Client->>PpGate: 5. TCP connect pp000.pol.com:51220, send 40B Hello (RoutingToken)
     PpGate-->>Client: 24B Challenge (0x81, ChallengeSeed)
     Client->>PpGate: 40B Encrypted Header (Op 0x04/0x07) + 64B Encrypted Square Enix Auth (Mode, SE_ID, TOTP, SHA1)
@@ -68,6 +69,9 @@ sequenceDiagram
     Lobby-->>Client: IXFF Opcode 0x20 (452B: Character List)
     Client->>Lobby: 13. Send IXFF Opcode 0x24 (44B: MD5(LobbySessionKey || LE32(Modifier+3)))
     Lobby-->>Client: IXFF Opcode 0x23 (272B: World List)
+    Client->>Lobby: 14. Send IXFF Opcode 0x07 (88B: Select Character, SessionHash(Modifier+5))
+    Lobby-->>Client: IXFF Opcode 0x0B (72B: MapServer & SearchServer endpoints) -> TCP Close
+    Client->>MapServer: 15. UDP Packet 0x00A (92B: Ticket = MD5(POL_ID || SessionHash(Modifier+5)))
 ```
 
 ---
@@ -124,61 +128,71 @@ Upon TCP connection to `ci000.pol.com:51240`, the server immediately sends a sin
 ```text
 :<redirect_ipv4> 300 * <45-char-token>\r\n
 ```
-- `<redirect_ipv4>`: Dotted-quad IPv4 address of the assigned Core IRC session server (e.g., `202.67.54.132`).
+- `<redirect_ipv4>`: Dotted-quad IPv4 address of the assigned Core IRC session server (e.g., `202.67.54.132`), transmitted directly as an ASCII string in the IRC message prefix.
 - `<45-char-token>`:
   - Characters `0..40` (41 chars): PlayOnline 5-bit Base32 (`'0'..'5'` = `0..5`, `'A'..'Z'` = `6..31`) encoding 24 bytes (`0x18` bytes):
     - Bytes `0..3` (`u32_le`): Server Unix epoch timestamp $t_{\text{server}}$ (in seconds).
     - Bytes `4..5` (`u16_le`): Assigned TCP destination port on `<redirect_ipv4>` (`51241`–`51244`).
     - Bytes `6..23`: Session parameters/flags.
-  - Characters `41..44` (4 chars): 4-character session suffix echoed in the subsequent handshake (e.g., `pYme`).
+  - Characters `41..44` (4 chars): 4-character internal server cluster routing tag (e.g. `pYme` or `fAEq`) generated by the gatekeeper daemon. The client does **not** echo this suffix in any message; the client simply parses the port and timestamp from the first 41 characters and connects to `<redirect_ipv4>:<assigned_port>`.
 
 #### 4.2.2 Core IRC Diffie-Hellman Handshake (`:51241`–`:51244`)
-1. **Server DH Greeting / Challenge (`Server -> Client`)**:
-   Upon connecting to `<redirect_ipv4>:<assigned_port>`, the server sends an initial unencrypted IRC line:
-   ```text
-   :<server_ipv4> 300 * <44-char-token>\r\n
-   ```
-   - `<44-char-token>`: Encoded via PlayOnline's custom 6-bit Base64 alphabet (`polcore.dll+0x65DE0`, Section 5.2). Decodes into 33 bytes delivering server Diffie-Hellman session parameters.
+The Stage 3 connection executes an exact 3-line plaintext exchange to establish symmetric encryption before credentials are sent:
 
-2. **Client DH Response (`Client -> Server`)**:
+1. **Server Line 1 — DH Greeting & Challenge (`Server -> Client`, State 7)**:
+   Upon connecting to `<redirect_ipv4>:<assigned_port>`, the server immediately sends an initial unencrypted IRC line:
+   ```text
+   :<server_ipv4> 300 * <44-char-base32-token>\r\n
+   ```
+   - Observed in Capture #1: `:pol-1044-51244.pol.com 300 * WCZSXH20QK2D455OBMG0ECZNNNNNNNNNQWHN3N1NfAEq\r\n`
+   - Observed in Capture #3: `:202.67.54.126 300 * WCZ5HG20QK2D455OBMK0E2NNNNNNNNNNMEJN3N1NwhBK\r\n`
+   - `<44-char-base32-token>`: 44-character PlayOnline 5-bit Base32 token decoded by `polcore.dll!0x10007210` in State 7, delivering server session parameters and timestamp.
+
+2. **Client Line — DH Response (`Client -> Server`, State 8)**:
    The client generates an ephemeral 256-bit private exponent $x$ ($0 < x < p$), computes its 32-byte Diffie-Hellman public key $A = g^x \bmod p$ in little-endian byte order (`limbs[0..7]`, where byte 0 is the least-significant byte of $A$), and formats a 36-byte buffer (9 little-endian 32-bit words):
-   - Bytes `+0x00..+0x1F` (`u8[32]`): 256-bit Client Public Key $A = g^x \bmod p$ (stored directly from `DH->A.limbs`, starting at Byte 0; **not** preceded by any `AuthMode` or version flag).
-   - Bytes `+0x20..+0x23` (`u8[4]`): Trailing 32-bit limb padding / counter.
+   - Bytes `+0x00..+0x1F` (`u8[32]`): 256-bit Client Public Key $A = g^x \bmod p$ in little-endian order (stored directly from `DH->A.limbs`, starting at Byte 0; **not** preceded by any `AuthMode` or version flag).
+   - Bytes `+0x20..+0x23` (`u8[4]`): 4 trailing limb padding / counter bytes. In retail captures, these contain internal limb buffer residue (`0B F8 4A 80`); **a clean-room implementation can safely set bytes `+0x20..+0x23` to all zeroes (`00 00 00 00`)**, as the server decodes only the first 32 bytes for $A$.
    
-   The client encodes this 36-byte buffer using PlayOnline's custom 6-bit Base64 alphabet (`polcore.dll+0x65DE0`). The encoder processes 12 triplets ($12 \times 3 = 36$ bytes $\rightarrow 48$ characters) and writes a null terminator at index 47 (`[dst+47] = 0`), truncating the 48th character and producing an exact **47-character token** (the 47th character retains the top 2 bits of the 36th byte).
+   The client encodes this 36-byte buffer using PlayOnline's custom 6-bit Base64 alphabet (`polcore.dll+0x65DE0`, Section 5.2). The encoder processes 12 triplets ($12 \times 3 = 36$ bytes $\rightarrow 48$ characters) and writes a null terminator at index 47 (`[dst+47] = 0`), truncating the 48th character and producing an exact **47-character token** (the 47th character retains the top 2 bits of the 36th byte).
    
    The client transmits the ASCII command:
    ```text
    USER x 8 * :<47-char-base64-client-pub>\r\n
    ```
+   - Observed in Capture #1: `USER x 8 * :8yu_X78A6fDPuyYfeZAIFVxxuhY0A7AlNnfogoe9Pd5UDWB\r\n`
+   - Observed in Capture #3: `USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n`
    *(Note: The client may optionally append four tab characters before CRLF: `USER x 8 * :<47-char-token>\t\t\t\t\r\n`).*
 
-3. **Server DH Confirmation & Server Public Key B (`Server -> Client`)**:
+3. **Server Line 2 — Server Public Key B (`Server -> Client`, State 8)**:
    The server responds with an unencrypted confirmation line delivering its 256-bit Diffie-Hellman public key $B = g^y \bmod p$:
    ```text
    :<server_ipv4> 300 * <47-char-base64-server-pub>\r\n
    ```
-   - `<47-char-base64-server-pub>`: 47-character PlayOnline 6-bit Base64 token. When decoded via the custom alphabet (Section 5.2), the first 32 bytes contain the server's 256-bit public key $B$ in little-endian byte order.
+   - Observed in Capture #1: `:pol-1044-51244.pol.com 300 * OVfQuRJX05g@gOVwNJfiQTFGD6qHOLzU5BhYusDSWFYCiQM\r\n`
+   - Observed in Capture #3: `:202.67.54.126 300 * OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|\r\n`
+   - `<47-char-base64-server-pub>`: 47-character custom 6-bit Base64 token. In `polcore.dll!0x100161A6`, the client passes length `0x2E` (46 characters) to the custom Base64 decoder (`0x100078A0`), decoding 34 bytes. The first 32 decoded bytes contain Server Public Key $B$ in little-endian byte order (`limbs[0..7]`, Byte 0 = LSB, Byte 31 = MSB).
 
 4. **Shared Secret Computation & Blowfish Key Derivation**:
    Both parties compute the 256-bit Diffie-Hellman shared secret:
    $$S = B^x \bmod p = A^y \bmod p$$
-   The 64-bit (8-byte) symmetric Blowfish key $K_8$ is extracted directly from the **last 8 bytes of $S$ in reversed (big-endian) byte order**:
+   $S$ is represented in memory as a 32-byte unsigned integer in **little-endian byte order** (`S[0]` is LSB, `S[31]` is MSB).
+   
+   In `polcore.dll!0x100161CD..0x100161E1`, the 64-bit (8-byte) symmetric Blowfish key $K_8$ is extracted directly by reading downwards from `S[31]` to `S[24]` into an 8-byte buffer `[esp+10h..17h]`:
    $$K_8 = [S[31], S[30], S[29], S[28], S[27], S[26], S[25], S[24]]$$
-   This yields the two 32-bit words:
-   - `key_lo = u32_le(K8[0..3]) = (S[28] << 24) | (S[29] << 16) | (S[30] << 8) | S[31]`
-   - `key_hi = u32_le(K8[4..7]) = (S[24] << 24) | (S[25] << 16) | (S[26] << 8) | S[27]`
+   This is stored in the session context as two 32-bit little-endian words (`[esi+2B8h] = key_lo`, `[esi+2BCh] = key_hi`):
+   - `key_lo = u32_le(K8[0..3]) = S[31] | (S[30] << 8) | (S[29] << 16) | (S[28] << 24)`
+   - `key_hi = u32_le(K8[4..7]) = S[27] | (S[26] << 8) | (S[25] << 16) | (S[24] << 24)`
    
-   $K_8$ is expanded via MD5 (Section 5.1) to initialize the **Blowfish-64 OFB** cipher (with IV `52 7E 58 C7 D4 C3 9A 32`).
+   In memory, $K_8$ has the exact byte order `31 1D D3 74 45 71 6B 05` (Capture #3), with `key_lo = 0x74D31D31` and `key_hi = 0x056B7145`.
    
-   All subsequent IRC lines on this socket are transmitted directly on the wire encrypted with **Blowfish-64 OFB** (`reset_iv = 1` for each line), preserving `\r\n` (`0x0D 0x0A`) via the stream cipher's CRLF preservation rule (Section 5.1).
+   $K_8$ is expanded via MD5 (Section 5.1) to initialize the **Blowfish-64 OFB** cipher (with IV `52 7E 58 C7 D4 C3 9A 32`). All subsequent IRC lines on this socket are transmitted directly on the wire encrypted with **Blowfish-64 OFB** (`reset_iv = 1` for each line), preserving `\r\n` (`0x0D 0x0A`) via the stream cipher's CRLF preservation rule (Section 5.1).
 
 5. **Encrypted `NICK` Authentication (`Client -> Server`)**:
    The client formats the plaintext command line:
    ```text
    NICK <Encoded_POL_ID>:<MD5_Hex_POL_PASS>:<Encoded_ClientMeta>\t\t\t\t\r\n
    ```
-   - `<Encoded_POL_ID>`: **9-character PlayOnline 5-bit Base32 string**. The 8-character Base36 POL ID (`[0-9A-Z]{8}`) is parsed into a 64-bit integer ($acc = \sum_{i=0}^7 c_i \cdot 36^{7-i}$) and re-encoded using the PlayOnline 5-bit Base32 alphabet into exactly 9 characters ($36^8 \approx 2.82 \times 10^{12} < 2^{42}$, requiring $\lceil 42 / 5 \rceil = 9$ 5-bit characters; see Section 5.6 for test vector).
+   - `<Encoded_POL_ID>`: **9-character PlayOnline 5-bit Base32 string**. The 8-character Base36 POL ID (`[0-9A-Z]{8}`) is parsed into a 64-bit integer ($acc = \sum_{i=0}^7 c_i \cdot 36^{7-i}$) and re-encoded using the PlayOnline 5-bit Base32 alphabet into exactly 9 characters ($36^8 \approx 2.82 \times 10^{12} < 2^{42}$, requiring $\lceil 42 / 5 \rceil = 9$ 5-bit characters; see Section 5.8 Test Vector 1).
    - `<MD5_Hex_POL_PASS>`: **32-character lowercase hexadecimal MD5 digest** of the user's ASCII POL Password (`MD5(POL_PASS)` formatted via `"%02x"` $\times 16$).
    - `<Encoded_ClientMeta>`: **32-character custom 6-bit Base64 string**. Generated by `polcore.dll` (`0x100198F0`) from a 24-byte (`0x18` bytes) binary buffer encoded using the 64-character alphabet at `polcore.dll+0x65DE0`:
      ```text
@@ -200,12 +214,12 @@ Upon TCP connection to `ci000.pol.com:51240`, the server immediately sends a sin
    - **Trailing Characters**: The format string in `polcore.dll` (`0x10073BFC`) ends with four ASCII tab characters followed by CRLF (`\t\t\t\t\r\n` = `09 09 09 09 0D 0A`).
    - **Wire Transmission**: Encrypted with Blowfish-64 OFB (`reset_iv = 1`). `\r\n` is preserved in plaintext per the CRLF rule. Total encrypted frame length = 86 bytes.
 
-5. **Encrypted Server Welcome (`001`..`422`, `Server -> Client`)**:
+6. **Encrypted Server Welcome (`001`..`376`, `Server -> Client`)**:
    The server replies with IRC lines encrypted directly with Blowfish-64 OFB (`reset_iv = 1` per line). When decrypted, these yield standard numeric IRC lines:
    ```text
    :<server_ipv4> 300 * <token>\r\n
    :<server_ipv4> 001 <5-bit-Base32-Session-Payload>\r\n
-   :<server_ipv4> 422 <POL_ID> :<tag>\r\n
+   :<server_ipv4> 376 <POL_ID> :End of /MOTD command.\r\n
    :<POL_ID> MODE <POL_ID> :+iLiv\r\n
    ```
    - Decrypted reply `001` contains the 5-bit Base32 session payload (`<5-bit-Base32-Session-Payload>`). When decoded into raw bytes via the PlayOnline 5-bit Base32 alphabet (5 bits per character, MSB-first bit stream), the binary structure is:
@@ -298,7 +312,7 @@ Decrypted with the session's Diffie-Hellman Blowfish-64 OFB cipher (`reset_iv = 
 | `+0x01` | 1 | `u8` | — | `Status` | `0x00` = Success; non-zero = error code. |
 | `+0x02` | 2 | `u16` | — | `Reserved0` | `0x0000`. |
 | `+0x04` | 4 | `u32` | LE | `PayloadLength` | Byte length of the encrypted response payload following this 24-byte header (`0x00000020` = 32 for `0x04/0x05` Session Key; `0x00000008` = 8 for `0x04/0x07` Auth redirect). |
-| `+0x08` | 4 | `u32` | LE | `RedirectIPv4` | On `pp000.pol.com:51220` authentication response (`0x04/0x07`), contains the **32-bit IPv4 address of the assigned `:51220` session server** (e.g., `A5 36 43 CA` $\rightarrow$ `202.67.54.165`). On subsequent `:51220` queries, contains server sequence/transaction ID. |
+| `+0x08` | 4 | `u32` | LE | `RedirectIPv4` | On `pp000.pol.com:51220` authentication response (`0x04/0x07`), contains the **32-bit IPv4 address of the assigned `:51220` session server**. The 4 raw bytes on the wire appear in network octet order (e.g. `A5 36 43 CA`, where Byte 0 = `0xA5` [165], Byte 1 = `0x36` [54], Byte 2 = `0x43` [67], Byte 3 = `0xCA` [202]). Read as a 32-bit integer in little-endian byte order, `0xCA4336A5` corresponds to standard dotted-quad `202.67.54.165` (matching `inet_addr("202.67.54.165")`). On subsequent `:51220` queries, contains server sequence/transaction ID. |
 | `+0x0C` | 12 | `u8[12]` | Raw | `AccountToken` | Echo of the 12-byte `AccountToken`. |
 
 > **Operational Note (8-byte result on 0x83 Auth redirect)**: When `pp000.pol.com` replies with the `0x83` redirect header, `PayloadLength` indicates 8 bytes. In retail captures, the server sends this 24-byte header and closes the TCP connection; if the 8 payload bytes are transmitted on the wire, they are server sequence padding and ignored by the client, which immediately connects to `RedirectIPv4:51220`.
@@ -417,11 +431,11 @@ Upon validating `Opcode 0x07`, the Lobby server responds with `Opcode 0x0B` (`0x
 |---|---|---|---|---|---|
 | `+0x00` | 28 | `Header` | LE | `Header` | `PacketSize = 0x00000048` (72), `Magic = "IXFF"`, `Command = 0x0000000B`, `PacketMD5`. |
 | `+0x1C` | 28 | `u8[28]` | Raw | `SessionMeta` | 28 bytes of lobby session confirmation metadata (7 $\times$ `u32_le` status flags). |
-| `+0x38` | 4 | `u32` | LE | `MapServerIPv4` | IPv4 address of the assigned FFXI Map Server. |
-| `+0x3C` | 2 | `u16` | LE | `MapServerPort` | Target UDP port on the Map Server (typically `54231`). |
+| `+0x38` | 4 | `u32` | LE | `MapServerIPv4` | IPv4 address of the assigned FFXI Map Server. Wire bytes appear in network octet order (e.g. `7A 9A 6A 7C` where Byte 0 = `0x7A` [122], Byte 1 = `0x9A` [154], Byte 2 = `0x6A` [150], Byte 3 = `0x7C` [124]), corresponding to `124.150.154.122` (`inet_addr("124.150.154.122") = 0x7C6A9A7A`). |
+| `+0x3C` | 2 | `u16` | LE | `MapServerPort` | Target UDP port on the Map Server (typically `54231` = `0xD3D7`, wire bytes `D7 D3`). |
 | `+0x3E` | 2 | `u16` | — | `Reserved0` | `0x0000`. |
-| `+0x40` | 4 | `u32` | LE | `SearchServerIPv4` | IPv4 address of the FFXI Search Server. |
-| `+0x44` | 2 | `u16` | LE | `SearchServerPort` | Target port on the Search Server (typically `54002` or `54230`). |
+| `+0x40` | 4 | `u32` | LE | `SearchServerIPv4` | IPv4 address of the FFXI Search Server (e.g. wire bytes `7A 9A 6A 7C` $\rightarrow$ `124.150.154.122`). |
+| `+0x44` | 2 | `u16` | LE | `SearchServerPort` | Target port on the Search Server (typically `54002` = `0xD2F2`, wire bytes `F2 D2`, or `54230`). |
 | `+0x46` | 2 | `u16` | — | `Reserved1` | `0x0000`. |
 
 > **Operational Note (Map UDP vs. LSB TCP 54230)**: In private server implementations (LandSandBoat), a legacy TCP data channel was often opened on port 54230. Retail FFXI does not use a separate TCP data channel on 54230; all in-game world communication takes place via UDP directed to `MapServerIPv4:MapServerPort` (typically UDP 54231), while search queries target `SearchServerIPv4:SearchServerPort`.
@@ -438,12 +452,17 @@ All four operations conform in payload layout to LandSandBoat `xi::lobby`. Each 
 ---
 
 ### 4.6 Map Server Initial Handshake (Packet `0x00A`, 92 bytes / `0x5C` bytes)
-Following receipt of Lobby `Opcode 0x0B`, the client closes the Lobby TCP connection and sends its first UDP packet (`Packet 0x00A`, total size 92 bytes / `0x5C` bytes) to `MapServerIPv4:MapServerPort`:
+Following receipt of Lobby `Opcode 0x0B`, the client closes the Lobby TCP connection and sends its first UDP packet (`Packet 0x00A`, total size exactly 92 bytes / `0x5C` bytes) to `MapServerIPv4:MapServerPort`:
 
 | Offset | Size | Type | Endianness | Field Name | Description |
 |---|---|---|---|---|---|
-| `+0x00` | 64 | `u8[64]` | — | `PacketHeader` | Standard UDP transport and map sequencing header (`+0x00` Opcode `0x00A`, size `0x17` dwords = 92 bytes, `+0x04` Account Name string). |
-| `+0x40` | 16 | `u8[16]` | Raw | `Ticket` | 16-byte handoff ticket: `MD5(AccountName || MapBlowfishKey)` (proves possession of account name and the negotiated character selection map key without transmitting the key in plaintext). |
+| `+0x00` | 2 | `u16` | LE | `Opcode` | Fixed opcode `0x000A` (`0A 00`). |
+| `+0x02` | 2 | `u16` | LE | `PacketSizeDwords` | Total packet length in 32-bit dwords (`0x0017` = 23 dwords = 92 bytes / `0x5C` bytes). |
+| `+0x04` | 4 | `u32` | LE | `Checksum` | UDP sequence / checksum integer. |
+| `+0x08` | 26 | `u8[26]` | Raw | `HeaderReserved` | UDP transport header sequence padding. |
+| `+0x22` | 15 | `char[15]` | ASCII | `CharacterName` | Selected character's 15-byte null-padded ASCII name. |
+| `+0x31` | 15 | `char[15]` | ASCII | `AccountName` | Account name string (empty / zeroes on retail). |
+| `+0x40` | 16 | `u8[16]` | Raw | `Ticket` | 16-byte handoff ticket: `MD5(POL_ID || MapBlowfishKey)`. Proves possession of account identity and the negotiated session key without transmitting the key in plaintext. |
 | `+0x50` | 4 | `u32` | LE | `Ver` | Fixed constant `0x00000000`. |
 | `+0x54` | 4 | `char[4]` | ASCII | `Platform` | Fixed ASCII platform identifier `"WIN\0"` (`57 49 4E 00`). |
 | `+0x58` | 1 | `u8` | — | `Language` | Client language identifier (`0x00` = Japanese, `0x01` = English/US, etc.). |
@@ -451,8 +470,12 @@ Following receipt of Lobby `Opcode 0x0B`, the client closes the Lobby TCP connec
 | `+0x5A` | 2 | `u16` | LE | `ClientState` | Client zone transition / connection state flag (`0x0000`). |
 
 - **Packet Length Bounds**: Packet `0x00A` is exactly 92 bytes long (`0x5C` bytes, spanning offsets `+0x00` through `+0x5B`). The earlier draft field `ZoneID` at `+0x5C` was an offset calculation artifact from the internal engine message buffer wrapper; on the wire, the packet terminates at byte `+0x5B`.
-- **Ticket Account Name**: The string hashed into `Ticket` is the ASCII character/account username (content ID name registered with the server, e.g. `"testuser"`), unpadded and without null terminator, concatenated directly with the 16 bytes of `MapBlowfishKey` (`MD5(AccountName || MapBlowfishKey)`; see Section 5.6 Test Vector 8).
-- **Map Cipher Key Setup & Signed-Char Quirk**: All subsequent UDP packet payloads exchanged with the map server after Packet `0x00A` are encrypted with the 16-round FFXI Blowfish cipher using `MapBlowfishKey` (`MD5(LobbySessionKey || MapToken)`) as the symmetric key. Reverse engineering of `FFXiMain.dll!0x100DC762` confirms that the client key-schedule expansion treats key bytes as `signed char` (`movsx ebp, byte ptr [eax+ebp]`), propagating the sign bit when high bit `0x80` is set, and terminates key string processing on the first null byte—matching the exact legacy Blowfish implementation used in LSB.
+- **Ticket Account Name**: The string hashed into `Ticket` is the user's lowercase ASCII PlayOnline ID (e.g. `"testuser"` or 8 lowercase characters), unpadded and without null terminator, concatenated directly with the 16 bytes of `MapBlowfishKey`:
+  $$\text{Ticket}_{16} = \text{MD5}\!\left(\text{ASCII}(\text{POL\_ID}) \;\|\; \text{MapBlowfishKey}_{16}\right)$$
+  (See Section 5.8 Test Vector 8).
+- **Map Cipher Key Setup & Signed-Char Quirk**: All subsequent UDP packet payloads exchanged with the map server after Packet `0x00A` are encrypted with the 16-round FFXI Blowfish cipher using `MapBlowfishKey` as the symmetric key:
+  $$\text{MapBlowfishKey}_{16} = \text{SessionHash}_{16} = \text{MD5}\!\left(\text{LobbySessionKey}_{16} \;\|\; \text{LE32}(M_0 + 5)\right)$$
+  Reverse engineering of `FFXiMain.dll!0x100DC762` confirms that the client key-schedule expansion treats key bytes as `signed char` (`movsx ebp, byte ptr [eax+ebp]`), propagating the sign bit when high bit `0x80` is set, and terminates key string processing on the first null byte—matching the exact legacy Blowfish implementation used in LandSandBoat.
 
 ---
 
@@ -461,17 +484,18 @@ Following receipt of Lobby `Opcode 0x0B`, the client closes the Lobby TCP connec
 ### 5.1 PlayOnline 256-Bit Diffie-Hellman & MD5-Expanded Blowfish-64 OFB Cipher (`:51241`–`:51244` and `:51220`)
 Both the Core IRC session (`:51241`–`:51244`) and all Presence/Key server (`:51220`) connections in a login session share a single **Blowfish-64 Output Feedback (OFB)** cipher instance initialized from the Stage 3 Diffie-Hellman key exchange:
 
-1. **256-Bit Diffie-Hellman Domain Parameters**:
-   - **Prime Modulus $p$** (32-byte big-endian unsigned integer):
-     ```text
-     D5 B4 AA F9 E7 58 F0 C2 79 A5 F3 A0 21 E5 05 26
-     2F 9F 2F C0 2B EC E0 42 5D B1 D0 04 B2 D3 34 F9
-     ```
-   - **Generator $g$**: `67` (`0x43`).
-   - Given the server's 32-byte big-endian public value $B = g^b \bmod p$ and client private exponent $a$, compute the 32-byte big-endian shared secret $S = B^a \bmod p$ (`S[0..31]`, where `S[0]` is MSB and `S[31]` is LSB).
-   - **64-Bit Key Extraction**: Take the last 8 bytes of $S$ in reverse order (`K8 = [S[31], S[30], S[29], S[28], S[27], S[26], S[25], S[24]]`) and form two 32-bit little-endian words:
-     - `key_lo = u32_le(K8[0..3])`
-     - `key_hi = u32_le(K8[4..7])`
+1. **256-Bit Diffie-Hellman Representation & Parameters**:
+   - **Integer Representation**: All multi-precision 256-bit big integers ($p, A, B, S$) are represented and manipulated in memory in **little-endian byte order** (`u32_le limbs[0..7]`, where byte 0 is the least-significant byte and byte 31 is the most-significant byte).
+   - **Generator $g$**: `2` (`mov dword [10406220h], 2`).
+   - Given the server's 32-byte public value $B$ and client private exponent $x$, compute the 32-byte shared secret:
+     $$S = B^x \bmod p = A^y \bmod p$$
+     $S$ is stored in little-endian order (`S[0]` is LSB, `S[31]` is MSB).
+   - **64-Bit Key Extraction**: In `polcore.dll!0x100161CD..0x100161E1`, the client reads downwards from `S[31]` to `S[24]` into an 8-byte buffer `[esp+10h..17h]`:
+     $$K_8 = [S[31], S[30], S[29], S[28], S[27], S[26], S[25], S[24]]$$
+     This extracts the most-significant 8 bytes of $S$ in reversed order. The extracted bytes are stored in the session context as two 32-bit little-endian words (`[esi+2B8h] = key_lo`, `[esi+2BCh] = key_hi`):
+     - `key_lo = u32_le(K8[0..3]) = S[31] | (S[30] << 8) | (S[29] << 16) | (S[28] << 24)`
+     - `key_hi = u32_le(K8[4..7]) = S[27] | (S[26] << 8) | (S[25] << 16) | (S[24] << 24)`
+     In memory, $K_8$ has the exact sequence `31 1D D3 74 45 71 6B 05` (Capture #3), yielding `key_lo = 0x74D31D31` and `key_hi = 0x056B7145`.
 
 2. **MD5 Key Expansion (64-bit input key $\rightarrow$ 320-bit Blowfish key)**:
    - Given `K8 = LE32(key_lo) || LE32(key_hi)`:
@@ -488,6 +512,8 @@ Both the Core IRC session (`:51241`–`:51244`) and all Presence/Key server (`:5
      2. Extract keystream byte `ks = ((byte_offset & 4) ? cur_hi : cur_lo) >> (8 * (byte_offset & 3)) & 0xFF` and increment `byte_offset`.
      3. Compute `out_byte = in_byte ^ ks`.
      4. **CRLF Preservation Rule**: If `in_byte == 0x0A` (`\n`), `in_byte == 0x0D` (`\r`), `out_byte == 0x0A`, or `out_byte == 0x0D`, write `in_byte` unchanged (`out_byte = in_byte`); otherwise write `out_byte`.
+     
+     > **Universal Scope of CRLF Preservation**: Static disassembly confirms this preservation logic is hardcoded inside `polcore.dll!0x10063EF0`. It is active on **every** call to the session Blowfish cipher instance, including both ASCII IRC lines on `:51241`–`:51244` and binary request/response frames on `:51220`.
 
 ### 5.2 PlayOnline Custom 6-Bit Base64 Alphabet (`polcore.dll!10007A60` and `10065DE0`)
 Core IRC token encoding (`USER` DH token, `NICK` client metadata, and internal subsystem tokens) utilizes a custom 64-character Base64 alphabet defined at `polcore.dll+0x65DE0`:
@@ -513,7 +539,7 @@ TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX
 **Token Length Derivations**:
 - **Stage 3 `USER` DH Public Key Token**: 36 input bytes (9 little-endian 32-bit dwords: 32 bytes of Client DH Public Key $A = g^x \bmod p$ starting at byte 0, followed by 4 trailing bytes). Encoded as 12 triplets (48 characters), truncated to exactly **47 characters** via null termination at index 47. (See Section 5.8 Test Vector 9).
 - **Stage 3 `NICK` ClientMeta Token**: 24 input bytes. $24 \times 8 = 192\text{ bits} \rightarrow 192 / 6 = \mathbf{32}\text{ characters}$!
-- **Stage 2 Gatekeeper Redirect Token**: 45 characters, encoded using 5-bit Base32.
+- **Stage 2 Gatekeeper Redirect Token**: 45 characters (41 characters of 5-bit Base32 encoding 24 bytes, followed by a 4-character internal routing suffix).
 
 ### 5.3 PlayOnline 32-Bit Additive Checksum (`:51220` Payloads)
 Every `:51220` payload ends with a 4-byte little-endian checksum over the preceding $N - 4$ plaintext bytes (`len = N - 4`):
@@ -526,7 +552,7 @@ In `:51220` Category `0x04` / Command `0x07` (64-byte payload), bytes `+0x20..+0
 1. Compute the 20-byte raw SHA-1 digest of the ASCII Square Enix Password:
    $$H_1 = \text{SHA-1}(\text{ASCII}(\text{SE\_PASS}))$$
 2. Format $H_1$ as a **40-character lowercase hexadecimal ASCII string** (`"%02x"` for each of the 20 bytes).
-3. Take the current server Unix timestamp $t_{\text{server}}$ (initialized from the `:51240`/`:51242` `300 *` greeting timestamp and incremented by elapsed local seconds), round it down to the nearest 60-second minute boundary, and format it as a decimal ASCII string:
+3. Take the current server Unix timestamp $t_{\text{server}}$ (initialized from bytes `0..3` of the `:51240` Gatekeeper Redirect Token and incremented by elapsed local seconds, or `time(NULL)`), round it down to the nearest 60-second minute boundary, and format it as a decimal ASCII string:
    $$T_{\text{str}} = \text{sprintf}\!\left(\text{"\%d"},\; \lfloor t_{\text{server}} / 60 \rfloor \times 60\right)$$
 4. Concatenate the 40-character lowercase hex string and the decimal timestamp string (50 ASCII bytes total for 10-digit Unix timestamps) and compute the raw 20-byte SHA-1 digest:
    $$\text{PasswordTimeDigest}_{20} = \text{SHA-1}\!\left(\text{LowercaseHex}_{40}(H_1) \;\|\; T_{\text{str}}\right)$$
@@ -544,8 +570,9 @@ In `:51220` Category `0x04` / Command `0x07` (64-byte payload), bytes `+0x20..+0
 
 ### 5.6 Final Fantasy XI Map Server Blowfish Key Derivation
 Static disassembly of `FFXiMain.dll` (`0x100E17AE`–`0x100E1953`) confirms that the FFXI Map Server symmetric cipher uses the 16-byte **`SessionHash`** negotiated in Lobby `Opcode 0x07` (`MD5(LobbySessionKey || LE32(ModifierSeed + 5))`):
-$$\text{MapBlowfishKey}_{16} = \text{SessionHash}_{16}$$
-A 16-round standard Blowfish cipher instance is initialized using $\text{MapBlowfishKey}_{16}$ as the 16-byte (128-bit) symmetric key and the standard fractional-$\pi$ constants. All in-game UDP packet payloads exchanged with the map server after the initial `Packet 0x00A` handshake are encrypted/decrypted using this cipher instance.
+$$\text{MapBlowfishKey}_{16} = \text{SessionHash}_{16} = \text{MD5}\!\left(\text{LobbySessionKey}_{16} \;\|\; \text{LE32}(M_0 + 5)\right)$$
+
+A 16-round standard Blowfish cipher instance is initialized using $\text{MapBlowfishKey}_{16}$ as the symmetric key and the standard fractional-$\pi$ constants. All in-game UDP packet payloads exchanged with the map server after the initial `Packet 0x00A` handshake are encrypted/decrypted using this cipher instance. As confirmed in `FFXiMain.dll!0x100DC762`, the key expansion loop treats key bytes as `signed char` and terminates key processing on the first null byte, identically to LandSandBoat.
 
 ### 5.7 PlayOnline PML Web Digest Authentication (`x-MD5-pol`)
 PlayOnline HTTP PML requests on `wh000.pol.com:51304` authenticate via RFC 2617 Digest Access Authentication using the `x-MD5-pol` algorithm and the 16-byte `PMLSessionKey` (obtained via `:51220` Op `0x04/0x05` with `ServiceType = 1, Flags = 1000`):
@@ -606,28 +633,53 @@ The following throwaway test vectors allow verifying every cryptographic primiti
 - **Output Digest Response**: `"9c864dbe656e343b094ce9a5a02ea760"`
 
 #### Test Vector 8: Map Packet `0x00A` Ticket
-- **AccountName**: `"testuser"` (8 bytes ASCII: `74 65 73 74 75 73 65 72`)
-- **MapBlowfishKey (16 bytes)**: `e1 8b 4a 50 9c 41 db db 85 99 a1 de 20 f4 34 d3` (from Test Vector 5 / 6)
-- **Input Buffer (24 bytes)**: `74 65 73 74 75 73 65 72 e1 8b 4a 50 9c 41 db db 85 99 a1 de 20 f4 34 d3`
-- **Output Ticket MD5 (16 bytes, Hex)**: `"1388187572a8951b84a175e22a791eee"`
+- **AccountName (POL_ID)**: `"testuser"` (8 bytes ASCII: `74 65 73 74 75 73 65 72`)
+- **MapBlowfishKey (16 bytes)**: `90 6f c2 f1 cc 7f 88 ae 1c 06 c2 15 be 8e b2 08` (from Test Vector 5 $M_0 + 5$)
+- **Input Buffer (24 bytes)**: `74 65 73 74 75 73 65 72 90 6f c2 f1 cc 7f 88 ae 1c 06 c2 15 be 8e b2 08`
+- **Output Ticket MD5 (16 bytes, Hex)**: `"f592eb96aa75dc233aad65303530fbd4"`
 
 #### Test Vector 9: Stage 3 `USER` Command 47-Character Base64 Token
 - **Input Buffer (36 bytes / 9 little-endian dwords)**:
-  - Bytes `0..31` (32 bytes): Client DH Public Key $A = g^x \bmod p$ (`95 C6 21 6A 8D E5 13 84 AA DB DF 6A A1 16 9B 1A 10 69 80 FE 43 FC EF 2C D8 E9 4D 58 75 EB EC 48`).
-  - Bytes `32..35` (4 bytes): 9th dword trailing bytes / padding (`0B F8 4A [10xxxxxx]`).
+  - Bytes `0..31` (32 bytes): Client DH Public Key $A = g^x \bmod p$ in little-endian order (`95 C6 21 6A 8D E5 13 84 AA DB DF 6A A1 16 9B 1A 10 69 80 FE 43 FC EF 2C D8 E9 4D 58 75 EB EC 48`).
+  - Bytes `32..35` (4 bytes): Trailing limb padding / counter (`0B F8 4A 80` in Capture #3; clean-room client can safely send `00 00 00 00`).
 - **Custom Base64 Alphabet**: `polcore.dll+0x65DE0` (`TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX`)
 - **Output Base64 Token (47 characters)**: `"rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP"`
 - **Wire Command Line**: `"USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n"` (61 bytes total)
 
-#### Test Vector 10: Stage 3 Server `300 *` Key B & Derived Blowfish Session Key $K_8$
-- **Server `300 *` Greeting Line**: `":202.67.54.126 300 * OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|\r\n"`
-- **Server Token (47 characters)**: `"OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|"`
-- **Decoded Server Public Key $B$ (first 32 bytes, little-endian)**:
-  `3B B6 9A B5 9B CC 7E 80 65 34 DC 80 03 E6 95 85 8B 9E AB 2E A1 24 E2 C1 99 E1 16 8E B7 92 53 F2`
-- **Negotiated 64-bit Blowfish Session Key $K_8$ (from reversed last 8 bytes of $S = B^x \bmod p$)**:
-  `05 6B 71 45 74 D3 1D 31`
-  - `key_lo = 0x74d31d31` (`31 1D D3 74` little-endian)
-  - `key_hi = 0x056b7145` (`45 71 6B 05` little-endian)
+#### Test Vector 10: Stage 3 Diffie-Hellman Handshake & Derived Blowfish Session Key $K_8$
+##### 10.1 Capture #1 Stage 3 Handshake (Alphabet-Clean Wire Tokens)
+- **Line 1 (Server $\rightarrow$ Client)**: `:pol-1044-51244.pol.com 300 * WCZSXH20QK2D455OBMG0ECZNNNNNNNNNQWHN3N1NfAEq\r\n` (44 Base32 characters)
+- **Line 2 (Client $\rightarrow$ Server)**: `USER x 8 * :8yu_X78A6fDPuyYfeZAIFVxxuhY0A7AlNnfogoe9Pd5UDWB\r\n` (47 Base64 characters)
+  - **Decoded Client Public Key $A$ (32 bytes, little-endian)**:
+    `0D AF B7 FD 00 E0 F7 6B AA F9 A7 36 51 78 04 29 F8 A2 FB A7 35 81 08 3B F0 5D 8C 3C C5 11 AB 49`
+- **Line 3 (Server $\rightarrow$ Client)**: `:pol-1044-51244.pol.com 300 * OVfQuRJX05g@gOVwNJfiQTFGD6qHOLzU5BhYusDSWFYCiQM\r\n` (47 Base64 characters)
+  - **Decoded Server Public Key $B$ (32 bytes, little-endian)**:
+    `39 FD 9E FA 3E 3F D6 43 EB 3C E7 E7 F3 8D A8 78 02 82 BB D4 89 3A F4 E1 91 BE 9C F9 8B 81 1C A7`
+
+##### 10.2 Capture #3 End-to-End Cryptography Vector (Handshake $\rightarrow$ Blowfish OFB Keystream $\rightarrow$ Encrypted NICK)
+- **Line 1 (Server $\rightarrow$ Client)**: `:202.67.54.126 300 * WCZ5HG20QK2D455OBMK0E2NNNNNNNNNNMEJN3N1NwhBK\r\n` (44 Base32 characters)
+- **Line 2 (Client $\rightarrow$ Server)**: `USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n` (47 Base64 characters)
+  - **Client Public Key $A$ (32 bytes, little-endian)**:
+    `95 C6 21 6A 8D E5 13 84 AA DB DF 6A A1 16 9B 1A 10 69 80 FE 43 FC EF 2C D8 E9 4D 58 75 EB EC 48`
+- **Line 3 (Server $\rightarrow$ Client)**: `:202.67.54.126 300 * OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|\r\n`
+  - *Note on wire trailer*: The decoder in `polcore.dll!0x100161A6` passes length `0x2E` (46 characters), decoding 34 bytes and extracting the first 32 bytes.
+  - **Decoded Server Public Key $B$ (first 32 bytes, little-endian)**:
+    `3B B6 9A B5 9B CC 7E 80 65 34 DC 80 03 E6 95 85 8B 9E AB 2E A1 24 E2 C1 99 E1 16 8E B7 92 53 F2`
+- **Shared Secret Top 8 Bytes ($S[24..31]$)**: `05 6B 71 45 74 D3 1D 31`
+- **Negotiated 64-Bit Blowfish Session Key $K_8$ ($[S[31]..S[24]]$)**:
+  `31 1D D3 74 45 71 6B 05`
+  - `key_lo = 0x74D31D31` (`31 1D D3 74` little-endian)
+  - `key_hi = 0x056B7145` (`45 71 6B 05` little-endian)
+- **MD5 Digest 1 (`MD5(K8)`)**: `"d66c615b5b49f2493b4079e90c995bd5"`
+- **MD5 Digest 2 (`MD5(Digest1)`)**: `"a0cd4a96057764daa5669a2351732f4a"`
+- **10-Word Blowfish Key Schedule ($W[0..9]$)**:
+  `5B616CD6 49F2495B E979403B D55B990C 964ACDA0 DA647705 239A66A5 4A2F7351 74D31D31 056B7145`
+- **Initial IV**: `52 7E 58 C7 D4 C3 9A 32` (`iv_lo = 0xC7587E52`, `iv_hi = 0x329AC3D4`)
+- **First 16 Bytes of OFB Keystream**:
+  `16 35 58 2F 2C 3E 21 03 2E 4E AE A5 78 A3 EF 84`
+- **Plaintext NICK Command (86 bytes)**:
+  `"NICK <Encoded_POL_ID>:<MD5_Hex_POL_PASS>:<ClientMeta_Body><Suffix>\r\n"` (body and suffix redacted by GordianXI: the body is derived from the POL ID)
+- **Encrypted NICK Command on Wire (86 bytes)**: *(Redacted by GordianXI on 2026-11-09: the plaintext held the capture account's encoded POL ID and POL password MD5, and the wire bytes together with the keystream above would reveal them. The trailing CRLF bytes `0x0D 0x0A` are preserved in plaintext per the CRLF rule.)*
 
 ---
 
@@ -666,9 +718,9 @@ Both flows use the **exact same 64-byte `:51220` Category `0x04` / Command `0x07
 ### 7.1 PlayOnline Core Login State Machine (Observed Steady-State Trajectory)
 | State | Action | Next State |
 |---|---|---|
-| `0` $\rightarrow$ `17` $\rightarrow$ `30` | Pre-login initialization and `pt008.pol.com:54000` (`POLP` Type `5`/`6`/`7`/`8`) Viewer version check. | $\rightarrow 18$ |
+| `0` $\rightarrow$ `17` | Pre-login initialization and optional `pt008.pol.com:54000` (`POLP` Type 7/8) PlayOnline Viewer version check. | $\rightarrow 18$ |
 | `18` $\rightarrow$ `19` | Resolve `ci000.pol.com` and connect TCP `:51240` to receive redirect IP, port (`51241`–`51244`), and server timestamp $t_{\text{server}}$. | $\rightarrow 21$ |
-| `21` $\rightarrow$ `22` | Connect to redirected `:51241`–`:51244` server, exchange 256-bit Diffie-Hellman `300 *` / `USER x 8 *`, and initialize Blowfish-64 OFB. | $\rightarrow 23$ |
+| `21` $\rightarrow$ `22` | Connect to redirected `:51241`–`:51244` server, exchange 256-bit Diffie-Hellman handshake (State 7: receive `300 *` greeting; State 8: send `USER x 8 *`, receive `300 *` Server Key B), and initialize Blowfish-64 OFB. | $\rightarrow 23$ |
 | `23` | Send encrypted `NICK <Encoded_POL_ID>:<MD5_Hex_POL_PASS>:<ClientMeta>` and parse `001`..`376` (`RoutingToken`, `AccountToken`, `SessionSecret`, `FFXIAccountID`). | $\rightarrow 24$ |
 | `24` $\rightarrow$ `26` $\rightarrow$ `27` | Resolve `pp000.pol.com` and connect TCP `:51220`; send 40-byte Hello and receive 24-byte `0x81` challenge (`ChallengeSeed`). | $\rightarrow 28$ |
 | `28` $\rightarrow$ `29` $\rightarrow$ `30` | Build and send 40-byte encrypted Request Header + 64-byte Square Enix Account authentication payload (`Op 0x04/0x07`) and receive 24-byte `0x83` response header (with redirected `:51220` server IP) + 8-byte result. | Complete |
