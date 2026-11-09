@@ -109,15 +109,36 @@ namespace Gordian.Core.Network.Retail
             return (data[0], data.AsSpan(1, 32).ToArray(), token.Substring(DhTokenChars, TagLength));
         }
 
-        /// <summary>The client's <c>USER x 8 * :&lt;token&gt;</c> line: [0x02] + A + [0, 0] in Base32, then the session tag.</summary>
-        public static string BuildUserLine(ReadOnlySpan<byte> clientPublic, string tag)
+        /// <summary>The 35 bytes the client's <c>USER</c> token carries.</summary>
+        public const int UserTokenBytes = 35;
+
+        /// <summary>The <c>USER</c> token's length: 35 bytes in the polcore 6-bit encoding (282 bits), with no tag.</summary>
+        public const int UserTokenChars = 47;
+
+        /// <summary>
+        /// The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line. The token is 35 bytes in the polcore 6-bit encoding
+        /// (<see cref="PolCoreBase64"/>), 47 characters with no session tag; retail capture 3 (spec v1.5.0 test vector 9)
+        /// has characters outside the Base32 alphabet, so the server's Base32 form does not apply to it.
+        /// <b>PROVISIONAL layout:</b> the 35 bytes are written as the spec's section 5.2 gives them, [0x02] + A + [0, 0],
+        /// with the last character's 2 spare bits zero. Capture 3 decodes to byte 0 = 0x95, trailer <c>F8 4A</c> and spare
+        /// bits <c>10</c>, so the real layout is not settled yet (open question in docs/network/retail-login.md).
+        /// </summary>
+        public static string BuildUserLine(ReadOnlySpan<byte> clientPublic)
         {
             if (clientPublic.Length != PolDiffieHellman.ValueLength) throw new ArgumentException("The public value is 32 bytes.", nameof(clientPublic));
-            Span<byte> data = stackalloc byte[35];
+            Span<byte> data = stackalloc byte[UserTokenBytes];
             data.Clear();
             data[0] = KeyExchangeMode;
             clientPublic.CopyTo(data[1..]);
-            return $"USER x 8 * :{PolBase32.Encode(data, DhTokenChars)}{tag}\r\n";
+            return $"USER x 8 * :{PolCoreBase64.Encode(data)}\r\n";
+        }
+
+        /// <summary>Decodes a <c>USER</c> token into its first byte and the 32 bytes after it (what a server reads as A).</summary>
+        public static (byte Mode, byte[] ClientPublic) ParseUserToken(string token)
+        {
+            Span<byte> data = stackalloc byte[UserTokenBytes];
+            if (!PolCoreBase64.TryDecode(token, data)) throw new FormatException("The USER token is not 35 bytes of the polcore encoding.");
+            return (data[0], data.Slice(1, 32).ToArray());
         }
 
         /// <summary>
@@ -206,11 +227,11 @@ namespace Gordian.Core.Network.Retail
 
                 string greeting = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed before its greeting.");
                 string dhToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
-                var (mode, serverPublic, tag) = PolCoreProtocol.ParseDhToken(dhToken);
+                var (mode, serverPublic, _) = PolCoreProtocol.ParseDhToken(dhToken);
                 if (mode != PolCoreProtocol.KeyExchangeMode) throw Fail($"Unsupported key exchange mode 0x{mode:X2}.");
 
                 var dh = new PolDiffieHellman();
-                await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(dh.PublicValue, tag)), token).ConfigureAwait(false);
+                await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(dh.PublicValue)), token).ConfigureAwait(false);
                 var cipher = new PolStreamCipher(PolDiffieHellman.ExtractKey(dh.ComputeSharedSecret(serverPublic)));
 
                 string confirm = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");

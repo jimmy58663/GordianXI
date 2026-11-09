@@ -128,15 +128,49 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Core_UserLineCarriesThePublicValueTheServerCanRead()
         {
             var dh = new PolDiffieHellman();
-            string line = PolCoreProtocol.BuildUserLine(dh.PublicValue, "pYme");
+            string line = PolCoreProtocol.BuildUserLine(dh.PublicValue);
+            Assert.Equal(61, line.Length);
             Assert.StartsWith("USER x 8 * :", line);
-            Assert.EndsWith("pYme\r\n", line);
+            Assert.EndsWith("\r\n", line);
             string token = line["USER x 8 * :".Length..^2];
-            Assert.Equal(61, token.Length);
-            var (mode, pub, tag) = PolCoreProtocol.ParseDhToken(token);
+            Assert.Equal(PolCoreProtocol.UserTokenChars, token.Length);
+            Assert.All(token, c => Assert.Contains(c, PolCoreBase64.Alphabet));
+            var (mode, pub) = PolCoreProtocol.ParseUserToken(token);
             Assert.Equal(0x02, mode);
             Assert.Equal(dh.PublicValue, pub);
-            Assert.Equal("pYme", tag);
+        }
+
+        // Spec v1.5.0 test vector 9: the USER token of retail capture 3 and the 35 bytes it decodes to.
+        private const string CaptureUserToken = "rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP";
+        private const string CaptureUserBytes = "95C6216A8DE51384AADBDF6AA1169B1A106980FE43FCEF2CD8E94D5875EBEC480BF84A";
+
+        [Fact]
+        public void Core_CapturedUserTokenDecodesToTheSpecBytes()
+        {
+            Assert.Equal(61, $"USER x 8 * :{CaptureUserToken}\r\n".Length);
+            byte[] data = new byte[PolCoreProtocol.UserTokenBytes];
+            Assert.True(PolCoreBase64.TryDecode(CaptureUserToken, data));
+            Assert.Equal(Convert.FromHexString(CaptureUserBytes), data);
+
+            // Encoding the bytes back gives the same first 46 characters. The capture's last character carries 2 spare
+            // bits of 10, which the encoder writes as zeros (an open question), so it ends in 'i' rather than 'P'.
+            string encoded = PolCoreBase64.Encode(data);
+            Assert.Equal(PolCoreProtocol.UserTokenChars, encoded.Length);
+            Assert.Equal(CaptureUserToken[..46], encoded[..46]);
+            Assert.Equal('i', encoded[46]);
+        }
+
+        [Fact]
+        public void Core_Base64HandlesPartialGroups()
+        {
+            byte[] data = { 0xFF, 0x00, 0x81, 0x7E };
+            string text = PolCoreBase64.Encode(data);
+            Assert.Equal(6, text.Length);
+            byte[] back = new byte[4];
+            Assert.True(PolCoreBase64.TryDecode(text, back));
+            Assert.Equal(data, back);
+            Assert.False(PolCoreBase64.TryDecode(text.AsSpan(0, 5), back));
+            Assert.False(PolCoreBase64.TryDecode("TTTTT+", back));
         }
 
         [Fact]
@@ -163,7 +197,6 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(32, created.Length);
             Assert.StartsWith("TTTTTAIS", created);
             Assert.All(created, c => Assert.Contains(c, PolCoreBase64.Alphabet));
-            Assert.Throws<ArgumentException>(() => PolCoreBase64.Encode(new byte[4]));
         }
 
         [Fact]
@@ -235,8 +268,8 @@ namespace Gordian.Core.Tests.Network.Retail
                 await Line(s, $":127.0.0.1 300 * {PolBase32.Encode(greet, 57)}pYme");
 
                 string user = (await reader.ReadLineAsync(Ct))!;
-                var (_, clientPublic, tag) = PolCoreProtocol.ParseDhToken(user["USER x 8 * :".Length..]);
-                Assert.Equal("pYme", tag);
+                Assert.Equal(PolCoreProtocol.UserTokenChars, user.Length - "USER x 8 * :".Length);
+                var (_, clientPublic) = PolCoreProtocol.ParseUserToken(user["USER x 8 * :".Length..]);
                 Cipher = new PolStreamCipher(PolDiffieHellman.ExtractKey(dh.ComputeSharedSecret(clientPublic)));
                 await Line(s, $":127.0.0.1 300 * {new string('A', 45)}");
 
