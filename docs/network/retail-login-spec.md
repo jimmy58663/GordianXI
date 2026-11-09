@@ -2,7 +2,7 @@
 
 ## 1. Header
 
-- **Version**: 1.4.0 (PolCore Base64 ClientMeta Alphabet, Map 0x00A Ticket Derivation, M0+5 Vector, and Socket Lifecycle Verified)
+- **Version**: 1.5.0 (Map 0x00A Packet Bounds & Ticket Vector, USER 47-char Base64 Vector, ClientMeta +0x05 Confirmation, and FFXI Blowfish movsx Key Expansion Verified)
 - **Date**: 2026-11-09
 - **Provenance**: *Derived by an independent research process; no POL code was consulted by the implementer.*
 - **Source**: In-house protocol observation and clean-room specification (`gordian-pol-research`).
@@ -170,8 +170,14 @@ Upon TCP connection to `ci000.pol.com:51240`, the server immediately sends a sin
      ```
      - `+0x00..+0x02` (`u8[3]`): `00 00 00` (First 3 bytes map to 24 zero bits $\rightarrow$ 4 $\times$ index 0 = `"TTTT"`).
      - `+0x03` (`u8`): `0x02` (Protocol version).
-     - `+0x04` (`u8`): `0x01` (Flags).
-     - `+0x05` (`u8`): `0x00` (or `0x01`). Bytes `02 01 00` map to bits `000000 100000 000001 000000` $\rightarrow$ indices `0, 32, 1, 0` $\rightarrow$ `"TAST"` (or `"TAIT"`/`"TAIS"`).
+     - `+0x04` (`u8`): `0x01` (Client subsystem flags).
+     - `+0x05` (`u8`): `0x01` (Active connection state / flags; **always `0x01` in retail captures**).
+     - Packing: The 3 bytes `0x02, 0x01, 0x01` form 24-bit value `0x020101` $\rightarrow$ four 6-bit slices:
+       - Bits 23..18: `000000` = 0 $\rightarrow$ `Alphabet[0]` = `'T'`
+       - Bits 17..12: `100000` = 32 $\rightarrow$ `Alphabet[32]` = `'A'`
+       - Bits 11..6: `000100` = 4 $\rightarrow$ `Alphabet[4]` = `'I'`
+       - Bits 5..0: `000001` = 1 $\rightarrow$ `Alphabet[1]` = `'S'`
+       Combined with the first block `"TTTT"`, this produces the exact observed prefix `"TTTTTAIS..."`. (Note: if byte `+0x05` were `0x00`, bits 5..0 would be `000000` = 0 $\rightarrow$ `'T'`, yielding `"TAIT"`. Retail empirically sets byte `+0x05 = 0x01`, guaranteeing `"TTTTTAIS"`).
      - `+0x06..+0x0F` (`u8[10]`): Session startup hash nonces.
      - `+0x10..+0x17` (`u8[8]`): Local execution nonces.
      - Encoding: Every 3 bytes are packed big-endian into a 24-bit integer (`(b0 << 16) | (b1 << 8) | b2`) and emitted as 4 characters via bits 18..23, 12..17, 6..11, 0..5. $24 \text{ bytes} \times 8 / 6 = \mathbf{32}\text{ characters}$!
@@ -420,15 +426,17 @@ Following receipt of Lobby `Opcode 0x0B`, the client closes the Lobby TCP connec
 
 | Offset | Size | Type | Endianness | Field Name | Description |
 |---|---|---|---|---|---|
-| `+0x00` | 64 | `u8[64]` | — | `PacketHeader` | Standard UDP transport and map sequencing header. |
-| `+0x40` | 16 | `u8[16]` | Raw | `Ticket` | 16-byte handoff ticket: `MD5(AccountName || SessionHash)` (proves possession of account name and the negotiated character selection key without transmitting the key in plaintext). |
+| `+0x00` | 64 | `u8[64]` | — | `PacketHeader` | Standard UDP transport and map sequencing header (`+0x00` Opcode `0x00A`, size `0x17` dwords = 92 bytes, `+0x04` Account Name string). |
+| `+0x40` | 16 | `u8[16]` | Raw | `Ticket` | 16-byte handoff ticket: `MD5(AccountName || MapBlowfishKey)` (proves possession of account name and the negotiated character selection map key without transmitting the key in plaintext). |
 | `+0x50` | 4 | `u32` | LE | `Ver` | Fixed constant `0x00000000`. |
 | `+0x54` | 4 | `char[4]` | ASCII | `Platform` | Fixed ASCII platform identifier `"WIN\0"` (`57 49 4E 00`). |
 | `+0x58` | 1 | `u8` | — | `Language` | Client language identifier (`0x00` = Japanese, `0x01` = English/US, etc.). |
-| `+0x59` | 3 | `u8[3]` | — | `Padding` | Zeroes (`0x00` $\times 3$). |
-| `+0x5C` | 4 | `u32` | LE | `ZoneID` | Target zone identifier (`dammyArea`). |
+| `+0x59` | 1 | `u8` | — | `SubLanguage` | Sub-language / dammyArea padding (`0x00`). |
+| `+0x5A` | 2 | `u16` | LE | `ClientState` | Client zone transition / connection state flag (`0x0000`). |
 
-- **Cipher Key Setup**: All subsequent UDP packet payloads exchanged with the map server after Packet `0x00A` are encrypted with a standard 16-round Blowfish cipher (standard fractional-$\pi$ constants, 64-bit blocks, 16-byte key length) using `SessionHash` directly as the symmetric key.
+- **Packet Length Bounds**: Packet `0x00A` is exactly 92 bytes long (`0x5C` bytes, spanning offsets `+0x00` through `+0x5B`). The earlier draft field `ZoneID` at `+0x5C` was an offset calculation artifact from the internal engine message buffer wrapper; on the wire, the packet terminates at byte `+0x5B`.
+- **Ticket Account Name**: The string hashed into `Ticket` is the ASCII character/account username (content ID name registered with the server, e.g. `"testuser"`), unpadded and without null terminator, concatenated directly with the 16 bytes of `MapBlowfishKey` (`MD5(AccountName || MapBlowfishKey)`; see Section 5.6 Test Vector 8).
+- **Map Cipher Key Setup & Signed-Char Quirk**: All subsequent UDP packet payloads exchanged with the map server after Packet `0x00A` are encrypted with the 16-round FFXI Blowfish cipher using `MapBlowfishKey` (`MD5(LobbySessionKey || MapToken)`) as the symmetric key. Reverse engineering of `FFXiMain.dll!0x100DC762` confirms that the client key-schedule expansion treats key bytes as `signed char` (`movsx ebp, byte ptr [eax+ebp]`), propagating the sign bit when high bit `0x80` is set, and terminates key string processing on the first null byte—matching the exact legacy Blowfish implementation used in LSB.
 
 ---
 
@@ -465,15 +473,31 @@ Both the Core IRC session (`:51241`–`:51244`) and all Presence/Key server (`:5
      3. Compute `out_byte = in_byte ^ ks`.
      4. **CRLF Preservation Rule**: If `in_byte == 0x0A` (`\n`), `in_byte == 0x0D` (`\r`), `out_byte == 0x0A`, or `out_byte == 0x0D`, write `in_byte` unchanged (`out_byte = in_byte`); otherwise write `out_byte`.
 
-### 5.2 PlayOnline Custom 6-Bit Base64 (`:51241`–`:51244` Encrypted IRC Lines)
-Encrypted IRC payloads prefixed with `$` map 6-bit values (`0..63`) to ASCII characters via:
-- `0..9` $\rightarrow$ `'0'..'9'` (`0x30..0x39`)
-- `10..35` $\rightarrow$ `'A'..'Z'` (`0x41..0x5A`)
-- `36` $\rightarrow$ `'-'` (`0x2D`)
-- `37..62` $\rightarrow$ `'a'..'z'` (`0x61..0x7A`)
-- `63` $\rightarrow$ `'_'` (`0x5F`)
+### 5.2 PlayOnline Custom 6-Bit Base64 Alphabet (`polcore.dll!10007A60` and `10065DE0`)
+Core IRC token encoding (`USER` DH token, `NICK` client metadata, and internal subsystem tokens) utilizes a custom 64-character Base64 alphabet defined at `polcore.dll+0x65DE0`:
 
-Every 3 bytes (`b0, b1, b2`) are packed LSB-first (`b0 | (b1 << 8) | (b2 << 16)`) and emitted as up to 4 characters (`val & 0x3F`, `(val >> 6) & 0x3F`, `(val >> 12) & 0x3F`, `(val >> 18) & 0x3F`).
+```text
+TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX
+```
+
+| Index Range | Characters | Description |
+|---|---|---|
+| `0..63` | `TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX` | 64-entry ASCII character lookup table. |
+
+**Encoding Procedure**:
+1. Binary bytes are processed in 3-byte blocks ($24\text{ bits}$).
+2. Each 3-byte block `[b0, b1, b2]` is packed big-endian into a 24-bit integer: `val = (b0 << 16) | (b1 << 8) | b2`.
+3. Four 6-bit indices are extracted MSB-first:
+   - $c_0 = \text{table}[(val \gg 18) \ \& \ 0\text{x}3\text{F}]$
+   - $c_1 = \text{table}[(val \gg 12) \ \& \ 0\text{x}3\text{F}]$
+   - $c_2 = \text{table}[(val \gg 6) \ \& \ 0\text{x}3\text{F}]$
+   - $c_3 = \text{table}[val \ \& \ 0\text{x}3\text{F}]$
+4. If the input length $L$ is not a multiple of 3, the final block is padded with zero bits and emits $\lceil (L \times 8) / 6 \rceil$ characters.
+
+**Token Length Derivations**:
+- **Stage 3 `USER` DH Public Key Token**: 35 input bytes (1 byte AuthMode `0x02` + 32 bytes 256-bit DH Public Key $A$ + 2 bytes trailing padding `0x00, 0x00`). $35 \times 8 = 280\text{ bits} \rightarrow \lceil 280 / 6 \rceil = \mathbf{47}\text{ characters}$! (See Section 5.6 Test Vector 9).
+- **Stage 3 `NICK` ClientMeta Token**: 24 input bytes. $24 \times 8 = 192\text{ bits} \rightarrow 192 / 6 = \mathbf{32}\text{ characters}$!
+- **Stage 2 Gatekeeper Redirect Token**: 45 characters, encoded using 5-bit Base32.
 
 ### 5.3 PlayOnline 32-Bit Additive Checksum (`:51220` Payloads)
 Every `:51220` payload ends with a 4-byte little-endian checksum over the preceding $N - 4$ plaintext bytes (`len = N - 4`):
@@ -564,6 +588,22 @@ The following throwaway test vectors allow verifying every cryptographic primiti
 - **Computed HA1**: `"3239e1b7f5b8415ada2f67bb0068e875"`
 - **Computed HA2**: `"7a2b7979735964a76829475cf229c83e"`
 - **Output Digest Response**: `"9c864dbe656e343b094ce9a5a02ea760"`
+
+#### Test Vector 8: Map Packet `0x00A` Ticket
+- **AccountName**: `"testuser"` (8 bytes ASCII: `74 65 73 74 75 73 65 72`)
+- **MapBlowfishKey (16 bytes)**: `e1 8b 4a 50 9c 41 db db 85 99 a1 de 20 f4 34 d3` (from Test Vector 5 / 6)
+- **Input Buffer (24 bytes)**: `74 65 73 74 75 73 65 72 e1 8b 4a 50 9c 41 db db 85 99 a1 de 20 f4 34 d3`
+- **Output Ticket MD5 (16 bytes, Hex)**: `"1388187572a8951b84a175e22a791eee"`
+
+#### Test Vector 9: Stage 3 `USER` Command 47-Character Base64 Token
+- **Input Buffer (35 bytes)**:
+  `95 C6 21 6A 8D E5 13 84 AA DB DF 6A A1 16 9B 1A 10 69 80 FE 43 FC EF 2C D8 E9 4D 58 75 EB EC 48 0B F8 4A`
+  - Byte 0: `0x95` (AuthMode flag)
+  - Bytes 1..32 (32 bytes): DH Public Key $A$ (`C6 21 6A 8D E5 13 84 AA DB DF 6A A1 16 9B 1A 10 69 80 FE 43 FC EF 2C D8 E9 4D 58 75 EB EC 48 0B`)
+  - Bytes 33..34 (2 bytes): Trailer (`F8 4A`)
+- **Custom Alphabet**: `polcore.dll+0x65DE0` (`TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX`)
+- **Output Base64 Token (47 characters)**: `"rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP"`
+- **Wire Command Line**: `"USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n"` (61 bytes total)
 
 ---
 
