@@ -1,0 +1,120 @@
+// src/Gordian.Core/Network/Retail/PolHashes.cs
+using System;
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace Gordian.Core.Network.Retail
+{
+    /// <summary>
+    /// The checksums and credential hashes of retail login. Protocol referenced from the GordianXI retail login spec,
+    /// docs/network/retail-login-spec.md v1.2.0: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
+    /// 5.3 (additive checksum), 5.4 (Square Enix password), 5.5 (lobby session hash), 5.6 (map key) and 5.7 (x-MD5-pol);
+    /// test vectors in section 5.8.
+    /// </summary>
+    public static class PolHashes
+    {
+        private static readonly uint[] CrcTable = BuildCrcTable();
+
+        private static uint[] BuildCrcTable()
+        {
+            var table = new uint[256];
+            for (uint n = 0; n < 256; n++)
+            {
+                uint c = n;
+                for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                table[n] = c;
+            }
+            return table;
+        }
+
+        /// <summary>CRC-32 (IEEE 802.3, reflected polynomial 0xEDB88320, initial and final XOR 0xFFFFFFFF): the POLP checksum.</summary>
+        public static uint Crc32(ReadOnlySpan<byte> data)
+        {
+            uint crc = 0xFFFFFFFFu;
+            foreach (byte b in data) crc = CrcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
+            return crc ^ 0xFFFFFFFFu;
+        }
+
+        /// <summary>
+        /// The <c>:51220</c> additive checksum over <paramref name="data"/>: the sum of its little-endian 32-bit words, the
+        /// last 1-3 bytes counted as a zero-padded word.
+        /// </summary>
+        public static uint AdditiveChecksum(ReadOnlySpan<byte> data)
+        {
+            uint acc = 0;
+            int whole = data.Length & ~3;
+            for (int i = 0; i < whole; i += 4) acc += BinaryPrimitives.ReadUInt32LittleEndian(data[i..]);
+            if ((data.Length & 3) != 0)
+            {
+                Span<byte> tail = stackalloc byte[4];
+                tail.Clear();
+                data[whole..].CopyTo(tail);
+                acc += BinaryPrimitives.ReadUInt32LittleEndian(tail);
+            }
+            return acc;
+        }
+
+        /// <summary>Writes the additive checksum of all but the last 4 bytes of <paramref name="payload"/> into those 4 bytes.</summary>
+        public static void SealAdditive(Span<byte> payload) =>
+            BinaryPrimitives.WriteUInt32LittleEndian(payload[^4..], AdditiveChecksum(payload[..^4]));
+
+        /// <summary>Whether the last 4 bytes of <paramref name="payload"/> are the additive checksum of the rest.</summary>
+        public static bool VerifyAdditive(ReadOnlySpan<byte> payload) =>
+            payload.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(payload[^4..]) == AdditiveChecksum(payload[..^4]);
+
+        /// <summary>The POL password as sent in <c>NICK</c>: MD5 of its ASCII bytes as 32 lowercase hex digits.</summary>
+        public static string PolPasswordHex(string polPassword) =>
+            Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(polPassword ?? string.Empty)));
+
+        /// <summary>
+        /// The time-bound Square Enix password digest: SHA-1(lowercase hex SHA-1(password) + the server time rounded down to
+        /// the minute, in decimal).
+        /// </summary>
+        public static byte[] SquareEnixPasswordDigest(string password, long serverUnixSeconds)
+        {
+            string h1 = Convert.ToHexStringLower(SHA1.HashData(Encoding.ASCII.GetBytes(password ?? string.Empty)));
+            string minute = (serverUnixSeconds / 60 * 60).ToString(CultureInfo.InvariantCulture);
+            return SHA1.HashData(Encoding.ASCII.GetBytes(h1 + minute));
+        }
+
+        /// <summary>The <c>:51220</c> request header's challenge digest: MD5(SessionSecret[8] + AccountToken[12] + LE32(seed)).</summary>
+        public static byte[] ChallengeDigest(ReadOnlySpan<byte> sessionSecret, ReadOnlySpan<byte> accountToken, uint challengeSeed)
+        {
+            if (sessionSecret.Length != 8 || accountToken.Length != 12) throw new ArgumentException("The session secret is 8 bytes and the account token 12.");
+            Span<byte> buffer = stackalloc byte[24];
+            sessionSecret.CopyTo(buffer);
+            accountToken.CopyTo(buffer[8..]);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[20..], challengeSeed);
+            return MD5.HashData(buffer);
+        }
+
+        /// <summary>A 16-byte key followed by a little-endian counter: the lobby session hash input and the map server's raw key.</summary>
+        public static byte[] KeyWithCounter(ReadOnlySpan<byte> key16, uint counter)
+        {
+            if (key16.Length != 16) throw new ArgumentException("The key is 16 bytes.", nameof(key16));
+            var buffer = new byte[20];
+            key16.CopyTo(buffer);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(16), counter);
+            return buffer;
+        }
+
+        /// <summary>The lobby session hash: MD5(LobbySessionKey[16] + LE32(modifier)).</summary>
+        public static byte[] LobbySessionHash(ReadOnlySpan<byte> lobbySessionKey, uint modifier) =>
+            MD5.HashData(KeyWithCounter(lobbySessionKey, modifier));
+
+        /// <summary>
+        /// The x-MD5-pol digest response: RFC 2617 digest with qop, where the password part of HA1 is the PML session key
+        /// as 32 lowercase hex digits.
+        /// </summary>
+        public static string PmlDigestResponse(string username, string realm, ReadOnlySpan<byte> pmlSessionKey, string method, string uri,
+            string nonce, string nonceCount, string clientNonce, string qop)
+        {
+            static string Md5Hex(string s) => Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(s)));
+            string ha1 = Md5Hex($"{username}:{realm}:{Convert.ToHexStringLower(pmlSessionKey)}");
+            string ha2 = Md5Hex($"{method}:{uri}");
+            return Md5Hex($"{ha1}:{nonce}:{nonceCount}:{clientNonce}:{qop}:{ha2}");
+        }
+    }
+}
