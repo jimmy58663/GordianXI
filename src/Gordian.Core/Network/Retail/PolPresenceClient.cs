@@ -24,6 +24,16 @@ namespace Gordian.Core.Network.Retail
         PasswordAndOneTimeCode = 2,
     }
 
+    /// <summary>Which session key a <c>0x04/0x05</c> request asks for.</summary>
+    public enum PolSessionKeyService
+    {
+        /// <summary>The PML web key: ServiceType 1, flags 1000.</summary>
+        Pml,
+
+        /// <summary>The FFXI lobby key: ServiceType 0, flags 1.</summary>
+        Lobby,
+    }
+
     /// <summary>A decrypted <c>0x83</c> response header.</summary>
     /// <param name="Status">0 for success; anything else is an error code.</param>
     /// <param name="PayloadLength">How many encrypted payload bytes follow.</param>
@@ -66,6 +76,12 @@ namespace Gordian.Core.Network.Retail
 
         /// <summary>The <c>0x04/0x05</c> flag that asks for the FFXI lobby key.</summary>
         public const ushort KeyFlagsLobby = 1;
+
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the PML key request (spec v1.3.0 section 4.3.5).</summary>
+        public const byte ServiceTypePml = 1;
+
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v1.3.0 section 4.3.5).</summary>
+        public const byte ServiceTypeLobby = 0;
 
         /// <summary>The 40-byte hello: protocol 0x0100, the routing token, and on the assigned server the 12-byte echo.</summary>
         public static void WriteHello(Span<byte> hello, ReadOnlySpan<byte> routingToken, ReadOnlySpan<byte> accountEcho)
@@ -111,12 +127,16 @@ namespace Gordian.Core.Network.Retail
             PolHashes.SealAdditive(payload);
         }
 
-        /// <summary>The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included.</summary>
-        public static void WriteKeyRequestPayload(Span<byte> payload, ushort flags, uint clientNonce)
+        /// <summary>
+        /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included. The ClientNonce is a counter
+        /// from a random start (spec v1.3.0 section 4.3.5).
+        /// </summary>
+        public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, uint clientNonce)
         {
             payload = payload[..KeyRequestPayloadSize];
             payload.Clear();
-            payload[0x13] = 0x01;
+            var (serviceType, flags) = service == PolSessionKeyService.Lobby ? (ServiceTypeLobby, KeyFlagsLobby) : (ServiceTypePml, KeyFlagsPml);
+            payload[0x13] = serviceType;
             BinaryPrimitives.WriteUInt16BigEndian(payload[0x14..], 0x0001);
             BinaryPrimitives.WriteUInt16BigEndian(payload[0x16..], 0x0005);
             BinaryPrimitives.WriteUInt16BigEndian(payload[0x18..], flags);
@@ -165,12 +185,12 @@ namespace Gordian.Core.Network.Retail
             GordianLog.Info("RETAIL_LOGIN", $"Square Enix account accepted; assigned presence server {_assigned}.");
         }
 
-        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server (PML with flags 1000, the lobby with 1).</summary>
-        public async Task<byte[]> RequestSessionKeyAsync(ushort flags, CancellationToken ct, int port = PolPresencePackets.Port)
+        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server, for the PML pages or the FFXI lobby.</summary>
+        public async Task<byte[]> RequestSessionKeyAsync(PolSessionKeyService service, CancellationToken ct, int port = PolPresencePackets.Port)
         {
             if (_assigned == null) throw new InvalidOperationException("Authenticate first: the account login assigns the key server.");
             byte[] payload = new byte[PolPresencePackets.KeyRequestPayloadSize];
-            PolPresencePackets.WriteKeyRequestPayload(payload, flags, unchecked(_nonce++));
+            PolPresencePackets.WriteKeyRequestPayload(payload, service, unchecked(_nonce++));
 
             var (_, _, response) = await ExchangeAsync(_assigned.ToString(), port, _accountEcho, PolPresencePackets.CommandSessionKey, payload,
                 expectPayload: true, "session key", ct).ConfigureAwait(false);

@@ -8,7 +8,7 @@ using Xunit;
 namespace Gordian.Core.Tests.Network.Retail
 {
     /// <summary>
-    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v1.2.0 section 5.8, and
+    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v1.4.0 section 5.8, and
     /// Blowfish against Schneier's published test vectors.
     /// </summary>
     public class RetailCryptoTests
@@ -40,6 +40,19 @@ namespace Gordian.Core.Tests.Network.Retail
             var (l, r) = Block(Convert.ToHexString(Encoding.ASCII.GetBytes("BLOWFISH")));
             bf.Encrypt(ref l, ref r);
             Assert.Equal(Block("324ED0FEF413A203"), (l, r));
+        }
+
+        [Fact]
+        public void Vector6_OfbKeyExpansion()
+        {
+            uint[] words = PolStreamCipher.ExpandKey(Convert.FromHexString("0123456789ABCDEF"));
+            Assert.Equal(new uint[]
+            {
+                0x1F1DCDA1, 0x681049C6, 0x280710D9, 0x8944D83E, 0xA2C3FF4A,
+                0x596F31BD, 0x44FFCD55, 0x153E128A, 0x67452301, 0xEFCDAB89,
+            }, words);
+            Assert.Equal(0xC7587E52u, PolStreamCipher.IvLow);
+            Assert.Equal(0x329AC3D4u, PolStreamCipher.IvHigh);
         }
 
         [Fact]
@@ -188,11 +201,14 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("a9b37731814689069446b8581bb145ea", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF1FB)));
 
         [Fact]
-        public void Vector6_MapKey()
+        public void Vector5_MapKeyIsTheSelectSessionHash()
         {
-            byte[] raw = RetailLobbyPackets.MapRawKey(LobbyKey, 0x12345678);
+            Assert.Equal("906fc2f1cc7f88ae1c06c215be8eb208", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF1FF)));
+
+            // The 20-byte raw key the map session cipher takes MD5s to the same hash.
+            byte[] raw = RetailLobbyPackets.MapRawKey(LobbyKey, 0x590DF1FF);
             Assert.Equal(20, raw.Length);
-            Assert.Equal("e18b4a509c41dbdb8599a1de20f434d3", Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(raw)));
+            Assert.Equal("906fc2f1cc7f88ae1c06c215be8eb208", Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(raw)));
         }
 
         [Fact]

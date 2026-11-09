@@ -3,12 +3,13 @@ using System;
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using Gordian.Core.Network.LandSandBoat;
 
 namespace Gordian.Core.Network.Retail
 {
-    /// <summary>A decoded retail <c>0x0B</c> character select reply: where the map server is and the token its key uses.</summary>
-    public readonly record struct RetailMapHandoff(IPAddress MapServer, int MapPort, uint MapToken, uint ZoneId, uint InstanceId);
+    /// <summary>A decoded retail <c>0x0B</c> character select reply: the map server (UDP) and the search server.</summary>
+    public readonly record struct RetailMapHandoff(IPAddress MapServer, int MapPort, IPAddress SearchServer, int SearchPort);
 
     /// <summary>
     /// The retail lobby's key modifier: seeded by the server's <c>0x05</c>, then +1 for <c>0x1F</c> (character list),
@@ -45,8 +46,8 @@ namespace Gordian.Core.Network.Retail
     /// lists come back on this connection. Layouts LandSandBoat shares (the 0x20 character list, the 0x23 world list) are
     /// read with <see cref="LobbyPackets"/>.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.2.0, sections 4.5,
-    /// 5.5 and 5.6.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.4.0, sections 4.5,
+    /// 4.6, 5.5 and 5.6.
     /// </para>
     /// </summary>
     public static class RetailLobbyPackets
@@ -57,11 +58,14 @@ namespace Gordian.Core.Network.Retail
         /// <summary>The 0x26 client platform (Windows retail).</summary>
         public const uint ClientPlatformWindows = 5;
 
-        /// <summary>The 64-byte block of 0x26 (+0x34..+0x73, the account id first) that 0x07's selection digest repeats.</summary>
+        /// <summary>
+        /// The 64-byte block of 0x26 (+0x34..+0x73) that 0x07's selection digest repeats: the account id, then 60 zero
+        /// bytes (spec v1.3.0 section 4.5).
+        /// </summary>
         public const int ReservedTokenLength = 64;
 
         public const int SelectCharacterSize = 0x58;
-        public const int MapHandoffSize = 0x4C;
+        public const int MapHandoffSize = 0x48;
 
         /// <summary>Writes the header (size, "IXFF", command) and leaves the digest field zero.</summary>
         public static void WriteHeader(Span<byte> packet, byte command)
@@ -94,18 +98,14 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// C2S 0x26 (0x98): platform, account id, the rest of the 64-byte reserved block, the client version, 0xFF, the
-        /// installed expansions. <paramref name="reservedTail"/> is the block after the account id (60 bytes); its
-        /// contents are a spec gap, so callers pass zeros until it is specified.
+        /// C2S 0x26 (0x98): platform, account id, 60 zero bytes, the client version, 0xFF, the installed expansions.
         /// </summary>
-        public static void WriteLobbyLogin(Span<byte> packet, uint ffxiAccountId, ReadOnlySpan<byte> reservedTail, string clientVersion,
-            uint expansions = LobbyPackets.AllExpansions)
+        public static void WriteLobbyLogin(Span<byte> packet, uint ffxiAccountId, string clientVersion, uint expansions = LobbyPackets.AllExpansions)
         {
             packet = packet[..LobbyPackets.LobbyLoginSize];
             WriteHeader(packet, LobbyCommand.RequestLobbyLogin);
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x2C..], ClientPlatformWindows);
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x34..], ffxiAccountId);
-            if (!reservedTail.IsEmpty) reservedTail[..Math.Min(60, reservedTail.Length)].CopyTo(packet[0x38..]);
             PolpPackets.WriteAscii(packet.Slice(0x74, 15), clientVersion);
             packet[0x83] = 0xFF;
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x84..], expansions);
@@ -150,28 +150,43 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// S2C 0x0B as the spec lays it out (0x4C): map server address +0x38, port +0x3C, map token +0x40, zone +0x44,
-        /// instance +0x48. <b>Open question:</b> LandSandBoat and XiPackets read a 0x48-byte 0x0B whose +0x40 is the
-        /// search server's address; the research side is confirming which is right.
+        /// S2C 0x0B (0x48): map server address +0x38 and UDP port +0x3C, search server address +0x40 and port +0x44.
+        /// The same layout as LandSandBoat's and XiPackets' 0x0B (spec v1.3.0 section 4.5.9). The map server key does not
+        /// come from here: it is the 0x07 session hash (<see cref="MapRawKey"/>).
         /// </summary>
         public static bool TryParseMapHandoff(ReadOnlySpan<byte> packet, out RetailMapHandoff handoff)
         {
             handoff = default;
             if (packet.Length < MapHandoffSize || LobbyPackets.ReadCommand(packet) != LobbyCommand.ResponseNextLogin) return false;
-            uint address = BinaryPrimitives.ReadUInt32LittleEndian(packet[0x38..]);
             handoff = new RetailMapHandoff(
-                new IPAddress(address),
+                new IPAddress(BinaryPrimitives.ReadUInt32LittleEndian(packet[0x38..])),
                 BinaryPrimitives.ReadUInt16LittleEndian(packet[0x3C..]),
-                BinaryPrimitives.ReadUInt32LittleEndian(packet[0x40..]),
-                BinaryPrimitives.ReadUInt32LittleEndian(packet[0x44..]),
-                BinaryPrimitives.ReadUInt32LittleEndian(packet[0x48..]));
+                new IPAddress(BinaryPrimitives.ReadUInt32LittleEndian(packet[0x40..])),
+                BinaryPrimitives.ReadUInt16LittleEndian(packet[0x44..]));
             return true;
         }
 
         /// <summary>
-        /// The map server's 20-byte raw key: the lobby session key and the little-endian map token. The map session cipher
-        /// (<c>LegacyBlowfishCryptoSuite.InitializeKey</c>) MD5s a 20-byte key, which gives the spec's MD5(key + token).
+        /// The map server's 20-byte raw key: the lobby session key and the little-endian modifier the 0x07 request used
+        /// (M0 + 5). Its MD5 is the 0x07 session hash, which is the map key (spec v1.4.0 section 5.6, test vector 5). The
+        /// map session cipher (<c>LegacyBlowfishCryptoSuite.InitializeKey</c>) MD5s a 20-byte key, so this goes straight
+        /// in, the same way LandSandBoat's 20-byte key does.
         /// </summary>
-        public static byte[] MapRawKey(ReadOnlySpan<byte> lobbySessionKey, uint mapToken) => PolHashes.KeyWithCounter(lobbySessionKey, mapToken);
+        public static byte[] MapRawKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) => PolHashes.KeyWithCounter(lobbySessionKey, selectModifier);
+
+        /// <summary>
+        /// The 16-byte <c>Ticket</c> of the first map packet (C2S 0x00A +0x40): MD5(account name + session hash), with
+        /// the name's ASCII bytes and no terminator. <b>Open question:</b> which name the client hashes (spec v1.4.0
+        /// section 4.6 says only <c>AccountName</c>; XiPackets notes the packet's own <c>sAccunt</c> field is always
+        /// empty).
+        /// </summary>
+        public static byte[] MapLoginTicket(string accountName, ReadOnlySpan<byte> sessionHash)
+        {
+            byte[] name = Encoding.ASCII.GetBytes(accountName);
+            byte[] buffer = new byte[name.Length + 16];
+            name.CopyTo(buffer, 0);
+            sessionHash[..16].CopyTo(buffer.AsSpan(name.Length));
+            return MD5.HashData(buffer);
+        }
     }
 }

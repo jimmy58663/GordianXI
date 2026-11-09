@@ -140,8 +140,35 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void Core_NickLine() =>
-            Assert.Equal("NICK 232JR2NC1:5f4dcc3b5aa765d61d8327deb882cf99:META\r\n", PolCoreProtocol.BuildNickLine("TEST0001", "password", "META"));
+        public void Core_NickLine_EndsWithFourTabs_AndIs86BytesWithRealMetadata()
+        {
+            Assert.Equal("NICK 232JR2NC1:5f4dcc3b5aa765d61d8327deb882cf99:META\t\t\t\t\r\n", PolCoreProtocol.BuildNickLine("TEST0001", "password", "META"));
+            Assert.Equal(86, PolCoreProtocol.BuildNickLine("TEST0001", "password", PolClientMeta.Create()).Length);
+        }
+
+        [Fact]
+        public void Core_ClientMetaMatchesTheSpecPrefixes()
+        {
+            byte[] meta = new byte[PolClientMeta.Length];
+            PolClientMeta.Write(meta, new byte[18]);
+            Assert.Equal(new byte[] { 0, 0, 0, 2, 1, 1 }, meta[..6]);
+            string text = PolCoreBase64.Encode(meta);
+            Assert.Equal(32, text.Length);
+            Assert.StartsWith("TTTTTAIST", text); // the spec's observed prefix (v1.3.0 and v1.4.0 section 4.2.2)
+
+            // 02 01 00 is 000000 100000 000100 000000 = TAIT (the spec's worked bits for it are off by one group).
+            Assert.Equal("TTTTTAIT", PolCoreBase64.Encode(new byte[] { 0, 0, 0, 2, 1, 0 }));
+
+            string created = PolClientMeta.Create();
+            Assert.Equal(32, created.Length);
+            Assert.StartsWith("TTTTTAIS", created);
+            Assert.All(created, c => Assert.Contains(c, PolCoreBase64.Alphabet));
+            Assert.Throws<ArgumentException>(() => PolCoreBase64.Encode(new byte[4]));
+        }
+
+        [Fact]
+        public void Core_Base64AlphabetHas64DistinctCharacters() =>
+            Assert.Equal(64, PolCoreBase64.Alphabet.Distinct().Count());
 
         private static readonly byte[] Routing = Convert.FromHexString("0ECC10D59F4C");
         private static readonly byte[] Account = Convert.FromHexString("A1A2A3A4A5A6A7A8A9AAABAC");
@@ -247,10 +274,10 @@ namespace Gordian.Core.Tests.Network.Retail
         public async Task CoreSession_LogsInThroughTheGatekeeperAndKeyExchange()
         {
             await using var fake = new FakeCore();
-            await using var session = await PolCoreSession.LoginAsync("TEST0001", "password", "META", Ct, "127.0.0.1", fake.GatePort);
+            await using var session = await PolCoreSession.LoginAsync("TEST0001", "password", Ct, "META", "127.0.0.1", fake.GatePort);
             await fake.Run;
 
-            Assert.Equal("NICK 232JR2NC1:5f4dcc3b5aa765d61d8327deb882cf99:META", fake.ReceivedNick);
+            Assert.Equal("NICK 232JR2NC1:5f4dcc3b5aa765d61d8327deb882cf99:META\t\t\t\t", fake.ReceivedNick);
             Assert.Equal(4242u, session.Ticket.FfxiAccountId);
             Assert.Equal(Secret, session.Ticket.SessionSecret);
             Assert.InRange(session.Clock.Now, 1731110400, 1731110460);
@@ -266,7 +293,7 @@ namespace Gordian.Core.Tests.Network.Retail
         public async Task CoreSession_ARefusalNumericFailsWithItsCode()
         {
             await using var fake = new FakeCore(refuseWith: 464);
-            var ex = await Assert.ThrowsAsync<RetailLoginException>(() => PolCoreSession.LoginAsync("TEST0001", "wrong", "META", Ct, "127.0.0.1", fake.GatePort));
+            var ex = await Assert.ThrowsAsync<RetailLoginException>(() => PolCoreSession.LoginAsync("TEST0001", "wrong", Ct, "META", "127.0.0.1", fake.GatePort));
             Assert.Equal(464, ex.Code);
             Assert.Equal("core session", ex.Stage);
         }
@@ -303,10 +330,16 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.All(auth[0x12..0x20], b => Assert.Equal(0, b));
 
             byte[] key = new byte[40];
-            PolPresencePackets.WriteKeyRequestPayload(key, PolPresencePackets.KeyFlagsPml, 0x01020304);
+            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Pml, 0x01020304);
             Assert.Equal(1, key[0x13]);
             Assert.Equal(new byte[] { 0, 1, 0, 5, 0x03, 0xE8 }, key[0x14..0x1A]);
             Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(0x20)));
+            Assert.True(PolHashes.VerifyAdditive(key));
+
+            // The lobby key: ServiceType 0, flags 1 (spec v1.3.0 section 4.3.5).
+            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Lobby, 7);
+            Assert.Equal(0, key[0x13]);
+            Assert.Equal(new byte[] { 0, 1, 0, 5, 0x00, 0x01 }, key[0x14..0x1A]);
             Assert.True(PolHashes.VerifyAdditive(key));
         }
 
@@ -323,7 +356,7 @@ namespace Gordian.Core.Tests.Network.Retail
         public async Task Presence_AuthenticatesThenGetsAKeyFromTheAssignedServer()
         {
             await using var core = new FakeCore();
-            await using var session = await PolCoreSession.LoginAsync("TEST0001", "password", "META", Ct, "127.0.0.1", core.GatePort);
+            await using var session = await PolCoreSession.LoginAsync("TEST0001", "password", Ct, "META", "127.0.0.1", core.GatePort);
             await core.Run;
             var serverCipher = core.Cipher!;
 
@@ -387,7 +420,7 @@ namespace Gordian.Core.Tests.Network.Retail
                 PolHashes.SealAdditive(payload);
                 return (header, payload);
             }, 40, hello => Assert.Equal(redirectCipherText![12..24], hello[12..24]));
-            byte[] key = await presence.RequestSessionKeyAsync(PolPresencePackets.KeyFlagsLobby, Ct, port);
+            byte[] key = await presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, Ct, port);
             await keyServer;
             Assert.Equal(sessionKey, key);
         }
@@ -398,12 +431,13 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Lobby_SealedPacketsVerify_AndTheLoginHasTheSpecLayout()
         {
             byte[] login = new byte[LobbyPackets.LobbyLoginSize];
-            RetailLobbyPackets.WriteLobbyLogin(login, 0x082E1E27, ReadOnlySpan<byte>.Empty, "30261006_0");
+            RetailLobbyPackets.WriteLobbyLogin(login, 0x082E1E27, "30261006_0");
             Assert.True(RetailLobbyPackets.Verify(login));
             Assert.Equal(0x26u, BinaryPrimitives.ReadUInt32LittleEndian(login.AsSpan(8)));
             Assert.Equal(5u, BinaryPrimitives.ReadUInt32LittleEndian(login.AsSpan(0x2C)));
             Assert.Equal(new byte[] { 0x27, 0x1E, 0x2E, 0x08 }, login[0x34..0x38]);
             Assert.Equal("30261006_0", PolpPackets.ReadAscii(login.AsSpan(0x74, 15)));
+            Assert.All(login[0x38..0x74], b => Assert.Equal(0, b));
             Assert.Equal(0xFF, login[0x83]);
             Assert.Equal(0xFFFu, BinaryPrimitives.ReadUInt32LittleEndian(login.AsSpan(0x84)));
 
@@ -426,7 +460,7 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Lobby_SelectCharacterCarriesTheSelectionDigest()
         {
             byte[] login = new byte[LobbyPackets.LobbyLoginSize];
-            RetailLobbyPackets.WriteLobbyLogin(login, 4242, ReadOnlySpan<byte>.Empty, "30261006_0");
+            RetailLobbyPackets.WriteLobbyLogin(login, 4242, "30261006_0");
             byte[] reserved = RetailLobbyPackets.ReservedToken(login).ToArray();
             byte[] hash = PolHashes.LobbySessionHash(Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210"), 0x590DF1FF);
 
@@ -441,19 +475,29 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void Lobby_MapHandoffParsesTheSpecLayout()
+        public void Lobby_MapHandoffParsesTheMapAndSearchServers()
         {
             byte[] p = new byte[RetailLobbyPackets.MapHandoffSize];
+            Assert.Equal(0x48, p.Length);
             RetailLobbyPackets.WriteHeader(p, LobbyCommand.ResponseNextLogin);
             new byte[] { 124, 150, 154, 10 }.CopyTo(p, 0x38);
             BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(0x3C), 54231);
-            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x40), 0x12345678);
-            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x44), 0xF8);
+            new byte[] { 124, 150, 154, 20 }.CopyTo(p, 0x40);
+            BinaryPrimitives.WriteUInt16LittleEndian(p.AsSpan(0x44), 54002);
             Assert.True(RetailLobbyPackets.TryParseMapHandoff(p, out var h));
             Assert.Equal(IPAddress.Parse("124.150.154.10"), h.MapServer);
             Assert.Equal(54231, h.MapPort);
-            Assert.Equal(0x12345678u, h.MapToken);
-            Assert.Equal(0xF8u, h.ZoneId);
+            Assert.Equal(IPAddress.Parse("124.150.154.20"), h.SearchServer);
+            Assert.Equal(54002, h.SearchPort);
+            Assert.False(RetailLobbyPackets.TryParseMapHandoff(p.AsSpan(0, 0x44), out _));
+        }
+
+        [Fact]
+        public void Lobby_MapLoginTicketIsMd5OfTheNameAndSessionHash()
+        {
+            byte[] hash = Convert.FromHexString("906fc2f1cc7f88ae1c06c215be8eb208");
+            byte[] expected = MD5.HashData(Encoding.ASCII.GetBytes("Knot").Concat(hash).ToArray());
+            Assert.Equal(expected, RetailLobbyPackets.MapLoginTicket("Knot", hash));
         }
     }
 }

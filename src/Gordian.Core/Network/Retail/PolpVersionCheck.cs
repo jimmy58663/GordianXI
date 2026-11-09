@@ -40,6 +40,13 @@ namespace Gordian.Core.Network.Retail
         public const string ViewerProduct = "W2U", ViewerHost = "pt008.pol.com";
         public const int ViewerPort = 54000;
 
+        /// <summary>
+        /// The Viewer version the retail <c>pol.exe</c> sends (spec v1.3.0 section 2). The check is the Viewer's own
+        /// updater, and the login servers do not require it, so a client without the Viewer skips it (spec v1.3.0
+        /// section 9, item 5).
+        /// </summary>
+        public const string ViewerVersion = "100020110829_E";
+
         /// <summary>FFXI (US, Windows)'s product code and check server.</summary>
         public const string FfxiProduct = "W20", FfxiHost = "pc001W2U.pol.com";
         public const int FfxiPort = 53001;

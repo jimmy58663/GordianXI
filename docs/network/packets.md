@@ -429,15 +429,16 @@ The rows carry the details; these are the ones most useful to other client and s
 
 ### Retail lobby (`ffxi00.pol.com:54001`)
 
-`RetailLobbyPackets` (`src/Gordian.Core/Network/Retail`) builds the retail forms from [retail-login-spec.md](retail-login-spec.md) v1.2.0 section 4.5. The connection that ties them together is not built yet ([retail-login.md](retail-login.md)). Retail has no data channel, so the character and world lists arrive on this connection; `0x20` and `0x23` are read with the shared `LobbyPackets` parsers.
+`RetailLobbyPackets` (`src/Gordian.Core/Network/Retail`) builds the retail forms from [retail-login-spec.md](retail-login-spec.md) v1.4.0 sections 4.5 and 4.6. The connection that ties them together is not built yet ([retail-login.md](retail-login.md)). Retail has no data channel, so the character and world lists arrive on this connection; `0x20` and `0x23` are read with the shared `LobbyPackets` parsers.
 
 | Dir | Id | Name | Size | GordianXI status | Notes |
 |---|---|---|---|---|---|
 | both | header | `IXFF` header | 28 | `built` / `verified` | The identifier at +0x0C is the MD5 of the whole packet with that field zeroed (`Seal` / `Verify`). |
-| C2S | `0x26` | lobby login | 152 | `built` | Platform 5 at +0x2C, FFXI account id at +0x34, version at +0x74, `0xFF` at +0x83, expansions at +0x84. **Open:** the rest of the 64-byte reserved block (+0x38..+0x73) is not specified yet, so it is written as zeros. |
+| C2S | `0x26` | lobby login | 152 | `built` | Platform 5 at +0x2C, FFXI account id at +0x34, 60 zero bytes +0x38..+0x73 (spec v1.3.0), version at +0x74, `0xFF` at +0x83, expansions at +0x84. |
 | C2S | `0x1F` / `0x24` | character / world list | 44 | `built` | Session hash MD5(lobby key + LE32 modifier) at +0x1C, with modifiers M0+1 and M0+3 (`RetailLobbyModifier`). |
 | C2S | `0x07` | select character | 88 | `built` | Content id, character id, name, session hash (M0+5) at +0x34, and at +0x48 the selection digest MD5(reserved block + hash + ids + 4 zero bytes). |
-| S2C | `0x0B` | map handoff | 76 (spec) | `decoded` (PROVISIONAL) | Map server address +0x38, port (u16) +0x3C, map token +0x40, zone +0x44, instance +0x48. The map key is MD5(lobby key + LE32 token), which is the existing map cipher's 20-byte key (`MapRawKey`). **Differs from XiPackets / LandSandBoat:** they read a 72-byte `0x0B` whose +0x40 is the search server address; the research side is checking which is right. |
+| S2C | `0x0B` | map handoff | 72 | `decoded` | Map server address +0x38 and UDP port +0x3C, search server address +0x40 and port +0x44: the XiPackets / LandSandBoat layout (spec v1.3.0 corrected its earlier 76-byte form). The map key is the `0x07` session hash, MD5(lobby key + LE32(M0+5)), which is the existing map cipher's 20-byte key (`MapRawKey`, spec v1.4.0 test vector 5). |
+| C2S (map) | `0x00A` | first map packet | 92 | `built` (ticket PROVISIONAL) | The existing `HandshakePackets` builder. On retail the `Ticket` at +0x40 is MD5(account name + session hash) (`MapLoginTicket`) and `Ver` +0x50 is 0. **Open:** which account name is hashed. **Differs from spec v1.4.0:** the spec lists a `ZoneID` at +0x5C, past the end of the 92-byte packet; XiPackets has `dammyArea` (a client state value) at +0x5A. |
 
 The other XiPackets folders are covered in [session-and-packets.md](session-and-packets.md#xipackets-coverage-audit-2026-09-28): `cache/` is the search server (below) and `patch/` is not needed with LSB.
 

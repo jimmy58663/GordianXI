@@ -120,9 +120,12 @@ namespace Gordian.Core.Network.Retail
             return $"USER x 8 * :{PolBase32.Encode(data, DhTokenChars)}{tag}\r\n";
         }
 
-        /// <summary>The plaintext <c>NICK</c> line: the encoded POL ID, MD5 hex of the POL password, the client metadata.</summary>
+        /// <summary>
+        /// The plaintext <c>NICK</c> line: the encoded POL ID, MD5 hex of the POL password, the encoded client metadata,
+        /// then four tabs and CRLF (86 bytes with a 32-character metadata field; spec v1.4.0 section 4.2.2 step 4).
+        /// </summary>
         public static string BuildNickLine(string polId, string polPassword, string clientMeta) =>
-            $"NICK {PolBase32.EncodePolId(polId)}:{PolHashes.PolPasswordHex(polPassword)}:{clientMeta}\r\n";
+            $"NICK {PolBase32.EncodePolId(polId)}:{PolHashes.PolPasswordHex(polPassword)}:{clientMeta}\t\t\t\t\r\n";
 
         /// <summary>Decodes the <c>001</c> line's Base32 payload into the session ticket; false when it is not a <c>001</c>.</summary>
         public static bool TryParseWelcome(string line, out PolCoreTicket? ticket)
@@ -141,7 +144,9 @@ namespace Gordian.Core.Network.Retail
     /// <summary>
     /// A logged-in PlayOnline Core session: the open IRC connection to the session host, the stream cipher its
     /// Diffie-Hellman exchange keyed (the <c>:51220</c> connections share it), the server clock and the <c>001</c>
-    /// ticket. The connection stays open for the life of the login; disposing it closes it.
+    /// ticket. Retail leaves the connection open and idle; nothing uses it after the welcome and it needs no keepalives,
+    /// so closing it (disposing the session) does not affect the game (spec v1.4.0 section 9, item 6). The cipher and
+    /// ticket stay usable after disposal.
     /// </summary>
     public sealed class PolCoreSession : IAsyncDisposable
     {
@@ -164,12 +169,13 @@ namespace Gordian.Core.Network.Retail
 
         /// <summary>
         /// Runs stages 2 and 3: the gatekeeper redirect, the Diffie-Hellman exchange, the encrypted <c>NICK</c> and the
-        /// welcome. <paramref name="clientMeta"/> is the third <c>NICK</c> field (spec gap: its contents are not
-        /// specified yet).
+        /// welcome. <paramref name="clientMeta"/> is the encoded third <c>NICK</c> field; null makes a fresh one
+        /// (<see cref="PolClientMeta.Create"/>).
         /// </summary>
-        public static async Task<PolCoreSession> LoginAsync(string polId, string polPassword, string clientMeta, CancellationToken ct,
+        public static async Task<PolCoreSession> LoginAsync(string polId, string polPassword, CancellationToken ct, string? clientMeta = null,
             string gatekeeperHost = PolCoreProtocol.GatekeeperHost, int gatekeeperPort = PolCoreProtocol.GatekeeperPort)
         {
+            clientMeta ??= PolClientMeta.Create();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(Timeout);
             var token = timeout.Token;
