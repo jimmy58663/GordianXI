@@ -170,15 +170,16 @@ namespace Gordian.Core.Network.Retail
         /// The map server's 20-byte raw key: the lobby session key and the little-endian modifier the 0x07 request used
         /// (M0 + 5). Its MD5 is the 0x07 session hash, which is the map key (spec v1.4.0 section 5.6, test vector 5). The
         /// map session cipher (<c>LegacyBlowfishCryptoSuite.InitializeKey</c>) MD5s a 20-byte key, so this goes straight
-        /// in, the same way LandSandBoat's 20-byte key does.
+        /// in, the same way LandSandBoat's 20-byte key does. That cipher is FFXI's Blowfish, with key bytes read as signed
+        /// and the key cut at its first zero byte, which spec v1.5.0 section 4.6 confirms the retail client uses.
         /// </summary>
         public static byte[] MapRawKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) => PolHashes.KeyWithCounter(lobbySessionKey, selectModifier);
 
         /// <summary>
-        /// The 16-byte <c>Ticket</c> of the first map packet (C2S 0x00A +0x40): MD5(account name + session hash), with
-        /// the name's ASCII bytes and no terminator. <b>Open question:</b> which name the client hashes (spec v1.4.0
-        /// section 4.6 says only <c>AccountName</c>; XiPackets notes the packet's own <c>sAccunt</c> field is always
-        /// empty).
+        /// The 16-byte <c>Ticket</c> of the first map packet (C2S 0x00A +0x40): MD5(account name + map key), with the
+        /// name's ASCII bytes, unpadded and without a terminator (spec v1.5.0 section 4.6, test vector 8).
+        /// <b>Open question:</b> which name it is on retail; the spec says the username registered with the server
+        /// (its example is <c>"testuser"</c>).
         /// </summary>
         public static byte[] MapLoginTicket(string accountName, ReadOnlySpan<byte> sessionHash)
         {

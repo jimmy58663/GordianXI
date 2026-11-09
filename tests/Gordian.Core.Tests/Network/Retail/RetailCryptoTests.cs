@@ -8,7 +8,7 @@ using Xunit;
 namespace Gordian.Core.Tests.Network.Retail
 {
     /// <summary>
-    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v1.4.0 section 5.8, and
+    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v1.5.0 section 5.8, and
     /// Blowfish against Schneier's published test vectors.
     /// </summary>
     public class RetailCryptoTests
@@ -210,6 +210,11 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(20, raw.Length);
             Assert.Equal("906fc2f1cc7f88ae1c06c215be8eb208", Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(raw)));
         }
+
+        [Fact]
+        public void Vector8_MapLoginTicket() =>
+            Assert.Equal("1388187572a8951b84a175e22a791eee", Convert.ToHexStringLower(
+                RetailLobbyPackets.MapLoginTicket("testuser", Convert.FromHexString("e18b4a509c41dbdb8599a1de20f434d3"))));
 
         [Fact]
         public void Vector7_PmlDigest()

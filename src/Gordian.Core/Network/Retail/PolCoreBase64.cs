@@ -37,11 +37,11 @@ namespace Gordian.Core.Network.Retail
 
     /// <summary>
     /// The 24-byte client metadata the <c>NICK</c> line carries (32 characters once encoded): three zero bytes, the
-    /// protocol version 2, the flags 1, a byte the spec gives as 0 or 1, then 18 bytes of session and execution nonces.
-    /// The server checks only the shape, so the nonces are random. Byte +0x05 is 1: <c>02 01 01</c> encodes to
-    /// <c>TAIS</c>, which gives the spec's observed <c>TTTTTAIS...</c> prefix (<c>02 01 00</c> would give <c>TAIT</c>).
+    /// protocol version 2, the subsystem flags 1, the connection state 1 (always 1 in retail captures), then 18 bytes
+    /// of session and execution nonces. The server checks only the shape, so the nonces are random. <c>02 01 01</c>
+    /// encodes to <c>TAIS</c>, the observed <c>TTTTTAIS...</c> prefix.
     /// <para>
-    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.4.0 (layout and
+    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.5.0 (layout and
     /// alphabet, section 4.2.2 step 4) and v1.3.0 (the server does not check the nonces).
     /// </para>
     /// </summary>
