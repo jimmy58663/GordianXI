@@ -27,6 +27,9 @@ namespace Gordian.Core.Network.Retail
 
         private const int PrimeBytes = 16;
 
+        /// <summary>The modulus's bit length: 255, so its top bit is clear, as in the retail captures.</summary>
+        public const int ModulusBits = 255;
+
         // 65535 = 3 x 5 x 17 x 257, so p - 1 must not be divisible by any of them for e to be invertible.
         private static readonly int[] ExponentFactors = [3, 5, 17, 257];
 
@@ -40,7 +43,9 @@ namespace Gordian.Core.Network.Retail
         {
             if (p == q) throw new ArgumentException("The two primes must differ.");
             _modulus = p * q;
-            if (_modulus.GetByteCount(isUnsigned: true) != ValueLength) throw new ArgumentException("The modulus must be 256 bits.");
+            // Both captured retail moduli are 255 bits (top byte 0x48, 0x49). A modulus with bit 255 set got no reply
+            // from the live session host, presumably because the server reads the 32 bytes as a signed number.
+            if (_modulus.GetBitLength() != ModulusBits) throw new ArgumentException($"The modulus must be {ModulusBits} bits.");
             var phi = (p - 1) * (q - 1);
             if (BigInteger.GreatestCommonDivisor(PublicExponent, phi) != 1) throw new ArgumentException("65535 is not invertible for these primes.");
             _privateExponent = ModInverse(PublicExponent, phi);
@@ -58,7 +63,8 @@ namespace Gordian.Core.Network.Retail
             while (true)
             {
                 RandomNumberGenerator.Fill(bytes);
-                bytes[PrimeBytes - 1] |= 0xC0; // top two bits: the product of two such primes is a full 256 bits
+                // Top byte 0x80-0x8F, as in both factored retail key pairs (0x83-0x8E): the product is 255 bits.
+                bytes[PrimeBytes - 1] = (byte)(0x80 | (bytes[PrimeBytes - 1] & 0x0F));
                 bytes[0] |= 1;
                 var candidate = new BigInteger(bytes, isUnsigned: true, isBigEndian: false);
                 if (!FitsExponent(candidate)) continue;

@@ -82,7 +82,9 @@ namespace Gordian.App
                     networkListener.Dispose();
                 }
 
-                Debug.AutoFlush = true;
+                // Trace.AutoFlush, not Debug.AutoFlush: on .NET Core the latter does nothing, so the listener only wrote
+                // every 4 KB and a short run (a failed login) lost everything it logged when the process exited.
+                Trace.AutoFlush = true;
 
                 Debug.WriteLine("[GordianXI Boot] Global tracing infrastructure online.");
             }

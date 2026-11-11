@@ -127,7 +127,8 @@ namespace Gordian.Core.Tests.Network.Retail
         {
             var rsa = new PolRsaKeyExchange();
             Assert.Equal(32, rsa.Modulus.Length);
-            Assert.True(rsa.Modulus[31] >= 0x80, "The modulus is a full 256 bits.");
+            // 255 bits like both captured retail moduli (top byte 0x48, 0x49): bit 255 clear, bit 254 set.
+            Assert.InRange(rsa.Modulus[31], 0x40, 0x7F);
             byte[] key = Convert.FromHexString("0102030405060708");
             byte[] c = PolRsaKeyExchange.Encrypt(rsa.Modulus, PolRsaKeyExchange.WrapSessionKey(key));
             Assert.Equal(key, rsa.DecryptSessionKey(c));
