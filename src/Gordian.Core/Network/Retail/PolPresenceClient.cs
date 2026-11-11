@@ -185,9 +185,26 @@ namespace Gordian.Core.Network.Retail
             byte[] payload = new byte[PolPresencePackets.AuthPayloadSize];
             PolPresencePackets.WriteAuthPayload(payload, mode, squareEnixId, password, oneTimeCode, _core.Clock.Now);
 
+            string sent = mode == SquareEnixAuthMode.Password ? "without a one-time code" : "with a one-time code";
+            GordianLog.Info("RETAIL_LOGIN", $"Square Enix login: mode {(byte)mode}, {sent}, server minute {_core.Clock.Now / 60 * 60}.");
+
             // The redirect header announces 8 payload bytes the server never sends: read only the header (section 4.3.6).
-            var (header, _) = await ExchangeAsync(host, port, PolPresencePackets.CommandAuthenticate, payload,
-                expectPayload: false, "account", ct).ConfigureAwait(false);
+            (PolPresenceResponse header, byte[] _) result;
+            try
+            {
+                result = await ExchangeAsync(host, port, PolPresencePackets.CommandAuthenticate, payload,
+                    expectPayload: false, "account", ct).ConfigureAwait(false);
+            }
+            catch (RetailLoginException ex) when (ex.Code == PolPresencePackets.StatusBadAccount)
+            {
+                // 0x6F is the only refusal captured (a wrong Square Enix ID); it may also cover a wrong password or a
+                // missing or wrong one-time code, so the message says which kind of login was sent.
+                throw new RetailLoginException("account",
+                    $"The Square Enix login was refused (status 0x6F, sent {sent}). Check the Square Enix ID and password" +
+                    (mode == SquareEnixAuthMode.Password ? ", and whether the account has an authenticator (set the profile's 2FA)." : " and the one-time code."),
+                    ex.Code, ex);
+            }
+            var header = result.header;
             _assigned = header.RedirectAddress;
             GordianLog.Info("RETAIL_LOGIN", $"Square Enix account accepted; assigned presence server {_assigned}.");
         }
