@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -13,20 +14,26 @@ using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.Network.Retail
 {
-    /// <summary>What the Core IRC <c>001</c> reply hands the rest of the login (spec v1.2.0 section 4.2.2, step 5).</summary>
-    /// <param name="RoutingToken">6 bytes, sent in every <c>:51220</c> hello.</param>
+    /// <summary>What the Core IRC <c>001</c> reply hands the rest of the login (spec v2.1.18 section 4.2.2, step 6).</summary>
+    /// <param name="RoutingToken">6 bytes: the client's address as the server sees it (port LE, then IPv4 LE). Sent in every <c>:51220</c> hello.</param>
     /// <param name="AccountToken">12 bytes, in every <c>:51220</c> request header.</param>
     /// <param name="SessionSecret">8 bytes, in the <c>:51220</c> challenge digest.</param>
-    /// <param name="FfxiAccountId">The FFXI account id the lobby's 0x26 carries.</param>
+    /// <param name="FfxiAccountId">The FFXI account id.</param>
     public sealed record PolCoreTicket(byte[] RoutingToken, byte[] AccountToken, byte[] SessionSecret, uint FfxiAccountId)
     {
         /// <summary>The decoded <c>001</c> payload length.</summary>
         public const int PayloadLength = 30;
+
+        /// <summary>The client's public port from the routing token.</summary>
+        public ushort ClientPort => BinaryPrimitives.ReadUInt16LittleEndian(RoutingToken);
+
+        /// <summary>The client's public IPv4 address from the routing token (stored little-endian).</summary>
+        public IPAddress ClientAddress => new([RoutingToken[5], RoutingToken[4], RoutingToken[3], RoutingToken[2]]);
     }
 
     /// <summary>
     /// The server's clock as the login sees it: the Unix time in the gatekeeper's redirect token plus the time elapsed
-    /// since. The Square Enix password digest is bound to it (spec v1.2.0 section 5.4).
+    /// since on a monotonic clock. The Square Enix password digest is bound to it (spec v2.1.18 section 5.4).
     /// </summary>
     public sealed class PolServerClock
     {
@@ -41,9 +48,9 @@ namespace Gordian.Core.Network.Retail
 
     /// <summary>
     /// Parsers and builders for the PlayOnline Core IRC lines (gatekeeper <c>ci000.pol.com:51240</c> and the session host
-    /// on <c>:51241</c>-<c>:51244</c>).
+    /// on <c>:51241</c>-<c>:51247</c>).
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.2.0, sections 4.2.1
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, sections 4.2.1
     /// and 4.2.2.
     /// </para>
     /// </summary>
@@ -53,19 +60,16 @@ namespace Gordian.Core.Network.Retail
         public const string GatekeeperHost = "ci000.pol.com";
         public const int GatekeeperPort = 51240;
 
-        /// <summary>The Diffie-Hellman key exchange mode byte (256-bit).</summary>
-        public const byte KeyExchangeMode = 0x02;
+        /// <summary>The <c>USER</c> buffer: the 32-byte modulus and 4 trailing bytes, sent as zeros.</summary>
+        public const int UserBufferLength = 36;
 
-        /// <summary>The length of the session tag that ends the 45- and 61-character tokens.</summary>
-        public const int TagLength = 4;
+        /// <summary>The <c>USER</c> and server ciphertext tokens: 36 bytes encoded to 48 characters and cut to 47.</summary>
+        public const int KeyTokenChars = 47;
 
-        /// <summary>
-        /// The Base32 length of a 35-byte Diffie-Hellman token. 35 bytes need only 56 characters; the spec gives 57, so the
-        /// client pads to 57 (open question in docs/network/retail-login.md).
-        /// </summary>
-        public const int DhTokenChars = 57;
+        /// <summary>The characters of the server's ciphertext token that hold its 32 bytes; the rest are ignored.</summary>
+        private const int CiphertextChars = 43;
 
-        /// <summary>Splits a <c>:&lt;ip&gt; &lt;numeric&gt; &lt;rest&gt;</c> line; false when it is not one.</summary>
+        /// <summary>Splits a <c>:&lt;source&gt; &lt;numeric&gt; &lt;rest&gt;</c> line; false when it is not one.</summary>
         public static bool TryParseNumeric(string line, out string source, out int numeric, out string rest)
         {
             source = rest = string.Empty;
@@ -79,7 +83,7 @@ namespace Gordian.Core.Network.Retail
             return true;
         }
 
-        /// <summary>The token of a <c>:&lt;ip&gt; 300 * &lt;token&gt;</c> line, or null.</summary>
+        /// <summary>The token of a <c>:&lt;source&gt; 300 * &lt;token&gt;</c> line, or null.</summary>
         public static string? ReadGreetingToken(string line, out string source)
         {
             if (!TryParseNumeric(line, out source, out int numeric, out string rest) || numeric != 300) return null;
@@ -87,66 +91,51 @@ namespace Gordian.Core.Network.Retail
             return rest[2..].Trim();
         }
 
-        /// <summary>
-        /// The gatekeeper's redirect token (41 Base32 characters for 24 bytes, then the 4-character suffix): the server's
-        /// Unix time (bytes 0-3) and the session host's port (bytes 4-5).
-        /// </summary>
-        public static (uint ServerTime, ushort Port, string Suffix) ParseRedirectToken(string token)
+        /// <summary>The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line: the modulus (little-endian) and 4 zero bytes, 47 characters.</summary>
+        public static string BuildUserLine(ReadOnlySpan<byte> modulus)
         {
-            if (token.Length < 41 + TagLength) throw new FormatException("The gatekeeper token is too short.");
-            byte[] data = PolBase32.Decode(token.AsSpan(0, 41), 24);
-            return (BinaryPrimitives.ReadUInt32LittleEndian(data), BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(4)), token.Substring(41, TagLength));
+            if (modulus.Length != PolRsaKeyExchange.ValueLength) throw new ArgumentException("The modulus is 32 bytes.", nameof(modulus));
+            Span<byte> buffer = stackalloc byte[UserBufferLength];
+            buffer.Clear();
+            modulus.CopyTo(buffer);
+            return $"USER x 8 * :{PolCoreBase64.Encode(buffer)[..KeyTokenChars]}\r\n";
+        }
+
+        /// <summary>The modulus a <c>USER</c> token carries (what the server reads).</summary>
+        public static byte[] ParseUserToken(string token) => DecodeKeyToken(token);
+
+        /// <summary>The server's 47-character token for a 32-byte big-endian ciphertext (what the server sends).</summary>
+        public static string BuildCiphertextToken(ReadOnlySpan<byte> ciphertextBigEndian)
+        {
+            Span<byte> buffer = stackalloc byte[UserBufferLength];
+            buffer.Clear();
+            ciphertextBigEndian[..PolRsaKeyExchange.ValueLength].CopyTo(buffer);
+            return PolCoreBase64.Encode(buffer)[..KeyTokenChars];
         }
 
         /// <summary>
-        /// The session host's Diffie-Hellman greeting (57 Base32 characters for 35 bytes, then the 4-character tag): the mode
-        /// byte and the server's 32-byte public value B.
+        /// The 32-byte big-endian ciphertext of the server's second <c>300 *</c> token. Only its first 43 characters hold
+        /// those bytes; later characters can fall outside the alphabet and are ignored.
         /// </summary>
-        public static (byte Mode, byte[] ServerPublic, string Tag) ParseDhToken(string token)
+        public static byte[] ParseCiphertextToken(string token) => DecodeKeyToken(token);
+
+        private static byte[] DecodeKeyToken(string token)
         {
-            if (token.Length < DhTokenChars + TagLength) throw new FormatException("The Diffie-Hellman token is too short.");
-            byte[] data = PolBase32.Decode(token.AsSpan(0, DhTokenChars), 35);
-            return (data[0], data.AsSpan(1, 32).ToArray(), token.Substring(DhTokenChars, TagLength));
-        }
-
-        /// <summary>The 35 bytes the client's <c>USER</c> token carries.</summary>
-        public const int UserTokenBytes = 35;
-
-        /// <summary>The <c>USER</c> token's length: 35 bytes in the polcore 6-bit encoding (282 bits), with no tag.</summary>
-        public const int UserTokenChars = 47;
-
-        /// <summary>
-        /// The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line. The token is 35 bytes in the polcore 6-bit encoding
-        /// (<see cref="PolCoreBase64"/>), 47 characters with no session tag; retail capture 3 (spec v1.5.0 test vector 9)
-        /// has characters outside the Base32 alphabet, so the server's Base32 form does not apply to it.
-        /// <b>PROVISIONAL layout:</b> the 35 bytes are written as the spec's section 5.2 gives them, [0x02] + A + [0, 0],
-        /// with the last character's 2 spare bits zero. Capture 3 decodes to byte 0 = 0x95, trailer <c>F8 4A</c> and spare
-        /// bits <c>10</c>, so the real layout is not settled yet (open question in docs/network/retail-login.md).
-        /// </summary>
-        public static string BuildUserLine(ReadOnlySpan<byte> clientPublic)
-        {
-            if (clientPublic.Length != PolDiffieHellman.ValueLength) throw new ArgumentException("The public value is 32 bytes.", nameof(clientPublic));
-            Span<byte> data = stackalloc byte[UserTokenBytes];
-            data.Clear();
-            data[0] = KeyExchangeMode;
-            clientPublic.CopyTo(data[1..]);
-            return $"USER x 8 * :{PolCoreBase64.Encode(data)}\r\n";
-        }
-
-        /// <summary>Decodes a <c>USER</c> token into its first byte and the 32 bytes after it (what a server reads as A).</summary>
-        public static (byte Mode, byte[] ClientPublic) ParseUserToken(string token)
-        {
-            Span<byte> data = stackalloc byte[UserTokenBytes];
-            if (!PolCoreBase64.TryDecode(token, data)) throw new FormatException("The USER token is not 35 bytes of the polcore encoding.");
-            return (data[0], data.Slice(1, 32).ToArray());
+            var value = new byte[PolRsaKeyExchange.ValueLength];
+            if (token.Length < CiphertextChars || !PolCoreBase64.TryDecode(token.AsSpan(0, CiphertextChars), value))
+                throw new FormatException("The key exchange token is not 32 bytes of the polcore encoding.");
+            return value;
         }
 
         /// <summary>
-        /// The plaintext <c>NICK</c> line: the encoded POL ID, MD5 hex of the POL password, the encoded client metadata,
-        /// then four tabs and CRLF (86 bytes with a 32-character metadata field; spec v1.4.0 section 4.2.2 step 4).
+        /// The plaintext 86-byte <c>NICK</c> line: the encoded POL ID, MD5 hex of the POL password, the constant client
+        /// metadata body and its checksum suffix (<see cref="PolClientMeta.Suffix"/>), then CRLF; no tabs.
         /// </summary>
-        public static string BuildNickLine(string polId, string polPassword, string clientMeta) =>
-            $"NICK {PolBase32.EncodePolId(polId)}:{PolHashes.PolPasswordHex(polPassword)}:{clientMeta}\t\t\t\t\r\n";
+        public static string BuildNickLine(string polId, string polPassword)
+        {
+            string head = $"NICK {PolIdEncoding.Encode(polId)}:{PolHashes.PolPasswordHex(polPassword)}:{PolClientMeta.Body}";
+            return head + PolClientMeta.Suffix(Encoding.ASCII.GetBytes(head)) + "\r\n";
+        }
 
         /// <summary>Decodes the <c>001</c> line's Base32 payload into the session ticket; false when it is not a <c>001</c>.</summary>
         public static bool TryParseWelcome(string line, out PolCoreTicket? ticket)
@@ -160,51 +149,72 @@ namespace Gordian.Core.Network.Retail
                 BinaryPrimitives.ReadUInt32LittleEndian(data[26..]));
             return true;
         }
+
+        /// <summary>The <c>PONG</c> answer to a decrypted <c>PING</c> line, or null when the line is not a ping.</summary>
+        public static string? AnswerPing(string line)
+        {
+            string command = line;
+            if (command.StartsWith(':'))
+            {
+                int space = command.IndexOf(' ');
+                if (space < 0) return null;
+                command = command[(space + 1)..];
+            }
+            if (command == "PING") return "PONG\r\n";
+            return command.StartsWith("PING ", StringComparison.Ordinal) ? $"PONG {command[5..]}\r\n" : null;
+        }
     }
 
     /// <summary>
-    /// A logged-in PlayOnline Core session: the open IRC connection to the session host, the stream cipher its
-    /// Diffie-Hellman exchange keyed (the <c>:51220</c> connections share it), the server clock and the <c>001</c>
-    /// ticket. Retail leaves the connection open and idle; nothing uses it after the welcome and it needs no keepalives,
-    /// so closing it (disposing the session) does not affect the game (spec v1.4.0 section 9, item 6). The cipher and
-    /// ticket stay usable after disposal.
+    /// A logged-in PlayOnline Core session: the open IRC connection to the session host, the stream cipher the RSA
+    /// exchange keyed (the <c>:51220</c> connections use it too), the 8-byte session key, the greeting's server time, the
+    /// server clock and the <c>001</c> ticket. The connection must stay open: the server pings it and drops the session
+    /// when the pings go unanswered (spec v2.1.18 section 9, item 6), so the session answers them until disposed.
     /// </summary>
     public sealed class PolCoreSession : IAsyncDisposable
     {
         private readonly TcpClient _client;
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Task _keepAlive;
 
         public PolStreamCipher Cipher { get; }
         public PolServerClock Clock { get; }
         public PolCoreTicket Ticket { get; }
 
-        private PolCoreSession(TcpClient client, PolStreamCipher cipher, PolServerClock clock, PolCoreTicket ticket)
+        /// <summary>K8, the 8-byte session key: the AuthCode and the PML digest use it.</summary>
+        public byte[] SessionKey { get; }
+
+        /// <summary>The session host greeting's server time: the AuthCode's timestamp input.</summary>
+        public uint GreetingTimestamp { get; }
+
+        private PolCoreSession(TcpClient client, LineReader reader, PolStreamCipher cipher, PolServerClock clock, PolCoreTicket ticket,
+            byte[] sessionKey, uint greetingTimestamp)
         {
             _client = client;
             Cipher = cipher;
             Clock = clock;
             Ticket = ticket;
+            SessionKey = sessionKey;
+            GreetingTimestamp = greetingTimestamp;
+            _keepAlive = Task.Run(() => AnswerPingsAsync(client.GetStream(), reader, cipher.Fork(), _stop.Token));
         }
 
         /// <summary>How long one stage may wait for the server.</summary>
         public static TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
         /// <summary>
-        /// Runs stages 2 and 3: the gatekeeper redirect, the Diffie-Hellman exchange, the encrypted <c>NICK</c> and the
-        /// welcome. <paramref name="clientMeta"/> is the encoded third <c>NICK</c> field; null makes a fresh one
-        /// (<see cref="PolClientMeta.Create"/>).
+        /// Runs stages 2 and 3: the gatekeeper redirect, the RSA key exchange, the encrypted <c>NICK</c> and the welcome.
         /// </summary>
-        public static async Task<PolCoreSession> LoginAsync(string polId, string polPassword, CancellationToken ct, string? clientMeta = null,
+        public static async Task<PolCoreSession> LoginAsync(string polId, string polPassword, CancellationToken ct,
             string gatekeeperHost = PolCoreProtocol.GatekeeperHost, int gatekeeperPort = PolCoreProtocol.GatekeeperPort)
         {
-            clientMeta ??= PolClientMeta.Create();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(Timeout);
             var token = timeout.Token;
 
             // Stage 2: the gatekeeper sends one redirect line and closes.
             string redirectIp;
-            uint serverTime;
-            ushort port;
+            PolCoreToken redirect;
             using (var gate = new TcpClient())
             {
                 await gate.ConnectAsync(gatekeeperHost, gatekeeperPort, token).ConfigureAwait(false);
@@ -212,32 +222,40 @@ namespace Gordian.Core.Network.Retail
                 string line = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The gatekeeper closed without a redirect.");
                 string redirectToken = PolCoreProtocol.ReadGreetingToken(line, out redirectIp)
                     ?? throw Fail($"Unexpected gatekeeper line: {line}");
-                (serverTime, port, _) = PolCoreProtocol.ParseRedirectToken(redirectToken);
+                redirect = PolCoreToken.Parse(redirectToken);
             }
-            var clock = new PolServerClock(serverTime);
-            GordianLog.Info("RETAIL_LOGIN", $"Gatekeeper redirect to {redirectIp}:{port} (server time {serverTime}).");
+            var clock = new PolServerClock(redirect.ServerTimestamp);
+            GordianLog.Info("RETAIL_LOGIN", $"Gatekeeper redirect to {redirectIp}:{redirect.RedirectPort} (server time {redirect.ServerTimestamp}).");
 
-            // Stage 3: Diffie-Hellman on the session host, then the encrypted NICK.
+            // Stage 3: the greeting, the RSA exchange, then the encrypted NICK.
             var client = new TcpClient();
             try
             {
-                await client.ConnectAsync(redirectIp, port, token).ConfigureAwait(false);
+                await client.ConnectAsync(redirectIp, redirect.RedirectPort, token).ConfigureAwait(false);
                 var stream = client.GetStream();
                 var reader = new LineReader(stream);
 
                 string greeting = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed before its greeting.");
-                string dhToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
-                var (mode, serverPublic, _) = PolCoreProtocol.ParseDhToken(dhToken);
-                if (mode != PolCoreProtocol.KeyExchangeMode) throw Fail($"Unsupported key exchange mode 0x{mode:X2}.");
+                string greetingToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
+                uint greetingTimestamp = PolCoreToken.Parse(greetingToken).ServerTimestamp;
 
-                var dh = new PolDiffieHellman();
-                await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(dh.PublicValue)), token).ConfigureAwait(false);
-                var cipher = new PolStreamCipher(PolDiffieHellman.ExtractKey(dh.ComputeSharedSecret(serverPublic)));
+                var rsa = new PolRsaKeyExchange();
+                await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(rsa.Modulus)), token).ConfigureAwait(false);
 
-                string confirm = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
-                if (PolCoreProtocol.ReadGreetingToken(confirm, out _) == null) throw Fail($"Unexpected key exchange reply: {confirm}");
+                string keyLine = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
+                string keyToken = PolCoreProtocol.ReadGreetingToken(keyLine, out _) ?? throw Fail($"Unexpected key exchange reply: {keyLine}");
+                byte[] sessionKey;
+                try
+                {
+                    sessionKey = rsa.DecryptSessionKey(PolCoreProtocol.ParseCiphertextToken(keyToken));
+                }
+                catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException)
+                {
+                    throw Fail($"The key exchange failed: {ex.Message}");
+                }
+                var cipher = new PolStreamCipher(sessionKey, rsa.Modulus.AsSpan(0, 8));
 
-                byte[] nick = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine(polId, polPassword, clientMeta));
+                byte[] nick = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine(polId, polPassword));
                 cipher.TransformFrame(nick);
                 await WriteAsync(stream, nick, token).ConfigureAwait(false);
 
@@ -245,11 +263,7 @@ namespace Gordian.Core.Network.Retail
                 while (true)
                 {
                     byte[]? raw = await reader.ReadRawLineAsync(token).ConfigureAwait(false);
-                    if (raw == null)
-                    {
-                        if (ticket != null) break;
-                        throw Fail("The session host closed before the welcome (check the POL ID and password).");
-                    }
+                    if (raw == null) throw Fail("The session host closed before the welcome (check the POL ID and password).");
                     cipher.TransformFrame(raw);
                     string line = Encoding.ASCII.GetString(raw);
                     if (PolCoreProtocol.TryParseWelcome(line, out var parsed)) ticket = parsed;
@@ -259,12 +273,39 @@ namespace Gordian.Core.Network.Retail
                 }
 
                 GordianLog.Info("RETAIL_LOGIN", $"Core session up: FFXI account id {ticket!.FfxiAccountId}.");
-                return new PolCoreSession(client, cipher, clock, ticket);
+                return new PolCoreSession(client, reader, cipher, clock, ticket, sessionKey, greetingTimestamp);
             }
             catch
             {
                 client.Dispose();
                 throw;
+            }
+        }
+
+        /// <summary>Reads the idle connection and answers each <c>PING</c> with a <c>PONG</c>, every line its own frame.</summary>
+        private static async Task AnswerPingsAsync(NetworkStream stream, LineReader reader, PolStreamCipher cipher, CancellationToken ct)
+        {
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    byte[]? raw = await reader.ReadRawLineAsync(ct).ConfigureAwait(false);
+                    if (raw == null)
+                    {
+                        GordianLog.Warn("RETAIL_LOGIN", "The Core session host closed the connection.");
+                        return;
+                    }
+                    cipher.TransformFrame(raw);
+                    string? pong = PolCoreProtocol.AnswerPing(Encoding.ASCII.GetString(raw));
+                    if (pong == null) continue;
+                    byte[] reply = Encoding.ASCII.GetBytes(pong);
+                    cipher.TransformFrame(reply);
+                    await WriteAsync(stream, reply, ct).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException)
+            {
+                // Disposed, or the connection dropped.
             }
         }
 
@@ -276,10 +317,12 @@ namespace Gordian.Core.Network.Retail
             await stream.FlushAsync(ct).ConfigureAwait(false);
         }
 
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
+            _stop.Cancel();
             _client.Dispose();
-            return ValueTask.CompletedTask;
+            try { await _keepAlive.ConfigureAwait(false); } catch { }
+            _stop.Dispose();
         }
     }
 

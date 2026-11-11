@@ -3,18 +3,20 @@ using System;
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
-using System.Text;
 using Gordian.Core.Network.LandSandBoat;
 
 namespace Gordian.Core.Network.Retail
 {
-    /// <summary>A decoded retail <c>0x0B</c> character select reply: the map server (UDP) and the search server.</summary>
-    public readonly record struct RetailMapHandoff(IPAddress MapServer, int MapPort, IPAddress SearchServer, int SearchPort);
+    /// <summary>
+    /// A decoded retail <c>0x0B</c> character select reply: the map server (UDP), the search server, and the 4 bytes at
+    /// +0x20 the first map packet sends back as its <c>UniqueNo</c>.
+    /// </summary>
+    public readonly record struct RetailMapHandoff(IPAddress MapServer, int MapPort, IPAddress SearchServer, int SearchPort, uint UniqueNo);
 
     /// <summary>
-    /// The retail lobby's key modifier: seeded by the server's <c>0x05</c>, then +1 for <c>0x1F</c> (character list),
-    /// +3 for <c>0x24</c> (world list), +5 for <c>0x07</c> (select). Each request after the seed advances it by 2, which is
-    /// the same stepping as LandSandBoat's lobby key counter (one step per request and one per reply).
+    /// The retail lobby's key modifier: seeded by the server's <c>0x05</c>; each request that carries a session hash uses
+    /// M0 + 1 + 2n, n being the number of such requests already sent (spec v2.1.18 section 5.5). With no character
+    /// management that makes 0x1F +1, 0x24 +3, 0x07 +5. The map key is the 0x07 modifier + 4 (section 5.6).
     /// </summary>
     public sealed class RetailLobbyModifier
     {
@@ -46,8 +48,8 @@ namespace Gordian.Core.Network.Retail
     /// lists come back on this connection. Layouts LandSandBoat shares (the 0x20 character list, the 0x23 world list) are
     /// read with <see cref="LobbyPackets"/>.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.4.0, sections 4.5,
-    /// 4.6, 5.5 and 5.6.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, sections 4.5,
+    /// 4.6, 5.5 and 5.6 (test vectors 5, 8 and 11).
     /// </para>
     /// </summary>
     public static class RetailLobbyPackets
@@ -55,14 +57,17 @@ namespace Gordian.Core.Network.Retail
         public const string Host = "ffxi00.pol.com";
         public const int Port = 54001;
 
-        /// <summary>The 0x26 client platform (Windows retail).</summary>
+        /// <summary>The 0x26 <c>ClientCode</c> (Windows retail).</summary>
         public const uint ClientPlatformWindows = 5;
 
-        /// <summary>
-        /// The 64-byte block of 0x26 (+0x34..+0x73) that 0x07's selection digest repeats: the account id, then 60 zero
-        /// bytes (spec v1.3.0 section 4.5).
-        /// </summary>
-        public const int ReservedTokenLength = 64;
+        /// <summary>The 0x26 <c>AuthCode</c> field (+0x34..+0x73): the 52-byte token and 12 zero bytes.</summary>
+        public const int AuthCodeFieldLength = 64;
+
+        /// <summary>The constant at 0x07 +0x44, repeated in the selection digest.</summary>
+        public const uint DllTableIndex = 3;
+
+        /// <summary>The 0x26 expansion mask every captured login sends.</summary>
+        public const uint ExpansionMask = 0x00000FFF;
 
         public const int SelectCharacterSize = 0x58;
         public const int MapHandoffSize = 0x48;
@@ -98,22 +103,24 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// C2S 0x26 (0x98): platform, account id, 60 zero bytes, the client version, 0xFF, the installed expansions.
+        /// C2S 0x26 (0x98): ClientCode 5 at +0x2C, the 52-byte AuthCode (<see cref="PolAuthCode"/>) at +0x34 followed by
+        /// 12 zero bytes, the client version from <c>patch.cfg</c> at +0x74, 0xFF at +0x83, the expansion mask at +0x84.
         /// </summary>
-        public static void WriteLobbyLogin(Span<byte> packet, uint ffxiAccountId, string clientVersion, uint expansions = LobbyPackets.AllExpansions)
+        public static void WriteLobbyLogin(Span<byte> packet, ReadOnlySpan<byte> authCode, string clientVersion, uint expansions = ExpansionMask)
         {
+            if (authCode.Length != PolAuthCode.TokenLength) throw new ArgumentException("The AuthCode token is 52 bytes.", nameof(authCode));
             packet = packet[..LobbyPackets.LobbyLoginSize];
             WriteHeader(packet, LobbyCommand.RequestLobbyLogin);
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x2C..], ClientPlatformWindows);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x34..], ffxiAccountId);
+            authCode.CopyTo(packet[0x34..]);
             PolpPackets.WriteAscii(packet.Slice(0x74, 15), clientVersion);
             packet[0x83] = 0xFF;
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x84..], expansions);
             Seal(packet);
         }
 
-        /// <summary>The 64-byte reserved block of a written 0x26 (+0x34..+0x73).</summary>
-        public static ReadOnlySpan<byte> ReservedToken(ReadOnlySpan<byte> lobbyLogin) => lobbyLogin.Slice(0x34, ReservedTokenLength);
+        /// <summary>The 64-byte AuthCode field of a written 0x26 (+0x34..+0x73), as the selection digest repeats it.</summary>
+        public static ReadOnlySpan<byte> AuthCodeField(ReadOnlySpan<byte> lobbyLogin) => lobbyLogin.Slice(0x34, AuthCodeFieldLength);
 
         /// <summary>A 0x2C request carrying only the session hash at +0x1C: 0x1F (character list) or 0x24 (world list).</summary>
         public static void WriteHashOnlyRequest(Span<byte> packet, byte command, ReadOnlySpan<byte> sessionHash)
@@ -125,69 +132,122 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// C2S 0x07 (0x58): content id, character id, name, the session hash, and the selection digest MD5(reserved
-        /// block[64] + hash[16] + LE32 content id + LE32 character id + 4 zero bytes).
+        /// C2S 0x07 (0x58): content id, the low 16 bits of the list slot's character id, name, the session hash, the
+        /// constant 3, and the selection digest MD5(AuthCode field[64] + hash[16] + LE32(3) + LE32(client checksum) +
+        /// LE32(content id)). The client checksum is <see cref="ClientFileChecksum"/> over the install's FFXiMain.dll.
         /// </summary>
         public static void WriteSelectCharacter(Span<byte> packet, uint contentId, uint characterId, string name, ReadOnlySpan<byte> sessionHash,
-            ReadOnlySpan<byte> reservedToken)
+            ReadOnlySpan<byte> authCodeField, uint clientChecksum)
         {
-            if (reservedToken.Length != ReservedTokenLength) throw new ArgumentException("The reserved block is 64 bytes.", nameof(reservedToken));
+            if (authCodeField.Length != AuthCodeFieldLength) throw new ArgumentException("The AuthCode field is 64 bytes.", nameof(authCodeField));
             packet = packet[..SelectCharacterSize];
             WriteHeader(packet, LobbyCommand.RequestSelectChr);
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x1C..], contentId);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x20..], characterId);
+            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x20..], characterId & 0xFFFF);
             PolpPackets.WriteAscii(packet.Slice(0x24, 16), name);
             sessionHash[..16].CopyTo(packet[0x34..]);
-
-            Span<byte> selection = stackalloc byte[0x5C];
-            selection.Clear();
-            reservedToken.CopyTo(selection);
-            sessionHash[..16].CopyTo(selection[64..]);
-            BinaryPrimitives.WriteUInt32LittleEndian(selection[80..], contentId);
-            BinaryPrimitives.WriteUInt32LittleEndian(selection[84..], characterId);
-            MD5.HashData(selection, packet[0x48..]);
+            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x44..], DllTableIndex);
+            SelectionDigest(authCodeField, sessionHash, clientChecksum, contentId).CopyTo(packet[0x48..]);
             Seal(packet);
         }
 
+        /// <summary>The 0x07 selection digest over its 92-byte preimage (spec section 4.5.8, test vector 11).</summary>
+        public static byte[] SelectionDigest(ReadOnlySpan<byte> authCodeField, ReadOnlySpan<byte> sessionHash, uint clientChecksum, uint contentId)
+        {
+            Span<byte> preimage = stackalloc byte[0x5C];
+            authCodeField[..AuthCodeFieldLength].CopyTo(preimage);
+            sessionHash[..16].CopyTo(preimage[64..]);
+            BinaryPrimitives.WriteUInt32LittleEndian(preimage[80..], DllTableIndex);
+            BinaryPrimitives.WriteUInt32LittleEndian(preimage[84..], clientChecksum);
+            BinaryPrimitives.WriteUInt32LittleEndian(preimage[88..], contentId);
+            return MD5.HashData(preimage);
+        }
+
         /// <summary>
-        /// S2C 0x0B (0x48): map server address +0x38 and UDP port +0x3C, search server address +0x40 and port +0x44.
-        /// The same layout as LandSandBoat's and XiPackets' 0x0B (spec v1.3.0 section 4.5.9). The map server key does not
-        /// come from here: it is the 0x07 session hash (<see cref="MapRawKey"/>).
+        /// S2C 0x0B (0x48): the 4 bytes at +0x20 (character id low and an unknown word, sent back in the first map packet),
+        /// the map server address at +0x38 (first octet first) and UDP port at +0x3C, the search server address at +0x40
+        /// and port at +0x44 (spec section 4.5.9).
         /// </summary>
         public static bool TryParseMapHandoff(ReadOnlySpan<byte> packet, out RetailMapHandoff handoff)
         {
             handoff = default;
             if (packet.Length < MapHandoffSize || LobbyPackets.ReadCommand(packet) != LobbyCommand.ResponseNextLogin) return false;
             handoff = new RetailMapHandoff(
-                new IPAddress(BinaryPrimitives.ReadUInt32LittleEndian(packet[0x38..])),
-                BinaryPrimitives.ReadUInt16LittleEndian(packet[0x3C..]),
-                new IPAddress(BinaryPrimitives.ReadUInt32LittleEndian(packet[0x40..])),
-                BinaryPrimitives.ReadUInt16LittleEndian(packet[0x44..]));
+                new IPAddress(packet.Slice(0x38, 4)),
+                (int)BinaryPrimitives.ReadUInt32LittleEndian(packet[0x3C..]),
+                new IPAddress(packet.Slice(0x40, 4)),
+                (int)BinaryPrimitives.ReadUInt32LittleEndian(packet[0x44..]),
+                BinaryPrimitives.ReadUInt32LittleEndian(packet[0x20..]));
             return true;
         }
 
         /// <summary>
-        /// The map server's 20-byte raw key: the lobby session key and the little-endian modifier the 0x07 request used
-        /// (M0 + 5). Its MD5 is the 0x07 session hash, which is the map key (spec v1.4.0 section 5.6, test vector 5). The
-        /// map session cipher (<c>LegacyBlowfishCryptoSuite.InitializeKey</c>) MD5s a 20-byte key, so this goes straight
-        /// in, the same way LandSandBoat's 20-byte key does. That cipher is FFXI's Blowfish, with key bytes read as signed
-        /// and the key cut at its first zero byte, which spec v1.5.0 section 4.6 confirms the retail client uses.
+        /// The map server's 20-byte raw key: the lobby session key and LE32(the 0x07 modifier + 4). Its MD5 is the map key
+        /// (spec section 5.6, test vector 5). The map session cipher (<c>LegacyBlowfishCryptoSuite.InitializeKey</c>) MD5s
+        /// a 20-byte key, so this goes straight in, the same way LandSandBoat's 20-byte key does; that cipher is the FFXI
+        /// Blowfish variant (signed key bytes, key cut at its first zero byte) the spec describes.
         /// </summary>
-        public static byte[] MapRawKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) => PolHashes.KeyWithCounter(lobbySessionKey, selectModifier);
+        public static byte[] MapRawKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) =>
+            PolHashes.KeyWithCounter(lobbySessionKey, unchecked(selectModifier + 4));
+
+        /// <summary>The 16-byte map key: MD5 of <see cref="MapRawKey"/>.</summary>
+        public static byte[] MapKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) => MD5.HashData(MapRawKey(lobbySessionKey, selectModifier));
+    }
+
+    /// <summary>
+    /// The retail map server's first datagram: 136 unencrypted bytes, a 28-byte transport header, the 92-byte C2S 0x00A
+    /// and the MD5 of that packet.
+    /// <para>
+    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.6.1
+    /// and test vector 8.
+    /// </para>
+    /// </summary>
+    public static class RetailMapPackets
+    {
+        public const int TransportHeaderSize = 28;
+        public const int LoginPacketSize = 92;
+        public const int FirstDatagramSize = TransportHeaderSize + LoginPacketSize + 16;
 
         /// <summary>
-        /// The 16-byte <c>Ticket</c> of the first map packet (C2S 0x00A +0x40): MD5(account name + map key), with the
-        /// name's ASCII bytes, unpadded and without a terminator (spec v1.5.0 section 4.6, test vector 8).
-        /// <b>Open question:</b> which name it is on retail; the spec says the username registered with the server
-        /// (its example is <c>"testuser"</c>).
+        /// The 0x00A <c>Ticket</c>: MD5(the 15-byte account field as sent, all zeros + the 16-byte map key). Whether retail
+        /// cuts a map key at a zero byte here is untested; the key is used as it is.
         /// </summary>
-        public static byte[] MapLoginTicket(string accountName, ReadOnlySpan<byte> sessionHash)
+        public static byte[] Ticket(ReadOnlySpan<byte> mapKey)
         {
-            byte[] name = Encoding.ASCII.GetBytes(accountName);
-            byte[] buffer = new byte[name.Length + 16];
-            name.CopyTo(buffer, 0);
-            sessionHash[..16].CopyTo(buffer.AsSpan(name.Length));
+            Span<byte> buffer = stackalloc byte[15 + 16];
+            buffer[..15].Clear();
+            mapKey[..16].CopyTo(buffer[15..]);
             return MD5.HashData(buffer);
+        }
+
+        /// <summary>
+        /// The 136-byte first datagram. The transport header is the observed one (client sequence 1; the other bytes are
+        /// not explained, spec section 9 item 7). The 0x00A sends a single space as the name, an empty account field, the
+        /// <c>UniqueNo</c> from 0x0B, the ticket, "WIN", language 1 and 0xFFFF at +0x5A.
+        /// </summary>
+        public static byte[] BuildFirstDatagram(uint uniqueNo, ReadOnlySpan<byte> mapKey)
+        {
+            var datagram = new byte[FirstDatagramSize];
+            ReadOnlySpan<byte> header = [0x01, 0x00, 0x00, 0x00, 0xC0, 0x02, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00];
+            header.CopyTo(datagram);
+            ReadOnlySpan<byte> headerTail = [0x24, 0xE8, 0xFE, 0x76];
+            headerTail.CopyTo(datagram.AsSpan(24));
+
+            Span<byte> packet = datagram.AsSpan(TransportHeaderSize, LoginPacketSize);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet, (ushort)(0x00A | ((LoginPacketSize / 4) << 9)));
+            BinaryPrimitives.WriteUInt16LittleEndian(packet[2..], 1);
+            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x0C..], uniqueNo);
+            packet[0x22] = (byte)' ';
+            Ticket(mapKey).CopyTo(packet[0x40..]);
+            "WIN"u8.CopyTo(packet[0x54..]);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet[0x58..], 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet[0x5A..], 0xFFFF);
+            byte sum = 0;
+            foreach (byte b in packet[0x08..]) sum += b;
+            packet[0x04] = sum;
+
+            MD5.HashData(packet, datagram.AsSpan(TransportHeaderSize + LoginPacketSize));
+            return datagram;
         }
     }
 }

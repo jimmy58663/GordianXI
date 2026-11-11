@@ -1,6 +1,8 @@
 // tests/Gordian.Core.Tests/Network/Retail/RetailCryptoTests.cs
 using System;
 using System.Buffers.Binary;
+using System.Numerics;
+using System.Security.Cryptography;
 using System.Text;
 using Gordian.Core.Network.Retail;
 using Xunit;
@@ -8,7 +10,7 @@ using Xunit;
 namespace Gordian.Core.Tests.Network.Retail
 {
     /// <summary>
-    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v1.5.0 section 5.8, and
+    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v2.1.18 section 5.8, and
     /// Blowfish against Schneier's published test vectors.
     /// </summary>
     public class RetailCryptoTests
@@ -43,55 +45,37 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void Vector6_OfbKeyExpansion()
+        public void ZeroStateMd5_DiffersFromMd5OnlyInItsStartingState()
         {
-            uint[] words = PolStreamCipher.ExpandKey(Convert.FromHexString("0123456789ABCDEF"));
-            Assert.Equal(new uint[]
-            {
-                0x1F1DCDA1, 0x681049C6, 0x280710D9, 0x8944D83E, 0xA2C3FF4A,
-                0x596F31BD, 0x44FFCD55, 0x153E128A, 0x67452301, 0xEFCDAB89,
-            }, words);
-            Assert.Equal(0xC7587E52u, PolStreamCipher.IvLow);
-            Assert.Equal(0x329AC3D4u, PolStreamCipher.IvHigh);
+            // With the standard state it would be MD5; with the zero state the empty message gives a fixed digest that is not MD5's.
+            Span<byte> digest = stackalloc byte[16];
+            ZeroStateMd5.Hash(Array.Empty<byte>(), digest);
+            Assert.NotEqual(MD5.HashData(Array.Empty<byte>()), digest.ToArray());
+            ZeroStateMd5.Hash("abc"u8, digest);
+            Assert.NotEqual(MD5.HashData("abc"u8), digest.ToArray());
         }
 
+        private static readonly byte[] Capture3Key = Convert.FromHexString("311DD37445716B05");
+        private static readonly byte[] Capture3Iv = Convert.FromHexString("95C6216A8DE51384");
+
         [Fact]
-        public void StreamCipher_KeystreamIsBlowfishOfTheFeedbackRegister_WithTheExpandedKey()
+        public void Vector6_SessionKeySetupAndKeystream()
         {
-            byte[] k8 = Convert.FromHexString("0102030405060708");
-            uint[] words = PolStreamCipher.ExpandKey(k8);
-            Assert.Equal(0x04030201u, words[8]);
-            Assert.Equal(0x08070605u, words[9]);
+            var cipher = new PolStreamCipher(Capture3Key, Capture3Iv);
+            var bf = cipher.Blowfish;
+            Assert.Equal(new uint[] { 0x4314243A, 0xAF81F8CD, 0x73814FE5, 0xA98502F8 }, new[] { bf.P(0), bf.P(1), bf.P(2), bf.P(3) });
+            Assert.Equal(new uint[] { 0x561D0A90, 0x08D37945, 0x561D0A90, 0x08D37945 }, new[] { bf.S(0, 0), bf.S(0, 1), bf.S(0, 2), bf.S(0, 3) });
 
-            // The same schedule through the standard byte-key path: the 10 words as a 40-byte big-endian key.
-            byte[] keyBytes = new byte[40];
-            for (int i = 0; i < 10; i++) BinaryPrimitives.WriteUInt32BigEndian(keyBytes.AsSpan(i * 4), words[i]);
-            var bf = StandardBlowfish.FromKeyBytes(keyBytes);
-
-            uint lo = PolStreamCipher.IvLow, hi = PolStreamCipher.IvHigh;
-            byte[] expected = new byte[16];
-            for (int block = 0; block < 2; block++)
-            {
-                bf.Encrypt(ref lo, ref hi);
-                BinaryPrimitives.WriteUInt32LittleEndian(expected.AsSpan(block * 8), lo);
-                BinaryPrimitives.WriteUInt32LittleEndian(expected.AsSpan(block * 8 + 4), hi);
-            }
-
-            // Zero bytes encrypt to the keystream itself, except where the keystream byte is CR or LF.
-            byte[] data = new byte[16];
-            new PolStreamCipher(k8).TransformFrame(data);
-            for (int i = 0; i < 16; i++)
-            {
-                byte want = expected[i] is 0x0A or 0x0D ? (byte)0 : expected[i];
-                Assert.Equal(want, data[i]);
-            }
+            byte[] keystream = new byte[16];
+            cipher.TransformFrame(keystream);
+            Assert.Equal("1635582F2C3E21032E4EAEA578A3EF84", Convert.ToHexString(keystream));
         }
 
         [Fact]
         public void StreamCipher_RoundTripsAndKeepsLineEnds()
         {
-            var cipher = new PolStreamCipher(Convert.FromHexString("A1B2C3D4E5F60718"));
-            byte[] line = Encoding.ASCII.GetBytes("NICK 232JR2NC1:5f4dcc3b5aa765d61d8327deb882cf99:META\r\n");
+            var cipher = new PolStreamCipher(Convert.FromHexString("A1B2C3D4E5F60718"), Capture3Iv);
+            byte[] line = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine("ABCD1234", "password"));
             byte[] wire = (byte[])line.Clone();
             cipher.TransformFrame(wire);
 
@@ -105,68 +89,120 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void StreamCipher_AContinuationCarriesOnTheKeystream()
+        public void StreamCipher_AContinuationCarriesOnTheKeystream_AndAForkHasItsOwnState()
         {
-            byte[] k8 = Convert.FromHexString("1122334455667788");
             byte[] whole = new byte[104];
-            new PolStreamCipher(k8).TransformFrame(whole);
+            new PolStreamCipher(Capture3Key, Capture3Iv).TransformFrame(whole);
 
-            var split = new PolStreamCipher(k8);
-            byte[] header = new byte[40], payload = new byte[64];
+            var split = new PolStreamCipher(Capture3Key, Capture3Iv);
+            var fork = split.Fork();
+            byte[] header = new byte[40], payload = new byte[64], other = new byte[16];
             split.TransformFrame(header);
+            fork.TransformFrame(other); // must not disturb the continuation below
             split.Transform(payload);
             Assert.Equal(whole.AsSpan(0, 40).ToArray(), header);
             Assert.Equal(whole.AsSpan(40).ToArray(), payload);
+            Assert.Equal(whole.AsSpan(0, 16).ToArray(), other);
+        }
+
+        // Test vector 10: both captures' moduli were factored, so their exchanges can be replayed.
+        [Theory]
+        [InlineData("176532316352809151093929119389468516639", "188753493582645005437843730230043414099",
+            "0DAFB7FD00E0F76BAAF9A736517804 29F8A2FBA73581083BF05D8C3CC511AB49",
+            "OVfQuRJX05g@gOVwNJfiQTFGD6qHOLzU5BhYusDSWFYCiQM", "6A73510EC552C733")]
+        [InlineData("174407169407696451849510974594705576147", "189127122418810726457008666384871172599",
+            "95C6216A8DE51384AADBDF6AA1169B1A106980FE43FCEF2CD8E94D5875EBEC48",
+            "OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|", "311DD37445716B05")]
+        public void Vector10_RsaExchangeGivesTheCapturedSessionKey(string p, string q, string modulusHex, string ciphertextToken, string key8)
+        {
+            var rsa = PolRsaKeyExchange.FromPrimes(BigInteger.Parse(p), BigInteger.Parse(q));
+            Assert.Equal(Convert.FromHexString(modulusHex.Replace(" ", "")), rsa.Modulus);
+            byte[] c = PolCoreProtocol.ParseCiphertextToken(ciphertextToken);
+            Assert.Equal(key8, Convert.ToHexString(rsa.DecryptSessionKey(c)));
         }
 
         [Fact]
-        public void DiffieHellman_BothSidesAgree_AndTheKeyIsTheSecretsTailReversed()
+        public void Rsa_NewKeyPairsWorkWithAServerThatWrapsAKey()
         {
-            var client = new PolDiffieHellman();
-            var server = new PolDiffieHellman();
-            byte[] s1 = client.ComputeSharedSecret(server.PublicValue);
-            byte[] s2 = server.ComputeSharedSecret(client.PublicValue);
-            Assert.Equal(s1, s2);
-            Assert.Equal(32, s1.Length);
+            var rsa = new PolRsaKeyExchange();
+            Assert.Equal(32, rsa.Modulus.Length);
+            Assert.True(rsa.Modulus[31] >= 0x80, "The modulus is a full 256 bits.");
+            byte[] key = Convert.FromHexString("0102030405060708");
+            byte[] c = PolRsaKeyExchange.Encrypt(rsa.Modulus, PolRsaKeyExchange.WrapSessionKey(key));
+            Assert.Equal(key, rsa.DecryptSessionKey(c));
 
-            byte[] key = PolDiffieHellman.ExtractKey(s1);
-            for (int i = 0; i < 8; i++) Assert.Equal(s1[31 - i], key[i]);
+            // A block without PKCS#1 type-2 padding is refused.
+            byte[] bad = new byte[32];
+            bad[31] = 5;
+            Assert.Throws<CryptographicException>(() => rsa.DecryptSessionKey(PolRsaKeyExchange.Encrypt(rsa.Modulus, bad)));
         }
 
         [Fact]
-        public void DiffieHellman_TinyExponentsAreRaised_AndBadServerValuesRefused()
+        public void Vector1_PolId()
         {
-            byte[] one = new byte[32];
-            one[31] = 1;
-            // Exponents below 2 are raised by 2 (1 becomes 3), so A = 67^3.
-            var dh = new PolDiffieHellman(one);
-            Assert.Equal(67u * 67u * 67u, BinaryPrimitives.ReadUInt32BigEndian(dh.PublicValue.AsSpan(28)));
-            Assert.Throws<System.Security.Cryptography.CryptographicException>(() => dh.ComputeSharedSecret(new byte[32]));
+            // The spec's capture vector is redacted; this is the synthetic replacement (spec section 5.8, test vector 1).
+            Assert.Equal("US77G53VV", PolIdEncoding.Encode("ABCD1234"));
+            Assert.Equal("ABCD1234", PolIdEncoding.Decode("US77G53VV"));
         }
 
         [Fact]
-        public void Vector1_PolId() => Assert.Equal("232JR2NC1", PolBase32.EncodePolId("TEST0001"));
-
-        [Fact]
-        public void PolId_IsCaseInsensitive_AndMustBeEightAlphanumerics()
+        public void PolId_RoundTrips_AndMustBeFourLettersThenFourDigits()
         {
-            Assert.Equal("232JR2NC1", PolBase32.EncodePolId(" test0001 "));
-            Assert.Throws<ArgumentException>(() => PolBase32.EncodePolId("TEST001"));
-            Assert.Throws<ArgumentException>(() => PolBase32.EncodePolId("TEST-001"));
+            foreach (string id in new[] { "ABCD1234", "ZZZZ9999", "AAAA0000", "QRST5678" })
+            {
+                string encoded = PolIdEncoding.Encode(id);
+                Assert.Equal(9, encoded.Length);
+                Assert.StartsWith("U", encoded);
+                Assert.Equal(id, PolIdEncoding.Decode(encoded));
+            }
+            Assert.Equal(PolIdEncoding.Encode("ABCD1234"), PolIdEncoding.Encode(" abcd1234 "));
+            Assert.Throws<ArgumentException>(() => PolIdEncoding.Encode("ABC12345"));
+            Assert.Throws<ArgumentException>(() => PolIdEncoding.Encode("ABCD123"));
+            Assert.Throws<ArgumentException>(() => PolIdEncoding.Encode("1234ABCD"));
         }
 
         [Fact]
-        public void Base32_RoundTripsBytes_AndPadsWithZeroCharacters()
+        public void Vector12_RedirectTokens()
         {
-            byte[] data = Convert.FromHexString("0ECC10D59F4C00112233445566778899AABBCCDDEEFF");
-            string text = PolBase32.Encode(data, minimumLength: 40);
-            Assert.Equal(40, text.Length);
-            Assert.EndsWith("0", text);
-            Assert.Equal(data, PolBase32.Decode(text, data.Length));
-            Assert.False(PolBase32.TryDecode("ab", new byte[1]));
-            Assert.Equal(0, PolBase32.ValueOf('0'));
-            Assert.Equal(6, PolBase32.ValueOf('A'));
-            Assert.Equal(31, PolBase32.ValueOf('Z'));
+            var t5 = PolCoreToken.Parse("WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA");
+            Assert.Equal(0x6AF25117u, t5.ServerTimestamp);
+            Assert.Equal("192.0.2.10", t5.ClientAddress.ToString());
+            Assert.Equal("202.67.54.125", t5.RedirectAddress.ToString());
+            Assert.Equal(51241, t5.RedirectPort);
+            Assert.Equal("6AF25117C000020ACA43367DC8290000000000004B27010100",
+                Convert.ToHexString(PolBase32.Decode("WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1N", 25)));
+
+            var t6 = PolCoreToken.Parse("WCM2B3GNNN4NI55OBU3AECZNNNNNNNNNXCVN3N1N}HNM");
+            Assert.Equal(0x6AF2A30Bu, t6.ServerTimestamp);
+            Assert.Equal("202.67.54.133", t6.RedirectAddress.ToString());
+            Assert.Equal(51247, t6.RedirectPort);
+        }
+
+        [Fact]
+        public void Base32_RoundTripsBytes()
+        {
+            byte[] data = Convert.FromHexString("6AF25117C000020ACA43367DC8290000000000004B27010100");
+            Assert.Equal(data, PolBase32.Decode(PolBase32.Encode(data), data.Length));
+            Assert.False(PolBase32.TryDecode("NN", new byte[2]));
+            Assert.False(PolBase32.TryDecode("aaaa", new byte[2]));
+            Assert.Equal(0, PolBase32.ValueOf('N'));
+            Assert.Equal(31, PolBase32.ValueOf('K'));
+        }
+
+        [Fact]
+        public void ClientMetaSuffix_IsTheLineWordSumInFourBiasedSlices()
+        {
+            // A synthetic 80-byte line: 20 little-endian words of 0x7E7E7E7E.
+            byte[] line = new byte[80];
+            Array.Fill(line, (byte)0x7E);
+            uint expected = unchecked(20u * 0x7E7E7E7E);
+            string suffix = PolClientMeta.Suffix(line);
+            Assert.Equal(new string(new[]
+            {
+                (char)(((expected >> 26) & 0x3F) + 0x3F), (char)(((expected >> 20) & 0x3F) + 0x3F),
+                (char)(((expected >> 14) & 0x3F) + 0x3F), (char)(((expected >> 8) & 0x3F) + 0x3F),
+            }), suffix);
+            Assert.Equal(86, PolCoreProtocol.BuildNickLine("ABCD1234", "password").Length);
         }
 
         [Fact]
@@ -197,32 +233,87 @@ namespace Gordian.Core.Tests.Network.Retail
         private static readonly byte[] LobbyKey = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
 
         [Fact]
-        public void Vector5_LobbySessionHash() =>
-            Assert.Equal("a9b37731814689069446b8581bb145ea", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF1FB)));
-
-        [Fact]
-        public void Vector5_MapKeyIsTheSelectSessionHash()
+        public void Vector5_LobbySessionHashes()
         {
+            Assert.Equal("a9b37731814689069446b8581bb145ea", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF1FB)));
             Assert.Equal("906fc2f1cc7f88ae1c06c215be8eb208", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF1FF)));
-
-            // The 20-byte raw key the map session cipher takes MD5s to the same hash.
-            byte[] raw = RetailLobbyPackets.MapRawKey(LobbyKey, 0x590DF1FF);
-            Assert.Equal(20, raw.Length);
-            Assert.Equal("906fc2f1cc7f88ae1c06c215be8eb208", Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(raw)));
+            Assert.Equal("67d581eb124a444564343b0c9b4ff8d4", Convert.ToHexStringLower(PolHashes.LobbySessionHash(LobbyKey, 0x590DF209)));
         }
 
         [Fact]
-        public void Vector8_MapLoginTicket() =>
-            Assert.Equal("1388187572a8951b84a175e22a791eee", Convert.ToHexStringLower(
-                RetailLobbyPackets.MapLoginTicket("testuser", Convert.FromHexString("e18b4a509c41dbdb8599a1de20f434d3"))));
+        public void MapKey_IsTheSessionHashFourModifiersAfterTheSelect()
+        {
+            // 0x07 at M0 + 11 gives the map key SessionHash(M0 + 15) (spec section 5.6, test vector 5).
+            Assert.Equal("67d581eb124a444564343b0c9b4ff8d4", Convert.ToHexStringLower(RetailLobbyPackets.MapKey(LobbyKey, 0x590DF205)));
+            byte[] raw = RetailLobbyPackets.MapRawKey(LobbyKey, 0x590DF205);
+            Assert.Equal(20, raw.Length);
+            Assert.Equal(RetailLobbyPackets.MapKey(LobbyKey, 0x590DF205), MD5.HashData(raw));
+        }
+
+        [Fact]
+        public void Vector8_MapTicket() =>
+            Assert.Equal("27673EA222A829989583118DF9DE80B3",
+                Convert.ToHexString(RetailMapPackets.Ticket(Convert.FromHexString("919129145BDE35AFC2D02CEC08A5327B"))));
 
         [Fact]
         public void Vector7_PmlDigest()
         {
-            string response = PolHashes.PmlDigestResponse("testuser", "main@wh000.pol.com",
-                Convert.FromHexString("112233445566778899AABBCCDDEEFF00"), "GET", "/pml/main/index.pml",
-                "46characternoncevalue1234567890abcdefghijklmno", "00000001", "12345678", "auth");
-            Assert.Equal("9c864dbe656e343b094ce9a5a02ea760", response);
+            var ticket = new PolCoreTicket(Convert.FromHexString("50C30A0200C0"), new byte[12], new byte[8], 0);
+            string userName = PolHashes.PmlUserName(ticket);
+            Assert.Equal("oz5vKRTDoxJpo8i0o8TtoT", userName);
+            Assert.Equal("Iq3a9nCbEJA", PolCoreBase64.Encode(Convert.FromHexString("1122334455667788")));
+            Assert.Equal("346a5b8e4e59be3d3142f8ac592340af", PolHashes.PmlDigestResponse(userName, "POL",
+                Convert.FromHexString("1122334455667788"), "/pml/main/index.pml", "AAAAAA==0123456789abcdef0123456789abcdef01234567"));
+        }
+
+        [Fact]
+        public void Vector11_SelectionDigest()
+        {
+            byte[] authCode = new byte[64];
+            for (int i = 0; i < 64; i++) authCode[i] = (byte)i;
+            byte[] hash = Convert.FromHexString("0123456789ABCDEF0123456789ABCDEF");
+            Assert.Equal("32792248BEC991750B2050FABA185707",
+                Convert.ToHexString(RetailLobbyPackets.SelectionDigest(authCode, hash, 0x43FA0718, 0x016B6984)));
+        }
+
+        // Test vector 13 (capture #9, synthetic client address).
+        [Fact]
+        public void Vector13_AuthCodeToken()
+        {
+            byte[] token = PolAuthCode.GenerateWithContext(
+                Convert.FromHexString("65D35CEDE299B936360CD53A60A3B677"), 0x6AF35D54, Convert.FromHexString("B96C1B71F21C375A"),
+                Convert.FromHexString("010050C30A0200C0CDCCCC3E0000000000000000"));
+            Assert.Equal("29B62E434CB57649EF53C174C01029A44C35BBA07932E82EDACC30F1FA30D00563F28D49E2DD54C1F11A6C9994937B0A8CB962C3",
+                Convert.ToHexString(token));
+        }
+
+        [Theory]
+        [InlineData("E0C5F1B0AFE100E336911696B3AED99C", "2AB52E434CB57649545 07A77C3132AA74F36B8A37A31EB2DD9CF33F269568A3B4174B1FEE6B0459C4E74FF3C4736A8AF5F1CB166")]
+        [InlineData("37E09F966EF7FD1D461FD478E31E71A9", "2AB52E434CB5764962504C77C3132AA74F36B8A37A31EB2DD9CF33F26D3286F79388946DBE6D1768B8D32DD451DFBE4649F5A78F")]
+        [InlineData("5488D2BF36E3AFA09FC4BAC5B9BEEDA7", "2AB52E434CB576492C500277C3132AA74F36B8A37A31EB2DD9CF33F2881154A86EC36C33621FA896A106D27AD97136E8C15B2F21")]
+        public void Vector13_TheOtherBuilderCalls(string lobbyKey, string expected)
+        {
+            byte[] token = PolAuthCode.GenerateWithContext(Convert.FromHexString(lobbyKey), 0x6AF35D54, Convert.FromHexString("B96C1B71F21C375A"),
+                Convert.FromHexString("010050C30A0200C0CDCCCC3E0000000000000000"));
+            Assert.Equal(expected.Replace(" ", ""), Convert.ToHexString(token));
+        }
+
+        [Fact]
+        public void AuthCode_ContextIsTheProtocolVersionTheRoutingTokenAndZeros()
+        {
+            byte[] lobbyKey = Convert.FromHexString("65D35CEDE299B936360CD53A60A3B677");
+            byte[] k8 = Convert.FromHexString("B96C1B71F21C375A");
+            byte[] routing = Convert.FromHexString("50C30A0200C0");
+            Assert.Equal(PolAuthCode.GenerateWithContext(lobbyKey, 0x6AF35D54, k8, Convert.FromHexString("010050C30A0200C0000000000000000000000000")),
+                PolAuthCode.Generate(lobbyKey, 0x6AF35D54, k8, routing));
+        }
+
+        [Fact]
+        public void Vector14_ClientFileChecksum()
+        {
+            byte[] data = new byte[256];
+            for (int i = 0; i < 256; i++) data[i] = (byte)i;
+            Assert.Equal(0x159EE5E0u, ClientFileChecksum.Compute(data, ClientFileChecksum.FfxiMainPeriod));
         }
 
         [Fact]

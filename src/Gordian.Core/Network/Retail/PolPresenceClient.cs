@@ -27,8 +27,11 @@ namespace Gordian.Core.Network.Retail
     /// <summary>Which session key a <c>0x04/0x05</c> request asks for.</summary>
     public enum PolSessionKeyService
     {
-        /// <summary>The PML web key: ServiceType 1, flags 1000.</summary>
-        Pml,
+        /// <summary>
+        /// The Viewer's service-1 key (ServiceType 1, flags 1000), requested around the PML pages. It is not the PML
+        /// digest key and its use is unverified; it is asked for only to match retail traffic.
+        /// </summary>
+        Viewer,
 
         /// <summary>The FFXI lobby key: ServiceType 0, flags 1.</summary>
         Lobby,
@@ -40,7 +43,7 @@ namespace Gordian.Core.Network.Retail
     /// <param name="Word8">+0x08: on the account login, the assigned <c>:51220</c> server's IPv4 address.</param>
     public readonly record struct PolPresenceResponse(byte Type, byte Status, uint PayloadLength, uint Word8)
     {
-        /// <summary>The assigned server's address: <see cref="Word8"/> read little-endian, most significant byte first in the dotted form.</summary>
+        /// <summary>The assigned server's address: the wire bytes are last octet first, so <see cref="Word8"/> read little-endian gives the dotted form most significant byte first.</summary>
         public IPAddress RedirectAddress => new(new[] { (byte)(Word8 >> 24), (byte)(Word8 >> 16), (byte)(Word8 >> 8), (byte)Word8 });
     }
 
@@ -48,7 +51,7 @@ namespace Gordian.Core.Network.Retail
     /// Builders and parsers for the PlayOnline presence / account servers on <c>:51220</c>: the plaintext hello and
     /// challenge, the encrypted request header and payloads, and the encrypted response header.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.2.0, section 4.3.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.3.
     /// </para>
     /// </summary>
     public static class PolPresencePackets
@@ -71,26 +74,28 @@ namespace Gordian.Core.Network.Retail
         public const byte CommandSessionKey = 0x05;
         public const byte CommandAuthenticate = 0x07;
 
-        /// <summary>The <c>0x04/0x05</c> flag that asks for the PML web key.</summary>
-        public const ushort KeyFlagsPml = 1000;
+        /// <summary>The <c>0x04/0x05</c> flag of the Viewer's service-1 request.</summary>
+        public const ushort KeyFlagsViewer = 1000;
 
         /// <summary>The <c>0x04/0x05</c> flag that asks for the FFXI lobby key.</summary>
         public const ushort KeyFlagsLobby = 1;
 
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the PML key request (spec v1.3.0 section 4.3.5).</summary>
-        public const byte ServiceTypePml = 1;
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the Viewer's service-1 request (spec v2.1.18 section 4.3.5).</summary>
+        public const byte ServiceTypeViewer = 1;
 
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v1.3.0 section 4.3.5).</summary>
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v2.1.18 section 4.3.5).</summary>
         public const byte ServiceTypeLobby = 0;
 
-        /// <summary>The 40-byte hello: protocol 0x0100, the routing token, and on the assigned server the 12-byte echo.</summary>
-        public static void WriteHello(Span<byte> hello, ReadOnlySpan<byte> routingToken, ReadOnlySpan<byte> accountEcho)
+        /// <summary>
+        /// The 40-byte hello: zeros, the protocol version 1 (u16 LE at +0x04), the routing token at +0x06, and zeros from
+        /// +0x0C (the server does not read +0x0C..+0x17).
+        /// </summary>
+        public static void WriteHello(Span<byte> hello, ReadOnlySpan<byte> routingToken)
         {
             hello = hello[..HelloSize];
             hello.Clear();
-            BinaryPrimitives.WriteUInt16BigEndian(hello[4..], 0x0100);
+            BinaryPrimitives.WriteUInt16LittleEndian(hello[4..], 0x0001);
             routingToken[..6].CopyTo(hello[6..]);
-            if (!accountEcho.IsEmpty) accountEcho[..12].CopyTo(hello[12..]);
         }
 
         /// <summary>The challenge seed of a 24-byte <c>0x81</c> greeting; false when it is not one.</summary>
@@ -128,14 +133,14 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included. The ClientNonce is a counter
-        /// from a random start (spec v1.3.0 section 4.3.5).
+        /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included. Retail sends ClientNonce 0 on
+        /// most requests and the server accepts it (spec v2.1.18 section 4.3.5).
         /// </summary>
-        public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, uint clientNonce)
+        public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, uint clientNonce = 0)
         {
             payload = payload[..KeyRequestPayloadSize];
             payload.Clear();
-            var (serviceType, flags) = service == PolSessionKeyService.Lobby ? (ServiceTypeLobby, KeyFlagsLobby) : (ServiceTypePml, KeyFlagsPml);
+            var (serviceType, flags) = service == PolSessionKeyService.Lobby ? (ServiceTypeLobby, KeyFlagsLobby) : (ServiceTypeViewer, KeyFlagsViewer);
             payload[0x13] = serviceType;
             BinaryPrimitives.WriteUInt16BigEndian(payload[0x14..], 0x0001);
             BinaryPrimitives.WriteUInt16BigEndian(payload[0x16..], 0x0005);
@@ -158,8 +163,6 @@ namespace Gordian.Core.Network.Retail
     {
         private readonly PolCoreSession _core;
         private IPAddress? _assigned;
-        private byte[] _accountEcho = Array.Empty<byte>();
-        private uint _nonce = (uint)Random.Shared.Next();
 
         public PolPresenceClient(PolCoreSession core) => _core = core;
 
@@ -177,30 +180,28 @@ namespace Gordian.Core.Network.Retail
             byte[] payload = new byte[PolPresencePackets.AuthPayloadSize];
             PolPresencePackets.WriteAuthPayload(payload, mode, squareEnixId, password, oneTimeCode, _core.Clock.Now);
 
-            var (header, rawHeader, _) = await ExchangeAsync(host, port, Array.Empty<byte>(), PolPresencePackets.CommandAuthenticate, payload,
+            // The redirect header announces 8 payload bytes the server never sends: read only the header (section 4.3.6).
+            var (header, _) = await ExchangeAsync(host, port, PolPresencePackets.CommandAuthenticate, payload,
                 expectPayload: false, "account", ct).ConfigureAwait(false);
             _assigned = header.RedirectAddress;
-            // The assigned server's hello echoes these 12 ciphertext bytes of the redirect header.
-            _accountEcho = rawHeader.AsSpan(0x0C, 12).ToArray();
             GordianLog.Info("RETAIL_LOGIN", $"Square Enix account accepted; assigned presence server {_assigned}.");
         }
 
-        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server, for the PML pages or the FFXI lobby.</summary>
+        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server: the FFXI lobby key, or the Viewer's service-1 key.</summary>
         public async Task<byte[]> RequestSessionKeyAsync(PolSessionKeyService service, CancellationToken ct, int port = PolPresencePackets.Port)
         {
             if (_assigned == null) throw new InvalidOperationException("Authenticate first: the account login assigns the key server.");
             byte[] payload = new byte[PolPresencePackets.KeyRequestPayloadSize];
-            PolPresencePackets.WriteKeyRequestPayload(payload, service, unchecked(_nonce++));
+            PolPresencePackets.WriteKeyRequestPayload(payload, service);
 
-            var (_, _, response) = await ExchangeAsync(_assigned.ToString(), port, _accountEcho, PolPresencePackets.CommandSessionKey, payload,
+            var (_, response) = await ExchangeAsync(_assigned.ToString(), port, PolPresencePackets.CommandSessionKey, payload,
                 expectPayload: true, "session key", ct).ConfigureAwait(false);
             if (response.Length < PolPresencePackets.KeyResponsePayloadSize || !PolHashes.VerifyAdditive(response.AsSpan(0, PolPresencePackets.KeyResponsePayloadSize)))
                 throw new RetailLoginException("session key", "The session key reply failed its checksum.");
             return response.AsSpan(0, 16).ToArray();
         }
 
-        private async Task<(PolPresenceResponse Header, byte[] RawHeader, byte[] Payload)> ExchangeAsync(string host, int port, byte[] accountEcho,
-            byte command, byte[] payload, bool expectPayload, string stage, CancellationToken ct)
+        private async Task<(PolPresenceResponse Header, byte[] Payload)> ExchangeAsync(string host, int port, byte command, byte[] payload, bool expectPayload, string stage, CancellationToken ct)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(Timeout);
@@ -211,7 +212,7 @@ namespace Gordian.Core.Network.Retail
             var stream = client.GetStream();
 
             byte[] hello = new byte[PolPresencePackets.HelloSize];
-            PolPresencePackets.WriteHello(hello, _core.Ticket.RoutingToken, accountEcho);
+            PolPresencePackets.WriteHello(hello, _core.Ticket.RoutingToken);
             await stream.WriteAsync(hello, token).ConfigureAwait(false);
 
             byte[] greeting = new byte[PolPresencePackets.ChallengeSize];
@@ -243,7 +244,7 @@ namespace Gordian.Core.Network.Retail
                 await stream.ReadExactlyAsync(responsePayload, token).ConfigureAwait(false);
                 _core.Cipher.Transform(responsePayload);
             }
-            return (header, rawHeader, responsePayload);
+            return (header, responsePayload);
         }
     }
 }

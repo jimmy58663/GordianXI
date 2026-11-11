@@ -429,16 +429,16 @@ The rows carry the details; these are the ones most useful to other client and s
 
 ### Retail lobby (`ffxi00.pol.com:54001`)
 
-`RetailLobbyPackets` (`src/Gordian.Core/Network/Retail`) builds the retail forms from [retail-login-spec.md](retail-login-spec.md) v1.5.0 sections 4.5 and 4.6. The connection that ties them together is not built yet ([retail-login.md](retail-login.md)). Retail has no data channel, so the character and world lists arrive on this connection; `0x20` and `0x23` are read with the shared `LobbyPackets` parsers.
+`RetailLobbyPackets` and `RetailMapPackets` (`src/Gordian.Core/Network/Retail`) build the retail forms from [retail-login-spec.md](retail-login-spec.md) v2.1.18 sections 4.5, 4.6, 5.5, 5.6 and 5.9. The connection that ties them together is not built yet ([retail-login.md](retail-login.md)). Retail has no data channel, so the character and world lists arrive on this connection; `0x20` and `0x23` are read with the shared `LobbyPackets` parsers.
 
 | Dir | Id | Name | Size | GordianXI status | Notes |
 |---|---|---|---|---|---|
 | both | header | `IXFF` header | 28 | `built` / `verified` | The identifier at +0x0C is the MD5 of the whole packet with that field zeroed (`Seal` / `Verify`). |
-| C2S | `0x26` | lobby login | 152 | `built` | Platform 5 at +0x2C, FFXI account id at +0x34, 60 zero bytes +0x38..+0x73 (spec v1.3.0), version at +0x74, `0xFF` at +0x83, expansions at +0x84. |
-| C2S | `0x1F` / `0x24` | character / world list | 44 | `built` | Session hash MD5(lobby key + LE32 modifier) at +0x1C, with modifiers M0+1 and M0+3 (`RetailLobbyModifier`). |
-| C2S | `0x07` | select character | 88 | `built` | Content id, character id, name, session hash (M0+5) at +0x34, and at +0x48 the selection digest MD5(reserved block + hash + ids + 4 zero bytes). |
-| S2C | `0x0B` | map handoff | 72 | `decoded` | Map server address +0x38 and UDP port +0x3C, search server address +0x40 and port +0x44: the XiPackets / LandSandBoat layout (spec v1.3.0 corrected its earlier 76-byte form). The map key is the `0x07` session hash, MD5(lobby key + LE32(M0+5)), which is the existing map cipher's 20-byte key (`MapRawKey`, spec v1.4.0 test vector 5). |
-| C2S (map) | `0x00A` | first map packet | 92 | `built` (ticket PROVISIONAL) | The existing `HandshakePackets` builder; spec v1.5.0 agrees the packet ends at +0x5B. On retail the `Ticket` at +0x40 is MD5(account name + map key) (`MapLoginTicket`, spec test vector 8) and `Ver` +0x50 is 0. **Open:** which name retail hashes. |
+| C2S | `0x26` | lobby login | 152 | `built` | ClientCode 5 at +0x2C, the 52-byte AuthCode token (`PolAuthCode`, spec test vector 13) at +0x34 and 12 zero bytes, the FFXI version from `patch.cfg` at +0x74, `0xFF` at +0x83, expansion mask `0xFFF` at +0x84. **Beyond LandSandBoat / XiPackets:** they leave +0x34..+0x73 unexplained; LSB ignores it. |
+| C2S | `0x1F` / `0x24` | character / world list | 44 | `built` | Session hash MD5(lobby key + LE32 modifier) at +0x1C. Every hashed request takes the next modifier M0+1+2n (`RetailLobbyModifier`): M0+1 and M0+3 when nothing comes before. |
+| C2S | `0x07` | select character | 88 | `built` | Content id, the low 16 bits of the slot's character id, name, session hash at +0x34, the constant 3 at +0x44, and at +0x48 the selection digest MD5(AuthCode field[64] + hash + LE32(3) + LE32(`ClientFileChecksum` of FFXiMain.dll) + LE32(content id)) (spec test vector 11). **Beyond XiPackets:** the checksum and preimage. |
+| S2C | `0x0B` | map handoff | 72 | `decoded` | +0x20..+0x23 (sent back as the map `UniqueNo`), map server address +0x38 (first octet first) and UDP port +0x3C, search server +0x40 / +0x44. The map key is SessionHash(0x07 modifier + 4) (`MapKey`, `MapRawKey`, spec section 5.6 and test vector 5). **Differs from spec v1.6.0-v1.7.0:** those had the address last octet first; v2.1.18 agrees with LandSandBoat. |
+| C2S (map) | `0x00A` | first map datagram | 136 | `built` | `RetailMapPackets.BuildFirstDatagram`: the observed 28-byte transport header, the 92-byte `0x00A` (name a single space, empty account, `UniqueNo` from `0x0B`, `Ticket` = MD5(15 zero bytes + map key) (spec test vector 8), "WIN", language 1, `0xFFFF` at +0x5A) and its MD5. **Differs from LandSandBoat's client use:** retail does not send the character name. |
 
 The other XiPackets folders are covered in [session-and-packets.md](session-and-packets.md#xipackets-coverage-audit-2026-09-28): `cache/` is the search server (below) and `patch/` is not needed with LSB.
 

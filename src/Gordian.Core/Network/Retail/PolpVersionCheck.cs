@@ -25,7 +25,7 @@ namespace Gordian.Core.Network.Retail
     /// POLP frames: the unauthenticated version checks of the PlayOnline Viewer (<c>pt008.pol.com:54000</c>) and of FFXI
     /// (<c>pc001W2U.pol.com:53001</c>). The client sends Type 7 on connect and the server answers Type 8, then closes.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.2.0, section 4.1.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.1.
     /// </para>
     /// </summary>
     public static class PolpPackets
@@ -40,16 +40,15 @@ namespace Gordian.Core.Network.Retail
         public const string ViewerProduct = "W2U", ViewerHost = "pt008.pol.com";
         public const int ViewerPort = 54000;
 
-        /// <summary>
-        /// The Viewer version the retail <c>pol.exe</c> sends (spec v1.3.0 section 2). The check is the Viewer's own
-        /// updater, and the login servers do not require it, so a client without the Viewer skips it (spec v1.3.0
-        /// section 9, item 5).
-        /// </summary>
-        public const string ViewerVersion = "100020110829_E";
+        /// <summary>The Viewer's product id: its install folder's registry value name and the prefix of its POLP version string.</summary>
+        public const string ViewerProductId = "1000";
 
         /// <summary>FFXI (US, Windows)'s product code and check server.</summary>
         public const string FfxiProduct = "W20", FfxiHost = "pc001W2U.pol.com";
         public const int FfxiPort = 53001;
+
+        /// <summary>FFXI's product id: its install folder's registry value name and the prefix of its POLP version string.</summary>
+        public const string FfxiProductId = "0001";
 
         private static ReadOnlySpan<byte> Magic => "POLP"u8;
 
@@ -108,22 +107,53 @@ namespace Gordian.Core.Network.Retail
     }
 
     /// <summary>
-    /// <c>patch.ver</c>: the installed version string a POLP check sends, null-terminated at the start of a 288-byte file
-    /// in the application's root folder (spec v1.2.0 section 4.1.3).
+    /// <c>patch.cfg</c>: the plain-text patch manifest in a product's install folder. Every patched file lists one line
+    /// per release, each starting with its version tag (<c>YYYYMMDD_N</c> for the Viewer, <c>3YYYMMDD_N</c> for FFXI); the
+    /// installed version is the highest tag in the file. The POLP version string is the product id and that version
+    /// (<c>"1000"</c> or <c>"0001"</c> first), and the lobby's 0x26 sends FFXI's version alone.
+    /// <para>
+    /// Format referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.1.3
+    /// (<c>patch.ver</c> is encrypted and not read).
+    /// </para>
     /// </summary>
-    public static class PatchVersionFile
+    public static class PatchConfigFile
     {
-        public const string FileName = "patch.ver";
+        public const string FileName = "patch.cfg";
 
-        /// <summary>The version in <paramref name="rootDirectory"/>'s <c>patch.ver</c>, or null when it is missing or empty.</summary>
-        public static string? Read(string rootDirectory)
+        /// <summary>The installed version in <paramref name="rootDirectory"/>'s <c>patch.cfg</c>, or null when it is missing or has no tag.</summary>
+        public static string? ReadInstalledVersion(string rootDirectory)
         {
             if (string.IsNullOrWhiteSpace(rootDirectory)) return null;
             string path = Path.Combine(rootDirectory, FileName);
             if (!File.Exists(path)) return null;
-            byte[] bytes = File.ReadAllBytes(path);
-            string version = PolpPackets.ReadAscii(bytes);
-            return version.Length == 0 ? null : version;
+            using var reader = new StreamReader(path, Encoding.ASCII);
+            return HighestTag(reader);
+        }
+
+        /// <summary>The highest version tag at the start of a line (ordinal comparison), or null.</summary>
+        public static string? HighestTag(TextReader reader)
+        {
+            string? best = null;
+            for (string? line = reader.ReadLine(); line != null; line = reader.ReadLine())
+            {
+                string tag = ReadTag(line.AsSpan().TrimStart());
+                if (tag.Length > 0 && (best == null || string.CompareOrdinal(tag, best) > 0)) best = tag;
+            }
+            return best;
+        }
+
+        /// <summary>The POLP version string for a product: its id, then its installed version.</summary>
+        public static string PolpVersion(string productId, string installedVersion) => productId + installedVersion;
+
+        // A tag is 8 digits, '_', then digits.
+        private static string ReadTag(ReadOnlySpan<char> line)
+        {
+            if (line.Length < 10) return string.Empty;
+            for (int i = 0; i < 8; i++) if (!char.IsAsciiDigit(line[i])) return string.Empty;
+            if (line[8] != '_' || !char.IsAsciiDigit(line[9])) return string.Empty;
+            int end = 10;
+            while (end < line.Length && char.IsAsciiDigit(line[end])) end++;
+            return line[..end].ToString();
         }
     }
 

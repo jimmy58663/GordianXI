@@ -9,7 +9,7 @@ namespace Gordian.Core.Network.Retail
 {
     /// <summary>
     /// The checksums and credential hashes of retail login. Protocol referenced from the GordianXI retail login spec,
-    /// docs/network/retail-login-spec.md v1.2.0: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
+    /// docs/network/retail-login-spec.md v2.1.18: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
     /// 5.3 (additive checksum), 5.4 (Square Enix password), 5.5 (lobby session hash), 5.6 (map key) and 5.7 (x-MD5-pol);
     /// test vectors in section 5.8.
     /// </summary>
@@ -105,16 +105,23 @@ namespace Gordian.Core.Network.Retail
             MD5.HashData(KeyWithCounter(lobbySessionKey, modifier));
 
         /// <summary>
-        /// The x-MD5-pol digest response: RFC 2617 digest with qop, where the password part of HA1 is the PML session key
-        /// as 32 lowercase hex digits.
+        /// The x-MD5-pol digest's <c>userName</c>: the client's address as the server sees it, <c>"a.b.c.d:port"</c> in
+        /// decimal, in <see cref="PolCoreBase64"/>.
         /// </summary>
-        public static string PmlDigestResponse(string username, string realm, ReadOnlySpan<byte> pmlSessionKey, string method, string uri,
-            string nonce, string nonceCount, string clientNonce, string qop)
+        public static string PmlUserName(PolCoreTicket ticket) =>
+            PolCoreBase64.Encode(Encoding.ASCII.GetBytes($"{ticket.ClientAddress}:{ticket.ClientPort.ToString(CultureInfo.InvariantCulture)}"));
+
+        /// <summary>
+        /// The x-MD5-pol digest response (not RFC 2617: no cnonce, nc or qop, and the nonce comes last):
+        /// MD5(HA1 ":" HA2 ":" nonce) with HA1 = MD5(userName ":" realm ":" B64(K8)) and HA2 = MD5("GET:" uri), all as
+        /// lowercase hex; B64 is <see cref="PolCoreBase64"/>.
+        /// </summary>
+        public static string PmlDigestResponse(string userName, string realm, ReadOnlySpan<byte> sessionKey, string uri, string nonce)
         {
             static string Md5Hex(string s) => Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(s)));
-            string ha1 = Md5Hex($"{username}:{realm}:{Convert.ToHexStringLower(pmlSessionKey)}");
-            string ha2 = Md5Hex($"{method}:{uri}");
-            return Md5Hex($"{ha1}:{nonce}:{nonceCount}:{clientNonce}:{qop}:{ha2}");
+            string ha1 = Md5Hex($"{userName}:{realm}:{PolCoreBase64.Encode(sessionKey)}");
+            string ha2 = Md5Hex($"GET:{uri}");
+            return Md5Hex($"{ha1}:{ha2}:{nonce}");
         }
     }
 }

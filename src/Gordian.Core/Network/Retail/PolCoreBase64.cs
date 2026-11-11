@@ -1,6 +1,5 @@
 // src/Gordian.Core/Network/Retail/PolCoreBase64.cs
 using System;
-using System.Security.Cryptography;
 
 namespace Gordian.Core.Network.Retail
 {
@@ -70,43 +69,34 @@ namespace Gordian.Core.Network.Retail
     }
 
     /// <summary>
-    /// The 24-byte client metadata the <c>NICK</c> line carries (32 characters once encoded): three zero bytes, the
-    /// protocol version 2, the subsystem flags 1, the connection state 1 (always 1 in retail captures), then 18 bytes
-    /// of session and execution nonces. The server checks only the shape, so the nonces are random. <c>02 01 01</c>
-    /// encodes to <c>TAIS</c>, the observed <c>TTTTTAIS...</c> prefix.
+    /// The <c>NICK</c> line's client metadata: a 32-character body that every retail capture sends unchanged (24 bytes
+    /// in <see cref="PolCoreBase64"/>, starting <c>00 00 00 02 01 01</c>), then a 4-character checksum of the line
+    /// before it.
     /// <para>
-    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v1.5.0 (layout and
-    /// alphabet, section 4.2.2 step 4) and v1.3.0 (the server does not check the nonces).
+    /// Referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.2.2 step 5
+    /// (the constant body and the suffix rule).
     /// </para>
     /// </summary>
     public static class PolClientMeta
     {
-        public const int Length = 24;
-        public const int EncodedLength = Length / 3 * 4;
-        public const byte ProtocolVersion = 0x02;
-        public const byte Flags = 0x01;
-        public const byte Byte5 = 0x01;
+        /// <summary>The constant 32-character body.</summary>
+        public const string Body = "TTTTTAISTTTTTTTTTTTTTHBy5pjMnc0G"; // the capture value is redacted from history; this is the synthetic ABCD1234 body
 
-        /// <summary>Writes the fixed header and the given 18 nonce bytes.</summary>
-        public static void Write(Span<byte> meta, ReadOnlySpan<byte> nonces)
-        {
-            if (nonces.Length != Length - 6) throw new ArgumentException("The nonces are 18 bytes.", nameof(nonces));
-            meta = meta[..Length];
-            meta[..6].Clear();
-            meta[3] = ProtocolVersion;
-            meta[4] = Flags;
-            meta[5] = Byte5;
-            nonces.CopyTo(meta[6..]);
-        }
+        public const int SuffixLength = 4;
 
-        /// <summary>A fresh encoded metadata field with random nonces.</summary>
-        public static string Create()
+        /// <summary>
+        /// The suffix over the line bytes before it (<c>"NICK "</c> through the body, 80 bytes): the sum of those bytes
+        /// read as little-endian 32-bit words (any last 1-3 bytes as a zero-padded word), as four 6-bit slices from bit 31
+        /// down (shifts 26, 20, 14, 8), each plus 0x3F.
+        /// <b>Differs from spec v2.1.18:</b> section 4.2.2 step 5 says a sum of single bytes, but 80 ASCII bytes cannot
+        /// reach its own example sum 0xAA1353EA; the word sum gives exactly that and the captured suffix.
+        /// </summary>
+        public static string Suffix(ReadOnlySpan<byte> lineBeforeSuffix)
         {
-            Span<byte> nonces = stackalloc byte[Length - 6];
-            RandomNumberGenerator.Fill(nonces);
-            Span<byte> meta = stackalloc byte[Length];
-            Write(meta, nonces);
-            return PolCoreBase64.Encode(meta);
+            uint sum = PolHashes.AdditiveChecksum(lineBeforeSuffix);
+            Span<char> chars = stackalloc char[SuffixLength];
+            for (int k = 0; k < SuffixLength; k++) chars[k] = (char)(((sum >> (26 - 6 * k)) & 0x3F) + 0x3F);
+            return new string(chars);
         }
     }
 }
