@@ -46,6 +46,9 @@ namespace Gordian.Core.Network.Retail
         /// <summary>The <c>USER</c> buffer: the 32-byte modulus and 4 trailing bytes, sent as zeros.</summary>
         public const int UserBufferLength = 36;
 
+        /// <summary>The <c>USER</c> buffer's bytes after the modulus.</summary>
+        public const int UserTrailingBytes = 4;
+
         /// <summary>The <c>USER</c> and server ciphertext tokens: 36 bytes encoded to 48 characters and cut to 47.</summary>
         public const int KeyTokenChars = 47;
 
@@ -74,13 +77,20 @@ namespace Gordian.Core.Network.Retail
             return rest[2..].Trim();
         }
 
-        /// <summary>The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line: the modulus (little-endian) and 4 zero bytes, 47 characters.</summary>
-        public static string BuildUserLine(ReadOnlySpan<byte> modulus)
+        /// <summary>
+        /// The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line: the modulus (little-endian) and 4 trailing bytes,
+        /// 47 characters. Retail sends varying non-zero trailing bytes (capture #1 <c>21 B8 76 C0</c>, capture #3
+        /// <c>0B F8 4A 80</c>) that match no checksum of the modulus, so the session sends random ones; zeros (the spec's
+        /// suggestion) got no reply from the live session host. Empty <paramref name="trailing"/> sends zeros.
+        /// </summary>
+        public static string BuildUserLine(ReadOnlySpan<byte> modulus, ReadOnlySpan<byte> trailing = default)
         {
             if (modulus.Length != PolRsaKeyExchange.ValueLength) throw new ArgumentException("The modulus is 32 bytes.", nameof(modulus));
+            if (trailing.Length is not (0 or UserTrailingBytes)) throw new ArgumentException("The trailing field is 4 bytes.", nameof(trailing));
             Span<byte> buffer = stackalloc byte[UserBufferLength];
             buffer.Clear();
             modulus.CopyTo(buffer);
+            trailing.CopyTo(buffer[PolRsaKeyExchange.ValueLength..]);
             return $"USER x 8 * :{PolCoreBase64.Encode(buffer)[..KeyTokenChars]}\r\n";
         }
 
@@ -231,6 +241,7 @@ namespace Gordian.Core.Network.Retail
             {
                 throw new RetailLoginException("PlayOnline login",
                     $"No answer within {Timeout.TotalSeconds:0} s while {progress.Step}." +
+                    (progress.Received is { PartialLength: > 0 } partial ? $" {partial.PartialLength} bytes arrived without a line end." : string.Empty) +
                     (progress.Replies.Count > 0 ? $" Lines received after NICK: {string.Join(", ", progress.Replies)}." : string.Empty));
             }
         }
@@ -240,6 +251,9 @@ namespace Gordian.Core.Network.Retail
         {
             public string Step = "connecting to the gatekeeper";
             public readonly List<string> Replies = new();
+
+            /// <summary>The session host's reader, to tell a silent server from one whose reply has no line end.</summary>
+            public LineReader? Received;
 
             public void Enter(string step)
             {
@@ -282,8 +296,15 @@ namespace Gordian.Core.Network.Retail
                 string greetingToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
                 var greetingFields = PolCoreToken.Parse(greetingToken);
 
+                progress.Received = reader;
+                GordianLog.Info("RETAIL_LOGIN", $"Core session: greeting of {greeting.Length} characters.");
+
                 var rsa = new PolRsaKeyExchange();
-                await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(rsa.Modulus)), token).ConfigureAwait(false);
+                byte[] trailing = System.Security.Cryptography.RandomNumberGenerator.GetBytes(PolCoreProtocol.UserTrailingBytes);
+                // The USER line carries only this connection's throwaway public key, so it is logged in full.
+                string userLine = PolCoreProtocol.BuildUserLine(rsa.Modulus, trailing);
+                GordianLog.Info("RETAIL_LOGIN", $"Core session: sending {userLine.TrimEnd()}");
+                await WriteAsync(stream, Encoding.ASCII.GetBytes(userLine), token).ConfigureAwait(false);
                 progress.Enter("waiting for the key exchange reply to USER");
 
                 string keyLine = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
@@ -387,6 +408,9 @@ namespace Gordian.Core.Network.Retail
 
         public LineReader(Stream stream) => _stream = stream;
 
+        /// <summary>The bytes of the line being read that have arrived so far (non-zero while a reply lacks its line end).</summary>
+        public int PartialLength { get; private set; }
+
         /// <summary>The next line's bytes without its CRLF, or null at end of stream.</summary>
         public async Task<byte[]?> ReadRawLineAsync(CancellationToken ct)
         {
@@ -398,11 +422,13 @@ namespace Gordian.Core.Network.Retail
                     byte b = _buffer[_start++];
                     if (b == (byte)'\n')
                     {
+                        PartialLength = 0;
                         if (line.Count > 0 && line[^1] == (byte)'\r') line.RemoveAt(line.Count - 1);
                         return line.ToArray();
                     }
                     line.Add(b);
                 }
+                PartialLength = line.Count;
                 _start = 0;
                 _end = await _stream.ReadAsync(_buffer, ct).ConfigureAwait(false);
                 if (_end == 0) return line.Count > 0 ? line.ToArray() : null;

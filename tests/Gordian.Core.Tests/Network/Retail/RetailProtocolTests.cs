@@ -179,6 +179,10 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lI", token[..42]);
             Assert.Equal(modulus, PolCoreProtocol.ParseUserToken(token));
             Assert.Equal(modulus, PolCoreProtocol.ParseUserToken("rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP"));
+
+            // With capture #3's trailing bytes the line is the captured one, character for character.
+            string captured = PolCoreProtocol.BuildUserLine(modulus, Convert.FromHexString("0BF84A80"));
+            Assert.Equal("USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n", captured);
         }
 
         [Fact]
