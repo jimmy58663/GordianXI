@@ -266,112 +266,135 @@
                     </Grid>
                 </Grid>
 
-                <!-- EDITOR VIEW: New Profile / Edit. Only the chosen server type's fields show. -->
-                <Border Grid.Row="0" IsVisible="{Binding IsEditorOpen}" Background="#252526" CornerRadius="6" Padding="20,15">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
-                        <StackPanel Spacing="10" MaxWidth="640" HorizontalAlignment="Left" MinWidth="460">
-                            <TextBlock Text="{Binding FormTitle}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF"/>
+                <!-- EDITOR VIEW: New Profile / Edit. Only the chosen server type's fields show. Two columns, one when the
+                     editor is narrow (the container query below); Save and Cancel stay fixed under the scrolling form. -->
+                <Border Grid.Row="0" IsVisible="{Binding IsEditorOpen}" Background="#252526" CornerRadius="6" Padding="20,15"
+                        Container.Name="ProfileEditor" Container.Sizing="Width">
+                    <Border.Styles>
+                        <ContainerQuery Name="ProfileEditor" Query="max-width:860">
+                            <Style Selector="Grid#EditorColumns > StackPanel#EditorLeft">
+                                <Setter Property="Grid.ColumnSpan" Value="3"/>
+                            </Style>
+                            <Style Selector="Grid#EditorColumns > StackPanel#EditorRight">
+                                <Setter Property="Grid.Column" Value="0"/>
+                                <Setter Property="Grid.ColumnSpan" Value="3"/>
+                                <Setter Property="Grid.Row" Value="2"/>
+                                <Setter Property="Margin" Value="0,10,0,0"/>
+                            </Style>
+                        </ContainerQuery>
+                    </Border.Styles>
+                    <Grid RowDefinitions="*, Auto">
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
+                            <Grid x:Name="EditorColumns" ColumnDefinitions="*, 32, *" RowDefinitions="Auto, Auto, Auto">
+                                <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="{Binding FormTitle}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
 
-                            <TextBlock Text="Server:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                            <StackPanel Orientation="Horizontal" Spacing="16">
-                                <RadioButton GroupName="ServerType" Content="Retail" IsChecked="{Binding FormIsRetail, Mode=TwoWay}"
-                                             ToolTip.Tip="Square Enix's servers: POL ID and Square Enix account."/>
-                                <RadioButton GroupName="ServerType" Content="LandSandBoat (private server)" IsChecked="{Binding FormIsLsb, Mode=TwoWay}"
-                                             ToolTip.Tip="A LandSandBoat server: account at a server host and port."/>
-                            </StackPanel>
+                                <!-- Left: the server and the accounts. -->
+                                <StackPanel x:Name="EditorLeft" Grid.Row="1" Grid.Column="0" Spacing="10">
+                                    <TextBlock Text="Server:" Foreground="#A0A0A0"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="16">
+                                        <RadioButton GroupName="ServerType" Content="Retail" IsChecked="{Binding FormIsRetail, Mode=TwoWay}"
+                                                     ToolTip.Tip="Square Enix's servers: POL ID and Square Enix account."/>
+                                        <RadioButton GroupName="ServerType" Content="LandSandBoat (private server)" IsChecked="{Binding FormIsLsb, Mode=TwoWay}"
+                                                     ToolTip.Tip="A LandSandBoat server: account at a server host and port."/>
+                                    </StackPanel>
 
-                            <TextBlock Text="Profile Name:" Foreground="#A0A0A0"/>
-                            <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
+                                    <TextBlock Text="Profile Name:" Foreground="#A0A0A0"/>
+                                    <TextBox Text="{Binding FormProfileName, Mode=TwoWay}" PlaceholderText="e.g. Main Character / Crafting Mule"/>
 
-                            <!-- LandSandBoat: where the server is. -->
-                            <StackPanel Spacing="10" IsVisible="{Binding FormIsLsb}">
-                                <TextBlock Text="Server Host and Port:" Foreground="#A0A0A0"/>
-                                <Grid ColumnDefinitions="*, 8, 90">
-                                    <TextBox Grid.Column="0" Text="{Binding FormServerHost, Mode=TwoWay}" PlaceholderText="e.g. 127.0.0.1 or play.myserver.net"/>
-                                    <TextBox Grid.Column="2" Text="{Binding FormServerPort, Mode=TwoWay}" PlaceholderText="54231" ToolTip.Tip="Auth (login) port, 54231 by default"/>
-                                </Grid>
-                                <Expander Header="Advanced: lobby ports" HorizontalAlignment="Stretch">
-                                    <Grid ColumnDefinitions="Auto, 90, 20, Auto, 90" RowDefinitions="Auto">
-                                        <TextBlock Grid.Column="0" Text="Data port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBox Grid.Column="1" Text="{Binding FormDataPort, Mode=TwoWay}" PlaceholderText="54230" ToolTip.Tip="xi_data port, 54230 by default"/>
-                                        <TextBlock Grid.Column="3" Text="View port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBox Grid.Column="4" Text="{Binding FormViewPort, Mode=TwoWay}" PlaceholderText="54001" ToolTip.Tip="xi_view port, 54001 by default"/>
+                                    <!-- LandSandBoat: where the server is. -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding FormIsLsb}">
+                                        <TextBlock Text="Server Host and Port:" Foreground="#A0A0A0"/>
+                                        <Grid ColumnDefinitions="*, 8, 90">
+                                            <TextBox Grid.Column="0" Text="{Binding FormServerHost, Mode=TwoWay}" PlaceholderText="e.g. 127.0.0.1 or play.myserver.net"/>
+                                            <TextBox Grid.Column="2" Text="{Binding FormServerPort, Mode=TwoWay}" PlaceholderText="54231" ToolTip.Tip="Auth (login) port, 54231 by default"/>
+                                        </Grid>
+                                        <Expander Header="Advanced: lobby ports" HorizontalAlignment="Stretch">
+                                            <Grid ColumnDefinitions="Auto, 90, 20, Auto, 90" RowDefinitions="Auto">
+                                                <TextBlock Grid.Column="0" Text="Data port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBox Grid.Column="1" Text="{Binding FormDataPort, Mode=TwoWay}" PlaceholderText="54230" ToolTip.Tip="xi_data port, 54230 by default"/>
+                                                <TextBlock Grid.Column="3" Text="View port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBox Grid.Column="4" Text="{Binding FormViewPort, Mode=TwoWay}" PlaceholderText="54001" ToolTip.Tip="xi_view port, 54001 by default"/>
+                                            </Grid>
+                                        </Expander>
+                                    </StackPanel>
+
+                                    <!-- Retail: the PlayOnline ID first, then the Square Enix account below. -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding FormIsRetail}">
+                                        <TextBlock Text="POL ID:" Foreground="#A0A0A0"/>
+                                        <TextBox Text="{Binding FormPolId, Mode=TwoWay}" MaxLength="8" PlaceholderText="8-character PlayOnline ID"/>
+                                        <TextBlock Text="POL Password:" Foreground="#A0A0A0"/>
+                                        <TextBox Text="{Binding FormPolPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding FormShowPasswords}"
+                                                 MaxLength="16" PlaceholderText="PlayOnline password"/>
+                                    </StackPanel>
+
+                                    <TextBlock Text="{Binding FormAccountLabel}" Foreground="#A0A0A0"/>
+                                    <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="{Binding FormAccountPlaceholder}"/>
+
+                                    <TextBlock Text="Password:" Foreground="#A0A0A0"/>
+                                    <TextBox Text="{Binding FormPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding FormShowPasswords}" PlaceholderText="Account password"/>
+                                    <CheckBox Content="Show passwords" IsChecked="{Binding FormShowPasswords, Mode=TwoWay}" FontSize="12" Foreground="#A0A0A0"/>
+                                </StackPanel>
+
+                                <!-- Right: two-factor, the login mode and the game folder. -->
+                                <StackPanel x:Name="EditorRight" Grid.Row="1" Grid.Column="2" Spacing="10">
+                                    <TextBlock Text="Two-factor authentication:" Foreground="#A0A0A0"/>
+                                    <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="6">
+                                        <RadioButton GroupName="TwoFactor" Content="None" IsChecked="{Binding FormTwoFactorNone, Mode=TwoWay}"
+                                                     ToolTip.Tip="The account has no authenticator."/>
+                                        <RadioButton GroupName="TwoFactor" Content="Authenticator key (automatic)" IsChecked="{Binding FormTwoFactorKey, Mode=TwoWay}"
+                                                     ToolTip.Tip="Store the authenticator's key; GordianXI computes the code at every login."/>
+                                        <RadioButton GroupName="TwoFactor" Content="Enter code at launch" IsChecked="{Binding FormTwoFactorAtLaunch, Mode=TwoWay}"
+                                                     ToolTip.Tip="Type the current code on the profile's card before launching."/>
+                                    </WrapPanel>
+                                    <TextBox Text="{Binding FormOtpSeed, Mode=TwoWay}" IsVisible="{Binding FormTwoFactorKey}"
+                                             PasswordChar="•" RevealPassword="{Binding FormShowPasswords}"
+                                             PlaceholderText="Base32 authenticator key (the text shown with the setup QR code)"/>
+                                    <TextBlock IsVisible="{Binding FormTwoFactorAtLaunch}" TextWrapping="Wrap" FontSize="12" Foreground="#888888"
+                                               Text="A code box shows on this profile's card in the launch list. Type the current 6-digit code there, then launch; it is used once and never saved."/>
+
+                                    <TextBlock Text="Login:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
+                                    <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="6">
+                                        <RadioButton GroupName="LoginMode" Content="Character Select screen" IsChecked="{Binding FormCharacterSelect, Mode=TwoWay}" ToolTip.Tip="Show the character select screen (create, delete or pick a character), as the retail client does."/>
+                                        <RadioButton GroupName="LoginMode" Content="Auto-Login" IsChecked="{Binding FormAutoLogin, Mode=TwoWay}" ToolTip.Tip="Log straight in as the Character Name or Character Slot below (one of them is required)."/>
+                                    </WrapPanel>
+
+                                    <!-- Auto-Login only: the character select screen picks the character itself. -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding FormAutoLogin}">
+                                        <TextBlock Text="Character Name:" Foreground="#A0A0A0"/>
+                                        <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+
+                                        <TextBlock Text="Character Slot:" Foreground="#A0A0A0"/>
+                                        <ComboBox ItemsSource="{Binding CharacterSlotChoices}" SelectedIndex="{Binding FormCharacterSlot, Mode=TwoWay}" HorizontalAlignment="Stretch" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
+                                    </StackPanel>
+
+                                    <TextBlock Text="Game Folder:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
+                                    <Grid ColumnDefinitions="*, 8, Auto, 6, Auto">
+                                        <TextBox Grid.Column="0" Text="{Binding FormGameDirectory, Mode=TwoWay}"
+                                                 PlaceholderText="Installed FFXI (found automatically)"
+                                                 ToolTip.Tip="Only for a separate FFXI install, such as a private server's own client folder (the folder with VTABLE.DAT and FTABLE.DAT)."/>
+                                        <Button Grid.Column="2" Content="Browse..." Click="OnBrowseGameDirectoryClick" Background="#3E3E42" Foreground="White"/>
+                                        <Button Grid.Column="4" Content="Clear" Command="{Binding ClearGameDirectoryCommand}" Background="#3E3E42" Foreground="White"/>
                                     </Grid>
-                                </Expander>
-                            </StackPanel>
-
-                            <!-- Retail: the PlayOnline ID first, then the Square Enix account below. -->
-                            <StackPanel Spacing="10" IsVisible="{Binding FormIsRetail}">
-                                <TextBlock Text="POL ID:" Foreground="#A0A0A0"/>
-                                <TextBox Text="{Binding FormPolId, Mode=TwoWay}" MaxLength="8" PlaceholderText="8-character PlayOnline ID"/>
-                                <TextBlock Text="POL Password:" Foreground="#A0A0A0"/>
-                                <TextBox Text="{Binding FormPolPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding FormShowPasswords}"
-                                         MaxLength="16" PlaceholderText="PlayOnline password"/>
-                            </StackPanel>
-
-                            <TextBlock Text="{Binding FormAccountLabel}" Foreground="#A0A0A0"/>
-                            <TextBox Text="{Binding FormUsername, Mode=TwoWay}" PlaceholderText="{Binding FormAccountPlaceholder}"/>
-
-                            <TextBlock Text="Password:" Foreground="#A0A0A0"/>
-                            <TextBox Text="{Binding FormPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding FormShowPasswords}" PlaceholderText="Account password"/>
-                            <CheckBox Content="Show passwords" IsChecked="{Binding FormShowPasswords, Mode=TwoWay}" FontSize="12" Foreground="#A0A0A0"/>
-
-                            <TextBlock Text="Two-factor authentication:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                            <StackPanel Orientation="Horizontal" Spacing="16">
-                                <RadioButton GroupName="TwoFactor" Content="None" IsChecked="{Binding FormTwoFactorNone, Mode=TwoWay}"
-                                             ToolTip.Tip="The account has no authenticator."/>
-                                <RadioButton GroupName="TwoFactor" Content="Authenticator key (automatic)" IsChecked="{Binding FormTwoFactorKey, Mode=TwoWay}"
-                                             ToolTip.Tip="Store the authenticator's key; GordianXI computes the code at every login."/>
-                                <RadioButton GroupName="TwoFactor" Content="Enter code at launch" IsChecked="{Binding FormTwoFactorAtLaunch, Mode=TwoWay}"
-                                             ToolTip.Tip="Type the current code on the profile's card before launching."/>
-                            </StackPanel>
-                            <TextBox Text="{Binding FormOtpSeed, Mode=TwoWay}" IsVisible="{Binding FormTwoFactorKey}"
-                                     PasswordChar="•" RevealPassword="{Binding FormShowPasswords}"
-                                     PlaceholderText="Base32 authenticator key (the text shown with the setup QR code)"/>
-                            <TextBlock IsVisible="{Binding FormTwoFactorAtLaunch}" TextWrapping="Wrap" FontSize="12" Foreground="#888888"
-                                       Text="A code box shows on this profile's card in the launch list. Type the current 6-digit code there, then launch; it is used once and never saved."/>
-
-                            <TextBlock Text="Login:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                            <StackPanel Orientation="Horizontal" Spacing="16">
-                                <RadioButton GroupName="LoginMode" Content="Character Select screen" IsChecked="{Binding FormCharacterSelect, Mode=TwoWay}" ToolTip.Tip="Show the character select screen (create, delete or pick a character), as the retail client does."/>
-                                <RadioButton GroupName="LoginMode" Content="Auto-Login" IsChecked="{Binding FormAutoLogin, Mode=TwoWay}" ToolTip.Tip="Log straight in as the Character Name or Character Slot below (one of them is required)."/>
-                            </StackPanel>
-
-                            <!-- Auto-Login only: the character select screen picks the character itself. -->
-                            <StackPanel Spacing="10" IsVisible="{Binding FormAutoLogin}">
-                                <TextBlock Text="Character Name:" Foreground="#A0A0A0"/>
-                                <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
-
-                                <TextBlock Text="Character Slot:" Foreground="#A0A0A0"/>
-                                <ComboBox ItemsSource="{Binding CharacterSlotChoices}" SelectedIndex="{Binding FormCharacterSlot, Mode=TwoWay}" HorizontalAlignment="Stretch" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
-                            </StackPanel>
-
-                            <TextBlock Text="Game Folder:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
-                            <Grid ColumnDefinitions="*, 8, Auto, 6, Auto">
-                                <TextBox Grid.Column="0" Text="{Binding FormGameDirectory, Mode=TwoWay}"
-                                         PlaceholderText="Installed FFXI (found automatically)"
-                                         ToolTip.Tip="Only for a separate FFXI install, such as a private server's own client folder (the folder with VTABLE.DAT and FTABLE.DAT)."/>
-                                <Button Grid.Column="2" Content="Browse..." Click="OnBrowseGameDirectoryClick" Background="#3E3E42" Foreground="White"/>
-                                <Button Grid.Column="4" Content="Clear" Command="{Binding ClearGameDirectoryCommand}" Background="#3E3E42" Foreground="White"/>
+                                </StackPanel>
                             </Grid>
+                        </ScrollViewer>
 
-                            <Separator Margin="0,5,0,5" Background="#3E3E42"/>
-
-                            <Grid ColumnDefinitions="*, Auto">
-                                <Button Grid.Column="0"
-                                        Content="Save Profile"
-                                        Command="{Binding SaveProfileCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center" Background="#512BD4" Foreground="White"/>
-
-                                <Button Grid.Column="1"
-                                        Content="Cancel"
-                                        Command="{Binding ClearFormCommand}"
-                                        Margin="6,0,0,0"
-                                        Background="#3E3E42" Foreground="White"/>
-                            </Grid>
-                        </StackPanel>
-                    </ScrollViewer>
+                        <!-- Save / Cancel: fixed under the form, like the launch bar under the list. -->
+                        <Grid Grid.Row="1" ColumnDefinitions="*, 8, Auto" Margin="0,12,0,0">
+                            <Button Grid.Column="0"
+                                    Content="Save Profile"
+                                    Command="{Binding SaveProfileCommand}"
+                                    Height="40" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    Background="#512BD4" Foreground="White" FontSize="14" FontWeight="Bold"/>
+                            <Button Grid.Column="2"
+                                    Content="Cancel"
+                                    Command="{Binding ClearFormCommand}"
+                                    Height="40" Padding="20,0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    Background="#3E3E42" Foreground="White" FontSize="13"/>
+                        </Grid>
+                    </Grid>
                 </Border>
 
                 <!-- Status line under both views. -->

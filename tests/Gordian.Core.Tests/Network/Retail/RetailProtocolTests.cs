@@ -87,6 +87,29 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("20261022_0", result.CurrentVersion);
         }
 
+        // The first live try: the FFXI check server closed without a full reply. That is a named version-check failure
+        // (which the login then only warns about), not a bare end-of-stream error.
+        [Theory]
+        [InlineData(0)]
+        [InlineData(10)]
+        public async Task Polp_Checker_AShortReplyIsAVersionCheckFailure(int bytesSent)
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var server = Task.Run(async () =>
+            {
+                using var c = await listener.AcceptTcpClientAsync(Ct);
+                var s = c.GetStream();
+                await s.ReadExactlyAsync(new byte[88], Ct);
+                await s.WriteAsync(VersionResponse(1, "30261102_0").AsMemory(0, bytesSent), Ct);
+            });
+            var ex = await Assert.ThrowsAsync<RetailLoginException>(() => PolpVersionChecker.CheckAsync("127.0.0.1", port, PolpPackets.FfxiProduct,
+                PatchConfigFile.PolpVersion(PolpPackets.FfxiProductId, "30261102_0"), Ct));
+            await server;
+            Assert.Equal("version check", ex.Stage);
+        }
+
         [Fact]
         public void PatchCfg_TheInstalledVersionIsTheHighestTag()
         {

@@ -9,6 +9,7 @@
 - Modern dark HUD UI with Avalonia MVVM
 - Encrypted profile storage with master AES key and defensive plaintext migration
 - Account profile management (Add, Edit, Delete, Select for Launch)
+- The profile editor lays its fields out in two columns (the server and accounts on the left; two-factor, login mode and game folder on the right) and drops to one column when the editor is narrower than 860 px (a `ContainerQuery` on the editor border). Save Profile and Cancel stay fixed under the scrolling form, like the launch bar under the profile list.
 - Profile & Global session termination commands (`TerminateCommand`, `TerminateAllCommand`)
 - Live Packet Inspector UI with Hex/ASCII view, pause/clear, and real-time capture
 

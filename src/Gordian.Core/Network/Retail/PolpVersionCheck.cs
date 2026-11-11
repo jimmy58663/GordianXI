@@ -75,14 +75,14 @@ namespace Gordian.Core.Network.Retail
         public static bool TryParseVersionResponse(ReadOnlySpan<byte> frame, out PolpVersionResponse response)
         {
             response = default;
-            if (frame.Length < VersionResponseSize || !frame.Slice(8, 4).SequenceEqual(Magic) ||
+            if (frame.Length < 0x5C || !frame.Slice(8, 4).SequenceEqual(Magic) ||
                 BinaryPrimitives.ReadUInt32LittleEndian(frame[12..]) != TypeVersionResponse)
             {
                 return false;
             }
             int size = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(frame), (uint)frame.Length);
             bool crcOk = size >= HeaderSize && BinaryPrimitives.ReadUInt32LittleEndian(frame[4..]) == PolHashes.Crc32(frame[HeaderSize..size]);
-            int versionLength = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(frame[0x58..]), 11u);
+            int versionLength = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(frame[0x58..]), (uint)(frame.Length - 0x5C));
             response = new PolpVersionResponse(
                 BinaryPrimitives.ReadUInt32LittleEndian(frame[0x14..]),
                 ReadAscii(frame.Slice(0x18, 11)),
@@ -171,11 +171,38 @@ namespace Gordian.Core.Network.Retail
             PolpPackets.WriteVersionRequest(request, product, version);
             await stream.WriteAsync(request, ct).ConfigureAwait(false);
 
-            byte[] response = new byte[PolpPackets.VersionResponseSize];
-            await stream.ReadExactlyAsync(response, ct).ConfigureAwait(false);
-            if (!PolpPackets.TryParseVersionResponse(response, out var parsed))
-                throw new RetailLoginException("version check", $"{host}:{port} did not answer with a POLP version response.");
+            // Read what the server sends: the header, then up to the size it declares, or until it closes.
+            byte[] buffer = new byte[MaxResponse];
+            int total = await ReadUpToAsync(stream, buffer, PolpPackets.HeaderSize, ct).ConfigureAwait(false);
+            if (total >= PolpPackets.HeaderSize)
+            {
+                int declared = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(buffer), (uint)MaxResponse);
+                if (declared > total) total += await ReadUpToAsync(stream, buffer.AsMemory(total), declared - total, ct).ConfigureAwait(false);
+            }
+            var received = buffer.AsSpan(0, total);
+            Diagnostics.GordianLog.Info("RETAIL_LOGIN", $"POLP reply from {host}:{port}: {total} bytes: {Convert.ToHexString(received[..Math.Min(total, 160)])}");
+            if (!PolpPackets.TryParseVersionResponse(received, out var parsed))
+            {
+                string type = total >= PolpPackets.HeaderSize ? $"type {BinaryPrimitives.ReadUInt32LittleEndian(received[12..])}" : "no complete header";
+                throw new RetailLoginException("version check", $"{host}:{port} answered {total} bytes ({type}), not a POLP version response.");
+            }
             return parsed;
+        }
+
+        /// <summary>The largest reply read: a version response is 103 bytes; a patch manifest would be larger and is not read.</summary>
+        private const int MaxResponse = 4096;
+
+        /// <summary>Reads up to <paramref name="count"/> bytes, stopping early when the server closes; returns how many arrived.</summary>
+        private static async Task<int> ReadUpToAsync(NetworkStream stream, Memory<byte> buffer, int count, CancellationToken ct)
+        {
+            int read = 0;
+            while (read < count)
+            {
+                int n = await stream.ReadAsync(buffer[read..count], ct).ConfigureAwait(false);
+                if (n == 0) break;
+                read += n;
+            }
+            return read;
         }
     }
 }

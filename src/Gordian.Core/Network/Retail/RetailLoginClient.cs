@@ -56,7 +56,7 @@ namespace Gordian.Core.Network.Retail
             ObjectDisposedException.ThrowIf(IsDisposed, this);
             var login = new RetailLobbyLogin(_core.GreetingTimestamp, _core.SessionKey, _core.RoutingToken, ClientVersion, ClientChecksum);
             var handoff = new PolLobbyHandoff(login, token => _presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, token));
-            return LobbySession.ConnectAsync(host, port, handoff, _log, TimeSpan.FromSeconds(15), ct);
+            return RetailLoginClient.Stage("FFXI lobby", () => LobbySession.ConnectAsync(host, port, handoff, _log, TimeSpan.FromSeconds(15), ct), ct);
         }
 
         public async ValueTask DisposeAsync()
@@ -111,24 +111,39 @@ namespace Gordian.Core.Network.Retail
             }
 
             Report($"Checking the FFXI version ({version})...");
+            PolpVersionResponse? answer = null;
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 timeout.CancelAfter(VersionCheckTimeout);
-                var answer = await PolpVersionChecker.CheckAsync(PolpPackets.FfxiHost, PolpPackets.FfxiPort, PolpPackets.FfxiProduct,
-                    PatchConfigFile.PolpVersion(PolpPackets.FfxiProductId, version), timeout.Token).ConfigureAwait(false);
-                if (!answer.IsUpToDate)
-                    throw new RetailLoginException("version check",
-                        $"FFXI {version} is not the current version (server status {answer.Status}, current {answer.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
-                        (int)answer.Status);
+                try
+                {
+                    answer = await PolpVersionChecker.CheckAsync(PolpPackets.FfxiHost, PolpPackets.FfxiPort, PolpPackets.FfxiProduct,
+                        PatchConfigFile.PolpVersion(PolpPackets.FfxiProductId, version), timeout.Token).ConfigureAwait(false);
+                }
+                // The login servers do not check that this ran (spec section 9 item 5), so a reply we cannot read only
+                // warns; an explicit "outdated" answer below still stops the login.
+                catch (Exception ex) when (!ct.IsCancellationRequested &&
+                    ex is RetailLoginException or IOException or System.Net.Sockets.SocketException or OperationCanceledException)
+                {
+                    GordianLog.Warning("RETAIL_LOGIN", $"The FFXI version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
+                }
             }
+            if (answer is { IsUpToDate: false } outdated)
+                throw new RetailLoginException("version check",
+                    $"FFXI {version} is not the current version (server status {outdated.Status}, current {outdated.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
+                    (int)outdated.Status);
 
             Report("Logging in to PlayOnline...");
-            var core = await PolCoreSession.LoginAsync(credentials.PolId, credentials.PolPassword, ct).ConfigureAwait(false);
+            var core = await Stage("PlayOnline login", () => PolCoreSession.LoginAsync(credentials.PolId, credentials.PolPassword, ct), ct).ConfigureAwait(false);
             try
             {
                 var presence = new PolPresenceClient(core);
                 Report("Logging in to the Square Enix account...");
-                await presence.AuthenticateAsync(credentials.SquareEnixId, credentials.SquareEnixPassword, credentials.OneTimeCode, ct).ConfigureAwait(false);
+                await Stage("Square Enix login", async () =>
+                {
+                    await presence.AuthenticateAsync(credentials.SquareEnixId, credentials.SquareEnixPassword, credentials.OneTimeCode, ct).ConfigureAwait(false);
+                    return true;
+                }, ct).ConfigureAwait(false);
 
                 // Retail asks for the Viewer's service-1 key next; its use is unknown (spec section 1.1 O14), so a failure only warns.
                 try
@@ -147,6 +162,26 @@ namespace Gordian.Core.Network.Retail
             {
                 await core.DisposeAsync().ConfigureAwait(false);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Runs a stage and names it in a connection failure: a server closing or timing out surfaces as a
+        /// <see cref="RetailLoginException"/> that says which stage it was, not a bare stream error.
+        /// </summary>
+        internal static async Task<T> Stage<T>(string stage, Func<Task<T>> run, CancellationToken ct)
+        {
+            try
+            {
+                return await run().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is EndOfStreamException or IOException or System.Net.Sockets.SocketException)
+            {
+                throw new RetailLoginException(stage, $"The server closed or refused the connection ({ex.Message}).", inner: ex);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                throw new RetailLoginException(stage, "The server did not answer in time.", inner: ex);
             }
         }
 
