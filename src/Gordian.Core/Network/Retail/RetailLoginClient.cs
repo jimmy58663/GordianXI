@@ -10,10 +10,11 @@ namespace Gordian.Core.Network.Retail
 {
     /// <summary>
     /// A retail profile's login inputs: the PlayOnline ID and password, the Square Enix account, the 6-digit
-    /// authenticator code (empty for an account without one) and the FFXI install the client plays with.
+    /// authenticator code (empty for an account without one), the FFXI install the client plays with, and the PlayOnline
+    /// Viewer install whose versions the login reports (null: <c>PlayOnlineViewer</c> beside the FFXI folder).
     /// </summary>
     public sealed record RetailCredentials(string PolId, string PolPassword, string SquareEnixId, string SquareEnixPassword,
-        string OneTimeCode, string FfxiDirectory);
+        string OneTimeCode, string FfxiDirectory, string? ViewerDirectory = null);
 
     /// <summary>
     /// A logged-in PlayOnline account: the Core session (kept open and answering pings while the game runs, spec section
@@ -68,11 +69,10 @@ namespace Gordian.Core.Network.Retail
     }
 
     /// <summary>
-    /// Runs the retail login stages in order (spec v2.1.19 section 3): the FFXI version check against the install's
-    /// patch.cfg, the Core IRC session (gatekeeper, RSA exchange, <c>NICK</c>), the Square Enix account login, and the
-    /// Viewer's service-1 key request. The Viewer version check (stage 1) and the PML pages (stage 7) are skipped: the
-    /// login servers do not check that they ran (spec section 9 item 5, not verified). The lobby follows through
-    /// <see cref="RetailAccountSession.OpenLobbyAsync"/>.
+    /// Runs the retail login stages in retail's order (spec v2.1.19 section 3), so the traffic matches a retail login:
+    /// the PlayOnline Viewer version check, the Core IRC session (gatekeeper, RSA exchange, <c>NICK</c>), the Square Enix
+    /// account login, the Viewer's service-1 key request, the PML pages, and the FFXI version check. The versions come
+    /// from the installs' patch.cfg files. The lobby follows through <see cref="RetailAccountSession.OpenLobbyAsync"/>.
     /// </summary>
     public sealed class RetailLoginClient
     {
@@ -96,7 +96,7 @@ namespace Gordian.Core.Network.Retail
             if (string.IsNullOrWhiteSpace(credentials.SquareEnixId) || string.IsNullOrEmpty(credentials.SquareEnixPassword))
                 throw new RetailLoginException("credentials", "The profile needs a Square Enix ID and password.");
 
-            // The install values first: a missing or outdated install fails before any credentials are sent.
+            // The install values first, read from disk before anything is sent: a missing install fails here.
             string root = credentials.FfxiDirectory;
             string version = PatchConfigFile.ReadInstalledVersion(root)
                 ?? throw new RetailLoginException("version check", $"No FFXI version in '{Path.Combine(root, PatchConfigFile.FileName)}'.");
@@ -109,29 +109,19 @@ namespace Gordian.Core.Network.Retail
             {
                 throw new RetailLoginException("version check", $"Could not read {ClientFileChecksum.FfxiMainFileName} in '{root}': {ex.Message}", inner: ex);
             }
-
-            Report($"Checking the FFXI version ({version})...");
-            PolpVersionResponse? answer = null;
-            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            {
-                timeout.CancelAfter(VersionCheckTimeout);
-                try
-                {
-                    answer = await PolpVersionChecker.CheckAsync(PolpPackets.FfxiHost, PolpPackets.FfxiPort, PolpPackets.FfxiProduct,
-                        PatchConfigFile.PolpVersion(PolpPackets.FfxiProductId, version), timeout.Token).ConfigureAwait(false);
-                }
-                // The login servers do not check that this ran (spec section 9 item 5), so a reply we cannot read only
-                // warns; an explicit "outdated" answer below still stops the login.
-                catch (Exception ex) when (!ct.IsCancellationRequested &&
-                    ex is RetailLoginException or IOException or System.Net.Sockets.SocketException or OperationCanceledException)
-                {
-                    GordianLog.Warning("RETAIL_LOGIN", $"The FFXI version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
-                }
-            }
-            if (answer is { IsUpToDate: false } outdated)
+            string viewerRoot = ResolveViewerDirectory(credentials);
+            string? viewerVersion = PatchConfigFile.ReadInstalledVersion(viewerRoot);
+            string? viewerFileVersion = PolPmlClient.ReadViewerVersion(viewerRoot);
+            if (viewerVersion == null || viewerFileVersion == null)
                 throw new RetailLoginException("version check",
-                    $"FFXI {version} is not the current version (server status {outdated.Status}, current {outdated.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
-                    (int)outdated.Status);
+                    $"No PlayOnline Viewer install in '{viewerRoot}' ({PatchConfigFile.FileName} and {PolPmlClient.VersionFileName}). The login sends the Viewer's version as retail does; set the Viewer folder or install PlayOnline.");
+
+            // Retail's order (spec v2.1.19 section 3): the Viewer version check, the Core session, the Square Enix login,
+            // the Viewer's service-1 key, the PML pages, then the FFXI version check. Every stage runs, even those whose
+            // answers the client does not need, so the traffic matches a retail login.
+            Report($"Checking the PlayOnline Viewer version ({viewerVersion})...");
+            await CheckVersionAsync("PlayOnline Viewer", viewerVersion, PolpPackets.ViewerHost, PolpPackets.ViewerPort, PolpPackets.ViewerProduct,
+                PolpPackets.ViewerProductId, ct).ConfigureAwait(false);
 
             Report("Logging in to PlayOnline...");
             var core = await Stage("PlayOnline login", () => PolCoreSession.LoginAsync(credentials.PolId, credentials.PolPassword, ct), ct).ConfigureAwait(false);
@@ -156,6 +146,28 @@ namespace Gordian.Core.Network.Retail
                     GordianLog.Warning("RETAIL_LOGIN", $"The Viewer key request failed ({ex.Message}); continuing.");
                 }
 
+                // Stage 7: the PML pages. Maintenance shows only here (the Play button flag), so it stops the login; any
+                // other failure only warns, since the later stages do not depend on the pages.
+                Report("Opening the PlayOnline pages...");
+                PmlLaunchStatus? launch = null;
+                try
+                {
+                    using var pmlTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    pmlTimeout.CancelAfter(VersionCheckTimeout);
+                    launch = await Stage("PlayOnline pages", () => PolPmlClient.VisitAsync(core, viewerFileVersion, pmlTimeout.Token), ct).ConfigureAwait(false);
+                }
+                catch (RetailLoginException ex) when (!ct.IsCancellationRequested)
+                {
+                    GordianLog.Warning("RETAIL_LOGIN", $"{ex.Message} Continuing.");
+                }
+                if (launch is { PlayEnabled: false } closed)
+                    throw new RetailLoginException("PlayOnline pages",
+                        $"FINAL FANTASY XI is not open for play{(string.IsNullOrWhiteSpace(closed.Status) ? " (maintenance)" : $": {closed.Status}")}.");
+
+                Report($"Checking the FFXI version ({version})...");
+                await CheckVersionAsync("FFXI", version, PolpPackets.FfxiHost, PolpPackets.FfxiPort, PolpPackets.FfxiProduct,
+                    PolpPackets.FfxiProductId, ct).ConfigureAwait(false);
+
                 return new RetailAccountSession(core, presence, version, checksum, PacketLog);
             }
             catch
@@ -163,6 +175,48 @@ namespace Gordian.Core.Network.Retail
                 await core.DisposeAsync().ConfigureAwait(false);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// The PlayOnline Viewer's install root: the profile's, else <c>PlayOnlineViewer</c> beside the FFXI folder (both
+        /// sit under <c>PlayOnline\SquareEnix</c> in a standard install).
+        /// </summary>
+        internal static string ResolveViewerDirectory(RetailCredentials credentials)
+        {
+            if (!string.IsNullOrWhiteSpace(credentials.ViewerDirectory)) return credentials.ViewerDirectory.Trim();
+            string ffxi = credentials.FfxiDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Path.Combine(Path.GetDirectoryName(ffxi) ?? ffxi, DefaultViewerFolderName);
+        }
+
+        /// <summary>The Viewer's folder name in a standard install.</summary>
+        public const string DefaultViewerFolderName = "PlayOnlineViewer";
+
+        /// <summary>
+        /// One POLP version check (spec section 4.1). A reply that cannot be read only warns; an explicit "outdated"
+        /// answer stops the login.
+        /// </summary>
+        private static async Task CheckVersionAsync(string product, string installed, string host, int port, string productCode, string productId, CancellationToken ct)
+        {
+            PolpVersionResponse? answer = null;
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                timeout.CancelAfter(VersionCheckTimeout);
+                try
+                {
+                    answer = await PolpVersionChecker.CheckAsync(host, port, productCode, PatchConfigFile.PolpVersion(productId, installed), timeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested &&
+                    ex is RetailLoginException or IOException or System.Net.Sockets.SocketException or OperationCanceledException)
+                {
+                    GordianLog.Warning("RETAIL_LOGIN", $"The {product} version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
+                }
+            }
+            if (answer is { IsUpToDate: false } outdated)
+                throw new RetailLoginException("version check",
+                    $"{product} {installed} is not the current version (server status {outdated.Status}, current {outdated.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
+                    (int)outdated.Status);
+            if (answer is { } ok)
+                GordianLog.Info("RETAIL_LOGIN", $"{product} version {installed} accepted (current {ok.CurrentVersion}).");
         }
 
         /// <summary>

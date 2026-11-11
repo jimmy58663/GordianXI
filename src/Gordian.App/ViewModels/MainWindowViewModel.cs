@@ -1894,7 +1894,7 @@ namespace Gordian.App.ViewModels
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] {message}");
 
             var credentials = new RetailCredentials(profile.PolId.Trim().ToUpperInvariant(), profile.PolPassword, profile.Username.Trim(),
-                profile.Password, TakeOneTimeCode(profile), root);
+                profile.Password, TakeOneTimeCode(profile), root, GameDirectoryDetector.DetectViewerDirectory());
             var account = await client.LoginAsync(credentials).ConfigureAwait(false);
             try
             {
