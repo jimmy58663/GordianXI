@@ -133,6 +133,24 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>The <c>PONG</c> answer to a decrypted <c>PING</c> line, or null when the line is not a ping.</summary>
+        /// <summary>
+        /// A line's type for diagnostics, never its contents: its numeric ("001"), its command ("MODE", "NOTICE",
+        /// "PING"), or "unreadable" when it does not decrypt to printable text (a wrong session key or IV).
+        /// </summary>
+        public static string DescribeLine(string line)
+        {
+            string text = line.TrimEnd('\r', '\n');
+            foreach (char c in text)
+            {
+                if (c < 0x20 || c > 0x7E) return $"unreadable ({text.Length} bytes)";
+            }
+            if (TryParseNumeric(text, out _, out int numeric, out _)) return numeric.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
+            string[] words = text.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return "empty";
+            string command = words[0].StartsWith(':') && words.Length > 1 ? words[1] : words[0];
+            return command.Length <= 12 && command.All(char.IsAsciiLetterUpper) ? command : "other";
+        }
+
         public static string? AnswerPing(string line)
         {
             string command = line;
@@ -202,13 +220,45 @@ namespace Gordian.Core.Network.Retail
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(Timeout);
             var token = timeout.Token;
+            // Where the login is, and what came back after NICK (line types only, never their contents): a timeout
+            // reports both, so the status line shows which step the server stopped answering at.
+            var progress = new LoginProgress();
+            try
+            {
+                return await LoginStepsAsync(polId, polPassword, gatekeeperHost, gatekeeperPort, progress, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new RetailLoginException("PlayOnline login",
+                    $"No answer within {Timeout.TotalSeconds:0} s while {progress.Step}." +
+                    (progress.Replies.Count > 0 ? $" Lines received after NICK: {string.Join(", ", progress.Replies)}." : string.Empty));
+            }
+        }
 
+        /// <summary>The step a login is on and the reply types seen after <c>NICK</c>, for its timeout message.</summary>
+        private sealed class LoginProgress
+        {
+            public string Step = "connecting to the gatekeeper";
+            public readonly List<string> Replies = new();
+
+            public void Enter(string step)
+            {
+                Step = step;
+                GordianLog.Info("RETAIL_LOGIN", $"Core session: {step}.");
+            }
+        }
+
+        private static async Task<PolCoreSession> LoginStepsAsync(string polId, string polPassword, string gatekeeperHost, int gatekeeperPort,
+            LoginProgress progress, CancellationToken token)
+        {
             // Stage 2: the gatekeeper sends one redirect line and closes.
             string redirectIp;
             PolCoreToken redirect;
             using (var gate = new TcpClient())
             {
+                progress.Enter($"connecting to the gatekeeper {gatekeeperHost}:{gatekeeperPort}");
                 await gate.ConnectAsync(gatekeeperHost, gatekeeperPort, token).ConfigureAwait(false);
+                progress.Enter("waiting for the gatekeeper's redirect");
                 var reader = new LineReader(gate.GetStream());
                 string line = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The gatekeeper closed without a redirect.");
                 string redirectToken = PolCoreProtocol.ReadGreetingToken(line, out redirectIp)
@@ -222,9 +272,11 @@ namespace Gordian.Core.Network.Retail
             var client = new TcpClient();
             try
             {
+                progress.Enter($"connecting to the session host {redirectIp}:{redirect.RedirectPort}");
                 await client.ConnectAsync(redirectIp, redirect.RedirectPort, token).ConfigureAwait(false);
                 var stream = client.GetStream();
                 var reader = new LineReader(stream);
+                progress.Enter("waiting for the session host's greeting");
 
                 string greeting = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed before its greeting.");
                 string greetingToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
@@ -232,6 +284,7 @@ namespace Gordian.Core.Network.Retail
 
                 var rsa = new PolRsaKeyExchange();
                 await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(rsa.Modulus)), token).ConfigureAwait(false);
+                progress.Enter("waiting for the key exchange reply to USER");
 
                 string keyLine = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
                 string keyToken = PolCoreProtocol.ReadGreetingToken(keyLine, out _) ?? throw Fail($"Unexpected key exchange reply: {keyLine}");
@@ -249,6 +302,7 @@ namespace Gordian.Core.Network.Retail
                 byte[] nick = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine(polId, polPassword, greetingToken));
                 cipher.TransformFrame(nick);
                 await WriteAsync(stream, nick, token).ConfigureAwait(false);
+                progress.Enter("waiting for the welcome after NICK (001, then MODE)");
 
                 // The welcome: 300, 001 (carries nothing the client uses), 422, MODE, then presence NOTICEs (section 4.2.2 step 6).
                 bool welcomed = false;
@@ -258,6 +312,9 @@ namespace Gordian.Core.Network.Retail
                     if (raw == null) throw Fail("The session host closed before the welcome (check the POL ID and password).");
                     cipher.TransformFrame(raw);
                     string line = Encoding.ASCII.GetString(raw);
+                    string kind = PolCoreProtocol.DescribeLine(line);
+                    progress.Replies.Add(kind);
+                    GordianLog.Info("RETAIL_LOGIN", $"Core session: received {kind} after NICK.");
                     if (PolCoreProtocol.TryParseNumeric(line, out _, out int numeric, out _))
                     {
                         if (numeric == 1) welcomed = true;

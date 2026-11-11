@@ -243,16 +243,16 @@ namespace Gordian.Core.Tests.Network.Retail
             public TcpClient? Connection;
             public Task Run { get; }
 
-            public FakeCore(int refuseWith = 0, bool ping = false)
+            public FakeCore(int refuseWith = 0, bool ping = false, bool silentAfterNick = false)
             {
                 _gate.Start();
                 _host.Start();
-                Run = Task.Run(() => Serve(refuseWith, ping));
+                Run = Task.Run(() => Serve(refuseWith, ping, silentAfterNick));
             }
 
             private static async Task Line(NetworkStream s, string text) => await s.WriteAsync(Encoding.ASCII.GetBytes(text + "\r\n"), Ct);
 
-            private async Task Serve(int refuseWith, bool ping)
+            private async Task Serve(int refuseWith, bool ping, bool silentAfterNick)
             {
                 ushort hostPort = (ushort)((IPEndPoint)_host.LocalEndpoint).Port;
                 using (var g = await _gate.AcceptTcpClientAsync(Ct))
@@ -288,6 +288,12 @@ namespace Gordian.Core.Tests.Network.Retail
                     return;
                 }
                 await Encrypted(":127.0.0.1 300 * TOKEN");
+                if (silentAfterNick)
+                {
+                    // A server that rejects NICK without a numeric: it goes quiet.
+                    await Task.Delay(Timeout.Infinite, Ct).ContinueWith(_ => { });
+                    return;
+                }
                 await Encrypted($":127.0.0.1 001 {PolCoreBase64.Encode(new byte[] { 0, 0, 0, 1, 0, 0 })}abcd");
                 await Encrypted(":127.0.0.1 422 US77G53VV :abcd");
                 await Encrypted(":US77G53VV MODE US77G53VV :+iLiv");
@@ -338,6 +344,34 @@ namespace Gordian.Core.Tests.Network.Retail
             await fake.Run;
             Assert.Equal("PONG :keepalive", fake.ReceivedPong);
         }
+
+        [Fact]
+        public async Task CoreSession_ASilentServerAfterNickNamesTheStepAndTheRepliesSeen()
+        {
+            await using var fake = new FakeCore(silentAfterNick: true);
+            var saved = PolCoreSession.Timeout;
+            PolCoreSession.Timeout = TimeSpan.FromSeconds(2);
+            try
+            {
+                var ex = await Assert.ThrowsAsync<RetailLoginException>(() => PolCoreSession.LoginAsync("ABCD1234", "password", Ct, "127.0.0.1", fake.GatePort));
+                Assert.Equal("PlayOnline login", ex.Stage);
+                Assert.Contains("welcome after NICK", ex.Message);
+                Assert.Contains("Lines received after NICK: 300.", ex.Message);
+                Assert.DoesNotContain("TOKEN", ex.Message); // line types only, never contents
+            }
+            finally
+            {
+                PolCoreSession.Timeout = saved;
+            }
+        }
+
+        [Theory]
+        [InlineData(":127.0.0.1 001 abc", "001")]
+        [InlineData(":US77G53VV MODE US77G53VV :+iLiv", "MODE")]
+        [InlineData("PING :keepalive", "PING")]
+        [InlineData("ÿgarbage", "unreadable (9 bytes)")]
+        public void CoreSession_DescribeLineGivesTheTypeOnly(string line, string expected) =>
+            Assert.Equal(expected, PolCoreProtocol.DescribeLine(line));
 
         [Fact]
         public async Task CoreSession_ARefusalNumericFailsWithItsCode()
