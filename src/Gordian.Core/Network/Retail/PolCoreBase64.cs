@@ -69,27 +69,80 @@ namespace Gordian.Core.Network.Retail
     }
 
     /// <summary>
-    /// The <c>NICK</c> line's client metadata: a 32-character body that every retail capture sends unchanged (24 bytes
-    /// in <see cref="PolCoreBase64"/>, starting <c>00 00 00 02 01 01</c>), then a 4-character checksum of the line
-    /// before it.
+    /// The <c>NICK</c> line's client metadata: a 32-character body (24 bytes in <see cref="PolCoreBase64"/>) computed
+    /// from the POL ID, then a 4-character checksum of the line before it. The body is <c>00 00 00 02 01</c>, the region
+    /// byte (1 for a US English client), 10 zero bytes, and the first 8 bytes of MD5(64 zero bytes + the POL ID token + 10
+    /// zero bytes); the POL ID token is 8 bytes the POL ID's characters are mixed into (<see cref="PolIdToken"/>).
     /// <para>
-    /// Referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.2.2 step 5
-    /// (the constant body and the suffix rule).
+    /// Referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.2.2 step 5
+    /// and test vector 16.
     /// </para>
     /// </summary>
     public static class PolClientMeta
     {
-        /// <summary>The constant 32-character body.</summary>
-        public const string Body = "TTTTTAISTTTTTTTTTTTTTHBy5pjMnc0G"; // the capture value is redacted from history; this is the synthetic ABCD1234 body
-
+        public const int BodyBytes = 24;
         public const int SuffixLength = 4;
+
+        /// <summary>Byte 5 of the body: the client's region (1 = US / English, the only value captured).</summary>
+        public const byte RegionUsEnglish = 0x01;
+
+        /// <summary>The 32-character body for a POL ID.</summary>
+        public static string Body(string polId, byte region = RegionUsEnglish)
+        {
+            Span<byte> body = stackalloc byte[BodyBytes];
+            body.Clear();
+            body[3] = 0x02;
+            body[4] = 0x01;
+            body[5] = region;
+            Span<byte> buffer = stackalloc byte[64 + 8 + 10];
+            buffer.Clear();
+            PolIdToken(polId).CopyTo(buffer[64..]);
+            Span<byte> digest = stackalloc byte[16];
+            System.Security.Cryptography.MD5.HashData(buffer, digest);
+            digest[..8].CopyTo(body[16..]);
+            return PolCoreBase64.Encode(body);
+        }
+
+        /// <summary>
+        /// The 8-byte POL ID token: the ID's 8 ASCII characters (upper case) XOR-chained with bit 0x80 set where bit 0x02
+        /// is, then a byte sum and a product (64-bit), and a 32-bit LCG stepped (byte - 0x30) times per byte above 0x30;
+        /// LE32((sum + product) low word XOR lcg) + LE32(its high word).
+        /// </summary>
+        public static byte[] PolIdToken(string polId)
+        {
+            ArgumentNullException.ThrowIfNull(polId);
+            string id = polId.Trim().ToUpperInvariant();
+            if (!PolIdEncoding.IsValid(id)) throw new ArgumentException("A POL ID is 4 letters followed by 4 digits.", nameof(polId));
+            Span<byte> b = stackalloc byte[8];
+            for (int i = 0; i < 8; i++) b[i] = (byte)id[i];
+            for (int i = 1; i < 8; i++)
+            {
+                b[i] ^= b[i - 1];
+                if ((b[i] & 0x02) != 0) b[i] |= 0x80;
+            }
+
+            ulong sum = 1, product = 0x00007048860DDF79UL;
+            for (int i = 1; i < 8; i++)
+            {
+                sum += b[i];
+                product = unchecked(product * ((ulong)b[i - 1] * b[i]));
+            }
+
+            uint lcg = 0;
+            for (int i = 0; i < 8; i++)
+                for (int step = 0x30; step < b[i]; step++) lcg = unchecked(lcg * 0x425F0CBD + 0x7F4F);
+
+            ulong total = unchecked(sum + product);
+            var token = new byte[8];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(token, (uint)total ^ lcg);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(token.AsSpan(4), (uint)(total >> 32));
+            return token;
+        }
 
         /// <summary>
         /// The suffix over the line bytes before it (<c>"NICK "</c> through the body, 80 bytes): the sum of those bytes
         /// read as little-endian 32-bit words (any last 1-3 bytes as a zero-padded word), as four 6-bit slices from bit 31
         /// down (shifts 26, 20, 14, 8), each plus 0x3F.
-        /// <b>Differs from spec v2.1.18:</b> section 4.2.2 step 5 says a sum of single bytes, but 80 ASCII bytes cannot
-        /// reach its own example sum 0xAA1353EA; the word sum gives exactly that and the captured suffix.
         /// </summary>
         public static string Suffix(ReadOnlySpan<byte> lineBeforeSuffix)
         {

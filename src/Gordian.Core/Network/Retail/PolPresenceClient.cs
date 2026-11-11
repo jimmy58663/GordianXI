@@ -51,7 +51,7 @@ namespace Gordian.Core.Network.Retail
     /// Builders and parsers for the PlayOnline presence / account servers on <c>:51220</c>: the plaintext hello and
     /// challenge, the encrypted request header and payloads, and the encrypted response header.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.3.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.3.
     /// </para>
     /// </summary>
     public static class PolPresencePackets
@@ -69,6 +69,9 @@ namespace Gordian.Core.Network.Retail
 
         public const byte ChallengeType = 0x81;
         public const byte ResponseType = 0x83;
+
+        /// <summary>The <c>0x83</c> status a wrong Square Enix ID got (capture #10; other codes are unknown).</summary>
+        public const byte StatusBadAccount = 0x6F;
         public const byte FrameType = 0x02;
         public const byte CategoryAccount = 0x04;
         public const byte CommandSessionKey = 0x05;
@@ -80,10 +83,10 @@ namespace Gordian.Core.Network.Retail
         /// <summary>The <c>0x04/0x05</c> flag that asks for the FFXI lobby key.</summary>
         public const ushort KeyFlagsLobby = 1;
 
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the Viewer's service-1 request (spec v2.1.18 section 4.3.5).</summary>
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the Viewer's service-1 request (spec v2.1.19 section 4.3.5).</summary>
         public const byte ServiceTypeViewer = 1;
 
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v2.1.18 section 4.3.5).</summary>
+        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v2.1.19 section 4.3.5).</summary>
         public const byte ServiceTypeLobby = 0;
 
         /// <summary>
@@ -107,8 +110,11 @@ namespace Gordian.Core.Network.Retail
             return true;
         }
 
-        /// <summary>The plaintext 40-byte request header (encrypted by the caller with <c>reset_iv = 1</c>).</summary>
-        public static void WriteRequestHeader(Span<byte> header, byte category, byte command, int payloadLength, PolCoreTicket ticket, uint challengeSeed)
+        /// <summary>
+        /// The plaintext 40-byte request header (encrypted by the caller with <c>reset_iv = 1</c>): frame type, category,
+        /// command, payload length, 12 zero bytes at +0x0C, and the credential digest at +0x18.
+        /// </summary>
+        public static void WriteRequestHeader(Span<byte> header, byte category, byte command, int payloadLength, string polId, string polPassword, uint challengeSeed)
         {
             header = header[..RequestHeaderSize];
             header.Clear();
@@ -116,8 +122,7 @@ namespace Gordian.Core.Network.Retail
             header[1] = category;
             header[2] = command;
             BinaryPrimitives.WriteUInt32LittleEndian(header[4..], (uint)payloadLength);
-            ticket.AccountToken.CopyTo(header[0x0C..]);
-            PolHashes.ChallengeDigest(ticket.SessionSecret, ticket.AccountToken, challengeSeed).CopyTo(header[0x18..]);
+            PolHashes.ChallengeDigest(polId, polPassword, challengeSeed).CopyTo(header[0x18..]);
         }
 
         /// <summary>The plaintext 64-byte <c>0x04/0x07</c> Square Enix account payload, checksum included.</summary>
@@ -134,7 +139,7 @@ namespace Gordian.Core.Network.Retail
 
         /// <summary>
         /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included. Retail sends ClientNonce 0 on
-        /// most requests and the server accepts it (spec v2.1.18 section 4.3.5).
+        /// most requests and the server accepts it (spec v2.1.19 section 4.3.5).
         /// </summary>
         public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, uint clientNonce = 0)
         {
@@ -212,7 +217,7 @@ namespace Gordian.Core.Network.Retail
             var stream = client.GetStream();
 
             byte[] hello = new byte[PolPresencePackets.HelloSize];
-            PolPresencePackets.WriteHello(hello, _core.Ticket.RoutingToken);
+            PolPresencePackets.WriteHello(hello, _core.RoutingToken);
             await stream.WriteAsync(hello, token).ConfigureAwait(false);
 
             byte[] greeting = new byte[PolPresencePackets.ChallengeSize];
@@ -222,7 +227,7 @@ namespace Gordian.Core.Network.Retail
 
             // Header (reset_iv = 1) and payload (continuing) as one write.
             byte[] request = new byte[PolPresencePackets.RequestHeaderSize + payload.Length];
-            PolPresencePackets.WriteRequestHeader(request, PolPresencePackets.CategoryAccount, command, payload.Length, _core.Ticket, seed);
+            PolPresencePackets.WriteRequestHeader(request, PolPresencePackets.CategoryAccount, command, payload.Length, _core.PolId, _core.PolPassword, seed);
             payload.CopyTo(request, PolPresencePackets.RequestHeaderSize);
             _core.Cipher.TransformFrame(request);
             await stream.WriteAsync(request, token).ConfigureAwait(false);
@@ -234,6 +239,8 @@ namespace Gordian.Core.Network.Retail
             var header = PolPresencePackets.ReadResponseHeader(plainHeader);
             if (header.Type != PolPresencePackets.ResponseType)
                 throw new RetailLoginException(stage, $"Unexpected response type 0x{header.Type:X2}.");
+            if (header.Status == PolPresencePackets.StatusBadAccount)
+                throw new RetailLoginException(stage, "The Square Enix ID or password was not accepted.", header.Status);
             if (header.Status != 0)
                 throw new RetailLoginException(stage, $"The server refused the request (status 0x{header.Status:X2}).", header.Status);
 

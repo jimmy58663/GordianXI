@@ -10,7 +10,7 @@ namespace Gordian.Core.Network.Retail
     /// packing, no padding). The Core IRC gatekeeper redirect, the session host's greeting and the <c>001</c> payload use
     /// it.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, sections
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, sections
     /// 4.2.1 and 4.2.2 (test vector 12).
     /// </para>
     /// </summary>
@@ -79,7 +79,7 @@ namespace Gordian.Core.Network.Retail
     /// share it. On the wire it is 40 <see cref="PolBase32"/> characters and a 4-character checksum suffix the client
     /// ignores.
     /// <para>
-    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.2.1
+    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.2.1
     /// (test vector 12) and section 4.2.2 step 1.
     /// </para>
     /// </summary>
@@ -88,11 +88,26 @@ namespace Gordian.Core.Network.Retail
     /// <param name="RedirectAddress">+0x08 (BE): the Core IRC session host (meaningful in the redirect).</param>
     /// <param name="RedirectPort">+0x0C (BE): the session host's TCP port (meaningful in the redirect).</param>
     /// <param name="ClientPort">+0x14 (BE): the client's port on this connection as the server sees it.</param>
+    /// <remarks>Layout referenced from spec v2.1.19 as well: the redirect can name a host on port 51240 too.</remarks>
     public readonly record struct PolCoreToken(uint ServerTimestamp, IPAddress ClientAddress, IPAddress RedirectAddress, ushort RedirectPort, ushort ClientPort)
     {
         public const int BodyLength = 40;
         public const int SuffixLength = 4;
         public const int PayloadLength = 25;
+
+        /// <summary>
+        /// The 6-byte routing token: the client's port (LE16) then its IPv4 address (LE32), both from this token. Built
+        /// from the session host's greeting, it goes into the <c>:51220</c> hello, the AuthCode context and the PML
+        /// userName (spec v2.1.19 section 4.2.2 step 6).
+        /// </summary>
+        public byte[] RoutingToken()
+        {
+            var token = new byte[6];
+            BinaryPrimitives.WriteUInt16LittleEndian(token, ClientPort);
+            byte[] ip = ClientAddress.GetAddressBytes();
+            for (int i = 0; i < 4; i++) token[2 + i] = ip[3 - i];
+            return token;
+        }
 
         /// <summary>Decodes a token's 40-character body; the suffix after it is not read.</summary>
         public static PolCoreToken Parse(string token)
@@ -114,7 +129,7 @@ namespace Gordian.Core.Network.Retail
     /// The 9-character form of a POL ID sent in <c>NICK</c>: <c>'U'</c> and the ID run through a reversible bit
     /// diffusion, both sides written in a custom Base36 alphabet.
     /// <para>
-    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.2.2
+    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.2.2
     /// step 5 and test vector 1.
     /// </para>
     /// </summary>

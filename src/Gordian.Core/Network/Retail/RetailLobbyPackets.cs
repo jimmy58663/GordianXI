@@ -15,7 +15,7 @@ namespace Gordian.Core.Network.Retail
 
     /// <summary>
     /// The retail lobby's key modifier: seeded by the server's <c>0x05</c>; each request that carries a session hash uses
-    /// M0 + 1 + 2n, n being the number of such requests already sent (spec v2.1.18 section 5.5). With no character
+    /// M0 + 1 + 2n, n being the number of such requests already sent (spec v2.1.19 section 5.5). With no character
     /// management that makes 0x1F +1, 0x24 +3, 0x07 +5. The map key is the 0x07 modifier + 4 (section 5.6).
     /// </summary>
     public sealed class RetailLobbyModifier
@@ -48,7 +48,7 @@ namespace Gordian.Core.Network.Retail
     /// lists come back on this connection. Layouts LandSandBoat shares (the 0x20 character list, the 0x23 world list) are
     /// read with <see cref="LobbyPackets"/>.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, sections 4.5,
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, sections 4.5,
     /// 4.6, 5.5 and 5.6 (test vectors 5, 8 and 11).
     /// </para>
     /// </summary>
@@ -198,7 +198,7 @@ namespace Gordian.Core.Network.Retail
     /// The retail map server's first datagram: 136 unencrypted bytes, a 28-byte transport header, the 92-byte C2S 0x00A
     /// and the MD5 of that packet.
     /// <para>
-    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.6.1
+    /// Layout referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.6.1
     /// and test vector 8.
     /// </para>
     /// </summary>

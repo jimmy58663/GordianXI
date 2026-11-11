@@ -9,7 +9,7 @@ namespace Gordian.Core.Network.Retail
 {
     /// <summary>
     /// The checksums and credential hashes of retail login. Protocol referenced from the GordianXI retail login spec,
-    /// docs/network/retail-login-spec.md v2.1.18: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
+    /// docs/network/retail-login-spec.md v2.1.19: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
     /// 5.3 (additive checksum), 5.4 (Square Enix password), 5.5 (lobby session hash), 5.6 (map key) and 5.7 (x-MD5-pol);
     /// test vectors in section 5.8.
     /// </summary>
@@ -64,10 +64,6 @@ namespace Gordian.Core.Network.Retail
         public static bool VerifyAdditive(ReadOnlySpan<byte> payload) =>
             payload.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(payload[^4..]) == AdditiveChecksum(payload[..^4]);
 
-        /// <summary>The POL password as sent in <c>NICK</c>: MD5 of its ASCII bytes as 32 lowercase hex digits.</summary>
-        public static string PolPasswordHex(string polPassword) =>
-            Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(polPassword ?? string.Empty)));
-
         /// <summary>
         /// The time-bound Square Enix password digest: SHA-1(lowercase hex SHA-1(password) + the server time rounded down to
         /// the minute, in decimal).
@@ -79,14 +75,19 @@ namespace Gordian.Core.Network.Retail
             return SHA1.HashData(Encoding.ASCII.GetBytes(h1 + minute));
         }
 
-        /// <summary>The <c>:51220</c> request header's challenge digest: MD5(SessionSecret[8] + AccountToken[12] + LE32(seed)).</summary>
-        public static byte[] ChallengeDigest(ReadOnlySpan<byte> sessionSecret, ReadOnlySpan<byte> accountToken, uint challengeSeed)
+        /// <summary>
+        /// The <c>:51220</c> request header's digest: MD5(POL ID (8 ASCII characters) + the plaintext POL password +
+        /// LE32(this connection's challenge seed)) (spec v2.1.19 section 4.3.3, test vector 15). Whether retail changes the
+        /// case of either first is not known; issued POL IDs are upper case, so the ID is sent upper case.
+        /// </summary>
+        public static byte[] ChallengeDigest(string polId, string polPassword, uint challengeSeed)
         {
-            if (sessionSecret.Length != 8 || accountToken.Length != 12) throw new ArgumentException("The session secret is 8 bytes and the account token 12.");
-            Span<byte> buffer = stackalloc byte[24];
-            sessionSecret.CopyTo(buffer);
-            accountToken.CopyTo(buffer[8..]);
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer[20..], challengeSeed);
+            byte[] id = Encoding.ASCII.GetBytes(polId.Trim().ToUpperInvariant());
+            byte[] pass = Encoding.ASCII.GetBytes(polPassword ?? string.Empty);
+            byte[] buffer = new byte[id.Length + pass.Length + 4];
+            id.CopyTo(buffer, 0);
+            pass.CopyTo(buffer, id.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(id.Length + pass.Length), challengeSeed);
             return MD5.HashData(buffer);
         }
 
@@ -108,8 +109,12 @@ namespace Gordian.Core.Network.Retail
         /// The x-MD5-pol digest's <c>userName</c>: the client's address as the server sees it, <c>"a.b.c.d:port"</c> in
         /// decimal, in <see cref="PolCoreBase64"/>.
         /// </summary>
-        public static string PmlUserName(PolCoreTicket ticket) =>
-            PolCoreBase64.Encode(Encoding.ASCII.GetBytes($"{ticket.ClientAddress}:{ticket.ClientPort.ToString(CultureInfo.InvariantCulture)}"));
+        public static string PmlUserName(ReadOnlySpan<byte> routingToken)
+        {
+            ushort port = BinaryPrimitives.ReadUInt16LittleEndian(routingToken);
+            string address = $"{routingToken[5]}.{routingToken[4]}.{routingToken[3]}.{routingToken[2]}";
+            return PolCoreBase64.Encode(Encoding.ASCII.GetBytes($"{address}:{port.ToString(CultureInfo.InvariantCulture)}"));
+        }
 
         /// <summary>
         /// The x-MD5-pol digest response (not RFC 2617: no cnonce, nc or qop, and the nonce comes last):

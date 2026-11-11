@@ -10,7 +10,7 @@ namespace Gordian.Core.Network.Retail
     /// exponent 65535). The client sends its modulus N; the server answers with C = M^e mod N, where M is a PKCS#1 v1.5
     /// type-2 block around the 8-byte session key. N goes out little-endian and C comes back big-endian.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.2.2
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.2.2
     /// steps 2-4, section 5.1 item 1 and test vector 10.
     /// </para>
     /// </summary>

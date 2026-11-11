@@ -14,26 +14,9 @@ using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.Network.Retail
 {
-    /// <summary>What the Core IRC <c>001</c> reply hands the rest of the login (spec v2.1.18 section 4.2.2, step 6).</summary>
-    /// <param name="RoutingToken">6 bytes: the client's address as the server sees it (port LE, then IPv4 LE). Sent in every <c>:51220</c> hello.</param>
-    /// <param name="AccountToken">12 bytes, in every <c>:51220</c> request header.</param>
-    /// <param name="SessionSecret">8 bytes, in the <c>:51220</c> challenge digest.</param>
-    /// <param name="FfxiAccountId">The FFXI account id.</param>
-    public sealed record PolCoreTicket(byte[] RoutingToken, byte[] AccountToken, byte[] SessionSecret, uint FfxiAccountId)
-    {
-        /// <summary>The decoded <c>001</c> payload length.</summary>
-        public const int PayloadLength = 30;
-
-        /// <summary>The client's public port from the routing token.</summary>
-        public ushort ClientPort => BinaryPrimitives.ReadUInt16LittleEndian(RoutingToken);
-
-        /// <summary>The client's public IPv4 address from the routing token (stored little-endian).</summary>
-        public IPAddress ClientAddress => new([RoutingToken[5], RoutingToken[4], RoutingToken[3], RoutingToken[2]]);
-    }
-
     /// <summary>
     /// The server's clock as the login sees it: the Unix time in the gatekeeper's redirect token plus the time elapsed
-    /// since on a monotonic clock. The Square Enix password digest is bound to it (spec v2.1.18 section 5.4).
+    /// since on a monotonic clock. The Square Enix password digest is bound to it (spec v2.1.19 section 5.4).
     /// </summary>
     public sealed class PolServerClock
     {
@@ -48,9 +31,9 @@ namespace Gordian.Core.Network.Retail
 
     /// <summary>
     /// Parsers and builders for the PlayOnline Core IRC lines (gatekeeper <c>ci000.pol.com:51240</c> and the session host
-    /// on <c>:51241</c>-<c>:51247</c>).
+    /// it names, usually on <c>:51241</c>-<c>:51247</c>).
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, sections 4.2.1
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, sections 4.2.1
     /// and 4.2.2.
     /// </para>
     /// </summary>
@@ -128,26 +111,25 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The plaintext 86-byte <c>NICK</c> line: the encoded POL ID, MD5 hex of the POL password, the constant client
-        /// metadata body and its checksum suffix (<see cref="PolClientMeta.Suffix"/>), then CRLF; no tabs.
+        /// The <c>NICK</c> password field: MD5 hex of the greeting token's 40-character body (as text, not decoded) followed
+        /// by the plaintext POL password (spec section 4.2.2 step 5, test vector 2). It changes with every connection.
         /// </summary>
-        public static string BuildNickLine(string polId, string polPassword)
+        public static string PassResponse(string greetingToken, string polPassword)
         {
-            string head = $"NICK {PolIdEncoding.Encode(polId)}:{PolHashes.PolPasswordHex(polPassword)}:{PolClientMeta.Body}";
-            return head + PolClientMeta.Suffix(Encoding.ASCII.GetBytes(head)) + "\r\n";
+            if (greetingToken.Length < PolCoreToken.BodyLength) throw new ArgumentException("The greeting token is shorter than 40 characters.", nameof(greetingToken));
+            byte[] input = Encoding.ASCII.GetBytes(greetingToken[..PolCoreToken.BodyLength] + (polPassword ?? string.Empty));
+            return Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(input));
         }
 
-        /// <summary>Decodes the <c>001</c> line's Base32 payload into the session ticket; false when it is not a <c>001</c>.</summary>
-        public static bool TryParseWelcome(string line, out PolCoreTicket? ticket)
+        /// <summary>
+        /// The plaintext 86-byte <c>NICK</c> line: the encoded POL ID, the password response to this connection's greeting,
+        /// the client metadata body computed from the POL ID and its checksum suffix (<see cref="PolClientMeta"/>), then
+        /// CRLF; no tabs.
+        /// </summary>
+        public static string BuildNickLine(string polId, string polPassword, string greetingToken)
         {
-            ticket = null;
-            if (!TryParseNumeric(line, out _, out int numeric, out string rest) || numeric != 1) return false;
-            string payload = rest.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var first, ..] ? first.TrimStart(':') : string.Empty;
-            Span<byte> data = stackalloc byte[PolCoreTicket.PayloadLength];
-            if (!PolBase32.TryDecode(payload, data)) return false;
-            ticket = new PolCoreTicket(data[..6].ToArray(), data.Slice(6, 12).ToArray(), data.Slice(18, 8).ToArray(),
-                BinaryPrimitives.ReadUInt32LittleEndian(data[26..]));
-            return true;
+            string head = $"NICK {PolIdEncoding.Encode(polId)}:{PassResponse(greetingToken, polPassword)}:{PolClientMeta.Body(polId)}";
+            return head + PolClientMeta.Suffix(Encoding.ASCII.GetBytes(head)) + "\r\n";
         }
 
         /// <summary>The <c>PONG</c> answer to a decrypted <c>PING</c> line, or null when the line is not a ping.</summary>
@@ -167,9 +149,10 @@ namespace Gordian.Core.Network.Retail
 
     /// <summary>
     /// A logged-in PlayOnline Core session: the open IRC connection to the session host, the stream cipher the RSA
-    /// exchange keyed (the <c>:51220</c> connections use it too), the 8-byte session key, the greeting's server time, the
-    /// server clock and the <c>001</c> ticket. The connection must stay open: the server pings it and drops the session
-    /// when the pings go unanswered (spec v2.1.18 section 9, item 6), so the session answers them until disposed.
+    /// exchange keyed (the <c>:51220</c> connections use it too), the 8-byte session key, what the greeting told the
+    /// client (its server time and the client's address), the server clock, and the POL credentials the <c>:51220</c>
+    /// digests need. The connection must stay open: the server pings it and drops the session when the pings go
+    /// unanswered (spec v2.1.19 section 9, item 6), so the session answers them until disposed.
     /// </summary>
     public sealed class PolCoreSession : IAsyncDisposable
     {
@@ -179,7 +162,13 @@ namespace Gordian.Core.Network.Retail
 
         public PolStreamCipher Cipher { get; }
         public PolServerClock Clock { get; }
-        public PolCoreTicket Ticket { get; }
+
+        /// <summary>The client's address as the session host saw it: LE16(port) + LE32(IPv4), from the greeting token.</summary>
+        public byte[] RoutingToken { get; }
+
+        /// <summary>The POL ID and password, kept for the <c>:51220</c> request-header digest.</summary>
+        internal string PolId { get; }
+        internal string PolPassword { get; }
 
         /// <summary>K8, the 8-byte session key: the AuthCode and the PML digest use it.</summary>
         public byte[] SessionKey { get; }
@@ -187,15 +176,17 @@ namespace Gordian.Core.Network.Retail
         /// <summary>The session host greeting's server time: the AuthCode's timestamp input.</summary>
         public uint GreetingTimestamp { get; }
 
-        private PolCoreSession(TcpClient client, LineReader reader, PolStreamCipher cipher, PolServerClock clock, PolCoreTicket ticket,
-            byte[] sessionKey, uint greetingTimestamp)
+        private PolCoreSession(TcpClient client, LineReader reader, PolStreamCipher cipher, PolServerClock clock, PolCoreToken greeting,
+            byte[] sessionKey, string polId, string polPassword)
         {
             _client = client;
             Cipher = cipher;
             Clock = clock;
-            Ticket = ticket;
+            RoutingToken = greeting.RoutingToken();
+            PolId = polId;
+            PolPassword = polPassword;
             SessionKey = sessionKey;
-            GreetingTimestamp = greetingTimestamp;
+            GreetingTimestamp = greeting.ServerTimestamp;
             _keepAlive = Task.Run(() => AnswerPingsAsync(client.GetStream(), reader, cipher.Fork(), _stop.Token));
         }
 
@@ -237,7 +228,7 @@ namespace Gordian.Core.Network.Retail
 
                 string greeting = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed before its greeting.");
                 string greetingToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
-                uint greetingTimestamp = PolCoreToken.Parse(greetingToken).ServerTimestamp;
+                var greetingFields = PolCoreToken.Parse(greetingToken);
 
                 var rsa = new PolRsaKeyExchange();
                 await WriteAsync(stream, Encoding.ASCII.GetBytes(PolCoreProtocol.BuildUserLine(rsa.Modulus)), token).ConfigureAwait(false);
@@ -255,25 +246,29 @@ namespace Gordian.Core.Network.Retail
                 }
                 var cipher = new PolStreamCipher(sessionKey, rsa.Modulus.AsSpan(0, 8));
 
-                byte[] nick = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine(polId, polPassword));
+                byte[] nick = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine(polId, polPassword, greetingToken));
                 cipher.TransformFrame(nick);
                 await WriteAsync(stream, nick, token).ConfigureAwait(false);
 
-                PolCoreTicket? ticket = null;
+                // The welcome: 300, 001 (carries nothing the client uses), 422, MODE, then presence NOTICEs (section 4.2.2 step 6).
+                bool welcomed = false;
                 while (true)
                 {
                     byte[]? raw = await reader.ReadRawLineAsync(token).ConfigureAwait(false);
                     if (raw == null) throw Fail("The session host closed before the welcome (check the POL ID and password).");
                     cipher.TransformFrame(raw);
                     string line = Encoding.ASCII.GetString(raw);
-                    if (PolCoreProtocol.TryParseWelcome(line, out var parsed)) ticket = parsed;
-                    else if (PolCoreProtocol.TryParseNumeric(line, out _, out int numeric, out _) && numeric >= 400 && numeric != 422)
-                        throw new RetailLoginException("core session", $"The server refused the POL login ({numeric}): {line}", numeric);
-                    else if (ticket != null && line.Contains(" MODE ", StringComparison.Ordinal)) break;
+                    if (PolCoreProtocol.TryParseNumeric(line, out _, out int numeric, out _))
+                    {
+                        if (numeric == 1) welcomed = true;
+                        else if (numeric >= 400 && numeric != 422)
+                            throw new RetailLoginException("core session", $"The server refused the POL login ({numeric}): {line}", numeric);
+                    }
+                    else if (welcomed && line.Contains(" MODE ", StringComparison.Ordinal)) break;
                 }
 
-                GordianLog.Info("RETAIL_LOGIN", $"Core session up: FFXI account id {ticket!.FfxiAccountId}.");
-                return new PolCoreSession(client, reader, cipher, clock, ticket, sessionKey, greetingTimestamp);
+                GordianLog.Info("RETAIL_LOGIN", "Core session up.");
+                return new PolCoreSession(client, reader, cipher, clock, greetingFields, sessionKey, polId, polPassword);
             }
             catch
             {

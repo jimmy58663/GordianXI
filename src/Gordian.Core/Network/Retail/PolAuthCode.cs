@@ -10,7 +10,7 @@ namespace Gordian.Core.Network.Retail
     /// greeting's server time and the Core session key, plus a context block holding the client's address) encrypted
     /// with a fixed-key 64-bit block cipher, chained by XOR and given four folded header bytes.
     /// <para>
-    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.5.2
+    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.5.2
     /// (steps 1-6) and test vector 13.
     /// </para>
     /// </summary>
@@ -139,7 +139,7 @@ namespace Gordian.Core.Network.Retail
     /// extended and shifted left by 4k bits (mod 32), with k counting 0..period and wrapping. The lobby's 0x07 selection
     /// digest carries it over <c>FFXiMain.dll</c> with period 0x13, so it is computed from the install, never shipped.
     /// <para>
-    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 5.9
+    /// Algorithm referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 5.9
     /// and test vector 14.
     /// </para>
     /// </summary>

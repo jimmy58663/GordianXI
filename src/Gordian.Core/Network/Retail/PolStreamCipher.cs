@@ -205,7 +205,7 @@ namespace Gordian.Core.Network.Retail
     /// <see cref="Reset"/> first; its continuation (<c>reset_iv = 0</c>) carries on from where the last
     /// <see cref="Transform"/> stopped.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 5.1
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 5.1
     /// items 2 and 3 and test vector 6. Encrypting and decrypting are the same operation, CRLF rule included: a byte
     /// stays as it is when it, or the byte it would become, is CR or LF, so IRC lines keep their line ends on the wire.
     /// The rule applies to the binary <c>:51220</c> frames too.

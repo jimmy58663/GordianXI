@@ -10,7 +10,7 @@ using Xunit;
 namespace Gordian.Core.Tests.Network.Retail
 {
     /// <summary>
-    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v2.1.18 section 5.8, and
+    /// Retail login primitives against the worked vectors in docs/network/retail-login-spec.md v2.1.19 section 5.8, and
     /// Blowfish against Schneier's published test vectors.
     /// </summary>
     public class RetailCryptoTests
@@ -75,7 +75,7 @@ namespace Gordian.Core.Tests.Network.Retail
         public void StreamCipher_RoundTripsAndKeepsLineEnds()
         {
             var cipher = new PolStreamCipher(Convert.FromHexString("A1B2C3D4E5F60718"), Capture3Iv);
-            byte[] line = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine("ABCD1234", "password"));
+            byte[] line = Encoding.ASCII.GetBytes(PolCoreProtocol.BuildNickLine("ABCD1234", "password", "WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA"));
             byte[] wire = (byte[])line.Clone();
             cipher.TransformFrame(wire);
 
@@ -165,6 +165,9 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Vector12_RedirectTokens()
         {
             var t5 = PolCoreToken.Parse("WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA");
+            // The routing token: LE16(client port at +0x14) + LE32(client address at +0x04).
+            Assert.Equal(0x4B27, t5.ClientPort);
+            Assert.Equal("274B0A0200C0", Convert.ToHexString(t5.RoutingToken()));
             Assert.Equal(0x6AF25117u, t5.ServerTimestamp);
             Assert.Equal("192.0.2.10", t5.ClientAddress.ToString());
             Assert.Equal("202.67.54.125", t5.RedirectAddress.ToString());
@@ -202,11 +205,32 @@ namespace Gordian.Core.Tests.Network.Retail
                 (char)(((expected >> 26) & 0x3F) + 0x3F), (char)(((expected >> 20) & 0x3F) + 0x3F),
                 (char)(((expected >> 14) & 0x3F) + 0x3F), (char)(((expected >> 8) & 0x3F) + 0x3F),
             }), suffix);
-            Assert.Equal(86, PolCoreProtocol.BuildNickLine("ABCD1234", "password").Length);
+            Assert.Equal(86, PolCoreProtocol.BuildNickLine("ABCD1234", "password", "WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA").Length);
         }
 
         [Fact]
-        public void Vector2_PolPassword() => Assert.Equal("5f4dcc3b5aa765d61d8327deb882cf99", PolHashes.PolPasswordHex("password"));
+        public void Vector2_PassResponse() =>
+            Assert.Equal("fcd51ab80c161c6c3636c9d2bf5f2bc7", PolCoreProtocol.PassResponse("WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA", "password"));
+
+        [Fact]
+        public void Vector16_ClientMetaBodyComesFromThePolId()
+        {
+            Assert.Equal("20FBE79048D7A031", Convert.ToHexString(PolClientMeta.PolIdToken("ABCD1234")));
+            Assert.Equal("TTTTTAISTTTTTTTTTTTTTHBy5pjMnc0G", PolClientMeta.Body("ABCD1234"));
+            byte[] body = new byte[24];
+            Assert.True(PolCoreBase64.TryDecode(PolClientMeta.Body("ABCD1234"), body));
+            Assert.Equal("00000002010100000000000000000000" + "96DA931B2D146D42", Convert.ToHexString(body));
+        }
+
+        // Section 4.2.2 step 5's synthetic example: the whole NICK for ABCD1234 / "password" / the vector 12 greeting.
+        [Fact]
+        public void NickLine_SyntheticExampleEndsInItsSuffix() =>
+            Assert.Equal("NICK US77G53VV:fcd51ab80c161c6c3636c9d2bf5f2bc7:TTTTTAISTTTTTTTTTTTTTHBy5pjMnc0GpglH\r\n",
+                PolCoreProtocol.BuildNickLine("ABCD1234", "password", "WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA"));
+
+        [Fact]
+        public void Vector15_RequestHeaderDigest() =>
+            Assert.Equal("589CFD5BEA27F8814BC2B376DC5AA173", Convert.ToHexString(PolHashes.ChallengeDigest("ABCD1234", "password", 0x6AF3F7E9)));
 
         [Fact]
         public void Vector3_SquareEnixPassword()
@@ -258,8 +282,7 @@ namespace Gordian.Core.Tests.Network.Retail
         [Fact]
         public void Vector7_PmlDigest()
         {
-            var ticket = new PolCoreTicket(Convert.FromHexString("50C30A0200C0"), new byte[12], new byte[8], 0);
-            string userName = PolHashes.PmlUserName(ticket);
+            string userName = PolHashes.PmlUserName(Convert.FromHexString("50C30A0200C0"));
             Assert.Equal("oz5vKRTDoxJpo8i0o8TtoT", userName);
             Assert.Equal("Iq3a9nCbEJA", PolCoreBase64.Encode(Convert.FromHexString("1122334455667788")));
             Assert.Equal("346a5b8e4e59be3d3142f8ac592340af", PolHashes.PmlDigestResponse(userName, "POL",

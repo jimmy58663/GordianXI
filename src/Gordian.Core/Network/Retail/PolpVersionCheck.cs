@@ -25,7 +25,7 @@ namespace Gordian.Core.Network.Retail
     /// POLP frames: the unauthenticated version checks of the PlayOnline Viewer (<c>pt008.pol.com:54000</c>) and of FFXI
     /// (<c>pc001W2U.pol.com:53001</c>). The client sends Type 7 on connect and the server answers Type 8, then closes.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.1.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.1.
     /// </para>
     /// </summary>
     public static class PolpPackets
@@ -112,7 +112,7 @@ namespace Gordian.Core.Network.Retail
     /// installed version is the highest tag in the file. The POLP version string is the product id and that version
     /// (<c>"1000"</c> or <c>"0001"</c> first), and the lobby's 0x26 sends FFXI's version alone.
     /// <para>
-    /// Format referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.18, section 4.1.3
+    /// Format referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.1.3
     /// (<c>patch.ver</c> is encrypted and not read).
     /// </para>
     /// </summary>

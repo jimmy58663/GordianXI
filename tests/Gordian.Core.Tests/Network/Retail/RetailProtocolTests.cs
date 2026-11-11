@@ -167,18 +167,17 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void Core_NickLineHasTheConstantMetadataAndItsSuffix_AndNoTabs()
+        public void Core_NickLineIsTheEncodedIdTheResponseTheBodyAndItsSuffix_AndNoTabs()
         {
-            string line = PolCoreProtocol.BuildNickLine("ABCD1234", "password");
+            string greeting = "WCMH3HGNNN4NI55OBMGAE21NNNNNNNNNY0QE3N1NvfrA";
+            string line = PolCoreProtocol.BuildNickLine("ABCD1234", "password", greeting);
             Assert.Equal(86, line.Length);
-            string head = $"NICK {PolIdEncoding.Encode("ABCD1234")}:5f4dcc3b5aa765d61d8327deb882cf99:TTTTTAISTTTTTTTTTTTTTHBy5pjMnc0G";
+            string head = $"NICK {PolIdEncoding.Encode("ABCD1234")}:{PolCoreProtocol.PassResponse(greeting, "password")}:{PolClientMeta.Body("ABCD1234")}";
             Assert.Equal(head + PolClientMeta.Suffix(Encoding.ASCII.GetBytes(head)) + "\r\n", line);
             Assert.DoesNotContain('\t', line);
 
-            // The body decodes to the bytes the spec lists for capture #3.
-            byte[] body = new byte[24];
-            Assert.True(PolCoreBase64.TryDecode(PolClientMeta.Body, body));
-            Assert.Equal("0000000201010000000000000000000096DA931B2D146D42", Convert.ToHexString(body));
+            // The password field answers this connection's greeting, so another greeting changes it.
+            Assert.NotEqual(line, PolCoreProtocol.BuildNickLine("ABCD1234", "password", "WCM2B3GNNN4NI55OBU3AECZNNNNNNNNNXCVN3N1N}HNM"));
         }
 
         [Fact]
@@ -207,31 +206,6 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         private static readonly byte[] Routing = Convert.FromHexString("50C30A0200C0");
-        private static readonly byte[] Account = Convert.FromHexString("A1A2A3A4A5A6A7A8A9AAABAC");
-        private static readonly byte[] Secret = Convert.FromHexString("5152535455565758");
-
-        private static string WelcomePayload(uint accountId)
-        {
-            byte[] p = new byte[30];
-            Routing.CopyTo(p, 0);
-            Account.CopyTo(p, 6);
-            Secret.CopyTo(p, 18);
-            BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(26), accountId);
-            return PolBase32.Encode(p);
-        }
-
-        [Fact]
-        public void Core_WelcomeDecodesTheTicket()
-        {
-            Assert.True(PolCoreProtocol.TryParseWelcome($":202.67.54.132 001 {WelcomePayload(137240103)}", out var t));
-            Assert.Equal(Routing, t!.RoutingToken);
-            Assert.Equal(Account, t.AccountToken);
-            Assert.Equal(Secret, t.SessionSecret);
-            Assert.Equal(137240103u, t.FfxiAccountId);
-            Assert.Equal(IPAddress.Parse("192.0.2.10"), t.ClientAddress);
-            Assert.Equal(50000, t.ClientPort);
-            Assert.False(PolCoreProtocol.TryParseWelcome(":x 422 TEST :tag", out _));
-        }
 
         /// <summary>A loopback gatekeeper and session host, speaking the spec's stages 2 and 3.</summary>
         private sealed class FakeCore : IAsyncDisposable
@@ -239,7 +213,7 @@ namespace Gordian.Core.Tests.Network.Retail
             private readonly TcpListener _gate = new(IPAddress.Loopback, 0);
             private readonly TcpListener _host = new(IPAddress.Loopback, 0);
             public int GatePort => ((IPEndPoint)_gate.LocalEndpoint).Port;
-            public string? ReceivedNick, ReceivedPong;
+            public string? ReceivedNick, ReceivedPong, GreetingToken;
             public byte[]? SessionKey, Modulus;
             public PolStreamCipher? Cipher;
             public TcpClient? Connection;
@@ -263,7 +237,8 @@ namespace Gordian.Core.Tests.Network.Retail
                 Connection = await _host.AcceptTcpClientAsync(Ct);
                 var s = Connection.GetStream();
                 var reader = new LineReader(s);
-                await Line(s, $":127.0.0.1 300 * {Token(1731110401, IPAddress.Any, 0)}");
+                GreetingToken = Token(1731110401, IPAddress.Any, 0);
+                await Line(s, $":127.0.0.1 300 * {GreetingToken}");
 
                 string user = (await reader.ReadLineAsync(Ct))!;
                 Assert.Equal(PolCoreProtocol.KeyTokenChars, user.Length - "USER x 8 * :".Length);
@@ -289,9 +264,9 @@ namespace Gordian.Core.Tests.Network.Retail
                     return;
                 }
                 await Encrypted(":127.0.0.1 300 * TOKEN");
-                await Encrypted($":127.0.0.1 001 {WelcomePayload(4242)}");
-                await Encrypted(":127.0.0.1 376 ABCD1234 :End of /MOTD command.");
-                await Encrypted(":ABCD1234 MODE ABCD1234 :+iLiv");
+                await Encrypted($":127.0.0.1 001 {PolCoreBase64.Encode(new byte[] { 0, 0, 0, 1, 0, 0 })}abcd");
+                await Encrypted(":127.0.0.1 422 US77G53VV :abcd");
+                await Encrypted(":US77G53VV MODE US77G53VV :+iLiv");
 
                 if (ping)
                 {
@@ -318,9 +293,8 @@ namespace Gordian.Core.Tests.Network.Retail
             await using var session = await PolCoreSession.LoginAsync("ABCD1234", "password", Ct, "127.0.0.1", fake.GatePort);
             await fake.Run;
 
-            Assert.Equal(PolCoreProtocol.BuildNickLine("ABCD1234", "password")[..^2], fake.ReceivedNick);
-            Assert.Equal(4242u, session.Ticket.FfxiAccountId);
-            Assert.Equal(Secret, session.Ticket.SessionSecret);
+            Assert.Equal(PolCoreProtocol.BuildNickLine("ABCD1234", "password", fake.GreetingToken!)[..^2], fake.ReceivedNick);
+            Assert.Equal(Routing, session.RoutingToken);
             Assert.Equal(fake.SessionKey, session.SessionKey);
             Assert.Equal(1731110401u, session.GreetingTimestamp);
             Assert.InRange(session.Clock.Now, 1731110400, 1731110460);
@@ -352,7 +326,6 @@ namespace Gordian.Core.Tests.Network.Retail
 
         // ----- :51220 -----
 
-        private static PolCoreTicket Ticket => new(Routing, Account, Secret, 4242);
 
         [Fact]
         public void Presence_FramesHaveTheSpecLayout()
@@ -364,10 +337,10 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.All(hello[12..], b => Assert.Equal(0, b));
 
             byte[] header = new byte[40];
-            PolPresencePackets.WriteRequestHeader(header, 0x04, 0x07, 64, Ticket, 0x6AF0F350);
+            PolPresencePackets.WriteRequestHeader(header, 0x04, 0x07, 64, "ABCD1234", "password", 0x6AF0F350);
             Assert.Equal(new byte[] { 2, 4, 7, 0, 64, 0, 0, 0 }, header[..8]);
-            Assert.Equal(Account, header[12..24]);
-            Assert.Equal(PolHashes.ChallengeDigest(Secret, Account, 0x6AF0F350), header[24..40]);
+            Assert.All(header[12..24], b => Assert.Equal(0, b));
+            Assert.Equal(PolHashes.ChallengeDigest("ABCD1234", "password", 0x6AF0F350), header[24..40]);
 
             byte[] auth = new byte[64];
             PolPresencePackets.WriteAuthPayload(auth, SquareEnixAuthMode.PasswordAndOneTimeCode, "seid", "SecretPass123", "300246", 1731110400);
@@ -388,7 +361,7 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(0x20)));
             Assert.True(PolHashes.VerifyAdditive(key));
 
-            // The lobby key: ServiceType 0, flags 1, ClientNonce 0 (spec v2.1.18 section 4.3.5).
+            // The lobby key: ServiceType 0, flags 1, ClientNonce 0 (spec v2.1.19 section 4.3.5).
             PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Lobby);
             Assert.Equal(0, key[0x13]);
             Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(0x20)));
@@ -433,7 +406,7 @@ namespace Gordian.Core.Tests.Network.Retail
                 byte[] request = new byte[40 + payloadLength];
                 await s.ReadExactlyAsync(request, Ct);
                 serverCipher.TransformFrame(request);
-                Assert.Equal(PolHashes.ChallengeDigest(Secret, Account, 0x6AF0F350), request[24..40]);
+                Assert.Equal(PolHashes.ChallengeDigest("ABCD1234", "password", 0x6AF0F350), request[24..40]);
 
                 var (header, payload) = answer(request[..40], request[40..]);
                 byte[] reply = header.Concat(payload).ToArray();
@@ -452,7 +425,6 @@ namespace Gordian.Core.Tests.Network.Retail
                 header[0] = 0x83;
                 BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), 8);
                 new byte[] { 1, 0, 0, 127 }.CopyTo(header, 8); // 127.0.0.1
-                Account.CopyTo(header, 12);
                 return (header, Array.Empty<byte>());
             }, 64);
             await presence.AuthenticateAsync("seid", "SecretPass123", "", Ct, "127.0.0.1", port);
