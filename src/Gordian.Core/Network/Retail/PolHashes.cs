@@ -80,13 +80,32 @@ namespace Gordian.Core.Network.Retail
         public static bool VerifyAdditive(ReadOnlySpan<byte> payload) =>
             payload.Length >= 4 && BinaryPrimitives.ReadUInt32LittleEndian(payload[^4..]) == AdditiveChecksum(payload[..^4]);
 
+        /// <summary>The text appended to the password's hex SHA-1 to form the Square Enix password key (spec v2.1.21 section 5.4 step 2).</summary>
+        public const string SquareEnixPasswordSalt = "playonline";
+
         /// <summary>
-        /// The time-bound Square Enix password digest: SHA-1(lowercase hex SHA-1(password) + the server time rounded down to
-        /// the minute, in decimal).
+        /// The Square Enix password key H1 = SHA-1(lowercase hex SHA-1(password) + "playonline") (spec v2.1.21 section 5.4
+        /// steps 1-2, test vector 3). The password is hashed exactly as typed, one byte per character (its low 8 bits): no
+        /// case change, no trimming.
+        /// </summary>
+        public static byte[] SquareEnixPasswordKey(string password)
+        {
+            password ??= string.Empty;
+            byte[] bytes = new byte[password.Length];
+            for (int i = 0; i < password.Length; i++) bytes[i] = (byte)password[i];
+            string inner = Convert.ToHexStringLower(SHA1.HashData(bytes));
+            return SHA1.HashData(Encoding.ASCII.GetBytes(inner + SquareEnixPasswordSalt));
+        }
+
+        /// <summary>
+        /// The time-bound Square Enix password digest: SHA-1(lowercase hex of the password key
+        /// (<see cref="SquareEnixPasswordKey"/>) + the server time rounded down to the minute, in decimal) (spec v2.1.21
+        /// section 5.4, test vectors 3 and 17). Before v2.1.21 the spec hashed SHA-1(password) here, and the server refused
+        /// it with status 0x6F.
         /// </summary>
         public static byte[] SquareEnixPasswordDigest(string password, long serverUnixSeconds)
         {
-            string h1 = Convert.ToHexStringLower(SHA1.HashData(Encoding.ASCII.GetBytes(password ?? string.Empty)));
+            string h1 = Convert.ToHexStringLower(SquareEnixPasswordKey(password));
             string minute = (serverUnixSeconds / 60 * 60).ToString(CultureInfo.InvariantCulture);
             return SHA1.HashData(Encoding.ASCII.GetBytes(h1 + minute));
         }

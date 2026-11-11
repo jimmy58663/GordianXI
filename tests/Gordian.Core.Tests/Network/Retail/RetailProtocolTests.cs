@@ -426,11 +426,20 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("seid", PolpPackets.ReadAscii(auth.AsSpan(1, 17)));
             Assert.Equal("300246", Encoding.ASCII.GetString(auth, 0x12, 6));
             Assert.All(auth[0x18..0x20], b => Assert.Equal(0, b));
-            Assert.Equal("2e6a0284491d4529a6d115832e6eb389af4abc56", Convert.ToHexStringLower(auth.AsSpan(0x20, 20)));
+            Assert.Equal("9bce4cfc21dbbaa94b003314cffebd562a4a60d5", Convert.ToHexStringLower(auth.AsSpan(0x20, 20)));
             Assert.True(PolHashes.VerifyAdditive(auth));
 
             PolPresencePackets.WriteAuthPayload(auth, SquareEnixAuthMode.Password, "seid", "x", "300246", 0);
             Assert.All(auth[0x12..0x20], b => Assert.Equal(0, b));
+
+            // Spec v2.1.21 test vector 17: the whole AuthMode 1 payload, redirect time 0x6AF25117 plus 7 s.
+            PolPresencePackets.WriteAuthPayload(auth, SquareEnixAuthMode.Password, "testuser01", "SecretPass123", "", 0x6AF25117 + 7);
+            Assert.Equal(
+                "01746573747573657230310000000000" +
+                "00000000000000000000000000000000" +
+                "ecc6a8245206b0261c59e0dea7657fa1" +
+                "c852e8b80000000000000000b0f8aa5d",
+                Convert.ToHexStringLower(auth));
 
             byte[] key = new byte[40];
             PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Viewer, 0x01020304);

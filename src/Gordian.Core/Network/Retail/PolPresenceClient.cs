@@ -70,7 +70,10 @@ namespace Gordian.Core.Network.Retail
         public const byte ChallengeType = 0x81;
         public const byte ResponseType = 0x83;
 
-        /// <summary>The <c>0x83</c> status a wrong Square Enix ID got (capture #10; other codes are unknown).</summary>
+        /// <summary>
+        /// The <c>0x83</c> status for a rejected Square Enix login: a wrong ID (capture #10) or a wrong password digest (live
+        /// run, spec v2.1.21). No other status has been seen.
+        /// </summary>
         public const byte StatusBadAccount = 0x6F;
         public const byte FrameType = 0x02;
         public const byte CategoryAccount = 0x04;
@@ -195,12 +198,13 @@ namespace Gordian.Core.Network.Retail
                 result = await ExchangeAsync(host, port, PolPresencePackets.CommandAuthenticate, payload,
                     expectPayload: false, "account", ct).ConfigureAwait(false);
             }
-            catch (RetailLoginException ex) when (ex.Code == PolPresencePackets.StatusBadAccount)
+            catch (RetailLoginException ex) when (ex.Code != 0)
             {
-                // 0x6F is the only refusal captured (a wrong Square Enix ID); it may also cover a wrong password or a
-                // missing or wrong one-time code, so the message says which kind of login was sent.
+                // 0x6F covers at least a wrong ID and a wrong password digest, and no other status has been seen: any
+                // non-zero status means the ID, password or one-time code was rejected (spec v2.1.21 section 7). The
+                // message says which kind of login was sent.
                 throw new RetailLoginException("account",
-                    $"The Square Enix login was refused (status 0x6F, sent {sent}). Check the Square Enix ID and password" +
+                    $"The Square Enix login was refused (status 0x{ex.Code:X2}, sent {sent}). Check the Square Enix ID and password" +
                     (mode == SquareEnixAuthMode.Password ? ", and whether the account has an authenticator (set the profile's 2FA)." : " and the one-time code."),
                     ex.Code, ex);
             }

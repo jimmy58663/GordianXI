@@ -237,7 +237,10 @@ namespace Gordian.Core.Tests.Network.Retail
         [Fact]
         public void Vector3_SquareEnixPassword()
         {
-            Assert.Equal("2e6a0284491d4529a6d115832e6eb389af4abc56",
+            // Spec v2.1.21: the password key adds the "playonline" step; the pre-2.1.21 digest 2e6a0284... was refused live.
+            Assert.Equal("2c47dceb3d437c6d414dfff87765f1b1fa72f880",
+                Convert.ToHexStringLower(PolHashes.SquareEnixPasswordKey("SecretPass123")));
+            Assert.Equal("9bce4cfc21dbbaa94b003314cffebd562a4a60d5",
                 Convert.ToHexStringLower(PolHashes.SquareEnixPasswordDigest("SecretPass123", 1731110400)));
             // Rounded down to the minute.
             Assert.Equal(PolHashes.SquareEnixPasswordDigest("SecretPass123", 1731110400),
