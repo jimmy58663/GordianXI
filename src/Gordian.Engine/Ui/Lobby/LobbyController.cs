@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 

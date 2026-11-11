@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Gordian.App.Graphics;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.Resources.Ui;
 using Gordian.Engine.Ui.Lobby;

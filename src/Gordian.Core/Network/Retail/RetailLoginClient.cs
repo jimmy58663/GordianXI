@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.Network.Lobby;
 
 namespace Gordian.Core.Network.Retail
 {
@@ -45,14 +46,17 @@ namespace Gordian.Core.Network.Retail
         /// <summary>Whether <see cref="DisposeAsync"/> has ended the session.</summary>
         public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
-        /// <summary>Stages 9-13: connects to the FFXI lobby with a fresh lobby key and reads the character list.</summary>
-        public Task<RetailLobbySession> OpenLobbyAsync(CancellationToken ct = default,
-            string host = RetailLobbyPackets.Host, int port = RetailLobbyPackets.Port)
+        /// <summary>
+        /// Stages 9-13: connects to the FFXI lobby (the same <see cref="LobbySession"/> LandSandBoat uses) with this
+        /// session as its pol.exe side, a fresh lobby key, and reads the character list.
+        /// </summary>
+        public Task<LobbySession> OpenLobbyAsync(CancellationToken ct = default,
+            string host = PolLobbyHandoff.Host, int port = PolLobbyHandoff.Port)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
             var login = new RetailLobbyLogin(_core.GreetingTimestamp, _core.SessionKey, _core.RoutingToken, ClientVersion, ClientChecksum);
-            return RetailLobbySession.ConnectAsync(login,
-                token => _presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, token), host, port, _log, ct: ct);
+            var handoff = new PolLobbyHandoff(login, token => _presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, token));
+            return LobbySession.ConnectAsync(host, port, handoff, _log, TimeSpan.FromSeconds(15), ct);
         }
 
         public async ValueTask DisposeAsync()

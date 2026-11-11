@@ -9,12 +9,13 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Network.Retail;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network.Retail
 {
-    /// <summary>The retail lobby session against a loopback lobby that answers as spec v2.1.19 section 4.5 describes.</summary>
+    /// <summary>The lobby session with the PlayOnline handoff against a loopback lobby that answers as spec v2.1.19 section 4.5 describes.</summary>
     public class RetailLobbySessionTests
     {
         private const uint Seed = 0x590DF1FA;
@@ -69,7 +70,7 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(PolHashes.LobbySessionHash(LobbyKey, Seed + 5), first[0x34..0x44]);
             Assert.Equal(PolHashes.LobbySessionHash(LobbyKey, Seed + 7), second[0x34..0x44]);
             Assert.Equal(0x915Eu, BinaryPrimitives.ReadUInt32LittleEndian(second.AsSpan(0x20)));
-            Assert.Equal(RetailLobbyPackets.SelectionDigest(lobby.Received[0].AsSpan(0x34, 64), second.AsSpan(0x34, 16), Login.ClientChecksum, ContentId),
+            Assert.Equal(LobbyClientPackets.SelectionDigest(lobby.Received[0].AsSpan(0x34, 64), second.AsSpan(0x34, 16), Login.ClientChecksum, ContentId),
                 second[0x48..0x58]);
 
             // The ticket: the map server, the raw map key (modifier + 4) and the first datagram's builder.
@@ -78,11 +79,11 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("127.0.0.2", ticket.SearchIp);
             Assert.Equal(54002, ticket.SearchPort);
             Assert.Equal(CharacterId, ticket.CharacterId);
-            Assert.Equal(RetailLobbyPackets.MapRawKey(LobbyKey, Seed + 7), ticket.BlowfishKey);
-            Assert.Equal(RetailMapPackets.BuildFirstDatagram(CharacterId, RetailLobbyPackets.MapKey(LobbyKey, Seed + 7)), ticket.LoginDatagramBuilder!(0));
+            Assert.Equal(RetailMapPackets.MapRawKey(LobbyKey, Seed + 7), ticket.BlowfishKey);
+            Assert.Equal(RetailMapPackets.BuildFirstDatagram(CharacterId, RetailMapPackets.MapKey(LobbyKey, Seed + 7)), ticket.LoginDatagramBuilder!(0));
             // A zone change adds 2 to the map key's counter, and the next first datagram's ticket follows it.
             byte[] afterZone = ticket.LoginDatagramBuilder!(1);
-            Assert.Equal(RetailMapPackets.Ticket(RetailLobbyPackets.MapKey(LobbyKey, Seed + 9)),
+            Assert.Equal(RetailMapPackets.Ticket(RetailMapPackets.MapKey(LobbyKey, Seed + 9)),
                 afterZone[(RetailMapPackets.TransportHeaderSize + 0x40)..(RetailMapPackets.TransportHeaderSize + 0x50)]);
 
             Assert.False(session.IsConnected); // the server closes after 0x0B
@@ -117,12 +118,13 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(PolHashes.LobbySessionHash(LobbyKey, Seed + 9), refresh[0x1C..0x2C]);
         }
 
-        private static Task<RetailLobbySession> Connect(FakeLobby lobby, Action? keyRequested = null) =>
-            RetailLobbySession.ConnectAsync(Login, _ =>
+        // The same LobbySession LandSandBoat uses, with the pol.exe side.
+        private static Task<LobbySession> Connect(FakeLobby lobby, Action? keyRequested = null) =>
+            LobbySession.ConnectAsync("127.0.0.1", lobby.Port, new PolLobbyHandoff(Login, _ =>
             {
                 keyRequested?.Invoke();
                 return Task.FromResult((byte[])LobbyKey.Clone());
-            }, "127.0.0.1", lobby.Port, timeout: TimeSpan.FromSeconds(5));
+            }), timeout: TimeSpan.FromSeconds(5));
 
         /// <summary>A loopback retail lobby: checks each packet's MD5, records it, and answers it.</summary>
         private sealed class FakeLobby : IAsyncDisposable
@@ -157,7 +159,7 @@ namespace Gordian.Core.Tests.Network.Retail
                         byte[] packet = new byte[BinaryPrimitives.ReadUInt32LittleEndian(header)];
                         header.CopyTo(packet, 0);
                         await stream.ReadExactlyAsync(packet.AsMemory(4), _stop.Token);
-                        Assert.True(RetailLobbyPackets.Verify(packet));
+                        Assert.True(LobbyClientPackets.Verify(packet));
                         _received.Enqueue(packet);
 
                         byte[] reply;
@@ -217,9 +219,9 @@ namespace Gordian.Core.Tests.Network.Retail
             private static byte[] Reply(byte command, int size, Action<byte[]> fill)
             {
                 byte[] packet = new byte[size];
-                RetailLobbyPackets.WriteHeader(packet, command);
+                LobbyClientPackets.WriteHeader(packet, command);
                 fill(packet);
-                RetailLobbyPackets.Seal(packet);
+                LobbyClientPackets.Seal(packet);
                 return packet;
             }
 

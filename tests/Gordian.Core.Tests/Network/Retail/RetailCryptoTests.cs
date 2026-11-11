@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Network.Retail;
 using Xunit;
 
@@ -268,10 +269,10 @@ namespace Gordian.Core.Tests.Network.Retail
         public void MapKey_IsTheSessionHashFourModifiersAfterTheSelect()
         {
             // 0x07 at M0 + 11 gives the map key SessionHash(M0 + 15) (spec section 5.6, test vector 5).
-            Assert.Equal("67d581eb124a444564343b0c9b4ff8d4", Convert.ToHexStringLower(RetailLobbyPackets.MapKey(LobbyKey, 0x590DF205)));
-            byte[] raw = RetailLobbyPackets.MapRawKey(LobbyKey, 0x590DF205);
+            Assert.Equal("67d581eb124a444564343b0c9b4ff8d4", Convert.ToHexStringLower(RetailMapPackets.MapKey(LobbyKey, 0x590DF205)));
+            byte[] raw = RetailMapPackets.MapRawKey(LobbyKey, 0x590DF205);
             Assert.Equal(20, raw.Length);
-            Assert.Equal(RetailLobbyPackets.MapKey(LobbyKey, 0x590DF205), MD5.HashData(raw));
+            Assert.Equal(RetailMapPackets.MapKey(LobbyKey, 0x590DF205), MD5.HashData(raw));
         }
 
         [Fact]
@@ -296,7 +297,7 @@ namespace Gordian.Core.Tests.Network.Retail
             for (int i = 0; i < 64; i++) authCode[i] = (byte)i;
             byte[] hash = Convert.FromHexString("0123456789ABCDEF0123456789ABCDEF");
             Assert.Equal("32792248BEC991750B2050FABA185707",
-                Convert.ToHexString(RetailLobbyPackets.SelectionDigest(authCode, hash, 0x43FA0718, 0x016B6984)));
+                Convert.ToHexString(LobbyClientPackets.SelectionDigest(authCode, hash, 0x43FA0718, 0x016B6984)));
         }
 
         // Test vector 13 (capture #9, synthetic client address).

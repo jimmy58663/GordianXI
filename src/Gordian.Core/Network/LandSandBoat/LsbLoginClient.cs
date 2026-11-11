@@ -15,6 +15,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
+using Gordian.Core.Network.Lobby;
 
 namespace Gordian.Core.Network.LandSandBoat
 {
@@ -453,16 +454,19 @@ namespace Gordian.Core.Network.LandSandBoat
         /// Opens a lobby session (the character select screen's connection) for an account that has authenticated:
         /// the data and view channels with the character list read. The caller owns and disposes it.
         /// </summary>
-        public Task<LsbLobbySession> OpenLobbyAsync(string host, int dataPort, int viewPort, uint accountId, byte[] sessionHash,
-            byte[]? customBlowfishKey = null, CancellationToken ct = default) =>
-            LsbLobbySession.ConnectAsync(host, dataPort, viewPort, accountId, sessionHash, customBlowfishKey,
-                entry => PacketInspected?.Invoke(this, entry), ct: ct);
+        public Task<LobbySession> OpenLobbyAsync(string host, int dataPort, int viewPort, uint accountId, byte[] sessionHash,
+            byte[]? customBlowfishKey = null, CancellationToken ct = default)
+        {
+            Action<PacketLogEntry> log = entry => PacketInspected?.Invoke(this, entry);
+            var handoff = new XiloaderLobbyHandoff(host, dataPort, accountId, sessionHash, customBlowfishKey, log: log);
+            return LobbySession.ConnectAsync(host, viewPort, handoff, log, ct: ct);
+        }
 
         /// <summary>
         /// Authenticates and opens a lobby session (see <see cref="OpenLobbyAsync"/>), retrying once on a transient
         /// failure as <see cref="LoginAndSelectAsync"/> does.
         /// </summary>
-        public async Task<LsbLobbySession> LoginToLobbyAsync(
+        public async Task<LobbySession> LoginToLobbyAsync(
             string host,
             string username,
             string password,

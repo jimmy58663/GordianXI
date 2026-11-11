@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -42,7 +43,7 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void CounterKey_IsTheMd5OfTheSessionHashAndTheCounterPlusThree()
         {
-            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0xAD5DE052, LsbLobbySession.CreateBaseKey());
+            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0xAD5DE052, XiloaderLobbyHandoff.CreateBaseKey());
             Assert.Equal(MD5.HashData(Hash), key.AsSpan(0, 16).ToArray());
             Assert.Equal(0xAD5DE055u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(16)));
         }
@@ -50,28 +51,28 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void CounterKey_WithoutACounter_KeepsTheLoadersBytes()
         {
-            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0, LsbLobbySession.CreateBaseKey());
+            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0, XiloaderLobbyHandoff.CreateBaseKey());
             Assert.Equal(new byte[] { 0x58, 0xE0, 0x5D, 0xAD }, key.AsSpan(16).ToArray());
         }
 
         [Fact]
         public void CounterKey_CarriesIntoTheUpperBytes()
         {
-            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0x000000FE, LsbLobbySession.CreateBaseKey());
+            var key = LsbSessionKeys.DeriveCounterKey(Hash, 0x000000FE, XiloaderLobbyHandoff.CreateBaseKey());
             Assert.Equal(0x101u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(16)));
         }
 
         [Fact]
         public void LegacyKey_RaisesByteSixteenWithoutCarry()
         {
-            var baseKey = LsbLobbySession.CreateBaseKey();
+            var baseKey = XiloaderLobbyHandoff.CreateBaseKey();
             baseKey[16] = 0xFE;
             var key = LsbSessionKeys.DeriveLegacyKey(baseKey, 6);
             Assert.Equal(0x04, key[16]);
             Assert.Equal(0xE0, key[17]);
             Assert.Equal(new byte[16], key.AsSpan(0, 16).ToArray());
 
-            var hashed = LsbSessionKeys.DeriveLegacyKey(LsbLobbySession.CreateBaseKey(), 4, Hash);
+            var hashed = LsbSessionKeys.DeriveLegacyKey(XiloaderLobbyHandoff.CreateBaseKey(), 4, Hash);
             Assert.Equal(MD5.HashData(Hash), hashed.AsSpan(0, 16).ToArray());
             Assert.Equal(0x58 + 4, hashed[16]);
         }
@@ -82,20 +83,20 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0x811C9DC5u, LsbSessionKeys.Fingerprint(ReadOnlySpan<byte>.Empty));
             Assert.Equal(0xE40C292Cu, LsbSessionKeys.Fingerprint("a"u8));
             // Bytes past 16 (the counter word) do not count.
-            var key = LsbSessionKeys.DeriveCounterKey(Hash, 1, LsbLobbySession.CreateBaseKey());
-            var other = LsbSessionKeys.DeriveCounterKey(Hash, 2, LsbLobbySession.CreateBaseKey());
+            var key = LsbSessionKeys.DeriveCounterKey(Hash, 1, XiloaderLobbyHandoff.CreateBaseKey());
+            var other = LsbSessionKeys.DeriveCounterKey(Hash, 2, XiloaderLobbyHandoff.CreateBaseKey());
             Assert.Equal(LsbSessionKeys.Fingerprint(key), LsbSessionKeys.Fingerprint(other));
         }
 
         [Fact]
         public void Candidates_NewestSchemeFirst_WithoutDuplicates()
         {
-            var candidates = LsbSessionKeys.BuildCandidates(Hash, 0xAD5DE052, LsbLobbySession.CreateBaseKey(), 0);
+            var candidates = LsbSessionKeys.BuildCandidates(Hash, 0xAD5DE052, XiloaderLobbyHandoff.CreateBaseKey(), 0);
             Assert.Equal(new[] { LsbKeyStyle.Counter, LsbKeyStyle.HashedLegacy, LsbKeyStyle.Legacy }, candidates.Select(c => c.Style));
-            Assert.Equal(LsbLobbySession.CreateBaseKey(), candidates[2].Key);
+            Assert.Equal(XiloaderLobbyHandoff.CreateBaseKey(), candidates[2].Key);
 
             // Without a counter the counter key and the hashed legacy key are the same bytes.
-            var noCounter = LsbSessionKeys.BuildCandidates(Hash, 0, LsbLobbySession.CreateBaseKey(), 0);
+            var noCounter = LsbSessionKeys.BuildCandidates(Hash, 0, XiloaderLobbyHandoff.CreateBaseKey(), 0);
             Assert.Equal(new[] { LsbKeyStyle.Counter, LsbKeyStyle.Legacy }, noCounter.Select(c => c.Style));
         }
 
@@ -182,8 +183,8 @@ namespace Gordian.Core.Tests.Network
             return server;
         }
 
-        private static Task<LsbLobbySession> Connect(FakeLsbLobbyServer server) =>
-            LsbLobbySession.ConnectAsync("127.0.0.1", server.DataPort, server.ViewPort, Account, Hash, timeout: TimeSpan.FromSeconds(5));
+        private static Task<LobbySession> Connect(FakeLsbLobbyServer server) =>
+            LobbySession.ConnectAsync("127.0.0.1", server.ViewPort, new XiloaderLobbyHandoff("127.0.0.1", server.DataPort, Account, Hash, timeout: TimeSpan.FromSeconds(5)), timeout: TimeSpan.FromSeconds(5));
 
         private static void AssertCounterKeyMatches(FakeLsbLobbyServer server, LsbSessionTicket ticket)
         {
@@ -198,7 +199,8 @@ namespace Gordian.Core.Tests.Network
             await using var lobby = await Connect(server);
             var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             AssertCounterKeyMatches(server, ticket);
-            Assert.Equal(0xAD5DE055u, ticket.KeyCandidates[0].CounterWord);
+            // Seed 0xAD5DE04F: 0x05 +1, the login's 0x1F, 0x20, 0x24, 0x23 +4, 0x07 +1, then LandSandBoat's +3.
+            Assert.Equal(0xAD5DE058u, ticket.KeyCandidates[0].CounterWord);
         }
 
         [Fact]
@@ -312,7 +314,7 @@ namespace Gordian.Core.Tests.Network
         }
 
         private static SessionKeyCandidate[] ThreeKeys() =>
-            LsbSessionKeys.BuildCandidates(Hash, 0xAD5DE052, LsbLobbySession.CreateBaseKey(), 4).Select(c => c.ToCryptoCandidate()).ToArray();
+            LsbSessionKeys.BuildCandidates(Hash, 0xAD5DE052, XiloaderLobbyHandoff.CreateBaseKey(), 4).Select(c => c.ToCryptoCandidate()).ToArray();
 
         [Theory]
         [InlineData(0)]

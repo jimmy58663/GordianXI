@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Network.Retail;
 using Xunit;
 
@@ -456,26 +457,26 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Lobby_SealedPacketsVerify_AndTheLoginHasTheSpecLayout()
         {
             byte[] login = new byte[LobbyPackets.LobbyLoginSize];
-            RetailLobbyPackets.WriteLobbyLogin(login, AuthToken, "30261102_0");
-            Assert.True(RetailLobbyPackets.Verify(login));
+            LobbyClientPackets.WriteLobbyLogin(login, AuthToken, "30261102_0");
+            Assert.True(LobbyClientPackets.Verify(login));
             Assert.Equal(0x26u, BinaryPrimitives.ReadUInt32LittleEndian(login.AsSpan(8)));
             Assert.All(login[0x1C..0x2C], b => Assert.Equal(0, b));
             Assert.Equal(new byte[] { 5, 0, 0, 0, 0, 0, 0, 0 }, login[0x2C..0x34]);
             Assert.Equal(AuthToken, login[0x34..0x68]);
             Assert.All(login[0x68..0x74], b => Assert.Equal(0, b));
-            Assert.Equal(login[0x34..0x74], RetailLobbyPackets.AuthCodeField(login).ToArray());
+            Assert.Equal(login[0x34..0x74], LobbyClientPackets.AuthCodeField(login).ToArray());
             Assert.Equal("30261102_0", PolpPackets.ReadAscii(login.AsSpan(0x74, 15)));
             Assert.Equal(0xFF, login[0x83]);
             Assert.Equal(0xFFFu, BinaryPrimitives.ReadUInt32LittleEndian(login.AsSpan(0x84)));
 
             login[0x90] ^= 1;
-            Assert.False(RetailLobbyPackets.Verify(login));
+            Assert.False(LobbyClientPackets.Verify(login));
         }
 
         [Fact]
         public void Lobby_ModifierStepsLikeTheSpec()
         {
-            var m = new RetailLobbyModifier();
+            var m = new LobbyKeyModifier();
             Assert.Throws<InvalidOperationException>(() => m.Take());
             m.Seed(0x590DF1FA);
             Assert.Equal(0x590DF1FBu, m.Take()); // 0x1F
@@ -492,13 +493,13 @@ namespace Gordian.Core.Tests.Network.Retail
         public void Lobby_SelectCharacterCarriesTheSelectionDigest()
         {
             byte[] login = new byte[LobbyPackets.LobbyLoginSize];
-            RetailLobbyPackets.WriteLobbyLogin(login, AuthToken, "30261102_0");
-            byte[] authCode = RetailLobbyPackets.AuthCodeField(login).ToArray();
+            LobbyClientPackets.WriteLobbyLogin(login, AuthToken, "30261102_0");
+            byte[] authCode = LobbyClientPackets.AuthCodeField(login).ToArray();
             byte[] hash = PolHashes.LobbySessionHash(Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210"), 0x590DF1FF);
 
-            byte[] select = new byte[RetailLobbyPackets.SelectCharacterSize];
-            RetailLobbyPackets.WriteSelectCharacter(select, 0x016B6984, 0x0065915E, "Knot", hash, authCode, 0x74F0058F);
-            Assert.True(RetailLobbyPackets.Verify(select));
+            byte[] select = new byte[LobbyPackets.SelectCharacterSize];
+            LobbyClientPackets.WriteSelectCharacter(select, 0x016B6984, 0x0065915E, "Knot", hash, authCode, 0x74F0058F);
+            Assert.True(LobbyClientPackets.Verify(select));
             Assert.Equal(0x016B6984u, BinaryPrimitives.ReadUInt32LittleEndian(select.AsSpan(0x1C)));
             Assert.Equal(new byte[] { 0x5E, 0x91, 0, 0 }, select[0x20..0x24]); // low 16 bits of the slot id
             Assert.Equal("Knot", PolpPackets.ReadAscii(select.AsSpan(0x24, 16)));
@@ -511,23 +512,22 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
-        public void Lobby_MapHandoffParsesTheSpecExample()
+        public void Lobby_MapHandoffParsesTheSpecExample_WithTheSharedParser()
         {
-            byte[] p = new byte[RetailLobbyPackets.MapHandoffSize];
-            Assert.Equal(0x48, p.Length);
-            RetailLobbyPackets.WriteHeader(p, LobbyCommand.ResponseNextLogin);
+            byte[] p = new byte[0x48];
+            LobbyClientPackets.WriteHeader(p, LobbyCommand.ResponseNextLogin);
             new byte[] { 0x5E, 0x91, 0x0A, 0x00 }.CopyTo(p, 0x20);
             new byte[] { 0x7C, 0x96, 0x98, 0x42 }.CopyTo(p, 0x38);
             new byte[] { 0xE0, 0xD3, 0x00, 0x00 }.CopyTo(p, 0x3C);
             new byte[] { 0x7C, 0x96, 0x9A, 0x3E }.CopyTo(p, 0x40);
             new byte[] { 0xF2, 0xD2, 0x00, 0x00 }.CopyTo(p, 0x44);
-            Assert.True(RetailLobbyPackets.TryParseMapHandoff(p, out var h));
-            Assert.Equal(IPAddress.Parse("124.150.152.66"), h.MapServer);
-            Assert.Equal(54240, h.MapPort);
-            Assert.Equal(IPAddress.Parse("124.150.154.62"), h.SearchServer);
-            Assert.Equal(54002, h.SearchPort);
-            Assert.Equal(0x000A915Eu, h.UniqueNo);
-            Assert.False(RetailLobbyPackets.TryParseMapHandoff(p.AsSpan(0, 0x44), out _));
+            Assert.True(LobbyPackets.TryParseNextLogin(p, out var next));
+            Assert.Equal(IPAddress.Parse("124.150.152.66"), new IPAddress(next.ServerAddress));
+            Assert.Equal(54240u, next.ServerPort);
+            Assert.Equal(IPAddress.Parse("124.150.154.62"), new IPAddress(next.CacheAddress));
+            Assert.Equal(54002u, next.CachePort);
+            Assert.Equal(0x000A915Eu, next.ServerId); // the map UniqueNo
+            Assert.False(LobbyPackets.TryParseNextLogin(p.AsSpan(0, 0x44), out _));
         }
 
         // Section 4.6.1 with capture #5's values: the 0x00A checksum byte comes to 0xBF.
