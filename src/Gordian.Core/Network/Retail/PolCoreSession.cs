@@ -33,8 +33,8 @@ namespace Gordian.Core.Network.Retail
     /// Parsers and builders for the PlayOnline Core IRC lines (gatekeeper <c>ci000.pol.com:51240</c> and the session host
     /// it names, usually on <c>:51241</c>-<c>:51247</c>).
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, sections 4.2.1
-    /// and 4.2.2.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.20, sections 4.2.1,
+    /// 4.2.2 and 5.10 (the 4-character line checksum that ends every token line).
     /// </para>
     /// </summary>
     public static class PolCoreProtocol
@@ -43,17 +43,11 @@ namespace Gordian.Core.Network.Retail
         public const string GatekeeperHost = "ci000.pol.com";
         public const int GatekeeperPort = 51240;
 
-        /// <summary>The <c>USER</c> buffer: the 32-byte modulus and 4 trailing bytes, sent as zeros.</summary>
-        public const int UserBufferLength = 36;
+        /// <summary>The body of a <c>USER</c> or ciphertext token: 32 bytes in 43 characters (the last ends in 2 zero bits).</summary>
+        public const int KeyBodyChars = 43;
 
-        /// <summary>The <c>USER</c> buffer's bytes after the modulus.</summary>
-        public const int UserTrailingBytes = 4;
-
-        /// <summary>The <c>USER</c> and server ciphertext tokens: 36 bytes encoded to 48 characters and cut to 47.</summary>
+        /// <summary>The <c>USER</c> and ciphertext tokens: the 43-character body and the 4-character line checksum.</summary>
         public const int KeyTokenChars = 47;
-
-        /// <summary>The characters of the server's ciphertext token that hold its 32 bytes; the rest are ignored.</summary>
-        private const int CiphertextChars = 43;
 
         /// <summary>Splits a <c>:&lt;source&gt; &lt;numeric&gt; &lt;rest&gt;</c> line; false when it is not one.</summary>
         public static bool TryParseNumeric(string line, out string source, out int numeric, out string rest)
@@ -78,44 +72,40 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The client's 61-byte <c>USER x 8 * :&lt;token&gt;</c> line: the modulus (little-endian) and 4 trailing bytes,
-        /// 47 characters. Retail sends varying non-zero trailing bytes (capture #1 <c>21 B8 76 C0</c>, capture #3
-        /// <c>0B F8 4A 80</c>) that match no checksum of the modulus, so the session sends random ones; zeros (the spec's
-        /// suggestion) got no reply from the live session host. Empty <paramref name="trailing"/> sends zeros.
+        /// The client's 61-byte <c>USER x 8 * :&lt;body&gt;&lt;suffix&gt;</c> line: the modulus (little-endian) as a
+        /// 43-character body, then the line checksum of the 55 bytes before it (<see cref="PolHashes.LineSuffix"/>). The
+        /// server does not answer a line whose suffix is wrong (spec v2.1.20 section 4.2.2 step 2, test vector 9).
         /// </summary>
-        public static string BuildUserLine(ReadOnlySpan<byte> modulus, ReadOnlySpan<byte> trailing = default)
+        public static string BuildUserLine(ReadOnlySpan<byte> modulus)
         {
             if (modulus.Length != PolRsaKeyExchange.ValueLength) throw new ArgumentException("The modulus is 32 bytes.", nameof(modulus));
-            if (trailing.Length is not (0 or UserTrailingBytes)) throw new ArgumentException("The trailing field is 4 bytes.", nameof(trailing));
-            Span<byte> buffer = stackalloc byte[UserBufferLength];
-            buffer.Clear();
-            modulus.CopyTo(buffer);
-            trailing.CopyTo(buffer[PolRsaKeyExchange.ValueLength..]);
-            return $"USER x 8 * :{PolCoreBase64.Encode(buffer)[..KeyTokenChars]}\r\n";
+            string head = $"USER x 8 * :{PolCoreBase64.Encode(modulus)}";
+            return head + PolHashes.LineSuffix(Encoding.ASCII.GetBytes(head)) + "\r\n";
         }
 
         /// <summary>The modulus a <c>USER</c> token carries (what the server reads).</summary>
         public static byte[] ParseUserToken(string token) => DecodeKeyToken(token);
 
-        /// <summary>The server's 47-character token for a 32-byte big-endian ciphertext (what the server sends).</summary>
-        public static string BuildCiphertextToken(ReadOnlySpan<byte> ciphertextBigEndian)
+        /// <summary>
+        /// The server's ciphertext line <c>:&lt;source&gt; 300 * &lt;body&gt;&lt;suffix&gt;</c> for a 32-byte big-endian
+        /// ciphertext, without CRLF (what the server sends; the suffix covers the line from its leading colon).
+        /// </summary>
+        public static string BuildCiphertextLine(string source, ReadOnlySpan<byte> ciphertextBigEndian)
         {
-            Span<byte> buffer = stackalloc byte[UserBufferLength];
-            buffer.Clear();
-            ciphertextBigEndian[..PolRsaKeyExchange.ValueLength].CopyTo(buffer);
-            return PolCoreBase64.Encode(buffer)[..KeyTokenChars];
+            string head = $":{source} 300 * {PolCoreBase64.Encode(ciphertextBigEndian[..PolRsaKeyExchange.ValueLength])}";
+            return head + PolHashes.LineSuffix(Encoding.ASCII.GetBytes(head));
         }
 
         /// <summary>
-        /// The 32-byte big-endian ciphertext of the server's second <c>300 *</c> token. Only its first 43 characters hold
-        /// those bytes; later characters can fall outside the alphabet and are ignored.
+        /// The 32-byte big-endian ciphertext of the server's second <c>300 *</c> token: its 43-character body. The 4
+        /// characters after it are the line checksum, often outside the alphabet, and are not decoded.
         /// </summary>
         public static byte[] ParseCiphertextToken(string token) => DecodeKeyToken(token);
 
         private static byte[] DecodeKeyToken(string token)
         {
             var value = new byte[PolRsaKeyExchange.ValueLength];
-            if (token.Length < CiphertextChars || !PolCoreBase64.TryDecode(token.AsSpan(0, CiphertextChars), value))
+            if (token.Length < KeyBodyChars || !PolCoreBase64.TryDecode(token.AsSpan(0, KeyBodyChars), value))
                 throw new FormatException("The key exchange token is not 32 bytes of the polcore encoding.");
             return value;
         }
@@ -275,6 +265,7 @@ namespace Gordian.Core.Network.Retail
                 progress.Enter("waiting for the gatekeeper's redirect");
                 var reader = new LineReader(gate.GetStream());
                 string line = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The gatekeeper closed without a redirect.");
+                CheckSuffix("gatekeeper redirect", line);
                 string redirectToken = PolCoreProtocol.ReadGreetingToken(line, out redirectIp)
                     ?? throw Fail($"Unexpected gatekeeper line: {line}");
                 redirect = PolCoreToken.Parse(redirectToken);
@@ -293,6 +284,7 @@ namespace Gordian.Core.Network.Retail
                 progress.Enter("waiting for the session host's greeting");
 
                 string greeting = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed before its greeting.");
+                CheckSuffix("greeting", greeting);
                 string greetingToken = PolCoreProtocol.ReadGreetingToken(greeting, out _) ?? throw Fail($"Unexpected session greeting: {greeting}");
                 var greetingFields = PolCoreToken.Parse(greetingToken);
 
@@ -300,14 +292,15 @@ namespace Gordian.Core.Network.Retail
                 GordianLog.Info("RETAIL_LOGIN", $"Core session: greeting of {greeting.Length} characters.");
 
                 var rsa = new PolRsaKeyExchange();
-                byte[] trailing = System.Security.Cryptography.RandomNumberGenerator.GetBytes(PolCoreProtocol.UserTrailingBytes);
                 // The USER line carries only this connection's throwaway public key, so it is logged in full.
-                string userLine = PolCoreProtocol.BuildUserLine(rsa.Modulus, trailing);
+                string userLine = PolCoreProtocol.BuildUserLine(rsa.Modulus);
                 GordianLog.Info("RETAIL_LOGIN", $"Core session: sending {userLine.TrimEnd()}");
                 await WriteAsync(stream, Encoding.ASCII.GetBytes(userLine), token).ConfigureAwait(false);
                 progress.Enter("waiting for the key exchange reply to USER");
 
                 string keyLine = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
+                GordianLog.Info("RETAIL_LOGIN", "Core session: key exchange reply received.");
+                CheckSuffix("key exchange reply", keyLine);
                 string keyToken = PolCoreProtocol.ReadGreetingToken(keyLine, out _) ?? throw Fail($"Unexpected key exchange reply: {keyLine}");
                 byte[] sessionKey;
                 try
@@ -383,6 +376,13 @@ namespace Gordian.Core.Network.Retail
         }
 
         private static RetailLoginException Fail(string message) => new("core session", message);
+
+        /// <summary>Logs a server token line whose line checksum does not match (spec section 5.10); nothing depends on it.</summary>
+        private static void CheckSuffix(string what, string line)
+        {
+            if (!PolHashes.HasValidLineSuffix(line))
+                GordianLog.Warning("RETAIL_LOGIN", $"Core session: the {what} line's checksum suffix does not match.");
+        }
 
         private static async Task WriteAsync(NetworkStream stream, byte[] bytes, CancellationToken ct)
         {

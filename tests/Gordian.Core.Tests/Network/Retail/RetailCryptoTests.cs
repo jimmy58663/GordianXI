@@ -341,8 +341,24 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(0x159EE5E0u, ClientFileChecksum.Compute(data, ClientFileChecksum.FfxiMainPeriod));
         }
 
+        // Spec v2.1.20 section 5.10 and test vector 9: the tail goes in the high bytes of the last word.
         [Fact]
-        public void Crc32_IsIeee() =>
-            Assert.Equal(0xCBF43926u, PolHashes.Crc32(Encoding.ASCII.GetBytes("123456789")));
+        public void LineChecksum_PutsTheTailInTheHighBytes()
+        {
+            byte[] head = Encoding.ASCII.GetBytes("USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIA");
+            Assert.Equal(55, head.Length);
+            Assert.Equal(0x33629167u, PolHashes.LineChecksum(head));
+            Assert.Equal("KuIP", PolHashes.LineSuffix(head));
+            // A 3-byte tail is u32_le(00 01 02 03), not the :51220 checksum's u32_le(01 02 03 00).
+            Assert.Equal(0x03020100u, PolHashes.LineChecksum(new byte[] { 1, 2, 3 }));
+            Assert.Equal(0x00030201u, PolHashes.AdditiveChecksum(new byte[] { 1, 2, 3 }));
+        }
+
+        [Theory]
+        [InlineData("USER x 8 * :8yu_X78A6fDPuyYfeZAIFVxxuhY0A7AlNnfogoe9Pd5UDWB")]
+        [InlineData("USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP")]
+        [InlineData(":pol-1044-51244.pol.com 300 * OVfQuRJX05g@gOVwNJfiQTFGD6qHOLzU5BhYusDSWFYCiQM")]
+        [InlineData(":202.67.54.126 300 * OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|")]
+        public void LineChecksum_MatchesCapturedLines(string line) => Assert.True(PolHashes.HasValidLineSuffix(line));
     }
 }

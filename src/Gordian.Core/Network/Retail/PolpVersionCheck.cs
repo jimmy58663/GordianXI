@@ -10,22 +10,26 @@ using System.Threading.Tasks;
 namespace Gordian.Core.Network.Retail
 {
     /// <summary>A decoded POLP Type 8 version response.</summary>
-    /// <param name="Status">1 when the client is registered and up to date; anything else means it needs patching.</param>
+    /// <param name="Status">1 (<c>"registered"</c>); retail returns it even for an outdated install, and no other value has been seen.</param>
     /// <param name="StatusText">The status string (<c>"registered"</c>).</param>
     /// <param name="ServerIp">The server's address as it reports it.</param>
     /// <param name="CurrentVersion">The current retail version (<c>"30261006_0"</c>).</param>
-    /// <param name="ChecksumValid">Whether the header CRC-32 matched the payload.</param>
+    /// <param name="ChecksumValid">Whether the header checksum (<see cref="PolpPackets.Checksum"/>) matched the frame.</param>
     public readonly record struct PolpVersionResponse(uint Status, string StatusText, string ServerIp, string CurrentVersion, bool ChecksumValid)
     {
-        /// <summary>Whether the server accepted the version (<see cref="Status"/> 1).</summary>
-        public bool IsUpToDate => Status == 1;
+        /// <summary>
+        /// Whether <paramref name="installedVersion"/> is current: <see cref="CurrentVersion"/> names it and the status is 1.
+        /// An outdated install still gets status 1 with a newer <see cref="CurrentVersion"/> (spec v2.1.20 section 4.1.5).
+        /// </summary>
+        public bool IsCurrent(string installedVersion) => Status == 1 && string.Equals(CurrentVersion, installedVersion, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// POLP frames: the unauthenticated version checks of the PlayOnline Viewer (<c>pt008.pol.com:54000</c>) and of FFXI
     /// (<c>pc001W2U.pol.com:53001</c>). The client sends Type 7 on connect and the server answers Type 8, then closes.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.1.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.20, sections 4.1.1-4.1.5
+    /// (the header checksum is the first 4 bytes of MD5 over the frame from the magic on, not CRC-32).
     /// </para>
     /// </summary>
     public static class PolpPackets
@@ -62,13 +66,24 @@ namespace Gordian.Core.Network.Retail
             WriteHeader(packet, TypeVersionRequest);
         }
 
-        /// <summary>Writes the 16-byte header over a whole frame: size, CRC-32 of the payload, magic, type.</summary>
+        /// <summary>Writes the 16-byte header over a whole frame: size, checksum, magic, type (all little-endian).</summary>
         public static void WriteHeader(Span<byte> frame, uint type)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(frame, (uint)frame.Length);
-            BinaryPrimitives.WriteUInt32LittleEndian(frame[4..], PolHashes.Crc32(frame[HeaderSize..]));
             Magic.CopyTo(frame[8..]);
             BinaryPrimitives.WriteUInt32LittleEndian(frame[12..], type);
+            Checksum(frame[8..], frame.Slice(4, 4));
+        }
+
+        /// <summary>
+        /// The header checksum: the first 4 bytes of the MD5 of the frame from the magic (+0x08) to its end, copied as they
+        /// are (spec section 4.1.1).
+        /// </summary>
+        public static void Checksum(ReadOnlySpan<byte> fromMagic, Span<byte> destination)
+        {
+            Span<byte> digest = stackalloc byte[16];
+            System.Security.Cryptography.MD5.HashData(fromMagic, digest);
+            digest[..4].CopyTo(destination);
         }
 
         /// <summary>Decodes a Type 8 version response; false when it is not one.</summary>
@@ -81,14 +96,20 @@ namespace Gordian.Core.Network.Retail
                 return false;
             }
             int size = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(frame), (uint)frame.Length);
-            bool crcOk = size >= HeaderSize && BinaryPrimitives.ReadUInt32LittleEndian(frame[4..]) == PolHashes.Crc32(frame[HeaderSize..size]);
+            Span<byte> expected = stackalloc byte[4];
+            bool checksumOk = false;
+            if (size >= HeaderSize)
+            {
+                Checksum(frame[8..size], expected);
+                checksumOk = frame.Slice(4, 4).SequenceEqual(expected);
+            }
             int versionLength = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(frame[0x58..]), (uint)(frame.Length - 0x5C));
             response = new PolpVersionResponse(
                 BinaryPrimitives.ReadUInt32LittleEndian(frame[0x14..]),
                 ReadAscii(frame.Slice(0x18, 11)),
                 ReadAscii(frame.Slice(0x23, 16)),
                 ReadAscii(frame.Slice(0x5C, versionLength)),
-                crcOk);
+                checksumOk);
             return true;
         }
 

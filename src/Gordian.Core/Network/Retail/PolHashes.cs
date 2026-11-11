@@ -9,33 +9,49 @@ namespace Gordian.Core.Network.Retail
 {
     /// <summary>
     /// The checksums and credential hashes of retail login. Protocol referenced from the GordianXI retail login spec,
-    /// docs/network/retail-login-spec.md v2.1.19: sections 4.1.1 (CRC-32), 4.2.2 (POL password), 4.3.3 (challenge MD5),
-    /// 5.3 (additive checksum), 5.4 (Square Enix password), 5.5 (lobby session hash), 5.6 (map key) and 5.7 (x-MD5-pol);
+    /// docs/network/retail-login-spec.md v2.1.20: sections 4.2.2 (POL password), 4.3.3 (challenge MD5),
+    /// 5.3 (additive checksum), 5.4 (Square Enix password), 5.5 (lobby session hash), 5.6 (map key) 5.7 (x-MD5-pol) and 5.10 (IRC line checksum);
     /// test vectors in section 5.8.
     /// </summary>
     public static class PolHashes
     {
-        private static readonly uint[] CrcTable = BuildCrcTable();
-
-        private static uint[] BuildCrcTable()
+        /// <summary>
+        /// The Core IRC <c>LineChecksum</c> (spec v2.1.20 section 5.10): the sum of the line's bytes before its suffix,
+        /// from the first byte, read as little-endian 32-bit words; a 1-3-byte tail is one more word with the zero bytes
+        /// in front of it (<c>u32_le(00 ... tail)</c>), unlike the <c>:51220</c> <see cref="AdditiveChecksum"/>.
+        /// </summary>
+        public static uint LineChecksum(ReadOnlySpan<byte> line)
         {
-            var table = new uint[256];
-            for (uint n = 0; n < 256; n++)
+            uint acc = 0;
+            int whole = line.Length & ~3;
+            for (int i = 0; i < whole; i += 4) acc += BinaryPrimitives.ReadUInt32LittleEndian(line[i..]);
+            int rest = line.Length - whole;
+            if (rest != 0)
             {
-                uint c = n;
-                for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-                table[n] = c;
+                Span<byte> tail = stackalloc byte[4];
+                tail.Clear();
+                line[whole..].CopyTo(tail[(4 - rest)..]);
+                acc += BinaryPrimitives.ReadUInt32LittleEndian(tail);
             }
-            return table;
+            return acc;
         }
 
-        /// <summary>CRC-32 (IEEE 802.3, reflected polynomial 0xEDB88320, initial and final XOR 0xFFFFFFFF): the POLP checksum.</summary>
-        public static uint Crc32(ReadOnlySpan<byte> data)
+        /// <summary>
+        /// The 4-character suffix of a Core IRC token line (<c>USER</c>, the redirect, greeting and ciphertext lines,
+        /// <c>NICK</c>, <c>001</c>, <c>422</c>): <see cref="LineChecksum"/> of the line before it, bits 31..8 as four 6-bit
+        /// slices (shifts 26, 20, 14, 8), each plus 0x3F.
+        /// </summary>
+        public static string LineSuffix(ReadOnlySpan<byte> lineBeforeSuffix)
         {
-            uint crc = 0xFFFFFFFFu;
-            foreach (byte b in data) crc = CrcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
-            return crc ^ 0xFFFFFFFFu;
+            uint sum = LineChecksum(lineBeforeSuffix);
+            Span<char> chars = stackalloc char[4];
+            for (int k = 0; k < 4; k++) chars[k] = (char)(((sum >> (26 - 6 * k)) & 0x3F) + 0x3F);
+            return new string(chars);
         }
+
+        /// <summary>Whether a line (without CRLF) ends in the right <see cref="LineSuffix"/>.</summary>
+        public static bool HasValidLineSuffix(string line) =>
+            line.Length > 4 && LineSuffix(Encoding.Latin1.GetBytes(line[..^4])) == line[^4..];
 
         /// <summary>
         /// The <c>:51220</c> additive checksum over <paramref name="data"/>: the sum of its little-endian 32-bit words, the

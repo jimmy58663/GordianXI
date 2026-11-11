@@ -211,12 +211,15 @@ namespace Gordian.Core.Network.Retail
                     GordianLog.Warning("RETAIL_LOGIN", $"The {product} version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
                 }
             }
-            if (answer is { IsUpToDate: false } outdated)
+            if (answer is not { } reply) return;
+            if (!reply.ChecksumValid)
+                GordianLog.Warning("RETAIL_LOGIN", $"The {product} version reply's checksum does not match its frame.");
+            // An outdated install still gets status 1; the reply's current version is what differs (spec section 4.1.5).
+            if (!reply.IsCurrent(installed))
                 throw new RetailLoginException("version check",
-                    $"{product} {installed} is not the current version (server status {outdated.Status}, current {outdated.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
-                    (int)outdated.Status);
-            if (answer is { } ok)
-                GordianLog.Info("RETAIL_LOGIN", $"{product} version {installed} accepted (current {ok.CurrentVersion}).");
+                    $"{product} {installed} is not the current version (server status {reply.Status}, current {reply.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
+                    (int)reply.Status);
+            GordianLog.Info("RETAIL_LOGIN", $"{product} version {installed} is current.");
         }
 
         /// <summary>

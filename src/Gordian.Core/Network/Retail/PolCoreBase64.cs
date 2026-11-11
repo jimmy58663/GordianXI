@@ -140,16 +140,9 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The suffix over the line bytes before it (<c>"NICK "</c> through the body, 80 bytes): the sum of those bytes
-        /// read as little-endian 32-bit words (any last 1-3 bytes as a zero-padded word), as four 6-bit slices from bit 31
-        /// down (shifts 26, 20, 14, 8), each plus 0x3F.
+        /// The suffix over the line bytes before it (<c>"NICK "</c> through the body, 80 bytes): the Core IRC line
+        /// checksum (<see cref="PolHashes.LineSuffix"/>, spec v2.1.20 section 5.10).
         /// </summary>
-        public static string Suffix(ReadOnlySpan<byte> lineBeforeSuffix)
-        {
-            uint sum = PolHashes.AdditiveChecksum(lineBeforeSuffix);
-            Span<char> chars = stackalloc char[SuffixLength];
-            for (int k = 0; k < SuffixLength; k++) chars[k] = (char)(((sum >> (26 - 6 * k)) & 0x3F) + 0x3F);
-            return new string(chars);
-        }
+        public static string Suffix(ReadOnlySpan<byte> lineBeforeSuffix) => PolHashes.LineSuffix(lineBeforeSuffix);
     }
 }

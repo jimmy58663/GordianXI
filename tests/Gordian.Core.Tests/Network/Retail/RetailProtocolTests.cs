@@ -33,7 +33,19 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(7u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(12)));
             Assert.Equal("W20\0", Encoding.ASCII.GetString(frame, 0x10, 4));
             Assert.Equal("000130261006_0", PolpPackets.ReadAscii(frame.AsSpan(0x14, 68)));
-            Assert.Equal(PolHashes.Crc32(frame.AsSpan(16)), BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(4)));
+        }
+
+        // Spec v2.1.20 section 4.1.5: capture #8's complete requests; the checksum is MD5(frame[0x08..])[0..3].
+        [Theory]
+        [InlineData("W2U", "100020261022_0", "58000000174B6746504F4C500700000057325500313030303230323631303232" + "5F300000")]
+        [InlineData("W20", "000130261102_0", "580000007E3427FC504F4C500700000057323000303030313330323631313032" + "5F300000")]
+        public void Polp_VersionRequest_IsCapture8sRequest(string product, string version, string firstBytesHex)
+        {
+            byte[] frame = new byte[PolpPackets.VersionRequestSize];
+            PolpPackets.WriteVersionRequest(frame, product, version);
+            byte[] expected = new byte[PolpPackets.VersionRequestSize];
+            Convert.FromHexString(firstBytesHex).CopyTo(expected, 0);
+            Assert.Equal(Convert.ToHexString(expected), Convert.ToHexString(frame));
         }
 
         private static byte[] VersionResponse(uint status, string version)
@@ -53,7 +65,9 @@ namespace Gordian.Core.Tests.Network.Retail
         {
             byte[] frame = VersionResponse(1, "30261006_0");
             Assert.True(PolpPackets.TryParseVersionResponse(frame, out var r));
-            Assert.True(r.IsUpToDate);
+            Assert.True(r.IsCurrent("30261006_0"));
+            // An outdated install still gets status 1; only the current version differs (capture #7).
+            Assert.False(r.IsCurrent("30260901_0"));
             Assert.True(r.ChecksumValid);
             Assert.Equal("registered", r.StatusText);
             Assert.Equal("124.150.156.107", r.ServerIp);
@@ -83,7 +97,7 @@ namespace Gordian.Core.Tests.Network.Retail
             var result = await PolpVersionChecker.CheckAsync("127.0.0.1", port, PolpPackets.ViewerProduct,
                 PatchConfigFile.PolpVersion(PolpPackets.ViewerProductId, "20261022_0"), Ct);
             await server;
-            Assert.True(result.IsUpToDate);
+            Assert.True(result.IsCurrent("20261022_0"));
             Assert.Equal("20261022_0", result.CurrentVersion);
         }
 
@@ -166,31 +180,33 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(50000, parsed.ClientPort);
         }
 
-        // Test vector 9: capture #3's USER line.
+        // Test vector 9: capture #3's USER line, a 43-character body and the line checksum (spec v2.1.20).
         [Fact]
-        public void Core_UserLineIsTheModulusAndFourZeroBytes_CutTo47Characters()
+        public void Core_UserLineIsTheModulusBodyAndItsLineChecksum()
         {
             byte[] modulus = Convert.FromHexString("95C6216A8DE51384AADBDF6AA1169B1A106980FE43FCEF2CD8E94D5875EBEC48");
             string line = PolCoreProtocol.BuildUserLine(modulus);
+            Assert.Equal("USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n", line);
             Assert.Equal(61, line.Length);
-            Assert.StartsWith("USER x 8 * :", line);
-            string token = line["USER x 8 * :".Length..^2];
-            // Capture #3 had 0B F8 4A 80 in the 4 trailing bytes; with zeros the characters from 42 on differ.
-            Assert.Equal("rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lI", token[..42]);
-            Assert.Equal(modulus, PolCoreProtocol.ParseUserToken(token));
-            Assert.Equal(modulus, PolCoreProtocol.ParseUserToken("rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP"));
+            Assert.Equal(modulus, PolCoreProtocol.ParseUserToken(line["USER x 8 * :".Length..^2]));
+        }
 
-            // With capture #3's trailing bytes the line is the captured one, character for character.
-            string captured = PolCoreProtocol.BuildUserLine(modulus, Convert.FromHexString("0BF84A80"));
-            Assert.Equal("USER x 8 * :rYsUyi_rIJqPf66Pi9yBcUS4Ag18XONjfOrkmWZ@lIAKuIP\r\n", captured);
+        // The research side's correction of the 12:09 live run's USER line (the 43rd character and the suffix were wrong).
+        [Fact]
+        public void Core_UserLineOfTheLiveRun_IsCorrected()
+        {
+            byte[] modulus = PolCoreProtocol.ParseUserToken("YuBrbJUF_azr13lIUQTd3UaE4huhPc8FVZqGG8KfxIwgqes");
+            Assert.Equal("USER x 8 * :YuBrbJUF_azr13lIUQTd3UaE4huhPc8FVZqGG8KfxI5\\EvE\r\n", PolCoreProtocol.BuildUserLine(modulus));
         }
 
         [Fact]
-        public void Core_CiphertextTokenIgnoresCharactersPastTheFirst43()
+        public void Core_CiphertextLineIsTheBodyAndTheLineChecksum()
         {
+            const string captured = ":202.67.54.126 300 * OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|";
+            Assert.True(PolHashes.HasValidLineSuffix(captured));
             byte[] c = PolCoreProtocol.ParseCiphertextToken("OlyyM2LoViSrkkvTTuyCUsDQPvhUHOKSbQImR@QqeX3n]E|");
             Assert.Equal("3BB69AB59BCC7E806534DC8003E695858B9EAB2EA124E2C199E1168EB79253F2", Convert.ToHexString(c));
-            Assert.Equal(c, PolCoreProtocol.ParseCiphertextToken(PolCoreProtocol.BuildCiphertextToken(c)));
+            Assert.Equal(captured, PolCoreProtocol.BuildCiphertextLine("202.67.54.126", c));
             Assert.Throws<FormatException>(() => PolCoreProtocol.ParseCiphertextToken("Olyy"));
         }
 
@@ -273,7 +289,7 @@ namespace Gordian.Core.Tests.Network.Retail
                 Modulus = PolCoreProtocol.ParseUserToken(user["USER x 8 * :".Length..]);
                 SessionKey = RandomNumberGenerator.GetBytes(8);
                 byte[] c = PolRsaKeyExchange.Encrypt(Modulus, PolRsaKeyExchange.WrapSessionKey(SessionKey));
-                await Line(s, $":127.0.0.1 300 * {PolCoreProtocol.BuildCiphertextToken(c)}");
+                await Line(s, PolCoreProtocol.BuildCiphertextLine("127.0.0.1", c));
                 Cipher = new PolStreamCipher(SessionKey, Modulus.AsSpan(0, 8));
 
                 byte[] nick = (await reader.ReadRawLineAsync(Ct))!;
