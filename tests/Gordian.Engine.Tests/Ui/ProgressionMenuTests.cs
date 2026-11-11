@@ -625,8 +625,10 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(roe.Objective(1)!.Repeatable);
             Assert.Equal(1000, roe.Objective(5)!.Accolades); // All for One
             var top = roe.TopCategories();
-            Assert.Equal(11, top.Count);
+            // Eleven until retail patch 30261102_0 added "Trust Ascension" before Other (#529).
+            Assert.Equal(12, top.Count);
             Assert.Equal("Tutorial", top[0].Name);
+            Assert.Equal(("Trust Ascension", "Other"), (top[^2].Name, top[^1].Name));
             Assert.Contains(top, c => c.Name == "Unity");
             Assert.Equal("Basics", roe.Category(0xF230)!.Name);
             Assert.Equal(0xE001, roe.Category(0xF230)!.Children[0].RecordId);

@@ -68,7 +68,8 @@ namespace Gordian.Core.Resources.Tables
     /// top byte, value below: kind 1 an objective completed, 4 a zone visited, 6 the Unity rotation, 7 the Unity leader, see
     /// <see cref="RoeCondition"/>; read from the retail file and matched to XiPackets' S2C 0x008 and 0x110 fields, 2026-11-04),
     /// a string table at 0x238: [0] the name.
-    /// Record 61952 (0xF200) is the root: its children are the eleven top categories (Tutorial ... Other).</item>
+    /// Record 61952 (0xF200) is the root: its children are the top categories (Tutorial ... Other; twelve since retail patch
+    /// 30261102_0 added Trust Ascension).</item>
     /// </list>
     /// </summary>
     public sealed class RecordsOfEminenceTables

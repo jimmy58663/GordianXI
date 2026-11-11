@@ -38,7 +38,8 @@ namespace Gordian.Engine.Tests.Resources
             var table = ZoneDialogTable.Parse(bytes!);
             Assert.NotNull(table);
             _output.WriteLine($"{table!.Count} messages");
-            Assert.Equal(16941, table.Count);
+            // 16941 until retail patch 30261102_0 added one message between 16172 and 16635 (#529); the ids below do not move.
+            Assert.Equal(16942, table.Count);
 
             // IDs.lua: HOMEPOINT_SET = 24, ITEM_CANNOT_BE_OBTAINED = 6431, ITEM_OBTAINED = 6439, YOU_ACCEPT_THE_MISSION = 7239.
             Assert.Equal("Home point set!", table.GetPlainText(24));
