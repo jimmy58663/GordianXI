@@ -266,6 +266,24 @@ namespace Gordian.Core.Network
         /// </summary>
         public byte[] Ticket { get; set; } = Array.Empty<byte>();
 
+        /// <summary>
+        /// Builds the first (unencrypted) map datagram in place of the LandSandBoat one, or null for LandSandBoat's. The
+        /// retail login sets it: its <c>0x00A</c> carries the lobby's <c>UniqueNo</c> and a ticket made from the map key.
+        /// </summary>
+        public MapLoginDatagramBuilder? LoginDatagramBuilder { get; set; }
+
+        /// <summary>Zone changes since <see cref="ConnectAsync"/>: each one has added 2 to the map key's counter.</summary>
+        private int _zoneChanges;
+
+        private byte[] BuildLoginDatagram() =>
+            LoginDatagramBuilder?.Invoke(_zoneChanges) ?? HandshakePackets.BuildLoginDatagram(
+                CharacterId,
+                CharacterName,
+                AccountName,
+                Ticket,
+                clientVersion: 0,
+                clientPacketSeq: _clientPacketIdSequence);
+
         /// <summary>Records where the local player now is, for the position updates this session sends.</summary>
         public void SetLocalPosition(System.Numerics.Vector3 position, byte direction)
         {
@@ -936,14 +954,8 @@ namespace Gordian.Core.Network
                 if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
                 {
                     _clientPacketIdSequence = 1;
-                    byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
-                        CharacterId,
-                        CharacterName,
-                        AccountName,
-                        Ticket,
-                        clientVersion: 0,
-                        clientPacketSeq: _clientPacketIdSequence
-                    );
+                    _zoneChanges = 0;
+                    byte[] loginDatagram = BuildLoginDatagram();
 
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
                     _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
@@ -1515,6 +1527,7 @@ namespace Gordian.Core.Network
 
                 // Advance cryptographic session key (LandSandBoat adds 2 to the fifth 32-bit key word)
                 bool advanced = _parser.CryptoSuite.AdvanceZoneKey();
+                _zoneChanges++;
                 GordianLog.Debug("NET", $"Session crypto key advanced for zone transition: {advanced}");
 
                 // Reset packet sequence numbers for new map server
@@ -1531,14 +1544,7 @@ namespace Gordian.Core.Network
             // Transmit unencrypted 0x00A login datagram with retransmission loop to target map server
             if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
             {
-                byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
-                    CharacterId,
-                    CharacterName,
-                    AccountName,
-                    Ticket,
-                    clientVersion: 0,
-                    clientPacketSeq: _clientPacketIdSequence
-                );
+                byte[] loginDatagram = BuildLoginDatagram();
 
                 ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
                 _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Gordian.App.Common;
@@ -12,6 +13,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Retail;
 using Gordian.Core.Profiles;
 using Gordian.Engine.Sessions;
 
@@ -1533,6 +1535,7 @@ namespace Gordian.App.ViewModels
         {
             // Separate private server profiles (direct native LsbLoginClient) from retail profiles
             var directLsbProfiles = new List<AccountProfile>();
+            var directRetailProfiles = new List<AccountProfile>();
             var retailProfiles = new List<AccountProfile>();
             var problems = new List<string>();
 
@@ -1558,7 +1561,7 @@ namespace Gordian.App.ViewModels
                 }
                 else
                 {
-                    problems.Add($"[{p.ProfileName}] Not launched: direct retail login is not available yet.");
+                    directRetailProfiles.Add(p);
                 }
             }
 
@@ -1656,7 +1659,37 @@ namespace Gordian.App.ViewModels
                 });
             }
 
-            // 2. Retail bootloader / Proxy staging flow (preserved for retail POL)
+            // 2. Retail profiles without a bootloader log in directly (docs/network/retail-login.md), one at a time.
+            if (directRetailProfiles.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    foreach (var profile in directRetailProfiles)
+                    {
+                        string? skipReason = GetLaunchSkipReason(profile);
+                        if (skipReason != null)
+                        {
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = skipReason);
+                            continue;
+                        }
+                        try
+                        {
+                            await LaunchRetailAsync(profile).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            GordianLog.Error("SESSION", $"Retail login failed for profile '{profile.ProfileName}'", ex);
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] {ex.Message}";
+                                RefreshAllStatuses();
+                            });
+                        }
+                    }
+                });
+            }
+
+            // 3. Retail bootloader / Proxy staging flow (preserved for retail POL)
             if (retailProfiles.Count > 0)
             {
                 string? gameDir = GameDirectoryDetector.DetectGameDirectory();
@@ -1844,8 +1877,124 @@ namespace Gordian.App.ViewModels
             Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
         }
 
+        /// <summary>
+        /// Logs a retail profile in without pol.exe (docs/network/retail-login.md): the PlayOnline and Square Enix logins,
+        /// then the character select screen, or straight into the game as the profile's character. The PlayOnline session
+        /// stays open while the game runs and a Log Out returns to character select on it; it ends when the player leaves
+        /// character select or the game session ends.
+        /// </summary>
+        private async Task LaunchRetailAsync(AccountProfile profile)
+        {
+            string? root = string.IsNullOrWhiteSpace(profile.GameDirectory) ? GameDirectoryDetector.DetectGameDirectory() : profile.GameDirectory.Trim();
+            if (string.IsNullOrWhiteSpace(root))
+                throw new InvalidOperationException("No FFXI install was found. Set the profile's game folder.");
+
+            var client = new RetailLoginClient { PacketLog = entry => Inspector.OnPacketInspected(this, entry) };
+            client.StatusChanged += (_, message) =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] {message}");
+
+            var credentials = new RetailCredentials(profile.PolId.Trim().ToUpperInvariant(), profile.PolPassword, profile.Username.Trim(),
+                profile.Password, TakeOneTimeCode(profile), root);
+            var account = await client.LoginAsync(credentials).ConfigureAwait(false);
+            try
+            {
+                if (UsesCharacterSelect(profile))
+                {
+                    await OpenRetailLobbyAsync(profile, account).ConfigureAwait(false);
+                    return;
+                }
+
+                LsbSessionTicket ticket;
+                await using (var lobby = await account.OpenLobbyAsync().ConfigureAwait(false))
+                {
+                    var slots = lobby.Characters.Where(c => !c.IsEmpty).Select(c => new LsbCharacterSlot(c.Slot, c.ContentId, c.Name)).ToList();
+                    if (slots.Count == 0) throw new InvalidOperationException("The account has no characters. Leave Auto-Login off to create one.");
+                    var chosen = LsbLoginClient.ChooseCharacter(slots, profile.CharacterName, 0, profile.CharacterSlot);
+                    var character = lobby.Characters.First(c => c.Slot == chosen.Slot);
+                    ticket = await lobby.SelectCharacterAsync(character).ConfigureAwait(false);
+                }
+                await StartLsbSessionAsync(profile, ticket, afterLogout: RetailBackToTitle(profile, account), ended: account.DisposeAsync).ConfigureAwait(false);
+            }
+            catch
+            {
+                await account.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        /// <summary>A Log Out's way back to character select on the same PlayOnline session; a failure ends that session.</summary>
+        private Func<Task> RetailBackToTitle(AccountProfile profile, RetailAccountSession account) => async () =>
+        {
+            try
+            {
+                await OpenRetailLobbyAsync(profile, account, showLicence: false).ConfigureAwait(false);
+            }
+            catch
+            {
+                await account.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        };
+
+        /// <summary>
+        /// The retail character select screen (#32 for LandSandBoat): a fresh lobby connection on the account session. A
+        /// refused selection (3307: the character is still logged in) shows the lobby's message and stays on the screen.
+        /// </summary>
+        private async Task OpenRetailLobbyAsync(AccountProfile profile, RetailAccountSession account, bool showLicence = true)
+        {
+            if (ViewportWindowManager.Default.IsLobbyOpen)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Another character select screen is open. Skipped.");
+                await account.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+
+            var lobbySession = await account.OpenLobbyAsync().ConfigureAwait(false);
+            var resources = AppResourceManager.Instance;
+            var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
+            var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;
+            var lobby = new Gordian.Engine.Ui.Lobby.LobbyController(lobbySession, library, text, showLicence);
+
+            lobby.CharacterSelected += ticket => _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby),
+                        RetailBackToTitle(profile, account), account.DisposeAsync).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("SESSION", $"Connection error for retail profile '{profile.ProfileName}' after character select", ex);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}");
+                    await account.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    ViewportWindowManager.Default.CloseLobby(lobby);
+                    await lobbySession.DisposeAsync().ConfigureAwait(false);
+                }
+            });
+            lobby.Closed += reason =>
+            {
+                ViewportWindowManager.Default.CloseLobby(lobby);
+                _ = lobbySession.DisposeAsync().AsTask();
+                _ = account.DisposeAsync().AsTask();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    StatusMessage = reason == null ? $"[{profile.ProfileName}] Left the character select screen." : $"[{profile.ProfileName}] Character select closed: {reason}");
+            };
+
+            GordianLog.Info("RETAIL_LOGIN", $"Profile '{profile.ProfileName}': opening the character select screen ({lobbySession.Characters.Count} content ids).");
+            ViewportWindowManager.Default.ShowLobby(lobby);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
+        }
+
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
+        /// <param name="ended">
+        /// Runs once when the game session ends without going back to character select (a retail login ends its
+        /// PlayOnline session there).
+        /// </param>
+        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
+            Func<ValueTask>? ended = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1857,6 +2006,7 @@ namespace Gordian.App.ViewModels
                 {
                     StatusMessage = $"[{profile.ProfileName}] Character '{ticket.CharacterName}' (ID {ticket.CharacterId}) is already in the game. Skipped.";
                 });
+                if (ended != null) await ended().ConfigureAwait(false);
                 return;
             }
 
@@ -1880,6 +2030,12 @@ namespace Gordian.App.ViewModels
 
             // Initialize the session Blowfish key: every candidate LandSandBoat scheme, the map server's first datagram picks one
             netManager.Parser.InitializeSessionCrypto(ticket.CryptoKeyCandidates);
+            // Retail: its own first datagram, and the search server the lobby named.
+            netManager.LoginDatagramBuilder = ticket.LoginDatagramBuilder;
+            if (!string.IsNullOrWhiteSpace(ticket.SearchIp) && ticket.SearchPort > 0)
+            {
+                netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort);
+            }
 
             var session = new CharacterSession(
                 netManager.CharacterName,
@@ -1892,8 +2048,19 @@ namespace Gordian.App.ViewModels
             };
 
             bool timedOut = false;
+            bool returningToLobby = false;
+            int endedOnce = 0;
             netManager.StateChanged += (s, state) =>
             {
+                if (state == SessionState.Disconnected && ended != null && !Volatile.Read(ref returningToLobby) &&
+                    Interlocked.Exchange(ref endedOnce, 1) == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try { await ended().ConfigureAwait(false); }
+                        catch (Exception ex) { GordianLog.Warning("SESSION", $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
+                    });
+                }
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     RefreshAllStatuses();
@@ -1940,6 +2107,7 @@ namespace Gordian.App.ViewModels
                 }
                 // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
                 // the lobby fades in there once the launcher has logged in again.
+                Volatile.Write(ref returningToLobby, true);
                 ViewportWindowManager.Default.BeginLobbyReturn();
                 _ = Task.Run(async () =>
                 {

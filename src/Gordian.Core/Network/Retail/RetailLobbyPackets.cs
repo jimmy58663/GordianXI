@@ -151,6 +151,55 @@ namespace Gordian.Core.Network.Retail
             Seal(packet);
         }
 
+        /// <summary>
+        /// C2S 0x22 (0x60) name check: LandSandBoat's layout (content id, name, world name) plus the session hash at +0x30
+        /// and <c>00</c>, 14 × <c>FF</c>, <c>00</c> at +0x50 (spec section 4.5.10, verified against capture #5).
+        /// </summary>
+        public static void WriteCheckName(Span<byte> packet, uint contentId, string name, string worldName, ReadOnlySpan<byte> sessionHash)
+        {
+            packet = packet[..LobbyPackets.CreateCharacterPreSize];
+            LobbyPackets.WriteCreateCharacterPre(packet, default, contentId, name, worldName);
+            sessionHash[..16].CopyTo(packet[0x30..]);
+            packet.Slice(0x51, 14).Fill(0xFF);
+            Seal(packet);
+        }
+
+        /// <summary>
+        /// C2S 0x21 (0x90) creation: content id, the session hash at +0x20 and the 96-byte character info at +0x30, written
+        /// as for LandSandBoat (spec section 4.5.10; the info's field layout is XiPackets', not checked against retail).
+        /// </summary>
+        public static void WriteCreateCharacter(Span<byte> packet, uint contentId, in LobbyCharacterCreation creation, ReadOnlySpan<byte> sessionHash)
+        {
+            packet = packet[..LobbyPackets.CreateCharacterSize];
+            LobbyPackets.WriteCreateCharacter(packet, default, contentId, creation);
+            sessionHash[..16].CopyTo(packet[0x20..]);
+            Seal(packet);
+        }
+
+        /// <summary>
+        /// C2S 0x14 (0x34) deletion: content id, the in-world character id's low 16 bits, the session hash at +0x24 (spec
+        /// section 4.5.10, from XiPackets; not seen on a retail wire).
+        /// </summary>
+        public static void WriteDeleteCharacter(Span<byte> packet, uint contentId, uint characterId, ReadOnlySpan<byte> sessionHash)
+        {
+            packet = packet[..LobbyPackets.DeleteCharacterSize];
+            LobbyPackets.WriteDeleteCharacter(packet, default, contentId, characterId & 0xFFFF);
+            sessionHash[..16].CopyTo(packet[0x24..]);
+            Seal(packet);
+        }
+
+        /// <summary>
+        /// C2S 0x28 (0x44) rename: content id, the character id's low 16 bits, the new name, the session hash at +0x34 (spec
+        /// section 4.5.10, from XiPackets; not seen on a retail wire).
+        /// </summary>
+        public static void WriteRenameCharacter(Span<byte> packet, uint contentId, uint characterId, string newName, ReadOnlySpan<byte> sessionHash)
+        {
+            packet = packet[..LobbyPackets.RenameCharacterSize];
+            LobbyPackets.WriteRenameCharacter(packet, default, contentId, characterId & 0xFFFF, newName);
+            sessionHash[..16].CopyTo(packet[0x34..]);
+            Seal(packet);
+        }
+
         /// <summary>The 0x07 selection digest over its 92-byte preimage (spec section 4.5.8, test vector 11).</summary>
         public static byte[] SelectionDigest(ReadOnlySpan<byte> authCodeField, ReadOnlySpan<byte> sessionHash, uint clientChecksum, uint contentId)
         {

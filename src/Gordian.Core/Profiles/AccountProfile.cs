@@ -232,6 +232,14 @@ namespace Gordian.Core.Profiles
         {
             if (EffectiveServerType == ProfileServerType.LandSandBoat && string.IsNullOrWhiteSpace(EffectiveServerHost))
                 return "has no server host";
+            // A retail profile without the old bootloader logs in directly: it needs both accounts.
+            if (EffectiveServerType == ProfileServerType.Retail && string.IsNullOrWhiteSpace(BootloaderPath))
+            {
+                if (!Network.Retail.PolIdEncoding.IsValid((PolId ?? string.Empty).Trim().ToUpperInvariant()))
+                    return "has no valid POL ID (4 letters, then 4 digits)";
+                if (string.IsNullOrEmpty(PolPassword)) return "has no POL password";
+                if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrEmpty(Password)) return "has no Square Enix ID and password";
+            }
             return EffectiveTwoFactorMode switch
             {
                 TwoFactorMode.AuthenticatorKey when !TotpEngine.IsValidSecret(OtpSeed) => "has no valid authenticator key",

@@ -42,6 +42,15 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>The lobby key counter when 0xA2 was sent (the counter key's bytes 16-19 are this + 3); 0 if never set.</summary>
         public uint LobbyKeyCounter { get; init; }
 
+        /// <summary>The first map datagram's builder for the map session, or null for LandSandBoat's (retail login sets it).</summary>
+        public MapLoginDatagramBuilder? LoginDatagramBuilder { get; init; }
+
+        /// <summary>The search server the lobby named (retail's 0x0B does), or null to use the map server's host.</summary>
+        public string? SearchIp { get; init; }
+
+        /// <summary>The search server's port, used with <see cref="SearchIp"/>.</summary>
+        public int SearchPort { get; init; }
+
         /// <summary>The candidates for the packet crypto suite, or the single <see cref="BlowfishKey"/> when there are none.</summary>
         public IReadOnlyList<Gordian.Core.Network.Crypto.SessionKeyCandidate> CryptoKeyCandidates =>
             KeyCandidates.Count > 0

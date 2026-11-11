@@ -83,18 +83,55 @@ namespace Gordian.Core.Tests.Profiles
         {
             Assert.Equal("has no server host", new AccountProfile { ServerType = ProfileServerType.LandSandBoat }.GetLaunchProblem());
             Assert.Null(new AccountProfile { ServerType = ProfileServerType.LandSandBoat, ServerHost = "127.0.0.1" }.GetLaunchProblem());
-            Assert.Null(new AccountProfile { ServerType = ProfileServerType.Retail }.GetLaunchProblem());
+            Assert.Null(Retail().GetLaunchProblem());
 
-            var typed = new AccountProfile { ServerType = ProfileServerType.Retail, TwoFactor = TwoFactorMode.EnterAtLaunch };
+            var typed = Retail();
+            typed.TwoFactor = TwoFactorMode.EnterAtLaunch;
             Assert.Contains("6-digit", typed.GetLaunchProblem());
             typed.EnteredOneTimeCode = "12345";
             Assert.Contains("6-digit", typed.GetLaunchProblem());
             typed.EnteredOneTimeCode = "123456";
             Assert.Null(typed.GetLaunchProblem());
 
-            var keyed = new AccountProfile { ServerType = ProfileServerType.Retail, TwoFactor = TwoFactorMode.AuthenticatorKey, OtpSeed = "short" };
+            var keyed = Retail();
+            keyed.TwoFactor = TwoFactorMode.AuthenticatorKey;
+            keyed.OtpSeed = "short";
             Assert.Equal("has no valid authenticator key", keyed.GetLaunchProblem());
         }
+
+        [Fact]
+        public void GetLaunchProblem_DirectRetailNeedsBothAccounts()
+        {
+            Assert.Null(Retail().GetLaunchProblem());
+
+            var lowerCase = Retail();
+            lowerCase.PolId = " abcd1234 ";
+            Assert.Null(lowerCase.GetLaunchProblem());
+
+            var noPolId = Retail();
+            noPolId.PolId = "ABC12345";
+            Assert.Contains("POL ID", noPolId.GetLaunchProblem());
+
+            var noPolPassword = Retail();
+            noPolPassword.PolPassword = string.Empty;
+            Assert.Equal("has no POL password", noPolPassword.GetLaunchProblem());
+
+            var noSquareEnix = Retail();
+            noSquareEnix.Password = string.Empty;
+            Assert.Equal("has no Square Enix ID and password", noSquareEnix.GetLaunchProblem());
+
+            // The old pol.exe path brings its own login: nothing is checked.
+            Assert.Null(new AccountProfile { ServerType = ProfileServerType.Retail, BootloaderPath = "pol.exe" }.GetLaunchProblem());
+        }
+
+        private static AccountProfile Retail() => new()
+        {
+            ServerType = ProfileServerType.Retail,
+            PolId = "ABCD1234",
+            PolPassword = "password",
+            Username = "square_enix_id",
+            Password = "se-password",
+        };
 
         [Theory]
         [InlineData("HXDMVJECJJWSRB3D", true)]
