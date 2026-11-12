@@ -39,6 +39,20 @@ namespace Gordian.Core.Network.Retail
             return GenerateWithContext(lobbySessionKey, greetingTimestamp, sessionKey8, context);
         }
 
+        /// <summary>The length of D28, the MD5 preimage: the lobby key, the greeting time and K8.</summary>
+        public const int PreimageLength = 28;
+
+        /// <summary>
+        /// D28 = lobby session key (16) + LE32(Core greeting server time) + K8 (8) (spec v2.1.22 section 4.5.2 step 1,
+        /// section 9 item 8). Its MD5 is H16, the token's first step.
+        /// </summary>
+        public static void WritePreimage(Span<byte> preimage, ReadOnlySpan<byte> lobbySessionKey, uint greetingTimestamp, ReadOnlySpan<byte> sessionKey8)
+        {
+            lobbySessionKey[..16].CopyTo(preimage);
+            BinaryPrimitives.WriteUInt32LittleEndian(preimage[16..], greetingTimestamp);
+            sessionKey8[..8].CopyTo(preimage[20..]);
+        }
+
         /// <summary>The token from an explicit 20-byte context block (tests replay a capture's own block).</summary>
         internal static byte[] GenerateWithContext(ReadOnlySpan<byte> lobbySessionKey, uint greetingTimestamp, ReadOnlySpan<byte> sessionKey8, ReadOnlySpan<byte> context, byte seed = 0)
         {
@@ -47,10 +61,8 @@ namespace Gordian.Core.Network.Retail
             if (context.Length != ContextLength) throw new ArgumentException("The context block is 20 bytes.", nameof(context));
 
             // Step 1: H = MD5(lobby key[16] + LE32(greeting time) + K8[8]).
-            Span<byte> preimage = stackalloc byte[28];
-            lobbySessionKey.CopyTo(preimage);
-            BinaryPrimitives.WriteUInt32LittleEndian(preimage[16..], greetingTimestamp);
-            sessionKey8.CopyTo(preimage[20..]);
+            Span<byte> preimage = stackalloc byte[PreimageLength];
+            WritePreimage(preimage, lobbySessionKey, greetingTimestamp, sessionKey8);
             Span<byte> h = stackalloc byte[16];
             MD5.HashData(preimage, h);
 

@@ -289,7 +289,7 @@ namespace Gordian.Core.Network.Retail
                 var greetingFields = PolCoreToken.Parse(greetingToken);
 
                 progress.Received = reader;
-                GordianLog.Info("RETAIL_LOGIN", $"Core session: greeting of {greeting.Length} characters.");
+                GordianLog.Info("RETAIL_LOGIN", $"Core session: greeting of {greeting.Length} characters (server time 0x{greetingFields.ServerTimestamp:X8}; the redirect's was 0x{redirect.ServerTimestamp:X8}).");
 
                 var rsa = new PolRsaKeyExchange();
                 // The USER line carries only this connection's throwaway public key, so it is logged in full.

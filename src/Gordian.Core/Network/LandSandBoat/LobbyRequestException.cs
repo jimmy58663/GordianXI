@@ -14,9 +14,13 @@ namespace Gordian.Core.Network.LandSandBoat
         public const int WorldIsFull = 208;
         /// <summary>
         /// FFXI-3301: a communication error between the lobby and the FFXI server; the client tells the player to log out of
-        /// PlayOnline and wait a few minutes (XiPackets lobby/Protocol.md). The retail lobby answered a retail 0x26 with it.
+        /// PlayOnline and wait a few minutes (XiPackets lobby/Protocol.md). Spec v2.1.22: the lobby could not match 0x26's AuthCode to a live PlayOnline session; not a wrong password.
         /// </summary>
         public const int CommunicationError = 301;
+        /// <summary>FFXI-3300: the protocol is not supported (spec v2.1.22 section 4.5.10).</summary>
+        public const int ProtocolNotSupported = 300;
+        /// <summary>FFXI-3302: authentication failed, wrong password (spec v2.1.22 section 4.5.10).</summary>
+        public const int PasswordIncorrect = 302;
         public const int UnableToConnectToWorldServer = 305;
         public const int CharacterNameUnavailable = 313;
         public const int FailedToRegisterWithNameServer = 314;
@@ -32,7 +36,9 @@ namespace Gordian.Core.Network.LandSandBoat
         {
             CharacterAlreadyLoggedIn => "CHARACTER_ALREADY_LOGGED_IN",
             WorldIsFull => "WORLD_IS_FULL",
+            ProtocolNotSupported => "PROTOCOL_NOT_SUPPORTED",
             CommunicationError => "COMMUNICATION_ERROR",
+            PasswordIncorrect => "PASSWORD_INCORRECT",
             UnableToConnectToWorldServer => "UNABLE_TO_CONNECT_TO_WORLD_SERVER",
             CharacterNameUnavailable => "CHARACTER_NAME_UNAVAILABLE",
             FailedToRegisterWithNameServer => "FAILED_TO_REGISTER_WITH_THE_NAME_SERVER",
