@@ -64,7 +64,7 @@ namespace Gordian.Core.Network.Retail
         {
             byte[] preimage = new byte[PolAuthCode.PreimageLength];
             PolAuthCode.WritePreimage(preimage, LobbyKey, _login.GreetingTimestamp, _login.SessionKey8);
-            Diagnostics.GordianLog.Info("RETAIL_LOGIN",
+            Diagnostics.GordianLog.Debug("RETAIL_LOGIN",
                 $"AuthCode inputs: lobby key {Convert.ToHexString(LobbyKey)}, greeting time 0x{_login.GreetingTimestamp:X8}, " +
                 $"K8 {Convert.ToHexString(_login.SessionKey8)}; D28 {Convert.ToHexString(preimage)}, H16 {Convert.ToHexString(System.Security.Cryptography.MD5.HashData(preimage))}.");
             return PolAuthCode.Generate(LobbyKey, _login.GreetingTimestamp, _login.SessionKey8, _login.RoutingToken);

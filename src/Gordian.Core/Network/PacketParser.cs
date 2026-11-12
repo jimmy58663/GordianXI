@@ -559,7 +559,7 @@ namespace Gordian.Core.Network
             if (SubPacketTrace > 0)
             {
                 SubPacketTrace--;
-                GordianLog.Info("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+                GordianLog.Debug("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
             }
             int offset = 0;
             int inboundSubPacketCount = 0;

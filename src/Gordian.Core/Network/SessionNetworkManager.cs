@@ -1161,7 +1161,7 @@ namespace Gordian.Core.Network
                 if (_outboundWireTrace > 0)
                 {
                     _outboundWireTrace--;
-                    GordianLog.Info("NET", $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
+                    GordianLog.Debug("NET", $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
                         $"{_currentBufferLength} sub-packet bytes compressed to {compressedBytes}: {Convert.ToHexString(bundledChunks)}");
                 }
 
@@ -1369,7 +1369,7 @@ namespace Gordian.Core.Network
                         {
                             _inboundWireTrace--;
                             ReadOnlySpan<byte> inHeader = packetBuffer.WritableData.Slice(0, FfxiHeaderSize);
-                            GordianLog.Info("NET", $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
+                            GordianLog.Debug("NET", $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
                                 $"acks our Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader[2..])}: header {Convert.ToHexString(inHeader)}");
                         }
                         _performance.RecordInboundDatagram(result.ReceivedBytes);

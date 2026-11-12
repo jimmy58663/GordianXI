@@ -241,7 +241,7 @@ namespace Gordian.Core.Network.Retail
             byte[] payload = new byte[PolPresencePackets.KeyRequestPayloadSize];
             byte[]? wireZero = service == PolSessionKeyService.Lobby ? PolPresencePackets.KeystreamWordFor(_core.Cipher) : null;
             PolPresencePackets.WriteKeyRequestPayload(payload, service, wireZero);
-            GordianLog.Info("RETAIL_LOGIN", $"{service} key request to {_assigned}: +0x10 {Convert.ToHexString(payload.AsSpan(0x10, 10))}" +
+            GordianLog.Debug("RETAIL_LOGIN", $"{service} key request to {_assigned}: +0x10 {Convert.ToHexString(payload.AsSpan(0x10, 10))}" +
                 (wireZero == null ? "." : ", +0x20 set to the keystream so it is zero on the wire."));
 
             var (_, response) = await ExchangeAsync(_assigned.ToString(), port, PolPresencePackets.CommandSessionKey, payload,

@@ -201,7 +201,7 @@ namespace Gordian.Core.Network.Retail
                 if (declared > total) total += await ReadUpToAsync(stream, buffer.AsMemory(total), declared - total, ct).ConfigureAwait(false);
             }
             var received = buffer.AsSpan(0, total);
-            Diagnostics.GordianLog.Info("RETAIL_LOGIN", $"POLP reply from {host}:{port}: {total} bytes: {Convert.ToHexString(received[..Math.Min(total, 160)])}");
+            Diagnostics.GordianLog.Debug("RETAIL_LOGIN", $"POLP reply from {host}:{port}: {total} bytes: {Convert.ToHexString(received[..Math.Min(total, 160)])}");
             if (!PolpPackets.TryParseVersionResponse(received, out var parsed))
             {
                 string type = total >= PolpPackets.HeaderSize ? $"type {BinaryPrimitives.ReadUInt32LittleEndian(received[12..])}" : "no complete header";

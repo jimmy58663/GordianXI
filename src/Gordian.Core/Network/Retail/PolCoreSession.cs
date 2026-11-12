@@ -294,7 +294,7 @@ namespace Gordian.Core.Network.Retail
                 var rsa = new PolRsaKeyExchange();
                 // The USER line carries only this connection's throwaway public key, so it is logged in full.
                 string userLine = PolCoreProtocol.BuildUserLine(rsa.Modulus);
-                GordianLog.Info("RETAIL_LOGIN", $"Core session: sending {userLine.TrimEnd()}");
+                GordianLog.Debug("RETAIL_LOGIN", $"Core session: sending {userLine.TrimEnd()}");
                 await WriteAsync(stream, Encoding.ASCII.GetBytes(userLine), token).ConfigureAwait(false);
                 progress.Enter("waiting for the key exchange reply to USER");
 

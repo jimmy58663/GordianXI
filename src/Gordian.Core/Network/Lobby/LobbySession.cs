@@ -192,7 +192,7 @@ namespace Gordian.Core.Network.Lobby
             await SendAsync(_lobbyLoginPacket, "GP_LOBBY_LOGIN", ct).ConfigureAwait(false);
             long sent = Stopwatch.GetTimestamp();
             // The AuthCode (+0x34..+0x73) carries the public address, so only the fields around it are logged.
-            GordianLog.Info("LOBBY", $"Lobby login (0x26) sent ({_handoff.Name}): +0x00 {Convert.ToHexString(_lobbyLoginPacket, 0, 0x34)} ... +0x74 {Convert.ToHexString(_lobbyLoginPacket, 0x74, _lobbyLoginPacket.Length - 0x74)}");
+            GordianLog.Debug("LOBBY", $"Lobby login (0x26) sent ({_handoff.Name}): +0x00 {Convert.ToHexString(_lobbyLoginPacket, 0, 0x34)} ... +0x74 {Convert.ToHexString(_lobbyLoginPacket, 0x74, _lobbyLoginPacket.Length - 0x74)}");
 
             byte[] reply = await ReadAsync("login", ct).ConfigureAwait(false);
             byte command = LobbyPackets.ReadCommand(reply);
@@ -200,7 +200,7 @@ namespace Gordian.Core.Network.Lobby
             if (command == LobbyCommand.ResponseError)
             {
                 int code = LobbyPackets.ReadErrorCode(reply);
-                GordianLog.Info("LOBBY", $"Lobby error reply: {Convert.ToHexString(reply)}");
+                GordianLog.Debug("LOBBY", $"Lobby error reply: {Convert.ToHexString(reply)}");
                 throw Broken(new LobbyRequestException("login", code,
                     $"The lobby refused the login: error code {code} ({LobbyErrorCode.Describe(code)}, FFXI-{LobbyErrorCode.DisplayCode(code)})."));
             }
