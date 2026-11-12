@@ -1187,7 +1187,8 @@ namespace Gordian.Core.Network
                             // In ActiveInWorld or LoadingWorldData, ensure the 0x015 GP_CLI_POS keepalive heartbeat
                             // is bundled into outbound transmission with active MoveFlame and RunMode flags.
                             // Not while the character is leaving this map server (S2C 0x00B) or before the next one's login.
-                            if ((CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData) && MaySend(0x015))
+                            // Retail sends no 0x015 before the server's 0x008: only 0x011, then the 0x00C batch (spec v2.1.24 section 4.6.4).
+                            if ((CurrentState == SessionState.ActiveInWorld || (CurrentState == SessionState.LoadingWorldData && !RetailMapProtocol)) && MaySend(0x015))
                             {
                                 // Pull latest position, heading, and locomotion speed from WorldState if available
                                 if (_parser.LocalPlayer.ServerId != 0 &&
@@ -1405,13 +1406,12 @@ namespace Gordian.Core.Network
                 // Until the key has advanced, anything arriving is still old-zone traffic.
                 if (!_zoneKeyAdvanced) return false;
 
-                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                bool accepted = ProcessFirstDatagram(activeChunk, newSeq);
                 if (accepted)
                 {
                     RecordServerTraffic();
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
-                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
                     ZoneTransitionPending = false;
                     GordianLog.Info("NET", $"First datagram from the new map server accepted (Seq={newSeq}); zone transition complete.");
                 }
@@ -1423,13 +1423,12 @@ namespace Gordian.Core.Network
             // would all be dropped as duplicates (seen when LandSandBoat changed its key scheme, 2026-10-12).
             if (CurrentState == SessionState.ExchangingCryptoKeys)
             {
-                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                bool accepted = ProcessFirstDatagram(activeChunk, newSeq);
                 if (accepted)
                 {
                     RecordServerTraffic();
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
-                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
                     CurrentState = SessionState.LoadingWorldData;
                 }
                 return accepted;
@@ -1453,6 +1452,21 @@ namespace Gordian.Core.Network
             }
 
             return parsed;
+        }
+
+        /// <summary>
+        /// Parses a map server's first datagram with our ack already set to its sequence, so that a packet its handlers send
+        /// at once (the retail 0x011 answer to 0x00A) acknowledges it: retail's answer carries Seq 2 / Ack 1 (spec v2.1.24
+        /// section 4.6.4), and ours went out with Ack 0 when the ack was written after parsing. The old ack comes back if
+        /// the datagram does not decrypt (a straggler or a wrong key candidate).
+        /// </summary>
+        private bool ProcessFirstDatagram(Span<byte> activeChunk, ushort newSeq)
+        {
+            ushort previous = Volatile.Read(ref _serverPacketIdSequence);
+            Volatile.Write(ref _serverPacketIdSequence, newSeq);
+            bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+            if (!accepted) Volatile.Write(ref _serverPacketIdSequence, previous);
+            return accepted;
         }
 
         private bool CheckAndTrackSequence(ushort seq)
