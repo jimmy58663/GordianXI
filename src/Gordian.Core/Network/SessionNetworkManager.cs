@@ -669,6 +669,9 @@ namespace Gordian.Core.Network
         /// </summary>
         internal const int KeepAliveSize = 4;
 
+        /// <summary>A retail keep-alive is due: the next flush sends a datagram with no sub-packets.</summary>
+        private bool _emptyDatagramQueued;
+
         /// <summary>
         /// Queues an empty keep-alive sub-packet when nothing else is waiting (call under <see cref="_writeLock"/>). While
         /// a zone-line request waits no C2S 0x015 goes out, but the map server only sends in answer to a datagram
@@ -677,9 +680,20 @@ namespace Gordian.Core.Network
         /// in-game testing, 2026-10-12: our "connection lost" after 10 s of silence and the red link-dead mark). LSB's own
         /// note there says the retail client sends datagrams without a valid sub-packet in such moments.
         /// </summary>
+        /// <remarks>
+        /// A retail session sends the datagram with no sub-packet at all (the compressed body is <c>01 08000000</c>, spec
+        /// v2.1.24 test vector 19). Retail's map server logged us out (<c>0x00B</c> state 1) after four zero keep-alives
+        /// following a <c>0x05E</c> (2026-11-12, zones 115 and 240).
+        /// </remarks>
         private void QueueKeepAliveLocked()
         {
-            if (_currentBufferLength != 0 || _currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
+            if (_currentBufferLength != 0) return;
+            if (RetailMapProtocol)
+            {
+                _emptyDatagramQueued = true;
+                return;
+            }
+            if (_currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
             _outboundQueueBuffer.AsSpan(0, KeepAliveSize).Clear();
             _currentBufferLength = KeepAliveSize;
         }
@@ -1091,7 +1105,9 @@ namespace Gordian.Core.Network
         private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token)
         {
             DropRefusedQueuedSubPackets();
-            if (_currentBufferLength == 0) return;
+            bool sendEmpty = _emptyDatagramQueued;
+            _emptyDatagramQueued = false;
+            if (_currentBufferLength == 0 && !sendEmpty) return;
 
             try
             {
