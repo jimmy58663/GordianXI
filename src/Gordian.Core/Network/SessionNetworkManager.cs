@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Config;
 using Gordian.Core.Network.Compression;
+using Gordian.Core.Network.Retail;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -290,6 +291,13 @@ namespace Gordian.Core.Network
             get => _parser.LifecycleModule.RetailMapHandshake;
             set => _parser.LifecycleModule.RetailMapHandshake = value;
         }
+
+        /// <summary>
+        /// Our public IPv4 address as the PlayOnline login saw it, in network byte order (the routing token's address
+        /// bytes reversed), or null. A retail session writes it at header <c>+0x14</c>, State word 2, in every datagram
+        /// after the first (spec v2.1.25 section 4.6.3).
+        /// </summary>
+        public byte[]? RetailClientAddress { get; set; }
 
         /// <summary>The <c>State</c> bytes of the latest map server datagram (retail only).</summary>
         private readonly byte[] _serverState = new byte[16];
@@ -1126,13 +1134,12 @@ namespace Gordian.Core.Network
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(0, 2), clientSeq);
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), Volatile.Read(ref _serverPacketIdSequence));
 
-                uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
+                long sentAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), (uint)(sentAtMs / 1000));
 
                 if (RetailMapProtocol)
                 {
-                    lock (_serverState) _serverState.CopyTo(headerSpan.Slice(0x0C, 16));
-                    headerSpan[0x0C] = 0x01;
+                    lock (_serverState) RetailMapPackets.WriteHeader(headerSpan, sentAtMs, _serverState, RetailClientAddress);
                 }
 
                 if (_outboundWireTrace > 0)

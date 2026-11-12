@@ -49,6 +49,12 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>Whether the map server is retail's (spec v2.1.24 section 4.6): see <c>SessionNetworkManager.RetailMapProtocol</c>.</summary>
         public bool RetailMapProtocol { get; init; }
 
+        /// <summary>
+        /// Our public IPv4 address as the retail login saw it, in network byte order, for the map header's State word 2;
+        /// null for LandSandBoat. See <c>SessionNetworkManager.RetailClientAddress</c>.
+        /// </summary>
+        public byte[]? RetailClientAddress { get; init; }
+
         /// <summary>The search server the lobby named (retail's 0x0B does), or null to use the map server's host.</summary>
         public string? SearchIp { get; init; }
 

@@ -108,6 +108,7 @@ namespace Gordian.Core.Network.Retail
                 SearchIp = next.CacheAddress != 0 ? new IPAddress(next.CacheAddress).ToString() : null,
                 SearchPort = (int)next.CachePort,
                 RetailMapProtocol = true,
+                RetailClientAddress = RetailMapPackets.ClientAddressFromRoutingToken(_login.RoutingToken),
             };
         }
 

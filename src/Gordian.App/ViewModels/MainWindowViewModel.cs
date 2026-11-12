@@ -2033,6 +2033,7 @@ namespace Gordian.App.ViewModels
             // Retail: its own first datagram, and the search server the lobby named.
             netManager.LoginDatagramBuilder = ticket.LoginDatagramBuilder;
             netManager.RetailMapProtocol = ticket.RetailMapProtocol;
+            netManager.RetailClientAddress = ticket.RetailClientAddress;
             if (!string.IsNullOrWhiteSpace(ticket.SearchIp) && ticket.SearchPort > 0)
             {
                 netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort);

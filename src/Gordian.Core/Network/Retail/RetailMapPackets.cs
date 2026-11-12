@@ -45,6 +45,32 @@ namespace Gordian.Core.Network.Retail
             return MD5.HashData(buffer);
         }
 
+        /// <summary>
+        /// Fills a retail map datagram header's fields after the sequence and ack words (spec v2.1.25 section 4.6.3):
+        /// <c>+0x04</c> the send time's milliseconds (0-999) and <c>+0x08</c> its Unix seconds; <c>+0x0C..+0x1B</c> the
+        /// server's last 16 <c>State</c> bytes with word 0's low byte set to 0x01 and word 2 (<c>+0x14</c>) set to our
+        /// IPv4 address in network order, when known.
+        /// </summary>
+        public static void WriteHeader(Span<byte> header, long sentAtUnixMs, ReadOnlySpan<byte> serverState, ReadOnlySpan<byte> clientAddress)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(header.Slice(4, 4), (uint)(sentAtUnixMs % 1000));
+            BinaryPrimitives.WriteUInt32LittleEndian(header.Slice(8, 4), (uint)(sentAtUnixMs / 1000));
+            serverState[..16].CopyTo(header.Slice(0x0C, 16));
+            header[0x0C] = 0x01;
+            if (clientAddress.Length == 4) clientAddress.CopyTo(header.Slice(0x14, 4));
+        }
+
+        /// <summary>
+        /// The map header's State word 2 (<c>+0x14</c>): our public IPv4 address in network byte order. It is the routing
+        /// token's address (bytes 2..5, little-endian) reversed (spec v2.1.25 section 4.6.3: the same in every client
+        /// datagram after the first across all eight captured map logins).
+        /// </summary>
+        public static byte[] ClientAddressFromRoutingToken(ReadOnlySpan<byte> routingToken)
+        {
+            if (routingToken.Length < 6) throw new ArgumentException("The routing token is 6 bytes.", nameof(routingToken));
+            return [routingToken[5], routingToken[4], routingToken[3], routingToken[2]];
+        }
+
         /// <summary>Sets the first 0x00 byte of <paramref name="key"/> and every byte after it to 0x00 (spec v2.1.24 section 5.6 item 2).</summary>
         public static void TruncateAtZero(Span<byte> key)
         {

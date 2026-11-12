@@ -296,6 +296,29 @@ namespace Gordian.Core.Tests.Network.Retail
         }
 
         [Fact]
+        public void MapHeaderAddress_IsTheRoutingTokensAddressInNetworkOrder()
+        {
+            // Spec v2.1.25 section 4.6.3: State word 2 is the client's IPv4 address in network order; the routing token
+            // carries it little-endian after the 2-byte port. Documentation address 203.0.113.7, port 0x1234.
+            byte[] token = [0x34, 0x12, 7, 113, 0, 203];
+            Assert.Equal(new byte[] { 203, 0, 113, 7 }, RetailMapPackets.ClientAddressFromRoutingToken(token));
+            var core = new PolCoreToken(0, System.Net.IPAddress.Parse("203.0.113.7"), System.Net.IPAddress.Any, 0, 0x1234);
+            Assert.Equal(new byte[] { 203, 0, 113, 7 }, RetailMapPackets.ClientAddressFromRoutingToken(core.RoutingToken()));
+        }
+
+        [Fact]
+        public void MapHeader_CarriesSendTimeServerStateAndClientAddress()
+        {
+            // Spec v2.1.25 section 4.6.3: +0x04 milliseconds, +0x08 seconds, State copied with low byte 0x01, word 2 = address.
+            byte[] header = new byte[28];
+            byte[] state = Convert.FromHexString("F0112233445566778899AABBCCDDEEFF");
+            RetailMapPackets.WriteHeader(header, 1_762_000_000_123, state, new byte[] { 203, 0, 113, 7 });
+            Assert.Equal(123u, BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4)));
+            Assert.Equal(1_762_000_000u, BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)));
+            Assert.Equal("0111223344556677CB007107CCDDEEFF", Convert.ToHexString(header.AsSpan(0x0C, 16)));
+        }
+
+        [Fact]
         public void Vector7_PmlDigest()
         {
             string userName = PolHashes.PmlUserName(Convert.FromHexString("50C30A0200C0"));
