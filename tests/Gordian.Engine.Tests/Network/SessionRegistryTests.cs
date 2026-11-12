@@ -44,33 +44,6 @@ namespace Gordian.Engine.Tests.Network
         }
 
         [Fact]
-        public void CreateAndRegisterSession_FromHandoff_RegistersSuccessfully()
-        {
-            var handoff = new SessionHandoffArgs
-            {
-                TargetCharacterName = "ElvaanPaladin",
-                CharacterId = 2002,
-                ServerIp = "127.0.0.1",
-                ServerPort = 54230,
-                Base64SessionToken = Convert.ToBase64String(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 })
-            };
-
-            var session = _registry.CreateAndRegisterSession(handoff, "tank_account");
-
-            Assert.Equal("ElvaanPaladin", session.CharacterName);
-            Assert.Equal(2002u, session.CharacterId);
-            Assert.Equal("tank_account", session.AccountUsername);
-            Assert.True(_registry.IsCharacterActive("ElvaanPaladin"));
-            Assert.True(_registry.IsAccountActive("tank_account"));
-
-            Assert.True(_registry.TryGetSession(session.SessionId, out var found));
-            Assert.Same(session, found);
-
-            Assert.True(_registry.TryGetSessionByCharacterName("elvaanpaladin", out var foundByName));
-            Assert.Same(session, foundByName);
-        }
-
-        [Fact]
         public void UnregisterSession_RemovesSessionAndFiresEvent()
         {
             CharacterSession? unregisteredSession = null;

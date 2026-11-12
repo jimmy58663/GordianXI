@@ -19,7 +19,7 @@ Retail keeps macros on the client, per character: `mcr*.dat`, `mcr.ttl`, `mcr_2.
   { "Key": "Ctrl1", "Title": "Provoke", "Lines": [ "/ja \"Provoke\" <t>", "/recast \"Provoke\"" ] } ] } ] } ] }
 ```
 
-Why not write the retail files: GordianXI never modifies the game folder outside `ProxyStager`'s ephemeral swap (AGENTS.md), and a retail client running beside GordianXI would overwrite or be overwritten. The JSON is readable and diffable. The retail files are imported on request instead.
+Why not write the retail files: GordianXI never modifies the game folder (AGENTS.md), and a retail client running beside GordianXI would overwrite or be overwritten. The JSON is readable and diffable. The retail files are imported on request instead.
 
 **Import:** `/importretail` lists the `USER` folders, marking those with macro files "(macros)"; `/importretail <folder> macros` replaces this character's macros with that folder's: every set file, both title files and the current set (`RetailMacroFiles.Import`). A set without a file is cleared, as retail shows it empty. `/importretail <folder>` alone still imports only `cnf.dat` ([retail-user-files.md](retail-user-files.md)).
 

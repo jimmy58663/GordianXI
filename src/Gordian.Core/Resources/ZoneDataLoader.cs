@@ -1833,7 +1833,7 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Attempts to scan FFXiMain.dll or FFXiMain.dll.orig within the game directory
+        /// Attempts to scan FFXiMain.dll within the game directory
         /// to locate the two 256-byte substitution decryption key tables.
         /// </summary>
         public static bool TryExtractKeyTables(
@@ -1852,7 +1852,6 @@ namespace Gordian.Core.Resources
             string[] candidateDlls =
             {
                 Path.Combine(gameDirectory, "FFXiMain.dll"),
-                Path.Combine(gameDirectory, "FFXiMain.dll.orig"),
             };
 
             foreach (var dllPath in candidateDlls)

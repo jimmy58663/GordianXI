@@ -45,11 +45,4 @@
     <ProjectReference Include="..\Gordian.Engine\Gordian.Engine.csproj" />
     <ProjectReference Include="..\Gordian.Automation\Gordian.Automation.csproj" />
   </ItemGroup>
-
-  <ItemGroup Condition="Exists('..\Gordian.Proxy\FFXiMain.dll')">
-    <None Include="..\Gordian.Proxy\FFXiMain.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Visible>false</Visible>
-    </None>
-  </ItemGroup>
 </Project>

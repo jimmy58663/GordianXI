@@ -25,7 +25,7 @@ Both domains are registered through Cloudflare; `gordianxi.com` redirects to `go
 site/
   docfx.json
   index.md
-  user/          install, first launch, bootloader setup, account profiles, settings, troubleshooting
+  user/          install, first launch, account profiles, settings, troubleshooting
   addons/        getting started, manifest and permissions, API reference (generated), publishing to the registry
   automation/    gambit profiles, conditions/targets/actions, multi-box coordination, server restrictions
 ```
@@ -52,7 +52,7 @@ Both come from the same attributes, so the reference and the editor hints cannot
 **Preferred route:** [Velopack](https://github.com/velopack/velopack) (MIT). It covers Windows, macOS and Linux, uses GitHub Releases as the update source, and handles the parts that are hard to build ourselves: replacing a running app, restart, rollback and delta downloads. Its release tooling (`vpk`) runs in the release workflow and attaches packages and a release manifest to each GitHub Release. Add it to `THIRD_PARTY_NOTICES.md` when adopted.
 
 **Constraints**
-- Never apply an update while a game session is active or while the `FFXiMain.dll` proxy is staged; apply only after `ProxyStager` has restored the original DLL (normally at shutdown or the next startup).
+- Never apply an update while a game session is active.
 - Update downloads are integrity-checked (Velopack's manifest carries hashes). The update check must not use the GitHub REST API, which limits unauthenticated clients to 60 requests/hour per IP; `releases/latest/download/...` asset URLs are not subject to that limit.
 
 **Open questions**

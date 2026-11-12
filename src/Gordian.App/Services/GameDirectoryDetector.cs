@@ -49,7 +49,7 @@ namespace Gordian.App.Services
                     string cleanPath = rawPath.Trim();
                     if (Directory.Exists(cleanPath))
                     {
-                        // Check if FFXiMain.dll or FFXiMain.dll.orig exists in this directory
+                        // FFXiMain.dll, or the backup the removed proxy launch path could leave (LegacyProxyCleanup restores it)
                         string dllPath = Path.Combine(cleanPath, TargetDllName);
                         string origDllPath = Path.Combine(cleanPath, TargetDllName + ".orig");
 

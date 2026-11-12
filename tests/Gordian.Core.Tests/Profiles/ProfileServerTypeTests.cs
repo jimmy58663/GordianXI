@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Profiles/ProfileServerTypeTests.cs
 using System;
 using System.IO;
+using System.Text.Json;
 using Gordian.Core.Profiles;
 using Xunit;
 
@@ -17,10 +18,24 @@ namespace Gordian.Core.Tests.Profiles
         [InlineData("", "", "", ProfileServerType.Retail)]
         public void OlderProfiles_WithoutAType_GetTheOneTheirFieldsImply(string host, string bootloader, string args, ProfileServerType expected)
         {
-            var profile = new AccountProfile { ServerHost = host, BootloaderPath = bootloader, Arguments = args };
-            Assert.Null(profile.ServerType);
+            var profile = LoadOlderProfile(host, bootloader, args);
             Assert.Equal(expected, profile.EffectiveServerType);
         }
+
+        [Fact]
+        public void OlderProfiles_DropTheBootloaderFields_OnTheNextSave()
+        {
+            var profile = LoadOlderProfile("", "C:/pol/pol.exe", "--windowed");
+            string json = JsonSerializer.Serialize(profile);
+            Assert.DoesNotContain("BootloaderPath", json);
+            Assert.DoesNotContain("Arguments", json);
+            Assert.DoesNotContain("pol.exe", json);
+        }
+
+        /// <summary>A profile file as GordianXI saved it before the direct logins, with a bootloader and its arguments.</summary>
+        private static AccountProfile LoadOlderProfile(string host, string bootloader, string args, string extraJson = "") =>
+            JsonSerializer.Deserialize<AccountProfile>(
+                $"{{\"ProfileName\":\"Old\",\"ServerHost\":{JsonSerializer.Serialize(host)},\"BootloaderPath\":{JsonSerializer.Serialize(bootloader)},\"Arguments\":{JsonSerializer.Serialize(args)}{extraJson}}}")!;
 
         [Fact]
         public void TheChosenType_Wins()
@@ -32,25 +47,25 @@ namespace Gordian.Core.Tests.Profiles
         [Fact]
         public void OlderProfiles_KeepTheHostAndPortsTheirArgumentsName()
         {
-            var profile = new AccountProfile
-            {
-                BootloaderPath = "xiloader.exe",
-                Arguments = "--server 10.1.2.3 --dataport 60230 --viewport 60001 --authport 60231",
-                ServerPort = 0,
-            };
-            Assert.Equal("10.1.2.3", profile.EffectiveServerHost);
+            var profile = LoadOlderProfile("", "xiloader.exe", "--server 10.1.2.3 --dataport 60230 --viewport 60001 --authport 60231",
+                ",\"ServerPort\":0");
+            Assert.Equal(ProfileServerType.LandSandBoat, profile.ServerType);
+            Assert.Equal("10.1.2.3", profile.ServerHost);
             Assert.Equal(60231, profile.EffectiveServerPort);
             Assert.Equal(60230, profile.EffectiveDataPort);
             Assert.Equal(60001, profile.EffectiveViewPort);
 
             // xiloader with no --server means the local machine, as before.
-            Assert.Equal("127.0.0.1", new AccountProfile { BootloaderPath = "xiloader.exe" }.EffectiveServerHost);
+            Assert.Equal("127.0.0.1", LoadOlderProfile("", "xiloader.exe", "").EffectiveServerHost);
+
+            // A port the profile already has wins over its arguments.
+            Assert.Equal(2, LoadOlderProfile("h", "", "--dataport 1", ",\"DataPort\":2").EffectiveDataPort);
         }
 
         [Fact]
         public void ExplicitPorts_WinOverArguments_AndDefaultsApplyOtherwise()
         {
-            var profile = new AccountProfile { ServerHost = "h", Arguments = "--dataport 1", DataPort = 2 };
+            var profile = new AccountProfile { ServerHost = "h", DataPort = 2 };
             Assert.Equal(2, profile.EffectiveDataPort);
             Assert.Equal(AccountProfile.DefaultLsbViewPort, profile.EffectiveViewPort);
             Assert.Equal(AccountProfile.DefaultLsbAuthPort, profile.EffectiveServerPort);
@@ -120,8 +135,8 @@ namespace Gordian.Core.Tests.Profiles
             noSquareEnix.Password = string.Empty;
             Assert.Equal("has no Square Enix ID and password", noSquareEnix.GetLaunchProblem());
 
-            // The old pol.exe path brings its own login: nothing is checked.
-            Assert.Null(new AccountProfile { ServerType = ProfileServerType.Retail, BootloaderPath = "pol.exe" }.GetLaunchProblem());
+            // A profile that used the removed pol.exe path is checked like any other retail profile.
+            Assert.Equal("has no valid POL ID (4 letters, then 4 digits)", LoadOlderProfile("", "C:/pol/pol.exe", "").GetLaunchProblem());
         }
 
         private static AccountProfile Retail() => new()

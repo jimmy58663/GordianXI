@@ -27,8 +27,8 @@
 ### ✅ Phase 1: Foundation & Client Infrastructure
 Layered monorepo (five assemblies since #433: [docs/architecture.md](docs/architecture.md)), clean-room rules, Avalonia MVVM shell, encrypted account profiles, packet inspector. → [docs/app/desktop-shell.md](docs/app/desktop-shell.md)
 
-### ✅ Phase 2: Bootloader Session Handoff & Direct Authentication
-`xiloader`/`pol` COM handoff through the ephemeral `FFXiMain.dll` proxy, Named Pipe IPC, native LSB login (`LsbLoginClient`). → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
+### ✅ Phase 2: Direct Authentication
+Native LSB login (`LsbLoginClient`); direct retail login since #537. The old bootloader proxy handoff was removed. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
 
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 86 S2C decoders / 77 C2S opcodes, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
