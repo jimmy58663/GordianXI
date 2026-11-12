@@ -441,19 +441,35 @@ namespace Gordian.Core.Tests.Network.Retail
                 "c852e8b80000000000000000b0f8aa5d",
                 Convert.ToHexStringLower(auth));
 
+            // Spec v2.1.23 test vector 18: the Viewer's key request, exact retail bytes.
             byte[] key = new byte[40];
-            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Viewer, 0x01020304);
-            Assert.Equal(1, key[0x13]);
-            Assert.Equal(new byte[] { 0, 1, 0, 5, 0x03, 0xE8 }, key[0x14..0x1A]);
-            Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(0x20)));
-            Assert.True(PolHashes.VerifyAdditive(key));
+            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Viewer);
+            Assert.Equal(
+                "00000000000000000000000000000000" +
+                "00000000e8030500000100000000" + "0000" +
+                "00000000e8040500",
+                Convert.ToHexStringLower(key));
 
-            // The lobby key: ServiceType 0, flags 1, ClientNonce 0 (spec v2.1.19 section 4.3.5).
-            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Lobby);
-            Assert.Equal(0, key[0x13]);
-            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(key.AsSpan(0x20)));
-            Assert.Equal(new byte[] { 0, 1, 0, 5, 0x00, 0x01 }, key[0x14..0x1A]);
-            Assert.True(PolHashes.VerifyAdditive(key));
+            // The FFXI key request with the vector's made-up keystream word 44 33 22 11 at +0x20.
+            PolPresencePackets.WriteKeyRequestPayload(key, PolSessionKeyService.Lobby, new byte[] { 0x44, 0x33, 0x22, 0x11 });
+            Assert.Equal(
+                "00000000000000000000000000000000" +
+                "00000001010005000001000000000000" +
+                "4433221145342712",
+                Convert.ToHexStringLower(key));
+        }
+
+        [Fact]
+        public void Presence_LobbyKeyRequestCarriesZeroOnTheWireAt0x20()
+        {
+            var cipher = new PolStreamCipher(Convert.FromHexString("311DD37445716B05"), Convert.FromHexString("0123456789ABCDEF"));
+            byte[] word = PolPresencePackets.KeystreamWordFor(cipher);
+
+            byte[] frame = new byte[80];
+            PolPresencePackets.WriteKeyRequestPayload(frame.AsSpan(40), PolSessionKeyService.Lobby, word);
+            Assert.True(PolHashes.VerifyAdditive(frame.AsSpan(40)));
+            cipher.TransformFrame(frame);
+            Assert.All(frame[0x48..0x4C], b => Assert.Equal(0, b));
         }
 
         [Fact]
@@ -521,7 +537,8 @@ namespace Gordian.Core.Tests.Network.Retail
             var keyServer = Serve((h, p) =>
             {
                 Assert.Equal(0x05, h[2]);
-                Assert.Equal(1, BinaryPrimitives.ReadUInt16BigEndian(p.AsSpan(0x18)));
+                Assert.Equal(new byte[] { 0, 0, 0, 1, 1, 0, 5, 0, 0, 1 }, p[0x10..0x1A]);
+                Assert.True(PolHashes.VerifyAdditive(p));
                 byte[] header = new byte[24];
                 header[0] = 0x83;
                 BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), 32);

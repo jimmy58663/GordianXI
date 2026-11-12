@@ -24,16 +24,16 @@ namespace Gordian.Core.Network.Retail
         PasswordAndOneTimeCode = 2,
     }
 
-    /// <summary>Which session key a <c>0x04/0x05</c> request asks for.</summary>
+    /// <summary>Which session key a <c>0x04/0x05</c> request asks for (spec v2.1.23 section 4.3.5).</summary>
     public enum PolSessionKeyService
     {
         /// <summary>
-        /// The Viewer's service-1 key (ServiceType 1, flags 1000), requested around the PML pages. It is not the PML
-        /// digest key and its use is unverified; it is asked for only to match retail traffic.
+        /// The Viewer's key, requested as the first PML page opens. It is not the PML digest key and its use is
+        /// unverified; it is asked for only to match retail traffic.
         /// </summary>
         Viewer,
 
-        /// <summary>The FFXI lobby key: ServiceType 0, flags 1.</summary>
+        /// <summary>The FFXI lobby key, requested between the lobby connect and <c>0x26</c>.</summary>
         Lobby,
     }
 
@@ -51,7 +51,7 @@ namespace Gordian.Core.Network.Retail
     /// Builders and parsers for the PlayOnline presence / account servers on <c>:51220</c>: the plaintext hello and
     /// challenge, the encrypted request header and payloads, and the encrypted response header.
     /// <para>
-    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.19, section 4.3.
+    /// Protocol referenced from the GordianXI retail login spec, docs/network/retail-login-spec.md v2.1.23, section 4.3.
     /// </para>
     /// </summary>
     public static class PolPresencePackets
@@ -80,17 +80,25 @@ namespace Gordian.Core.Network.Retail
         public const byte CommandSessionKey = 0x05;
         public const byte CommandAuthenticate = 0x07;
 
-        /// <summary>The <c>0x04/0x05</c> flag of the Viewer's service-1 request.</summary>
-        public const ushort KeyFlagsViewer = 1000;
+        /// <summary>
+        /// Bytes <c>+0x10..+0x19</c> of the Viewer's <c>0x04/0x05</c> key request: selector <c>00 00 00 00</c>, then
+        /// <c>E8 03 05 00 00 01</c> (spec v2.1.23 section 4.3.5, test vector 18).
+        /// </summary>
+        public static ReadOnlySpan<byte> ViewerKeySelector => [0x00, 0x00, 0x00, 0x00, 0xE8, 0x03, 0x05, 0x00, 0x00, 0x01];
 
-        /// <summary>The <c>0x04/0x05</c> flag that asks for the FFXI lobby key.</summary>
-        public const ushort KeyFlagsLobby = 1;
+        /// <summary>
+        /// Bytes <c>+0x10..+0x19</c> of the FFXI lobby key request: selector <c>00 00 00 01</c>, then
+        /// <c>01 00 05 00 00 01</c> (spec v2.1.23 section 4.3.5, test vector 18). Before v2.1.23 the spec gave
+        /// <c>00 00 00 00 00 01 00 05 00 01</c>, which the server answers with a key of the Viewer's kind, and the lobby then
+        /// refused the AuthCode with 3301.
+        /// </summary>
+        public static ReadOnlySpan<byte> LobbyKeySelector => [0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x05, 0x00, 0x00, 0x01];
 
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the Viewer's service-1 request (spec v2.1.19 section 4.3.5).</summary>
-        public const byte ServiceTypeViewer = 1;
-
-        /// <summary>The <c>0x04/0x05</c> ServiceType of the lobby key request (spec v2.1.19 section 4.3.5).</summary>
-        public const byte ServiceTypeLobby = 0;
+        /// <summary>
+        /// The offset in the key request payload of the word the FFXI request sets to the session cipher's keystream, so
+        /// that it is zero on the wire (spec v2.1.23 section 4.3.5).
+        /// </summary>
+        public const int KeyRequestWireZeroOffset = 0x20;
 
         /// <summary>
         /// The 40-byte hello: zeros, the protocol version 1 (u16 LE at +0x04), the routing token at +0x06, and zeros from
@@ -141,20 +149,33 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included. Retail sends ClientNonce 0 on
-        /// most requests and the server accepts it (spec v2.1.19 section 4.3.5).
+        /// The plaintext 40-byte <c>0x04/0x05</c> session key request, checksum included: 16 zero bytes, the request's
+        /// selector at <c>+0x10</c>, zeros, the word at <c>+0x20</c>, and the additive checksum over <c>+0x00..+0x23</c>
+        /// (spec v2.1.23 section 4.3.5, test vector 18). <paramref name="wireZeroWord"/> is the word at <c>+0x20</c>: zero
+        /// for the Viewer's request, and for the FFXI request the session cipher's keystream at that position
+        /// (<see cref="KeystreamWordFor"/>), so it is zero on the wire.
         /// </summary>
-        public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, uint clientNonce = 0)
+        public static void WriteKeyRequestPayload(Span<byte> payload, PolSessionKeyService service, ReadOnlySpan<byte> wireZeroWord = default)
         {
             payload = payload[..KeyRequestPayloadSize];
             payload.Clear();
-            var (serviceType, flags) = service == PolSessionKeyService.Lobby ? (ServiceTypeLobby, KeyFlagsLobby) : (ServiceTypeViewer, KeyFlagsViewer);
-            payload[0x13] = serviceType;
-            BinaryPrimitives.WriteUInt16BigEndian(payload[0x14..], 0x0001);
-            BinaryPrimitives.WriteUInt16BigEndian(payload[0x16..], 0x0005);
-            BinaryPrimitives.WriteUInt16BigEndian(payload[0x18..], flags);
-            BinaryPrimitives.WriteUInt32LittleEndian(payload[0x20..], clientNonce);
+            (service == PolSessionKeyService.Lobby ? LobbyKeySelector : ViewerKeySelector).CopyTo(payload[0x10..]);
+            if (!wireZeroWord.IsEmpty) wireZeroWord[..4].CopyTo(payload[KeyRequestWireZeroOffset..]);
             PolHashes.SealAdditive(payload);
+        }
+
+        /// <summary>
+        /// The four bytes the FFXI key request puts at payload <c>+0x20</c>: what <paramref name="cipher"/> turns zero
+        /// bytes into at that position of a frame of <paramref name="frameLength"/> bytes (the 40-byte header, then the
+        /// payload, one <c>reset_iv = 1</c> frame). Written into the plaintext, they encrypt to <c>00 00 00 00</c> (spec
+        /// v2.1.23 section 4.3.5: encrypt 40 zero bytes as the payload and copy ciphertext <c>+0x20..+0x23</c>). The
+        /// cipher's keystream restarts on the next frame, so this does not disturb it.
+        /// </summary>
+        public static byte[] KeystreamWordFor(PolStreamCipher cipher, int frameLength = RequestHeaderSize + KeyRequestPayloadSize)
+        {
+            byte[] zeros = new byte[frameLength];
+            cipher.TransformFrame(zeros);
+            return zeros.AsSpan(RequestHeaderSize + KeyRequestWireZeroOffset, 4).ToArray();
         }
 
         /// <summary>Reads a decrypted 24-byte response header.</summary>
@@ -213,12 +234,15 @@ namespace Gordian.Core.Network.Retail
             GordianLog.Info("RETAIL_LOGIN", $"Square Enix account accepted; assigned presence server {_assigned}.");
         }
 
-        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server: the FFXI lobby key, or the Viewer's service-1 key.</summary>
+        /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server: the FFXI lobby key, or the Viewer's key.</summary>
         public async Task<byte[]> RequestSessionKeyAsync(PolSessionKeyService service, CancellationToken ct, int port = PolPresencePackets.Port)
         {
             if (_assigned == null) throw new InvalidOperationException("Authenticate first: the account login assigns the key server.");
             byte[] payload = new byte[PolPresencePackets.KeyRequestPayloadSize];
-            PolPresencePackets.WriteKeyRequestPayload(payload, service);
+            byte[]? wireZero = service == PolSessionKeyService.Lobby ? PolPresencePackets.KeystreamWordFor(_core.Cipher) : null;
+            PolPresencePackets.WriteKeyRequestPayload(payload, service, wireZero);
+            GordianLog.Info("RETAIL_LOGIN", $"{service} key request to {_assigned}: +0x10 {Convert.ToHexString(payload.AsSpan(0x10, 10))}" +
+                (wireZero == null ? "." : ", +0x20 set to the keystream so it is zero on the wire."));
 
             var (_, response) = await ExchangeAsync(_assigned.ToString(), port, PolPresencePackets.CommandSessionKey, payload,
                 expectPayload: true, "session key", ct).ConfigureAwait(false);
