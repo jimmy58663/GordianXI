@@ -1103,7 +1103,8 @@ namespace Gordian.App.Graphics
             // Reactive sizing picks each window's line count (and so its frame) from the lines arriving; it shows the
             // maximum while the player reads the window (selected, scrolled back, typing, or placing the UI).
             double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now, DialogFloors(session, chat, _logFont, _logTextWidth));
+            UpdateLogSizing(_logSizing, chat, Settings, Drag.Unlocked, multi, now, DialogFloors(session, chat, _logFont, _logTextWidth),
+                NewestRows(chat, _logFont, _logTextWidth, Settings.GetValue(StockUiSettingKey.LogTimestamp)));
             // The drawn height follows the line count smoothly: the frame is the next whole line count up, drawn
             // shorter, its rows held against the bottom edge (StockUiChatWindow.DrawLog's riseRows).
             float display1 = _logSizing[0].DisplayLines;
@@ -1275,25 +1276,44 @@ namespace Gordian.App.Graphics
         /// Advances a log's reactive sizing (Window 2's only while the log is split); it shows the maximum while the player
         /// reads the window (selected, scrolled back, typing, or placing the UI).
         /// </summary>
-        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now, (int Window1, int Window2) dialogFloor)
+        private static void UpdateLogSizing(StockUiLogSizing[] sizing, StockUiChat chat, StockUiSettings settings, bool unlocked, int multi, double now, (int Window1, int Window2) dialogFloor,
+            Func<int, int, int>? newestRows)
         {
             // Window 2 is a copy of Window 1 with its own settings: one routine, configured per window (#369: an NPC line
             // waiting for Confirm keeps either window up, whichever the dialog channel is routed to).
-            UpdateWindowSizing(sizing[0], 1, chat, settings, unlocked || chat.Input.IsOpen, now, dialogFloor.Window1,
+            UpdateWindowSizing(sizing[0], 1, chat, settings, unlocked || chat.Input.IsOpen, now, dialogFloor.Window1, newestRows,
                 StockUiSettingKey.Window1ReactiveSizing, StockUiSettingKey.Window1MinLines, StockUiSettingKey.Window1MaxLines, StockUiSettingKey.Window1ResizeTime);
             if (multi != 0)
             {
-                UpdateWindowSizing(sizing[1], 2, chat, settings, unlocked, now, dialogFloor.Window2,
+                UpdateWindowSizing(sizing[1], 2, chat, settings, unlocked, now, dialogFloor.Window2, newestRows,
                     StockUiSettingKey.Window2ReactiveSizing, StockUiSettingKey.Window2MinLines, StockUiSettingKey.Window2MaxLines, StockUiSettingKey.Window2ResizeTime);
             }
         }
 
         private static void UpdateWindowSizing(StockUiLogSizing sizing, int window, StockUiChat chat, StockUiSettings settings, bool expanded, double now,
-            int dialogFloor, StockUiSettingKey reactive, StockUiSettingKey minLines, StockUiSettingKey maxLines, StockUiSettingKey resizeTime) =>
+            int dialogFloor, Func<int, int, int>? newestRows, StockUiSettingKey reactive, StockUiSettingKey minLines, StockUiSettingKey maxLines, StockUiSettingKey resizeTime) =>
             sizing.Update(now, chat.Log.AddedCount(window), settings.IsOn(reactive), settings.GetValue(minLines), settings.GetValue(maxLines),
                 StockUiLogSizing.ResizeSeconds(settings.GetValue(resizeTime)),
                 expanded: expanded || chat.IsLogSelected || chat.Log.ScrollOffset(window) > 0, floor: dialogFloor,
-                shrinkRequests: chat.LogShrinkRequests);
+                shrinkRequests: chat.LogShrinkRequests,
+                rowsOfNewest: newestRows == null ? null : lines => newestRows(window, lines));
+
+        /// <summary>
+        /// Counts the wrapped rows of a log window's newest lines (window, line count), as the log draws them, so a line that wraps
+        /// grows the window by all its rows (#519). Null before the log font loads (each line then counts one row).
+        /// </summary>
+        private static Func<int, int, int>? NewestRows(StockUiChat chat, StockUiLogFont? logFont, float[] textWidth, int timestamp)
+        {
+            if (logFont == null) return null;
+            return (window, count) =>
+            {
+                var lines = new List<ChatLogLine>(count);
+                chat.Log.CopyVisible(window, count, lines);
+                int rows = 0;
+                foreach (var line in lines) rows += StockUiChatLog.GetWrappedRows(line, logFont.GetAdvance, textWidth[window - 1], timestamp).Count;
+                return Math.Max(count, rows);
+            };
+        }
 
         /// <summary>Each log window's text width as last drawn (authored pixels), for working out how many rows a dialog line takes.</summary>
         private readonly float[] _logTextWidth = { 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight, 366 - StockUiChatWindow.TextLeft - StockUiChatWindow.TextRight };
@@ -1334,7 +1354,8 @@ namespace Gordian.App.Graphics
             int multi = settings.GetValue(StockUiSettingKey.LogMultiWindow);
             session.Chat.SetMultiWindow(multi != 0);
             UpdateLogSizing(LogSizingFor(session), session.Chat, settings, session.ActionService.UiDrag.Unlocked, multi,
-                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, DialogFloors(session, session.Chat, _logFont, _logTextWidth));
+                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, DialogFloors(session, session.Chat, _logFont, _logTextWidth),
+                NewestRows(session.Chat, _logFont, _logTextWidth, settings.GetValue(StockUiSettingKey.LogTimestamp)));
         }
 
         /// <summary>
