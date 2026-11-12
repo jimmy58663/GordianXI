@@ -463,6 +463,9 @@ namespace Gordian.Core.Network
             PacketInspected.Invoke(this, entry);
         }
 
+        /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
+        internal int SubPacketTrace { get; set; }
+
         /// <summary>
         /// Processes an incoming raw UDP datagram buffer.
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
@@ -553,6 +556,11 @@ namespace Gordian.Core.Network
 
             // 3. Iterate concatenated sub-packets and dispatch
             ReadOnlySpan<byte> subPackets = _decompressionScratch.AsSpan(0, decompressedBytes);
+            if (SubPacketTrace > 0)
+            {
+                SubPacketTrace--;
+                GordianLog.Debug("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+            }
             int offset = 0;
             int inboundSubPacketCount = 0;
 

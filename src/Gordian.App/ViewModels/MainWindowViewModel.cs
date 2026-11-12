@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Gordian.App.Common;
@@ -12,6 +13,8 @@ using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
+using Gordian.Core.Network.Retail;
 using Gordian.Core.Profiles;
 using Gordian.Engine.Sessions;
 
@@ -31,12 +34,22 @@ namespace Gordian.App.ViewModels
         private int _formCharacterSlot;
         private string _formFolder = string.Empty;
         private string _formServerHost = string.Empty;
-        private int _formServerPort = 54231;
-        private string _formBootloaderPath = string.Empty;
-        private string _formArguments = string.Empty;
+        private int _formServerPort = AccountProfile.DefaultLsbAuthPort;
+        private int _formDataPort = AccountProfile.DefaultLsbDataPort;
+        private int _formViewPort = AccountProfile.DefaultLsbViewPort;
+        private ProfileServerType _formServerType = ProfileServerType.LandSandBoat;
         private string _formUsername = string.Empty;
         private string _formPassword = string.Empty;
+        private string _formPolId = string.Empty;
+        private string _formPolPassword = string.Empty;
+        private string _formGameDirectory = string.Empty;
         private string _formOtpSeed = string.Empty;
+        private TwoFactorMode _formTwoFactorMode = TwoFactorMode.None;
+        private bool _isEditorOpen;
+        private bool _formShowPasswords;
+        // The editing profile's legacy bootloader fields, kept on save so its old retail launch path keeps working.
+        private string _editingBootloaderPath = string.Empty;
+        private string _editingArguments = string.Empty;
         private string _newFolderName = string.Empty;
         private string _statusMessage = string.Empty;
 
@@ -96,9 +109,131 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _showStateInspector, value);
         }
 
+        /// <summary>Whether the editor is open on an existing profile (false for a new one, or when the editor is closed).</summary>
         public bool IsEditing => !string.IsNullOrEmpty(_editingOriginalProfileName);
 
-        public string FormTitle => IsEditing ? $"Edit Profile: {_editingOriginalProfileName}" : "New Profile Properties";
+        /// <summary>
+        /// Whether the profile editor fills the Profiles tab (New Profile or Edit); otherwise the launch list does.
+        /// </summary>
+        public bool IsEditorOpen
+        {
+            get => _isEditorOpen;
+            private set
+            {
+                if (SetProperty(ref _isEditorOpen, value)) OnPropertyChanged(nameof(IsListVisible));
+            }
+        }
+
+        /// <summary>The other side of <see cref="IsEditorOpen"/>: the launch list shows.</summary>
+        public bool IsListVisible => !_isEditorOpen;
+
+        public string FormTitle => IsEditing ? $"Edit Profile: {_editingOriginalProfileName}" : "New Profile";
+
+        /// <summary>The server type the editor shows the fields of.</summary>
+        public ProfileServerType FormServerType
+        {
+            get => _formServerType;
+            set
+            {
+                if (SetProperty(ref _formServerType, value))
+                {
+                    OnPropertyChanged(nameof(FormIsRetail));
+                    OnPropertyChanged(nameof(FormIsLsb));
+                    OnPropertyChanged(nameof(FormAccountLabel));
+                    OnPropertyChanged(nameof(FormAccountPlaceholder));
+                }
+            }
+        }
+
+        /// <summary>The Retail side of the server type toggle.</summary>
+        public bool FormIsRetail
+        {
+            get => _formServerType == ProfileServerType.Retail;
+            set { if (value) FormServerType = ProfileServerType.Retail; }
+        }
+
+        /// <summary>The LandSandBoat side of the server type toggle.</summary>
+        public bool FormIsLsb
+        {
+            get => _formServerType == ProfileServerType.LandSandBoat;
+            set { if (value) FormServerType = ProfileServerType.LandSandBoat; }
+        }
+
+        /// <summary>The account field's label: the Square Enix ID on retail, the account name on a private server.</summary>
+        public string FormAccountLabel => FormIsRetail ? "Square Enix ID:" : "Account Name:";
+
+        public string FormAccountPlaceholder => FormIsRetail ? "Square Enix account ID" : "e.g. account_user";
+
+        public string FormPolId
+        {
+            get => _formPolId;
+            set => SetProperty(ref _formPolId, value);
+        }
+
+        public string FormPolPassword
+        {
+            get => _formPolPassword;
+            set => SetProperty(ref _formPolPassword, value);
+        }
+
+        /// <summary>The profile's FFXI install folder; empty for the one found in the registry.</summary>
+        public string FormGameDirectory
+        {
+            get => _formGameDirectory;
+            set => SetProperty(ref _formGameDirectory, value);
+        }
+
+        public int FormDataPort
+        {
+            get => _formDataPort;
+            set => SetProperty(ref _formDataPort, value);
+        }
+
+        public int FormViewPort
+        {
+            get => _formViewPort;
+            set => SetProperty(ref _formViewPort, value);
+        }
+
+        /// <summary>The 2FA mode radio group's value.</summary>
+        public TwoFactorMode FormTwoFactorMode
+        {
+            get => _formTwoFactorMode;
+            set
+            {
+                if (SetProperty(ref _formTwoFactorMode, value))
+                {
+                    OnPropertyChanged(nameof(FormTwoFactorNone));
+                    OnPropertyChanged(nameof(FormTwoFactorKey));
+                    OnPropertyChanged(nameof(FormTwoFactorAtLaunch));
+                }
+            }
+        }
+
+        public bool FormTwoFactorNone
+        {
+            get => _formTwoFactorMode == TwoFactorMode.None;
+            set { if (value) FormTwoFactorMode = TwoFactorMode.None; }
+        }
+
+        public bool FormTwoFactorKey
+        {
+            get => _formTwoFactorMode == TwoFactorMode.AuthenticatorKey;
+            set { if (value) FormTwoFactorMode = TwoFactorMode.AuthenticatorKey; }
+        }
+
+        public bool FormTwoFactorAtLaunch
+        {
+            get => _formTwoFactorMode == TwoFactorMode.EnterAtLaunch;
+            set { if (value) FormTwoFactorMode = TwoFactorMode.EnterAtLaunch; }
+        }
+
+        /// <summary>Whether the editor's password fields show their text (the eye toggle).</summary>
+        public bool FormShowPasswords
+        {
+            get => _formShowPasswords;
+            set => SetProperty(ref _formShowPasswords, value);
+        }
 
         public string FormProfileName
         {
@@ -163,18 +298,6 @@ namespace Gordian.App.ViewModels
         {
             get => _formServerPort;
             set => SetProperty(ref _formServerPort, value);
-        }
-
-        public string FormBootloaderPath
-        {
-            get => _formBootloaderPath;
-            set => SetProperty(ref _formBootloaderPath, value);
-        }
-
-        public string FormArguments
-        {
-            get => _formArguments;
-            set => SetProperty(ref _formArguments, value);
         }
 
         public string FormUsername
@@ -291,6 +414,12 @@ namespace Gordian.App.ViewModels
 
         public ICommand SaveProfileCommand { get; }
         public ICommand ClearFormCommand { get; }
+
+        /// <summary>Opens the editor on a blank profile (in the folder selected in the launch list, if any).</summary>
+        public ICommand NewProfileCommand { get; }
+
+        /// <summary>Clears the profile's game folder back to the registry install.</summary>
+        public ICommand ClearGameDirectoryCommand { get; }
         public ICommand LaunchSelectedCommand { get; }
         public ICommand TerminateAllCommand { get; }
         public ICommand SelectAllCommand { get; }
@@ -312,6 +441,8 @@ namespace Gordian.App.ViewModels
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
             ClearFormCommand = new RelayCommand(ClearForm);
+            NewProfileCommand = new RelayCommand(NewProfile);
+            ClearGameDirectoryCommand = new RelayCommand(() => FormGameDirectory = string.Empty);
             LaunchSelectedCommand = new RelayCommand(LaunchSelected);
             TerminateAllCommand = new RelayCommand(TerminateAll);
             SelectAllCommand = new RelayCommand(SelectAll);
@@ -1098,17 +1229,43 @@ namespace Gordian.App.ViewModels
             FormCharacterSlot = item.Profile.CharacterSlot;
             FormAutoLogin = item.Profile.EffectiveLoginMode == ProfileLoginMode.AutoLogin;
             FormFolder = item.Profile.Folder;
-            FormServerHost = item.Profile.ServerHost;
-            FormServerPort = item.Profile.ServerPort > 0 ? item.Profile.ServerPort : 54231;
-            FormBootloaderPath = item.Profile.BootloaderPath;
-            FormArguments = item.Profile.Arguments;
+            FormServerType = item.Profile.EffectiveServerType;
+            // An older profile's host and ports may still sit in its bootloader arguments: show the values in effect.
+            FormServerHost = item.Profile.EffectiveServerType == ProfileServerType.LandSandBoat ? item.Profile.EffectiveServerHost : item.Profile.ServerHost;
+            FormServerPort = item.Profile.EffectiveServerPort;
+            FormDataPort = item.Profile.EffectiveDataPort;
+            FormViewPort = item.Profile.EffectiveViewPort;
+            _editingBootloaderPath = item.Profile.BootloaderPath;
+            _editingArguments = item.Profile.Arguments;
             FormUsername = item.Profile.Username;
             FormPassword = item.Profile.Password;
+            FormPolId = item.Profile.PolId;
+            FormPolPassword = item.Profile.PolPassword;
+            FormGameDirectory = item.Profile.GameDirectory;
             FormOtpSeed = item.Profile.OtpSeed;
+            FormTwoFactorMode = item.Profile.EffectiveTwoFactorMode;
+            FormShowPasswords = false;
 
             OnPropertyChanged(nameof(IsEditing));
             OnPropertyChanged(nameof(FormTitle));
+            IsEditorOpen = true;
             StatusMessage = $"Editing profile '{item.Profile.ProfileName}'. Modify fields and click Save.";
+        }
+
+        /// <summary>
+        /// Opens the editor on a blank LandSandBoat profile. The new profile goes in the folder selected in the launch
+        /// list (or the folder of the selected profile), the root otherwise; dragging it moves it afterwards.
+        /// </summary>
+        public void NewProfile()
+        {
+            ClearForm();
+            FormFolder = SelectedTreeNode switch
+            {
+                LaunchFolderViewModel folder => folder.FolderPath,
+                ProfileItemViewModel { Parent: LaunchFolderViewModel parent } => parent.FolderPath,
+                _ => string.Empty,
+            };
+            IsEditorOpen = true;
         }
 
         private void OnProfileDeleteRequested(object? sender, ProfileItemViewModel item)
@@ -1144,30 +1301,64 @@ namespace Gordian.App.ViewModels
             FormCharacterSlot = 0;
             FormAutoLogin = false;
             FormFolder = string.Empty;
+            FormServerType = ProfileServerType.LandSandBoat;
             FormServerHost = string.Empty;
-            FormServerPort = 54231;
-            FormBootloaderPath = string.Empty;
-            FormArguments = string.Empty;
+            FormServerPort = AccountProfile.DefaultLsbAuthPort;
+            FormDataPort = AccountProfile.DefaultLsbDataPort;
+            FormViewPort = AccountProfile.DefaultLsbViewPort;
+            _editingBootloaderPath = string.Empty;
+            _editingArguments = string.Empty;
             FormUsername = string.Empty;
             FormPassword = string.Empty;
+            FormPolId = string.Empty;
+            FormPolPassword = string.Empty;
+            FormGameDirectory = string.Empty;
             FormOtpSeed = string.Empty;
+            FormTwoFactorMode = TwoFactorMode.None;
+            FormShowPasswords = false;
 
             OnPropertyChanged(nameof(IsEditing));
             OnPropertyChanged(nameof(FormTitle));
+            IsEditorOpen = false;
             StatusMessage = string.Empty;
+        }
+
+        /// <summary>Why the editor's values cannot be saved, or null.</summary>
+        private string? ValidateForm()
+        {
+            if (string.IsNullOrWhiteSpace(FormProfileName)) return "Profile name cannot be empty.";
+            if (FormAutoLogin && string.IsNullOrWhiteSpace(FormCharacterName) && FormCharacterSlot is < 1 or > 16)
+                return "Auto-Login needs a Character Name or a Character Slot (1-16).";
+
+            if (FormIsLsb)
+            {
+                if (string.IsNullOrWhiteSpace(FormServerHost)) return "A LandSandBoat profile needs a Server Host.";
+                if (FormServerPort is < 1 or > 65535 || FormDataPort is < 1 or > 65535 || FormViewPort is < 1 or > 65535)
+                    return "Ports must be between 1 and 65535.";
+            }
+            else
+            {
+                // Field lengths from docs/network/retail-login-spec.md section 6.1.
+                if (FormPolId.Trim().Length > 8) return "The POL ID is 8 characters.";
+                if (FormPolPassword.Length > 16) return "The POL Password is at most 16 characters.";
+                if (FormUsername.Trim().Length > 16) return "The Square Enix ID is at most 16 characters.";
+            }
+
+            if (FormTwoFactorKey && !TotpEngine.IsValidSecret(FormOtpSeed))
+                return "The authenticator key must be the Base32 key from the authenticator setup (letters and digits 2-7, at least 16).";
+
+            if (!string.IsNullOrWhiteSpace(FormGameDirectory) && !AppResourceManager.LooksLikeGameDirectory(FormGameDirectory))
+                return $"'{FormGameDirectory.Trim()}' is not an FFXI install folder (it has no VTABLE.DAT and FTABLE.DAT).";
+
+            return null;
         }
 
         private void SaveProfile()
         {
-            if (string.IsNullOrWhiteSpace(FormProfileName))
+            string? problem = ValidateForm();
+            if (problem != null)
             {
-                StatusMessage = "Profile name cannot be empty.";
-                return;
-            }
-
-            if (FormAutoLogin && string.IsNullOrWhiteSpace(FormCharacterName) && FormCharacterSlot is < 1 or > 16)
-            {
-                StatusMessage = "Auto-Login needs a Character Name or a Character Slot (1-16).";
+                StatusMessage = problem;
                 return;
             }
 
@@ -1195,20 +1386,31 @@ namespace Gordian.App.ViewModels
 
             bool isSelected = existing?.IsSelectedForLaunch == true;
 
+            // Only the chosen server type's fields are kept, so a profile switched from one type to the other carries
+            // nothing of the old one.
+            bool lsb = FormIsLsb;
             var profile = new AccountProfile
             {
                 ProfileName = targetName,
                 CharacterName = FormCharacterName.Trim(),
                 CharacterSlot = FormCharacterSlot is >= 1 and <= 16 ? FormCharacterSlot : 0,
                 LoginMode = FormAutoLogin ? ProfileLoginMode.AutoLogin : ProfileLoginMode.CharacterSelect,
+                ServerType = FormServerType,
                 Folder = targetFolder,
-                ServerHost = FormServerHost.Trim(),
-                ServerPort = FormServerPort > 0 ? FormServerPort : 54231,
-                BootloaderPath = FormBootloaderPath.Trim(),
-                Arguments = FormArguments.Trim(),
+                ServerHost = lsb ? FormServerHost.Trim() : string.Empty,
+                ServerPort = lsb ? FormServerPort : AccountProfile.DefaultLsbAuthPort,
+                DataPort = lsb ? FormDataPort : 0,
+                ViewPort = lsb ? FormViewPort : 0,
+                BootloaderPath = _editingBootloaderPath,
+                Arguments = _editingArguments,
                 Username = FormUsername.Trim(),
                 Password = FormPassword,
+                PolId = lsb ? string.Empty : FormPolId.Trim(),
+                PolPassword = lsb ? string.Empty : FormPolPassword,
+                GameDirectory = FormGameDirectory.Trim(),
+                // Kept whatever the mode: an authenticator key is hard to get again, so switching modes must not lose it.
                 OtpSeed = FormOtpSeed.Trim(),
+                TwoFactor = FormTwoFactorMode,
                 IsSelectedForLaunch = existing != null ? isSelected : true
             };
 
@@ -1303,7 +1505,7 @@ namespace Gordian.App.ViewModels
                 StatusMessage = $"Launch option: no profile named {profileName}.";
                 return;
             }
-            if (!IsLsbProfile(profile))
+            if (profile.EffectiveServerType != ProfileServerType.LandSandBoat)
             {
                 StatusMessage = $"Launch option: {profileName} is not a private server profile.";
                 return;
@@ -1312,22 +1514,62 @@ namespace Gordian.App.ViewModels
             LaunchProfiles([profile]);
         }
 
+        /// <summary>
+        /// The one-time code a login of <paramref name="profile"/> sends now. A code typed on the card is used once: it is
+        /// cleared from the card here, and a later login (the return to character select after Log Out) needs a new one.
+        /// </summary>
+        private string TakeOneTimeCode(AccountProfile profile)
+        {
+            string code = profile.ResolveOneTimeCode();
+            if (profile.EffectiveTwoFactorMode == TwoFactorMode.EnterAtLaunch)
+            {
+                if (!AccountProfile.IsValidOneTimeCode(code))
+                    throw new InvalidOperationException("enter the current 6-digit authenticator code on the profile's card, then launch again.");
+                profile.EnteredOneTimeCode = string.Empty;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    Profiles.FirstOrDefault(vm => ReferenceEquals(vm.Profile, profile))?.RefreshEnteredCode());
+            }
+            return code;
+        }
+
         private void LaunchProfiles(List<AccountProfile> targetsToLaunch)
         {
             // Separate private server profiles (direct native LsbLoginClient) from retail profiles
             var directLsbProfiles = new List<AccountProfile>();
+            var directRetailProfiles = new List<AccountProfile>();
             var retailProfiles = new List<AccountProfile>();
+            var problems = new List<string>();
 
             foreach (var p in targetsToLaunch)
             {
-                if (IsLsbProfile(p))
+                // What the profile itself is missing (a server host, its authenticator code), then its FFXI install:
+                // one install is loaded per GordianXI process (AppResourceManager).
+                string? problem = p.GetLaunchProblem() ?? AppResourceManager.SelectForLaunch(p.GameDirectory);
+                if (problem != null)
+                {
+                    problems.Add($"[{p.ProfileName}] Not launched: it {problem}");
+                    continue;
+                }
+
+                if (p.EffectiveServerType == ProfileServerType.LandSandBoat)
                 {
                     directLsbProfiles.Add(p);
                 }
-                else
+                else if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
                 {
+                    // The old pol.exe + proxy path, kept until direct retail login is proven.
                     retailProfiles.Add(p);
                 }
+                else
+                {
+                    directRetailProfiles.Add(p);
+                }
+            }
+
+            if (problems.Count > 0)
+            {
+                foreach (string problem in problems) GordianLog.Warning("SESSION", problem);
+                StatusMessage = string.Join(Environment.NewLine, problems);
             }
 
             // 1. Launch LandSandBoat private server profiles natively via LsbLoginClient
@@ -1361,21 +1603,17 @@ namespace Gordian.App.ViewModels
 
                         try
                         {
-                            string serverHost = !string.IsNullOrWhiteSpace(profile.ServerHost)
-                                ? profile.ServerHost
-                                : ExtractServerHost(profile.Arguments);
-                            int connectPort = profile.ServerPort > 0
-                                ? profile.ServerPort
-                                : ExtractPort(profile.Arguments, "--authport", LsbLoginClient.DefaultConnectPort);
-                            int dataPort = ExtractPort(profile.Arguments, "--dataport", LsbLoginClient.DefaultDataPort);
-                            int viewPort = ExtractPort(profile.Arguments, "--viewport", LsbLoginClient.DefaultViewPort);
+                            string serverHost = profile.EffectiveServerHost;
+                            int connectPort = profile.EffectiveServerPort;
+                            int dataPort = profile.EffectiveDataPort;
+                            int viewPort = profile.EffectiveViewPort;
 
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
                                 StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}:{connectPort}...";
                             });
 
-                            string otp = !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty;
+                            string otp = TakeOneTimeCode(profile);
 
                             // No character on the profile: the character select screen, as the retail client always shows
                             // (#32). A profile with a character name or slot keeps the direct fast path.
@@ -1406,7 +1644,7 @@ namespace Gordian.App.ViewModels
                             // to the lobby servers again (a new xi_data / xi_view session) exactly as after a character select
                             // launch (round 2 of #368 / #377 testing: before, Log Out on the fast path ended the session).
                             Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
-                                !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
+                                TakeOneTimeCode(profile), showLicence: false);
                             await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
                         }
                         catch (Exception ex)
@@ -1422,7 +1660,37 @@ namespace Gordian.App.ViewModels
                 });
             }
 
-            // 2. Retail bootloader / Proxy staging flow (preserved for retail POL)
+            // 2. Retail profiles without a bootloader log in directly (docs/network/retail-login.md), one at a time.
+            if (directRetailProfiles.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    foreach (var profile in directRetailProfiles)
+                    {
+                        string? skipReason = GetLaunchSkipReason(profile);
+                        if (skipReason != null)
+                        {
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = skipReason);
+                            continue;
+                        }
+                        try
+                        {
+                            await LaunchRetailAsync(profile).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            GordianLog.Error("SESSION", $"Retail login failed for profile '{profile.ProfileName}'", ex);
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] {ex.Message}";
+                                RefreshAllStatuses();
+                            });
+                        }
+                    }
+                });
+            }
+
+            // 3. Retail bootloader / Proxy staging flow (preserved for retail POL)
             if (retailProfiles.Count > 0)
             {
                 string? gameDir = GameDirectoryDetector.DetectGameDirectory();
@@ -1583,7 +1851,7 @@ namespace Gordian.App.ViewModels
                 {
                     // A Log Out in game comes back here: the title menu of a fresh lobby login.
                     Func<Task> backToTitle = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
-                        !string.IsNullOrWhiteSpace(profile.OtpSeed) ? profile.CurrentTwoFactorCode : string.Empty, showLicence: false);
+                        TakeOneTimeCode(profile), showLicence: false);
                     await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby), backToTitle).ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -1610,8 +1878,124 @@ namespace Gordian.App.ViewModels
             Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
         }
 
+        /// <summary>
+        /// Logs a retail profile in without pol.exe (docs/network/retail-login.md): the PlayOnline and Square Enix logins,
+        /// then the character select screen, or straight into the game as the profile's character. The PlayOnline session
+        /// stays open while the game runs and a Log Out returns to character select on it; it ends when the player leaves
+        /// character select or the game session ends.
+        /// </summary>
+        private async Task LaunchRetailAsync(AccountProfile profile)
+        {
+            string? root = string.IsNullOrWhiteSpace(profile.GameDirectory) ? GameDirectoryDetector.DetectGameDirectory() : profile.GameDirectory.Trim();
+            if (string.IsNullOrWhiteSpace(root))
+                throw new InvalidOperationException("No FFXI install was found. Set the profile's game folder.");
+
+            var client = new RetailLoginClient { PacketLog = entry => Inspector.OnPacketInspected(this, entry) };
+            client.StatusChanged += (_, message) =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] {message}");
+
+            var credentials = new RetailCredentials(profile.PolId.Trim().ToUpperInvariant(), profile.PolPassword, profile.Username.Trim(),
+                profile.Password, TakeOneTimeCode(profile), root, GameDirectoryDetector.DetectViewerDirectory());
+            var account = await client.LoginAsync(credentials).ConfigureAwait(false);
+            try
+            {
+                if (UsesCharacterSelect(profile))
+                {
+                    await OpenRetailLobbyAsync(profile, account).ConfigureAwait(false);
+                    return;
+                }
+
+                MapSessionTicket ticket;
+                await using (var lobby = await account.OpenLobbyAsync().ConfigureAwait(false))
+                {
+                    var slots = lobby.Characters.Where(c => !c.IsEmpty).Select(c => new LsbCharacterSlot(c.Slot, c.ContentId, c.Name)).ToList();
+                    if (slots.Count == 0) throw new InvalidOperationException("The account has no characters. Leave Auto-Login off to create one.");
+                    var chosen = LsbLoginClient.ChooseCharacter(slots, profile.CharacterName, 0, profile.CharacterSlot);
+                    var character = lobby.Characters.First(c => c.Slot == chosen.Slot);
+                    ticket = await lobby.SelectCharacterAsync(character).ConfigureAwait(false);
+                }
+                await StartLsbSessionAsync(profile, ticket, afterLogout: RetailBackToTitle(profile, account), ended: account.DisposeAsync).ConfigureAwait(false);
+            }
+            catch
+            {
+                await account.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        /// <summary>A Log Out's way back to character select on the same PlayOnline session; a failure ends that session.</summary>
+        private Func<Task> RetailBackToTitle(AccountProfile profile, RetailAccountSession account) => async () =>
+        {
+            try
+            {
+                await OpenRetailLobbyAsync(profile, account, showLicence: false).ConfigureAwait(false);
+            }
+            catch
+            {
+                await account.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        };
+
+        /// <summary>
+        /// The retail character select screen (#32 for LandSandBoat): a fresh lobby connection on the account session. A
+        /// refused selection (3307: the character is still logged in) shows the lobby's message and stays on the screen.
+        /// </summary>
+        private async Task OpenRetailLobbyAsync(AccountProfile profile, RetailAccountSession account, bool showLicence = true)
+        {
+            if (ViewportWindowManager.Default.IsLobbyOpen)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Another character select screen is open. Skipped.");
+                await account.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+
+            var lobbySession = await account.OpenLobbyAsync().ConfigureAwait(false);
+            var resources = AppResourceManager.Instance;
+            var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
+            var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;
+            var lobby = new Gordian.Engine.Ui.Lobby.LobbyController(lobbySession, library, text, showLicence);
+
+            lobby.CharacterSelected += ticket => _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StartLsbSessionAsync(profile, ticket, () => ViewportWindowManager.Default.CloseLobby(lobby),
+                        RetailBackToTitle(profile, account), account.DisposeAsync).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    GordianLog.Error("SESSION", $"Connection error for retail profile '{profile.ProfileName}' after character select", ex);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}");
+                    await account.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    ViewportWindowManager.Default.CloseLobby(lobby);
+                    await lobbySession.DisposeAsync().ConfigureAwait(false);
+                }
+            });
+            lobby.Closed += reason =>
+            {
+                ViewportWindowManager.Default.CloseLobby(lobby);
+                _ = lobbySession.DisposeAsync().AsTask();
+                _ = account.DisposeAsync().AsTask();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    StatusMessage = reason == null ? $"[{profile.ProfileName}] Left the character select screen." : $"[{profile.ProfileName}] Character select closed: {reason}");
+            };
+
+            GordianLog.Info("RETAIL_LOGIN", $"Profile '{profile.ProfileName}': opening the character select screen ({lobbySession.Characters.Count} content ids).");
+            ViewportWindowManager.Default.ShowLobby(lobby);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
+        }
+
         /// <summary>Starts and registers the game session for a lobby ticket (direct login or character select).</summary>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null)
+        /// <param name="ended">
+        /// Runs once when the game session ends without going back to character select (a retail login ends its
+        /// PlayOnline session there).
+        /// </param>
+        private async Task StartLsbSessionAsync(AccountProfile profile, MapSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
+            Func<ValueTask>? ended = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
@@ -1623,6 +2007,7 @@ namespace Gordian.App.ViewModels
                 {
                     StatusMessage = $"[{profile.ProfileName}] Character '{ticket.CharacterName}' (ID {ticket.CharacterId}) is already in the game. Skipped.";
                 });
+                if (ended != null) await ended().ConfigureAwait(false);
                 return;
             }
 
@@ -1646,6 +2031,14 @@ namespace Gordian.App.ViewModels
 
             // Initialize the session Blowfish key: every candidate LandSandBoat scheme, the map server's first datagram picks one
             netManager.Parser.InitializeSessionCrypto(ticket.CryptoKeyCandidates);
+            // Retail: its own first datagram, and the search server the lobby named.
+            netManager.LoginDatagramBuilder = ticket.LoginDatagramBuilder;
+            netManager.RetailMapProtocol = ticket.RetailMapProtocol;
+            netManager.RetailClientAddress = ticket.RetailClientAddress;
+            if (!string.IsNullOrWhiteSpace(ticket.SearchIp) && ticket.SearchPort > 0)
+            {
+                netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort);
+            }
 
             var session = new CharacterSession(
                 netManager.CharacterName,
@@ -1658,8 +2051,19 @@ namespace Gordian.App.ViewModels
             };
 
             bool timedOut = false;
+            bool returningToLobby = false;
+            int endedOnce = 0;
             netManager.StateChanged += (s, state) =>
             {
+                if (state == SessionState.Disconnected && ended != null && !Volatile.Read(ref returningToLobby) &&
+                    Interlocked.Exchange(ref endedOnce, 1) == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try { await ended().ConfigureAwait(false); }
+                        catch (Exception ex) { GordianLog.Warning("SESSION", $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
+                    });
+                }
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     RefreshAllStatuses();
@@ -1706,6 +2110,7 @@ namespace Gordian.App.ViewModels
                 }
                 // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
                 // the lobby fades in there once the launcher has logged in again.
+                Volatile.Write(ref returningToLobby, true);
                 ViewportWindowManager.Default.BeginLobbyReturn();
                 _ = Task.Run(async () =>
                 {
@@ -1733,68 +2138,6 @@ namespace Gordian.App.ViewModels
 
             // Connect UDP socket and transmit 0x00A login handshake
             await netManager.ConnectAsync().ConfigureAwait(false);
-        }
-
-        private static bool IsLsbProfile(AccountProfile profile)
-        {
-            if (profile == null) return false;
-            if (!string.IsNullOrWhiteSpace(profile.ServerHost)) return true;
-            string args = profile.Arguments ?? string.Empty;
-            string bootloader = profile.BootloaderPath ?? string.Empty;
-
-            // Detection criteria for LandSandBoat / private servers:
-            // 1. Arguments contain --server or 127.0.0.1 or localhost
-            // 2. Bootloader is xiloader.exe
-            if (bootloader.Contains("xiloader", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-            if (args.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-                args.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
-                args.Contains("--server", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-            return false;
-        }
-
-        private static string ExtractServerHost(string? arguments)
-        {
-            if (string.IsNullOrWhiteSpace(arguments)) return "127.0.0.1";
-
-            string[] tokens = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                if (string.Equals(tokens[i], "--server", StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
-                {
-                    return tokens[i + 1];
-                }
-                if (string.Equals(tokens[i], "-s", StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
-                {
-                    return tokens[i + 1];
-                }
-            }
-
-            return "127.0.0.1";
-        }
-
-        private static int ExtractPort(string? arguments, string paramName, int defaultPort)
-        {
-            if (string.IsNullOrWhiteSpace(arguments)) return defaultPort;
-
-            string[] tokens = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                if (string.Equals(tokens[i], paramName, StringComparison.OrdinalIgnoreCase) && i + 1 < tokens.Length)
-                {
-                    if (int.TryParse(tokens[i + 1], out int port) && port > 0 && port <= 65535)
-                    {
-                        return port;
-                    }
-                }
-            }
-
-            return defaultPort;
         }
 
         private void TerminateAll()
@@ -1881,11 +2224,13 @@ namespace Gordian.App.ViewModels
                 ProfileName = "JimmyMain (Retail Target)",
                 CharacterName = "Jimmy",
                 Folder = string.Empty,
+                ServerType = ProfileServerType.Retail,
                 Username = "jimmy_war",
                 Password = "SuperSecurePassword123",
+                PolId = "JIMMY001",
+                PolPassword = "PolPassword123",
                 OtpSeed = "HXDMVJECJJWSRB3D",
-                BootloaderPath = Path.Combine("C:", "Program Files (x86)", "PlayOnline", "SquareEnix", "PlayOnlineViewer", "pol.exe"),
-                Arguments = "--server official.retail --windowed",
+                TwoFactor = TwoFactorMode.AuthenticatorKey,
                 IsSelectedForLaunch = true
             };
 
@@ -1896,6 +2241,7 @@ namespace Gordian.App.ViewModels
                 Folder = "Test1",
                 Username = "jimmy_mule",
                 Password = "MulePassword456",
+                ServerType = ProfileServerType.LandSandBoat,
                 ServerHost = "127.0.0.1",
                 ServerPort = 54231,
                 IsSelectedForLaunch = true
@@ -1908,6 +2254,7 @@ namespace Gordian.App.ViewModels
                 Folder = "Test1",
                 Username = "af00_user",
                 Password = "AFPassword123",
+                ServerType = ProfileServerType.LandSandBoat,
                 ServerHost = "127.0.0.1",
                 ServerPort = 54231,
                 IsSelectedForLaunch = true
@@ -1920,6 +2267,7 @@ namespace Gordian.App.ViewModels
                 Folder = "Test2/Test3",
                 Username = "hs00_user",
                 Password = "HSPassword456",
+                ServerType = ProfileServerType.LandSandBoat,
                 ServerHost = "127.0.0.1",
                 ServerPort = 54231,
                 IsSelectedForLaunch = true
@@ -1932,6 +2280,7 @@ namespace Gordian.App.ViewModels
                 Folder = string.Empty,
                 Username = "lp00_user",
                 Password = "LPPassword789",
+                ServerType = ProfileServerType.LandSandBoat,
                 ServerHost = "127.0.0.1",
                 ServerPort = 54231,
                 IsSelectedForLaunch = false

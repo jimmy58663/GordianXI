@@ -1,5 +1,6 @@
 // src/Gordian.App/ViewModels/ProfileItemViewModel.cs
 using System;
+using System.Linq;
 using Gordian.Core.Network;
 using Gordian.Core.Profiles;
 using Gordian.Engine.Sessions;
@@ -32,6 +33,30 @@ namespace Gordian.App.ViewModels
         public string Username => _profile.Username;
         public string CurrentTwoFactorCode => _profile.CurrentTwoFactorCode;
 
+        /// <summary>Whether the card shows the code computed from the profile's authenticator key.</summary>
+        public bool ShowsComputedCode => _profile.EffectiveTwoFactorMode == TwoFactorMode.AuthenticatorKey;
+
+        /// <summary>Whether the card has the box for typing the authenticator code before launching.</summary>
+        public bool AsksForCode => _profile.EffectiveTwoFactorMode == TwoFactorMode.EnterAtLaunch;
+
+        /// <summary>
+        /// The code typed on the card (<see cref="TwoFactorMode.EnterAtLaunch"/>). Digits only, at most 6; memory only.
+        /// </summary>
+        public string EnteredCode
+        {
+            get => _profile.EnteredOneTimeCode;
+            set
+            {
+                string digits = new string((value ?? string.Empty).Where(char.IsAsciiDigit).Take(6).ToArray());
+                if (digits == _profile.EnteredOneTimeCode) return;
+                _profile.EnteredOneTimeCode = digits;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>Re-reads <see cref="EnteredCode"/> after a launch used (and cleared) the typed code.</summary>
+        public void RefreshEnteredCode() => OnPropertyChanged(nameof(EnteredCode));
+
         public override bool? IsSelectedForLaunch
         {
             get => _isSelectedForLaunch;
@@ -63,13 +88,18 @@ namespace Gordian.App.ViewModels
         public string StatusText => IsOnline ? "Online" : "Offline";
         public string StatusColor => IsOnline ? "#4CAF50" : "#F44336";
 
-        public string ServerBadgeText => !string.IsNullOrWhiteSpace(_profile.ServerHost)
-            ? $"Private ({_profile.ServerHost}:{(_profile.ServerPort > 0 ? _profile.ServerPort : 54231)})"
-            : "Retail (POL)";
+        private bool IsLsb => _profile.EffectiveServerType == ProfileServerType.LandSandBoat;
 
-        public string ServerBadgeColor => !string.IsNullOrWhiteSpace(_profile.ServerHost)
-            ? "#9CDCFE"
-            : "#CE9178";
+        public string ServerBadgeText => IsLsb
+            ? $"LSB ({_profile.EffectiveServerHost}:{_profile.EffectiveServerPort})"
+            : "Retail";
+
+        public string ServerBadgeColor => IsLsb ? "#9CDCFE" : "#CE9178";
+
+        /// <summary>Whether the profile plays with its own FFXI install rather than the registry one.</summary>
+        public bool HasCustomGameDirectory => !string.IsNullOrWhiteSpace(_profile.GameDirectory);
+
+        public string GameDirectoryTip => $"FFXI install: {_profile.GameDirectory}";
 
         public System.Windows.Input.ICommand TerminateCommand { get; }
         public System.Windows.Input.ICommand EditCommand { get; }

@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/Lobby/LobbyPreview.cs
 using System.Numerics;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.World;
 
 namespace Gordian.Engine.Ui.Lobby

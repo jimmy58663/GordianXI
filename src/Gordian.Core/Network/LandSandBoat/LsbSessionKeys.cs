@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using Gordian.Core.Network.Crypto;
+using Gordian.Core.Network.Lobby;
 
 namespace Gordian.Core.Network.LandSandBoat
 {

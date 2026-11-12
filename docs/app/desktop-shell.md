@@ -9,6 +9,7 @@
 - Modern dark HUD UI with Avalonia MVVM
 - Encrypted profile storage with master AES key and defensive plaintext migration
 - Account profile management (Add, Edit, Delete, Select for Launch)
+- The profile editor lays its fields out in two columns (the server and accounts on the left; two-factor, login mode and game folder on the right) and drops to one column when the editor is narrower than 860 px (a `ContainerQuery` on the editor border). Save Profile and Cancel stay fixed under the scrolling form, like the launch bar under the profile list.
 - Profile & Global session termination commands (`TerminateCommand`, `TerminateAllCommand`)
 - Live Packet Inspector UI with Hex/ASCII view, pause/clear, and real-time capture
 
@@ -32,6 +33,38 @@ dotnet run --project src/Gordian.App/Gordian.App.csproj -- --profiles-dir <path>
 - **The frame is exact:** it is read inside the client, so it has no mouse cursor and doesn't depend on window position. Outside tools can't do this reliably: `ffmpeg`'s window capture returns black frames for the viewport.
 
 Checked on Vulkan and Direct3D 11 (Valkurm Dunes, 2026-11-06). Retail's `/screenshot` under Windower gave no reply and no file we could find, so this follows Windower's own screenshot naming.
+
+## Profile list and editor (#527)
+
+The Profiles and Launch tab shows one of two views. The **launch list** fills the tab: folders, drag and drop, launch checkboxes, the **+ New Profile** button and the launch bar. **+ New Profile** or a card's **Edit** (or **Copy**) swaps it for the **editor**, and Save or Cancel swaps back (`MainWindowViewModel.IsEditorOpen` / `IsListVisible`). A new profile goes in the folder highlighted in the list (or the folder of the highlighted profile), the root otherwise. After that, dragging moves it: the editor has no folder field.
+
+The editor's **Server** toggle (`AccountProfile.ServerType`) decides which fields show. Save keeps only the chosen type's fields.
+
+| Field | Retail | LandSandBoat | Stored as |
+|---|---|---|---|
+| Profile Name | ✓ | ✓ | `ProfileName` |
+| Server Host and Port | | ✓ (required) | `ServerHost`, `ServerPort` (54231) |
+| Advanced: data and view ports | | ✓ | `DataPort`, `ViewPort` (0 = 54230 / 54001) |
+| POL ID, POL Password | ✓ (8 and up to 16 characters) | | `PolId`, `PolPassword` (encrypted) |
+| Square Enix ID / Account Name, Password | ✓ (ID up to 16 characters) | ✓ | `Username`, `Password` (encrypted) |
+| Two-factor authentication | ✓ | ✓ | `TwoFactor`, `OtpSeed` (encrypted) |
+| Login: Character Select / Auto-Login | ✓ | ✓ | `LoginMode`, `CharacterName`, `CharacterSlot` |
+| Game Folder | ✓ | ✓ | `GameDirectory` |
+
+The retail field limits come from [retail-login-spec.md](../network/retail-login-spec.md) section 6.1. **Show passwords** reveals the password fields and the authenticator key.
+
+- **Two-factor modes** (`TwoFactorMode`):
+  - **None**: no code is sent.
+  - **Authenticator key (automatic)**: the Base32 key from the authenticator setup is stored, and the code is computed at every login (`TotpEngine`). The key must be at least 16 Base32 characters; spaces, dashes and `=` padding are ignored. The card shows the current code.
+  - **Enter code at launch**: the card gets a 6-digit code box. Launch uses the code once and clears it (`AccountProfile.EnteredOneTimeCode`, never saved), so a later login, such as the return to character select after Log Out, needs a new code typed on the card. A profile in this mode with no valid code is not launched.
+  - Switching modes keeps a stored key, because an authenticator key is hard to get again.
+- **Game Folder** is empty for the install the registry names. Fill it in only for a separate install, such as a private server's own client: Horizon ships one with changed DATs applied through XIPivot, and it can lag behind retail. Save checks that the folder has `VTABLE.DAT` and `FTABLE.DAT`, and a 📦 on the card marks a profile with its own folder. One install is loaded per GordianXI process (`AppResourceManager`). The first launch loads the profile's folder, or the registry install when the profile has none or the viewport opened first. A later profile that names a different install is not launched ("Restart GordianXI to switch installs"): the zone, model and UI caches and the static DAT loaders are shared by all sessions.
+- **Retail launch.** Direct retail login is not built yet, so a retail profile is refused with "direct retail login is not available yet". The exception is an older profile that still has a bootloader path: it goes through the old pol.exe and `ProxyStager` path, which stays until direct retail login is proven in testing.
+- **Older profiles** load without the new fields and keep working:
+  - The server type follows their fields: a server host, an xiloader bootloader, or a `--server`, `127.0.0.1` or `localhost` argument makes a LandSandBoat profile; anything else is retail.
+  - Their host and ports come from the old bootloader arguments (`--server` / `-s`, `--authport`, `--dataport`, `--viewport`; xiloader with no `--server` means 127.0.0.1) until the profile is saved, which writes them to the new fields.
+  - A stored key means the authenticator-key mode.
+  - The old Folder Group, Target Bootloader and Custom Arguments fields are gone from the editor. `BootloaderPath` and `Arguments` stay in the file for the old retail path.
 
 ## Profile character and online status (#179, #180)
 

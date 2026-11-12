@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Engine.Ui.Lobby;
 using Xunit;
 
@@ -16,11 +17,11 @@ namespace Gordian.Engine.Tests.Ui
             public List<LobbyCharacter> List { get; } = new();
             public IReadOnlyList<LobbyCharacter> Characters => List;
             public bool IsConnected { get; set; } = true;
-            public Func<LobbyCharacter, Task<LsbSessionTicket>>? OnSelect { get; set; }
+            public Func<LobbyCharacter, Task<MapSessionTicket>>? OnSelect { get; set; }
             public Func<LobbyCharacter, Task>? OnDelete { get; set; }
             public Func<LobbyCharacter, LobbyCharacterCreation, Task>? OnCreate { get; set; }
             public Func<string, Task>? OnCheckName { get; set; }
-            public Func<LobbyCharacter, string, Task<LsbSessionTicket>>? OnRename { get; set; }
+            public Func<LobbyCharacter, string, Task<MapSessionTicket>>? OnRename { get; set; }
             public List<string> Calls { get; } = new();
 
             public Task<IReadOnlyList<LobbyCharacter>> RefreshCharactersAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LobbyCharacter>>(List);
@@ -44,15 +45,15 @@ namespace Gordian.Engine.Tests.Ui
                 Calls.Add($"delete {character.Name}");
                 return OnDelete?.Invoke(character) ?? Task.CompletedTask;
             }
-            public Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default)
+            public Task<MapSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default)
             {
                 Calls.Add($"rename {character.Name} {newName}");
-                return OnRename?.Invoke(character, newName) ?? Task.FromResult(new LsbSessionTicket { CharacterName = newName });
+                return OnRename?.Invoke(character, newName) ?? Task.FromResult(new MapSessionTicket { CharacterName = newName });
             }
-            public Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default)
+            public Task<MapSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default)
             {
                 Calls.Add($"select {character.Name}");
-                return OnSelect?.Invoke(character) ?? Task.FromResult(new LsbSessionTicket { CharacterName = character.Name, CharacterId = character.ContentId });
+                return OnSelect?.Invoke(character) ?? Task.FromResult(new MapSessionTicket { CharacterName = character.Name, CharacterId = character.ContentId });
             }
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
@@ -180,7 +181,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             var backend = Backend(Character(1, "Knot"));
             var lobby = new LobbyController(backend, null, null, showLicence: false);
-            LsbSessionTicket? ticket = null;
+            MapSessionTicket? ticket = null;
             lobby.CharacterSelected += t => ticket = t;
             lobby.HandleInput(LobbyInput.Confirm);
             lobby.HandleInput(LobbyInput.Confirm);
@@ -194,7 +195,7 @@ namespace Gordian.Engine.Tests.Ui
         public void Select_RefusedShowsTheErrorAndReturnsToTheList()
         {
             var backend = Backend(Character(1, "Knot"));
-            backend.OnSelect = _ => Task.FromException<LsbSessionTicket>(LobbyRequestException.FromServer("select", LobbyErrorCode.CharacterAlreadyLoggedIn));
+            backend.OnSelect = _ => Task.FromException<MapSessionTicket>(LobbyRequestException.FromServer("select", LobbyErrorCode.CharacterAlreadyLoggedIn));
             var lobby = new LobbyController(backend, null, null, showLicence: false);
             lobby.HandleInput(LobbyInput.Confirm);
             lobby.HandleInput(LobbyInput.Confirm);
@@ -213,7 +214,7 @@ namespace Gordian.Engine.Tests.Ui
             backend.OnSelect = _ =>
             {
                 backend.IsConnected = false;
-                return Task.FromException<LsbSessionTicket>(new LobbyRequestException("select", 0, "connection lost"));
+                return Task.FromException<MapSessionTicket>(new LobbyRequestException("select", 0, "connection lost"));
             };
             var lobby = new LobbyController(backend, null, null, showLicence: false);
             string? reason = null;
@@ -245,7 +246,7 @@ namespace Gordian.Engine.Tests.Ui
                 return Task.CompletedTask;
             };
             var lobby = OpenCreation(backend);
-            LsbSessionTicket? ticket = null;
+            MapSessionTicket? ticket = null;
             lobby.CharacterSelected += t => ticket = t;
 
             Assert.Equal(LobbyScreen.Creation, lobby.Screen);
@@ -343,7 +344,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             var backend = Backend(Character(1, "Badname", rename: true));
             var lobby = new LobbyController(backend, null, null, showLicence: false);
-            LsbSessionTicket? ticket = null;
+            MapSessionTicket? ticket = null;
             lobby.CharacterSelected += t => ticket = t;
             lobby.HandleInput(LobbyInput.Confirm); // list
             lobby.HandleInput(LobbyInput.Confirm); // the character: rename required

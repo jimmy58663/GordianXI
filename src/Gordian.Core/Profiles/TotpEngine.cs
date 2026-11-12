@@ -42,6 +42,26 @@ namespace Gordian.Core.Profiles
             return otpValue.ToString("D6");
         }
 
+        /// <summary>
+        /// Whether <paramref name="base32Secret"/> is a usable authenticator key: Base32 letters and digits 2-7 in any
+        /// case (spaces, dashes and trailing '=' padding ignored), at least 16 characters (80 bits, RFC 4226's minimum).
+        /// </summary>
+        public static bool IsValidSecret(string? base32Secret)
+        {
+            if (string.IsNullOrWhiteSpace(base32Secret)) return false;
+            int count = 0;
+            foreach (char c in base32Secret.Trim().TrimEnd('='))
+            {
+                if (c is ' ' or '-') continue;
+                char u = char.ToUpperInvariant(c);
+                bool letter = u is >= 'A' and <= 'Z';
+                bool digit = u is >= '2' and <= '7';
+                if (!letter && !digit) return false;
+                count++;
+            }
+            return count >= 16;
+        }
+
         private static byte[] Base32Decode(string base32Value)
         {
             base32Value = base32Value.Trim().ToUpperInvariant().Replace("-", "");

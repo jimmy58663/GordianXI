@@ -3,6 +3,7 @@ using System;
 using System.Buffers.Binary;
 using System.Text;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -12,7 +13,7 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void LsbSessionTicket_InitializesWithDefaultValues()
         {
-            var ticket = new LsbSessionTicket
+            var ticket = new MapSessionTicket
             {
                 AccountId = 1000,
                 CharacterId = 2000,
@@ -30,25 +31,6 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(54230, ticket.ZonePort);
             Assert.Equal(16, ticket.SessionHash.Length);
             Assert.Equal(20, ticket.BlowfishKey.Length);
-        }
-
-        [Fact]
-        public void LsbCharacterInfo_PropertiesStoreAccurately()
-        {
-            var info = new LsbCharacterInfo
-            {
-                CharacterId = 12345,
-                ContentId = 67890,
-                CharIdMain = 12345,
-                WorldId = 0,
-                CharIdExtra = 0
-            };
-
-            Assert.Equal(12345u, info.CharacterId);
-            Assert.Equal(67890u, info.ContentId);
-            Assert.Equal(12345, info.CharIdMain);
-            Assert.Equal(0, info.WorldId);
-            Assert.Equal(0, info.CharIdExtra);
         }
 
         [Fact]

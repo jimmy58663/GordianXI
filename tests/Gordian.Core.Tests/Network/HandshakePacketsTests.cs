@@ -245,6 +245,62 @@ namespace Gordian.Core.Tests.Network
         }
 
         [Fact]
+        public async Task PacketParser_RetailHandshake_AnswersTheFirst0x00AWith0x011ThenGameOk()
+        {
+            // Spec v2.1.24 section 4.6.4: retail answers the server's first datagram with 0x011 only (02 00 00 00), sends
+            // 0x00C later, and answers a resent 0x00A only once.
+            var sent = new List<byte[]>();
+            using var suite = new LegacyBlowfishCryptoSuite();
+            suite.InitializeKey(Encoding.ASCII.GetBytes("TestSessionKey16"));
+            var parser = new PacketParser(new SessionProfile(), (mem, _) => { lock (sent) sent.Add(mem.ToArray()); return Task.CompletedTask; }, suite);
+            parser.LifecycleModule.RetailMapHandshake = true;
+            LifecyclePacketModule.RetailGameOkDelay = TimeSpan.FromMilliseconds(50);
+
+            void Deliver(ushort sync)
+            {
+                byte[] login = new byte[8];
+                BinaryPrimitives.WriteUInt16LittleEndian(login, (ushort)(0x00A | (2 << 9)));
+                BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(2), sync);
+                byte[] compressed = new byte[64];
+                int compBytes = FfxiCodec.Default.Compress(login, compressed);
+                byte[] datagram = new byte[28 + compBytes + 32];
+                compressed.AsSpan(0, compBytes).CopyTo(datagram.AsSpan(28));
+                parser.ProcessIncomingChunk(datagram.AsSpan(0, suite.EncryptAndSign(datagram, 28, compBytes)));
+            }
+
+            Deliver(1);
+            Deliver(2);
+            byte[] first;
+            lock (sent) first = Assert.Single(sent);
+            Assert.Equal(0x011, BinaryPrimitives.ReadUInt16LittleEndian(first) & 0x1FF);
+            Assert.Equal(new byte[] { 0x02, 0x00, 0x00, 0x00 }, first[4..8]);
+
+            for (int i = 0; i < 100; i++)
+            {
+                lock (sent) if (sent.Count > 1) break;
+                await Task.Delay(20);
+            }
+            lock (sent)
+            {
+                Assert.Equal(2, sent.Count);
+                Assert.Equal(0x00C, BinaryPrimitives.ReadUInt16LittleEndian(sent[1]) & 0x1FF);
+            }
+        }
+
+        [Fact]
+        public void Codec_MatchesRetailMapDatagramBodies()
+        {
+            // Spec v2.1.24 test vector 19: retail's 0x011 datagram body and the empty acknowledgment body.
+            byte[] buffer = new byte[64];
+            int n = FfxiCodec.Default.Compress(new byte[] { 0x11, 0x04, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00 }, buffer);
+            Assert.Equal("01884c6ef728000000", Convert.ToHexStringLower(buffer.AsSpan(0, n)));
+            Assert.Equal("e3a5f1e438c1a0319d94ec6f76e6863e", Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(buffer.AsSpan(0, n))));
+
+            n = FfxiCodec.Default.Compress(ReadOnlySpan<byte>.Empty, buffer);
+            Assert.Equal("0108000000", Convert.ToHexStringLower(buffer.AsSpan(0, n)));
+        }
+
+        [Fact]
         public void PacketParser_HandshakeFlow_TriggersGameOkThenNetEnd()
         {
             var profile = new SessionProfile();

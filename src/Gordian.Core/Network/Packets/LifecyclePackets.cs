@@ -1019,6 +1019,22 @@ namespace Gordian.Core.Network.Packets
 
         public bool LogOutboundOnRoute { get; set; } = true;
 
+        /// <summary>
+        /// The retail map server's first exchange (spec v2.1.24 section 4.6.4): the first S2C 0x00A is answered with C2S
+        /// 0x011 alone, and 0x00C (GameOK) follows in a later datagram, after <see cref="RetailGameOkDelay"/>; the server
+        /// sends 0x008 only after it. Retail never answers the first datagram with 0x00C. LandSandBoat sessions keep
+        /// answering 0x00A with 0x00C and send 0x011 after 0x008.
+        /// </summary>
+        public bool RetailMapHandshake { get; set; }
+
+        /// <summary>How long after the retail 0x011 the client sends 0x00C (retail waits about 2 s while it loads the zone; 1 s works live). Settable for tests.</summary>
+        public static TimeSpan RetailGameOkDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+        private int _retailZoneInAnswered;
+
+        /// <summary>Starts a new map session's handshake (a login or a zone change): the next 0x00A gets the retail answer again.</summary>
+        public void ResetMapHandshake() => Volatile.Write(ref _retailZoneInAnswered, 0);
+
         public LifecyclePacketModule(
             SessionProfile profile,
             Func<ReadOnlyMemory<byte>, bool, Task> sendChunkCallback,
@@ -1142,12 +1158,45 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
+            if (RetailMapHandshake)
+            {
+                // The server resends its first datagram until it has our answer: answer it once.
+                if (Interlocked.Exchange(ref _retailZoneInAnswered, 1) != 0) return;
+                byte[] zoneIn = LifecycleOutboundPackets.BuildZoneTransition(sequenceId: 0);
+                if (LogOutboundOnRoute)
+                {
+                    _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x011, 0, zoneIn);
+                }
+                GordianLog.Info("LIFECYCLE", $"Retail map login: answering 0x00A with 0x011; 0x00C follows in {RetailGameOkDelay.TotalSeconds:0.#} s.");
+                _ = _sendChunkCallback(zoneIn, true);
+                _ = SendGameOkLaterAsync();
+                return;
+            }
+
+            SendGameOk();
+        }
+
+        private void SendGameOk()
+        {
             byte[] gameOk = LifecycleOutboundPackets.BuildGameOk(sequenceId: 0);
             if (LogOutboundOnRoute)
             {
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x00C, 0, gameOk);
             }
             _ = _sendChunkCallback(gameOk, true);
+        }
+
+        private async Task SendGameOkLaterAsync()
+        {
+            try
+            {
+                await Task.Delay(RetailGameOkDelay).ConfigureAwait(false);
+                SendGameOk();
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("LIFECYCLE", $"Retail map login: sending 0x00C failed: {ex.Message}");
+            }
         }
 
         /// <summary>S2C 0x008's table of the zones the character has visited (one bit a zone, XiPackets <c>EnterZoneTbl</c>).</summary>
@@ -1167,13 +1216,16 @@ namespace Gordian.Core.Network.Packets
             }
             _ = _sendChunkCallback(netEnd, true);
 
-            // 2. Send 0x011 (ZoneTransition confirmation matching retail/LSB protocol)
-            byte[] zoneTransition = LifecycleOutboundPackets.BuildZoneTransition(sequenceId: 0);
-            if (LogOutboundOnRoute)
+            // 2. Send 0x011 (ZoneTransition confirmation, LandSandBoat order). Retail sent it in answer to 0x00A already.
+            if (!RetailMapHandshake)
             {
-                _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x011, 0, zoneTransition);
+                byte[] zoneTransition = LifecycleOutboundPackets.BuildZoneTransition(sequenceId: 0);
+                if (LogOutboundOnRoute)
+                {
+                    _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x011, 0, zoneTransition);
+                }
+                _ = _sendChunkCallback(zoneTransition, true);
             }
-            _ = _sendChunkCallback(zoneTransition, true);
 
             // 3. Send 0x061 (CliStatus request to receive GroupAttr, CliStatus, and CliStatus2 from server)
             byte[] cliStatus = EntityOutboundPackets.BuildCliStatus();

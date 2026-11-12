@@ -69,6 +69,32 @@ namespace Gordian.App.Services
         }
 
         /// <summary>
+        /// The PlayOnline Viewer's install folder: the <c>"1000"</c> value under the same InstallFolder keys, or null when
+        /// it is missing or not Windows. The retail login reads the Viewer's versions from it.
+        /// </summary>
+        public static string? DetectViewerDirectory()
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            try
+            {
+                using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+                foreach (var subKey in RegistrySubKeys)
+                {
+                    using var key = hklm.OpenSubKey(subKey);
+                    if (key?.GetValue(ViewerValueName) is string rawPath && Directory.Exists(rawPath.Trim()))
+                        return rawPath.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[GameDirectoryDetector] Viewer registry query failed: {ex.Message}");
+            }
+            return null;
+        }
+
+        private const string ViewerValueName = "1000";
+
+        /// <summary>
         /// Returns the full path to FFXiMain.dll within the detected game directory, or null if not found.
         /// </summary>
         public static string? DetectFFXiMainPath()

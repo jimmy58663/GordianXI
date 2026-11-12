@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 
 namespace Gordian.Core.Tests.Network
 {
@@ -40,6 +41,11 @@ namespace Gordian.Core.Tests.Network
         private bool _justCreated;
         private int _increment;
         private readonly object _sync = new();
+
+        // Set once the data channel's 0xFE has been read: LandSandBoat prompts on the data session that 0xFE registered,
+        // so the view loop waits for it (under load the data accept could otherwise lag behind the first 0x1F, and its
+        // prompt would be dropped while the request was counted).
+        private readonly TaskCompletionSource _dataReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public FakeLsbLobbyServer(uint accountId, byte[] sessionHash)
         {
@@ -120,6 +126,7 @@ namespace Gordian.Core.Tests.Network
                     switch (buffer[0])
                     {
                         case 0xFE:
+                            _dataReady.TrySetResult();
                             break;
                         case 0xA1:
                             if (BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(1)) != AccountId) break;
@@ -159,6 +166,7 @@ namespace Gordian.Core.Tests.Network
                 header.CopyTo(packet, 0);
                 if (!await ReadExactly(stream, packet.AsMemory(4))) return;
                 if (!packet.AsSpan(12, 16).SequenceEqual(SessionHash)) return;
+                await _dataReady.Task.WaitAsync(_cts.Token);
                 if (_delayNextRequest)
                 {
                     _delayNextRequest = false;

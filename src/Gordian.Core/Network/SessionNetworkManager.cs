@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Config;
 using Gordian.Core.Network.Compression;
+using Gordian.Core.Network.Retail;
 using Gordian.Core.Network.Crypto;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.World;
@@ -44,6 +45,14 @@ namespace Gordian.Core.Network
 
         private ushort _serverPacketIdSequence = 0;
         private ushort _clientPacketIdSequence = 0;
+
+        /// <summary>
+        /// How many more datagrams each way are logged in full at the start of a map session: the 28-byte headers (the
+        /// server's carries the ack of our sequence at +2) and our sub-packets before compression. Enough to see whether a
+        /// map server accepts our first datagrams.
+        /// </summary>
+        private const int WireTraceDatagrams = 20;
+        private int _outboundWireTrace, _inboundWireTrace;
         private ushort _lastProcessedSequence = 0;
         private bool _hasProcessedAnySequence = false;
         private ulong _sequenceHistoryBitmask = 0;
@@ -265,6 +274,46 @@ namespace Gordian.Core.Network
         /// Optional authentication session ticket.
         /// </summary>
         public byte[] Ticket { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// Builds the first (unencrypted) map datagram in place of the LandSandBoat one, or null for LandSandBoat's. The
+        /// retail login sets it: its <c>0x00A</c> carries the lobby's <c>UniqueNo</c> and a ticket made from the map key.
+        /// </summary>
+        public MapLoginDatagramBuilder? LoginDatagramBuilder { get; set; }
+
+        /// <summary>
+        /// Speaks to a retail map server (spec v2.1.25 sections 4.6.3 and 4.6.4): every datagram's header carries the send
+        /// time's milliseconds at <c>+0x04</c> and the server's last 16 <c>State</c> bytes (<c>+0x0C..+0x1B</c>) with word 0's
+        /// low byte set to 0x01 and word 2 set to <see cref="RetailClientAddress"/>; the first 0x00A is answered with 0x011
+        /// before 0x00C; and the keep-alive is an empty datagram. LandSandBoat sessions leave those header bytes zero.
+        /// </summary>
+        public bool RetailMapProtocol
+        {
+            get => _parser.LifecycleModule.RetailMapHandshake;
+            set => _parser.LifecycleModule.RetailMapHandshake = value;
+        }
+
+        /// <summary>
+        /// Our public IPv4 address as the PlayOnline login saw it, in network byte order (the routing token's address
+        /// bytes reversed), or null. A retail session writes it at header <c>+0x14</c>, State word 2, in every datagram
+        /// after the first (spec v2.1.25 section 4.6.3).
+        /// </summary>
+        public byte[]? RetailClientAddress { get; set; }
+
+        /// <summary>The <c>State</c> bytes of the latest map server datagram (retail only).</summary>
+        private readonly byte[] _serverState = new byte[16];
+
+        /// <summary>Zone changes since <see cref="ConnectAsync"/>: each one has added 2 to the map key's counter.</summary>
+        private int _zoneChanges;
+
+        private byte[] BuildLoginDatagram() =>
+            LoginDatagramBuilder?.Invoke(_zoneChanges) ?? HandshakePackets.BuildLoginDatagram(
+                CharacterId,
+                CharacterName,
+                AccountName,
+                Ticket,
+                clientVersion: 0,
+                clientPacketSeq: _clientPacketIdSequence);
 
         /// <summary>Records where the local player now is, for the position updates this session sends.</summary>
         public void SetLocalPosition(System.Numerics.Vector3 position, byte direction)
@@ -573,7 +622,8 @@ namespace Gordian.Core.Network
                 {
                     var logout = new SessionLogout(state, PendingLogoutKind);
                     EndSession(logout, $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
-                                       $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.");
+                                       $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.",
+                               retailGoodbye: RetailMapProtocol);
                 }
             };
         }
@@ -583,15 +633,65 @@ namespace Gordian.Core.Network
         /// (before the Disconnected state, so a handler can act first) and the session disconnects. Used for a logout
         /// S2C 0x00B and for a server that has stopped answering (<see cref="CheckServerSilence"/>).
         /// </summary>
-        private void EndSession(SessionLogout logout, string reason)
+        /// <param name="retailGoodbye">
+        /// Answer a retail logout 0x00B with 0x00D before closing (<see cref="SendRetailLogoutGoodbye"/>). Without it the
+        /// server kept the character for minutes: a Log Out and reselect 5 s later, and a Shut Down and new login 20 s later,
+        /// got no answer to 0x00A (2026-11-12), and a select 2.5 min after one of them got lobby error 201.
+        /// </param>
+        private void EndSession(SessionLogout logout, string reason, bool retailGoodbye = false)
         {
             if (Interlocked.Exchange(ref _sessionEndingFlag, 1) != 0) return;
             GordianLog.Info("NET", reason);
+            if (retailGoodbye) SendRetailLogoutGoodbye();
             SetConnectionLost(false);
             World.Clear();
             try { LoggedOut?.Invoke(logout); }
             catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
             Disconnect();
+        }
+
+        /// <summary>Pause between the retail goodbye datagrams (retail: about 0.4-0.5 s).</summary>
+        internal static TimeSpan RetailGoodbyeInterval { get; set; } = TimeSpan.FromMilliseconds(450);
+
+        /// <summary>
+        /// Retail's answer to a logout 0x00B (spec v2.1.25 research answer, 2026-11-12, every captured Log Out and Shut
+        /// Down): a datagram with C2S 0x00D (state 0) and a 0x015, acking the 0x00B's datagram, then two more 0.4-0.5 s
+        /// apart, each with a new sequence and 0x015 but the same 0x00D with its original sync; the socket closes about
+        /// 1.1-1.5 s after the 0x00B. The server sends nothing more. Runs on the receive loop before the session closes.
+        /// </summary>
+        private void SendRetailLogoutGoodbye()
+        {
+            Socket? socket = _udpSocket;
+            EndPoint? endpoint = _serverEndpoint;
+            if (socket == null || endpoint == null) return;
+            try
+            {
+                byte[]? netEnd = null;
+                for (int i = 0; i < 3; i++)
+                {
+                    if (i > 0) Thread.Sleep(RetailGoodbyeInterval);
+                    if (!_writeLock.Wait(TimeSpan.FromMilliseconds(250))) return;
+                    try
+                    {
+                        netEnd ??= LifecycleOutboundPackets.BuildNetEnd(sequenceId: unchecked((ushort)(_clientPacketIdSequence + 1)));
+                        byte[] pos = HandshakePackets.BuildPosPingPongSubPacket(sequenceId: 0, x: PositionX, y: PositionY, z: PositionZ,
+                            dir: Direction, moveFrame: StationaryRunCount, isWalking: false, targetIndex: TargetIndex);
+                        netEnd.CopyTo(_outboundQueueBuffer, 0);
+                        pos.CopyTo(_outboundQueueBuffer, netEnd.Length);
+                        _currentBufferLength = netEnd.Length + pos.Length;
+                        FlushBundledPacketAsync(socket, endpoint, CancellationToken.None, closingDatagram: true).GetAwaiter().GetResult();
+                    }
+                    finally
+                    {
+                        _writeLock.Release();
+                    }
+                }
+                GordianLog.Debug("NET", $"Answered the logout with 0x00D (acking the server's Seq={Volatile.Read(ref _serverPacketIdSequence)}).");
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("NET", $"Could not send 0x00D after the logout: {ex.Message}");
+            }
         }
 
         private void SuspendPositionUpdates(LogoutState state)
@@ -621,6 +721,9 @@ namespace Gordian.Core.Network
         /// </summary>
         internal const int KeepAliveSize = 4;
 
+        /// <summary>A retail keep-alive is due: the next flush sends a datagram with no sub-packets.</summary>
+        private bool _emptyDatagramQueued;
+
         /// <summary>
         /// Queues an empty keep-alive sub-packet when nothing else is waiting (call under <see cref="_writeLock"/>). While
         /// a zone-line request waits no C2S 0x015 goes out, but the map server only sends in answer to a datagram
@@ -629,9 +732,19 @@ namespace Gordian.Core.Network
         /// in-game testing, 2026-10-12: our "connection lost" after 10 s of silence and the red link-dead mark). LSB's own
         /// note there says the retail client sends datagrams without a valid sub-packet in such moments.
         /// </summary>
+        /// <remarks>
+        /// A retail session sends the datagram with no sub-packet at all (the compressed body is <c>01 08000000</c>, spec
+        /// v2.1.24 test vector 19). Retail's map server logged us out (<c>0x00B</c> state 1) after four zero keep-alives
+        /// following a <c>0x05E</c> (2026-11-12, zones 115 and 240).
+        /// </remarks>
         private void QueueKeepAliveLocked()
         {
-            if (_currentBufferLength != 0 || _currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
+            if (_currentBufferLength != 0) return;
+            if (RetailMapProtocol)
+            {
+                _emptyDatagramQueued = true;
+                return;
+            }
             _outboundQueueBuffer.AsSpan(0, KeepAliveSize).Clear();
             _currentBufferLength = KeepAliveSize;
         }
@@ -936,14 +1049,11 @@ namespace Gordian.Core.Network
                 if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
                 {
                     _clientPacketIdSequence = 1;
-                    byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
-                        CharacterId,
-                        CharacterName,
-                        AccountName,
-                        Ticket,
-                        clientVersion: 0,
-                        clientPacketSeq: _clientPacketIdSequence
-                    );
+                    _zoneChanges = 0;
+                    ArmWireTrace();
+                    Array.Clear(_serverState);
+                    _parser.LifecycleModule.ResetMapHandshake();
+                    byte[] loginDatagram = BuildLoginDatagram();
 
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
                     _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
@@ -1043,10 +1153,14 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Consolidates, compresses, encrypts, and transmits all bundled staging chunks down the UDP socket.
         /// </summary>
-        private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token)
+        private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token, bool closingDatagram = false)
         {
-            DropRefusedQueuedSubPackets();
-            if (_currentBufferLength == 0) return;
+            // The goodbye datagrams after a retail logout go out although the session is ending, and keep a repeated
+            // 0x00D's original sync (see SendRetailLogoutGoodbye).
+            if (!closingDatagram) DropRefusedQueuedSubPackets();
+            bool sendEmpty = _emptyDatagramQueued;
+            _emptyDatagramQueued = false;
+            if (_currentBufferLength == 0 && !sendEmpty) return;
 
             try
             {
@@ -1063,7 +1177,8 @@ namespace Gordian.Core.Network
                     int subSize = (_outboundQueueBuffer[subOffset + 1] & 0xFE) * 2;
                     if (subSize < 4 || subOffset + subSize > _currentBufferLength) break;
 
-                    BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
+                    if (!closingDatagram || BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2)) == 0)
+                        BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
 
                     ushort rawTypeAndSize = BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset, 2));
                     ushort packetId = (ushort)(rawTypeAndSize & 0x1FF);
@@ -1089,8 +1204,22 @@ namespace Gordian.Core.Network
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(0, 2), clientSeq);
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), Volatile.Read(ref _serverPacketIdSequence));
 
-                uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
+                long sentAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                if (RetailMapProtocol)
+                {
+                    lock (_serverState) RetailMapPackets.WriteHeader(headerSpan, sentAtMs, _serverState, RetailClientAddress);
+                }
+                else
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), (uint)(sentAtMs / 1000));
+                }
+
+                if (_outboundWireTrace > 0)
+                {
+                    _outboundWireTrace--;
+                    GordianLog.Debug("NET", $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
+                        $"{_currentBufferLength} sub-packet bytes compressed to {compressedBytes}: {Convert.ToHexString(bundledChunks)}");
+                }
 
                 // 5. Encrypt and sign payload + trailing MD5 hash in-place
                 int datagramLength = _parser.CryptoSuite.EncryptAndSign(
@@ -1137,7 +1266,8 @@ namespace Gordian.Core.Network
                             // In ActiveInWorld or LoadingWorldData, ensure the 0x015 GP_CLI_POS keepalive heartbeat
                             // is bundled into outbound transmission with active MoveFlame and RunMode flags.
                             // Not while the character is leaving this map server (S2C 0x00B) or before the next one's login.
-                            if ((CurrentState == SessionState.ActiveInWorld || CurrentState == SessionState.LoadingWorldData) && MaySend(0x015))
+                            // Retail sends no 0x015 before the server's 0x008: only 0x011, then the 0x00C batch (spec v2.1.24 section 4.6.4).
+                            if ((CurrentState == SessionState.ActiveInWorld || (CurrentState == SessionState.LoadingWorldData && !RetailMapProtocol)) && MaySend(0x015))
                             {
                                 // Pull latest position, heading, and locomotion speed from WorldState if available
                                 if (_parser.LocalPlayer.ServerId != 0 &&
@@ -1287,6 +1417,17 @@ namespace Gordian.Core.Network
                         }
 
                         GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+                        if (RetailMapProtocol && result.ReceivedBytes >= FfxiHeaderSize)
+                        {
+                            lock (_serverState) packetBuffer.WritableData.Slice(0x0C, 16).CopyTo(_serverState);
+                        }
+                        if (_inboundWireTrace > 0 && result.ReceivedBytes >= FfxiHeaderSize)
+                        {
+                            _inboundWireTrace--;
+                            ReadOnlySpan<byte> inHeader = packetBuffer.WritableData.Slice(0, FfxiHeaderSize);
+                            GordianLog.Debug("NET", $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
+                                $"acks our Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader[2..])}: header {Convert.ToHexString(inHeader)}");
+                        }
                         _performance.RecordInboundDatagram(result.ReceivedBytes);
 
                         Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
@@ -1344,13 +1485,12 @@ namespace Gordian.Core.Network
                 // Until the key has advanced, anything arriving is still old-zone traffic.
                 if (!_zoneKeyAdvanced) return false;
 
-                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                bool accepted = ProcessFirstDatagram(activeChunk, newSeq);
                 if (accepted)
                 {
                     RecordServerTraffic();
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
-                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
                     ZoneTransitionPending = false;
                     GordianLog.Info("NET", $"First datagram from the new map server accepted (Seq={newSeq}); zone transition complete.");
                 }
@@ -1362,13 +1502,12 @@ namespace Gordian.Core.Network
             // would all be dropped as duplicates (seen when LandSandBoat changed its key scheme, 2026-10-12).
             if (CurrentState == SessionState.ExchangingCryptoKeys)
             {
-                bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+                bool accepted = ProcessFirstDatagram(activeChunk, newSeq);
                 if (accepted)
                 {
                     RecordServerTraffic();
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
-                    Volatile.Write(ref _serverPacketIdSequence, newSeq);
                     CurrentState = SessionState.LoadingWorldData;
                 }
                 return accepted;
@@ -1392,6 +1531,21 @@ namespace Gordian.Core.Network
             }
 
             return parsed;
+        }
+
+        /// <summary>
+        /// Parses a map server's first datagram with our ack already set to its sequence, so that a packet its handlers send
+        /// at once (the retail 0x011 answer to 0x00A) acknowledges it: retail's answer carries Seq 2 / Ack 1 (spec v2.1.24
+        /// section 4.6.4), and ours went out with Ack 0 when the ack was written after parsing. The old ack comes back if
+        /// the datagram does not decrypt (a straggler or a wrong key candidate).
+        /// </summary>
+        private bool ProcessFirstDatagram(Span<byte> activeChunk, ushort newSeq)
+        {
+            ushort previous = Volatile.Read(ref _serverPacketIdSequence);
+            Volatile.Write(ref _serverPacketIdSequence, newSeq);
+            bool accepted = _parser.ProcessIncomingChunk(activeChunk);
+            if (!accepted) Volatile.Write(ref _serverPacketIdSequence, previous);
+            return accepted;
         }
 
         private bool CheckAndTrackSequence(ushort seq)
@@ -1515,11 +1669,15 @@ namespace Gordian.Core.Network
 
                 // Advance cryptographic session key (LandSandBoat adds 2 to the fifth 32-bit key word)
                 bool advanced = _parser.CryptoSuite.AdvanceZoneKey();
+                _zoneChanges++;
                 GordianLog.Debug("NET", $"Session crypto key advanced for zone transition: {advanced}");
 
                 // Reset packet sequence numbers for new map server
                 _clientPacketIdSequence = 1;
                 Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
+                ArmWireTrace();
+                Array.Clear(_serverState);
+                _parser.LifecycleModule.ResetMapHandshake();
                 ResetSequenceTracking();
                 _zoneKeyAdvanced = true;
             }
@@ -1531,14 +1689,7 @@ namespace Gordian.Core.Network
             // Transmit unencrypted 0x00A login datagram with retransmission loop to target map server
             if (CharacterId != 0 || !string.IsNullOrEmpty(CharacterName))
             {
-                byte[] loginDatagram = HandshakePackets.BuildLoginDatagram(
-                    CharacterId,
-                    CharacterName,
-                    AccountName,
-                    Ticket,
-                    clientVersion: 0,
-                    clientPacketSeq: _clientPacketIdSequence
-                );
+                byte[] loginDatagram = BuildLoginDatagram();
 
                 ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
                 _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
@@ -1577,11 +1728,19 @@ namespace Gordian.Core.Network
             }
         }
 
+        /// <summary>Logs the next <see cref="WireTraceDatagrams"/> datagrams each way: headers, and sub-packets both ways.</summary>
+        private void ArmWireTrace()
+        {
+            _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+            _parser.SubPacketTrace = WireTraceDatagrams;
+        }
+
         /// <summary>
         /// Transmits a C2S 0x05E MapRect packet requesting to cross a zoneline by FourCC tag.
         /// </summary>
         public Task RequestZoneTransitionByZonelineAsync(string rectTag)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestZoneChangeAsync(rectTag, PositionX, PositionY, PositionZ, TargetIndex);
         }
 
@@ -1590,6 +1749,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public Task RequestZoneTransitionByZonelineAsync(uint rectId)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestZoneChangeAsync(rectId, PositionX, PositionY, PositionZ, TargetIndex);
         }
 
@@ -1598,6 +1758,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public Task RequestMogHouseExitAsync(MogHouseExitBit exitBit, MogHouseExitMode exitMode)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestMogHouseExitAsync(exitBit, exitMode, PositionX, PositionY, PositionZ, TargetIndex);
         }
 

@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Linq;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Xunit;
 
 namespace Gordian.Core.Tests.Network
@@ -21,8 +22,8 @@ namespace Gordian.Core.Tests.Network
             return server;
         }
 
-        private static Task<LsbLobbySession> Connect(FakeLsbLobbyServer server) =>
-            LsbLobbySession.ConnectAsync("127.0.0.1", server.DataPort, server.ViewPort, Account, Hash, timeout: TimeSpan.FromSeconds(5));
+        private static Task<LobbySession> Connect(FakeLsbLobbyServer server) =>
+            LobbySession.ConnectAsync("127.0.0.1", server.ViewPort, new XiloaderLobbyHandoff("127.0.0.1", server.DataPort, Account, Hash, timeout: TimeSpan.FromSeconds(5)), timeout: TimeSpan.FromSeconds(5));
 
         [Fact]
         public async Task Connect_ReadsCharactersWithLookAndFreeSlots()
@@ -44,7 +45,8 @@ namespace Gordian.Core.Tests.Network
             Assert.True(lobby.Characters[2].IsEmpty);
             Assert.True(lobby.Characters[3].IsEmpty);
             Assert.Equal(0x0FFFu, lobby.ServerExpansions);
-            Assert.Equal(new byte[] { 0x26 }, server.ViewCommands.ToArray());
+            // The legacy client's login order: 0x26, then 0x1F (LandSandBoat prompts 0x01 on the data channel, xiloader answers 0xA1) and 0x24.
+            Assert.Equal(new byte[] { 0x26, 0x1F, 0x24 }, server.ViewCommands.ToArray());
             Assert.Equal(new byte[] { 0xFE, 0xA1 }, server.DataCommands.ToArray());
         }
 
@@ -65,7 +67,7 @@ namespace Gordian.Core.Tests.Network
             var ticket = await lobby.SelectCharacterAsync(lobby.Characters[1], TestContext.Current.CancellationToken);
 
             Assert.Equal((21900u, "Blm", "127.0.0.1", 54230), (ticket.CharacterId, ticket.CharacterName, ticket.ZoneIp, ticket.ZonePort));
-            Assert.Equal(LsbLobbySession.CreateBaseKey(), ticket.BlowfishKey);
+            Assert.Equal(XiloaderLobbyHandoff.CreateBaseKey(), ticket.BlowfishKey);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
             Assert.False(lobby.IsConnected); // the server ends the lobby after 0x0B
         }
@@ -80,7 +82,7 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Equal("Knot", characters[0].Name);
             Assert.True(characters[1].IsEmpty);
-            Assert.Equal(new byte[] { 0x26, 0x1F }, server.ViewCommands.ToArray());
+            Assert.Equal(new byte[] { 0x26, 0x1F, 0x24, 0x1F }, server.ViewCommands.ToArray());
             Assert.Equal(new byte[] { 0xFE, 0xA1, 0xA1 }, server.DataCommands.ToArray());
         }
 
@@ -95,8 +97,8 @@ namespace Gordian.Core.Tests.Network
 
             var created = lobby.Characters.Single(c => c.Name == "Newbie");
             Assert.Equal((5, 7, 4, 1, 2), (created.Race, created.Face, created.MainJob, created.Size, created.Nation));
-            Assert.Equal(6, lobby.KeyIncrement);
-            Assert.Equal(new byte[] { 0x26, 0x22, 0x21, 0x1F }, server.ViewCommands.ToArray());
+            Assert.Equal(6, ((XiloaderLobbyHandoff)lobby.Handoff).KeyIncrement);
+            Assert.Equal(new byte[] { 0x26, 0x1F, 0x24, 0x22, 0x21, 0x1F }, server.ViewCommands.ToArray());
 
             var ticket = await lobby.SelectCharacterAsync(created, TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 6, ticket.BlowfishKey[16]);
@@ -113,7 +115,7 @@ namespace Gordian.Core.Tests.Network
                 lobby.CreateCharacterAsync(freeSlot, new LobbyCharacterCreation("knot", 1, 0, 0, 1, 0, 0), TestContext.Current.CancellationToken));
             Assert.Equal(LobbyErrorCode.CharacterNameUnavailable, ex.ErrorCode);
             Assert.True(lobby.IsConnected);
-            Assert.Equal(0, lobby.KeyIncrement);
+            Assert.Equal(0, ((XiloaderLobbyHandoff)lobby.Handoff).KeyIncrement);
 
             await lobby.CheckNameAsync(freeSlot, "Fresh", "Gordian", TestContext.Current.CancellationToken);
             Assert.Equal(4, (await lobby.RefreshCharactersAsync(TestContext.Current.CancellationToken)).Count);
@@ -139,7 +141,7 @@ namespace Gordian.Core.Tests.Network
             await lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
 
             Assert.Equal("Blm", lobby.Characters[0].Name);
-            Assert.Equal(4, lobby.KeyIncrement);
+            Assert.Equal(4, ((XiloaderLobbyHandoff)lobby.Handoff).KeyIncrement);
             var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
             Assert.Equal(0x58 + 4, ticket.BlowfishKey[16]);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
@@ -160,7 +162,7 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(1, server.DroppedRequests);
             Assert.True(lobby.IsConnected);
             Assert.Equal("Blm", lobby.Characters[0].Name);
-            Assert.Equal(new byte[] { 0x26, 0x14, 0x1F }, server.ViewCommands.ToArray());
+            Assert.Equal(new byte[] { 0x26, 0x1F, 0x24, 0x14, 0x1F }, server.ViewCommands.ToArray());
 
             // Playing another character in the same session: the map key carries the deletion's +4.
             var ticket = await lobby.SelectCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken);
@@ -189,7 +191,7 @@ namespace Gordian.Core.Tests.Network
             await using var lobby = await Connect(server);
             var ex = await Assert.ThrowsAsync<LobbyRequestException>(() => lobby.DeleteCharacterAsync(lobby.Characters[0], TestContext.Current.CancellationToken));
             Assert.Equal(LobbyErrorCode.CouldNotConnectToLobbyServer, ex.ErrorCode);
-            Assert.Equal(0, lobby.KeyIncrement);
+            Assert.Equal(0, ((XiloaderLobbyHandoff)lobby.Handoff).KeyIncrement);
             Assert.Equal(2, lobby.Characters.Count(c => !c.IsEmpty));
         }
 
@@ -250,20 +252,6 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void Packets_UseTheRetailSizesAndLandSandBoatOffsets()
         {
-            var buffer = new byte[0x98];
-            LobbyPackets.WriteSelectCharacter(buffer, Hash, 21828, 0x0155, "Knot");
-            Assert.Equal(0x58u, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
-            Assert.Equal(LobbyPackets.Terminator, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4)));
-            Assert.Equal(0x07, buffer[8]);
-            Assert.Equal(Hash, buffer.AsSpan(12, 16).ToArray());
-            Assert.Equal(21828u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(28)));
-            Assert.Equal("Knot", LobbyPackets.ReadAscii(buffer.AsSpan(36, 16)));
-            Assert.Equal(3u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(0x44)));
-
-            LobbyPackets.WriteLobbyLogin(buffer, Hash, "30260904_1");
-            Assert.Equal(0x98u, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
-            Assert.Equal("30260904_1", LobbyPackets.ReadAscii(buffer.AsSpan(0x74, 16)));
-
             var create = new byte[LobbyPackets.CreateCharacterSize];
             LobbyPackets.WriteCreateCharacter(create, Hash, 0, new LobbyCharacterCreation("Newbie", Race: 8, Face: 7, Hair: 1, MainJob: 2, Size: 2, Nation: 1));
             // LandSandBoat reads race 48, job 50, nation 54, size 57 and the combined face (GrapIDTbl[0]'s low byte) at 60.
