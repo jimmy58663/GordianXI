@@ -55,7 +55,7 @@ Unverified defaults GordianXI follows as the spec says: zeros in the AuthCode co
 
 ## Launch (`MainWindowViewModel`)
 
-Every retail profile logs in directly (`LaunchRetailAsync`): the profile's POL ID (upper-cased), POL password, Square Enix ID and password, the 2FA code from its mode, and its game folder (or the registry install). `AccountProfile.GetLaunchProblem` names a missing POL ID, POL password or Square Enix login before anything is sent. Character select opens the retail lobby in the viewport; Auto-Login picks the profile's character by name or slot and selects it. The PlayOnline session ends when the player leaves character select, a lobby return fails, or the game session ends without going back to character select. This login replaced the old launch through pol.exe and a proxy `FFXiMain.dll`, which was removed; an older profile that used it now takes this login and needs its POL and Square Enix accounts filled in.
+Every retail profile logs in directly (`LaunchRetailAsync`): the profile's POL ID (upper-cased), POL password, Square Enix ID and password, the 2FA code from its mode, and its game folder (or the registry install). `AccountProfile.GetLaunchProblem` names a missing POL ID, POL password or Square Enix login before anything is sent. Character select opens the retail lobby in the viewport; Auto-Login picks the profile's character by name or slot and selects it. The PlayOnline session ends when the player leaves character select, a lobby return fails, or the game session ends without going back to character select. This login replaced the old launch through pol.exe and a proxy `FFXiMain.dll`, which was removed.
 
 ## Next steps
 

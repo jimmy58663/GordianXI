@@ -40,7 +40,7 @@ namespace Gordian.Core.Profiles
         EnterAtLaunch,
     }
 
-    public sealed class AccountProfile : IJsonOnDeserialized
+    public sealed class AccountProfile
     {
         /// <summary>LandSandBoat's default auth (login) port.</summary>
         public const int DefaultLsbAuthPort = Network.LandSandBoat.LsbLoginClient.DefaultConnectPort;
@@ -93,17 +93,6 @@ namespace Gordian.Core.Profiles
         public ProfileServerType EffectiveServerType =>
             ServerType ?? (string.IsNullOrWhiteSpace(ServerHost) ? ProfileServerType.Retail : ProfileServerType.LandSandBoat);
 
-        // Profiles saved before the direct logins carried a bootloader (xiloader or pol.exe) and its command line. Both
-        // are read once, when the file loads, and folded into the fields above (OnDeserialized); they are never written.
-        private string? _legacyBootloaderPath;
-        private string? _legacyArguments;
-
-        [JsonInclude, JsonPropertyName("BootloaderPath"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        private string? LegacyBootloaderPath { get => null; set => _legacyBootloaderPath = value; }
-
-        [JsonInclude, JsonPropertyName("Arguments"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        private string? LegacyArguments { get => null; set => _legacyArguments = value; }
-
         /// <summary>The account name: the LandSandBoat account, or on retail the Square Enix ID.</summary>
         public string Username { get; set; } = string.Empty;
 
@@ -139,10 +128,10 @@ namespace Gordian.Core.Profiles
         /// </summary>
         public int ServerPort { get; set; } = DefaultLsbAuthPort;
 
-        /// <summary>The LandSandBoat data (xi_data) port, or 0 for the default (or the one an older profile's arguments name).</summary>
+        /// <summary>The LandSandBoat data (xi_data) port, or 0 for the default.</summary>
         public int DataPort { get; set; }
 
-        /// <summary>The LandSandBoat view (xi_view) port, or 0 for the default (or the one an older profile's arguments name).</summary>
+        /// <summary>The LandSandBoat view (xi_view) port, or 0 for the default.</summary>
         public int ViewPort { get; set; }
 
         /// <summary>The server host in effect (<see cref="ServerHost"/>, trimmed).</summary>
@@ -243,72 +232,6 @@ namespace Gordian.Core.Profiles
                 _ => null,
             };
         }
-
-        /// <summary>
-        /// Folds an older profile's bootloader fields into the current ones, once, as the file loads. A profile without a
-        /// server type is LandSandBoat when it used xiloader or its arguments name a server (<c>--server</c>, 127.0.0.1 or
-        /// localhost), and its host and ports come from <c>--server</c> (or <c>-s</c>; 127.0.0.1 as xiloader assumes),
-        /// <c>--authport</c>, <c>--dataport</c> and <c>--viewport</c> where the profile has none of its own. Every other
-        /// profile with a bootloader (pol.exe) is a retail profile and now logs in directly.
-        /// </summary>
-        void IJsonOnDeserialized.OnDeserialized()
-        {
-            string bootloader = _legacyBootloaderPath ?? string.Empty;
-            string args = _legacyArguments ?? string.Empty;
-            _legacyBootloaderPath = null;
-            _legacyArguments = null;
-            if (string.IsNullOrWhiteSpace(bootloader) && string.IsNullOrWhiteSpace(args)) return;
-
-            if (ServerType == null && string.IsNullOrWhiteSpace(ServerHost))
-            {
-                bool lsb = bootloader.Contains("xiloader", StringComparison.OrdinalIgnoreCase) ||
-                    args.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-                    args.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
-                    args.Contains("--server", StringComparison.OrdinalIgnoreCase);
-                if (!lsb) return;
-                ServerType = ProfileServerType.LandSandBoat;
-            }
-            if (EffectiveServerType != ProfileServerType.LandSandBoat) return;
-
-            if (string.IsNullOrWhiteSpace(ServerHost)) ServerHost = LegacyServerHost(args);
-            if (ServerPort <= 0) ServerPort = ParsePortArgument(args, "--authport", DefaultLsbAuthPort);
-            if (DataPort <= 0) DataPort = ParsePortArgument(args, "--dataport", DefaultLsbDataPort);
-            if (ViewPort <= 0) ViewPort = ParsePortArgument(args, "--viewport", DefaultLsbViewPort);
-        }
-
-        /// <summary>The <c>--server</c> (or <c>-s</c>) value of an older profile's arguments, or 127.0.0.1 as xiloader assumes.</summary>
-        private static string LegacyServerHost(string arguments)
-        {
-            string[] parts = SplitArguments(arguments);
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (string.Equals(parts[i], "--server", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(parts[i], "-s", StringComparison.OrdinalIgnoreCase))
-                {
-                    return parts[i + 1];
-                }
-            }
-            return "127.0.0.1";
-        }
-
-        /// <summary>The value of an older profile's port argument (<paramref name="name"/>), or <paramref name="fallback"/>.</summary>
-        private static int ParsePortArgument(string? arguments, string name, int fallback)
-        {
-            string[] parts = SplitArguments(arguments);
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (string.Equals(parts[i], name, StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(parts[i + 1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int port) &&
-                    port is > 0 and <= 65535)
-                {
-                    return port;
-                }
-            }
-            return fallback;
-        }
-
-        private static string[] SplitArguments(string? arguments) =>
-            (arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         /// <summary>
         /// Creates a deep copy of this account profile with an optional new name.
