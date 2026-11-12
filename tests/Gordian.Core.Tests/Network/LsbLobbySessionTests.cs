@@ -252,20 +252,6 @@ namespace Gordian.Core.Tests.Network
         [Fact]
         public void Packets_UseTheRetailSizesAndLandSandBoatOffsets()
         {
-            var buffer = new byte[0x98];
-            LobbyPackets.WriteSelectCharacter(buffer, Hash, 21828, 0x0155, "Knot");
-            Assert.Equal(0x58u, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
-            Assert.Equal(LobbyPackets.Terminator, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4)));
-            Assert.Equal(0x07, buffer[8]);
-            Assert.Equal(Hash, buffer.AsSpan(12, 16).ToArray());
-            Assert.Equal(21828u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(28)));
-            Assert.Equal("Knot", LobbyPackets.ReadAscii(buffer.AsSpan(36, 16)));
-            Assert.Equal(3u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(0x44)));
-
-            LobbyPackets.WriteLobbyLogin(buffer, Hash, "30260904_1");
-            Assert.Equal(0x98u, BinaryPrimitives.ReadUInt32LittleEndian(buffer));
-            Assert.Equal("30260904_1", LobbyPackets.ReadAscii(buffer.AsSpan(0x74, 16)));
-
             var create = new byte[LobbyPackets.CreateCharacterSize];
             LobbyPackets.WriteCreateCharacter(create, Hash, 0, new LobbyCharacterCreation("Newbie", Race: 8, Face: 7, Hair: 1, MainJob: 2, Size: 2, Nation: 1));
             // LandSandBoat reads race 48, job 50, nation 54, size 57 and the combined face (GrapIDTbl[0]'s low byte) at 60.

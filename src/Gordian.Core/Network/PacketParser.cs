@@ -463,14 +463,14 @@ namespace Gordian.Core.Network
             PacketInspected.Invoke(this, entry);
         }
 
+        /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
+        internal int SubPacketTrace { get; set; }
+
         /// <summary>
         /// Processes an incoming raw UDP datagram buffer.
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
         /// and iterative sub-packet dispatching via <see cref="PacketDispatcher"/>.
         /// </summary>
-        /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
-        internal int SubPacketTrace { get; set; }
-
         public bool ProcessIncomingChunk(Span<byte> rawPacketBuffer)
         {
             long startTicks = Stopwatch.GetTimestamp();

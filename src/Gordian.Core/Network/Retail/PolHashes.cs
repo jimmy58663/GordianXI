@@ -100,8 +100,7 @@ namespace Gordian.Core.Network.Retail
         /// <summary>
         /// The time-bound Square Enix password digest: SHA-1(lowercase hex of the password key
         /// (<see cref="SquareEnixPasswordKey"/>) + the server time rounded down to the minute, in decimal) (spec v2.1.21
-        /// section 5.4, test vectors 3 and 17). Before v2.1.21 the spec hashed SHA-1(password) here, and the server refused
-        /// it with status 0x6F.
+        /// section 5.4, test vectors 3 and 17).
         /// </summary>
         public static byte[] SquareEnixPasswordDigest(string password, long serverUnixSeconds)
         {

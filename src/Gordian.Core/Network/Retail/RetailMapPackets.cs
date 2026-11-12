@@ -79,8 +79,9 @@ namespace Gordian.Core.Network.Retail
         }
 
         /// <summary>
-        /// The 136-byte first datagram. The transport header is the observed one (client sequence 1; the other bytes are
-        /// not explained, spec section 9 item 7). The 0x00A sends a single space as the name, an empty account field, the
+        /// The 136-byte first datagram. The transport header is capture #5's (client sequence 1). Its bytes after the
+        /// sequence are memory residue in retail's first datagram (spec v2.1.25 section 4.6.3: zeros would do); these got an
+        /// answer live, so they are kept. Every later datagram's header is written by <see cref="WriteHeader"/>. The 0x00A sends a single space as the name, an empty account field, the
         /// <c>UniqueNo</c> from 0x0B, the ticket, "WIN", language 1 and 0xFFFF at +0x5A.
         /// </summary>
         public static byte[] BuildFirstDatagram(uint uniqueNo, ReadOnlySpan<byte> mapKey)

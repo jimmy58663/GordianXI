@@ -188,15 +188,6 @@ namespace Gordian.Core.Network.Lobby
         /// <summary>The <c>TC_OPERATION_MAKE</c> block's size and its offset inside a 0x20 entry and a 0x21 request.</summary>
         public const int CharacterInfoSize = 96, CharacterInfoInEntry = 44, CharacterInfoInCreate = 48;
 
-        /// <summary>The <c>unknown0000</c> value retail always sends in 0x07 (XiPackets RequestSelectChr.md).</summary>
-        public const uint SelectChecksumIndex = 3;
-
-        /// <summary>
-        /// Every expansion bit (base game through Seekers of Adoulin, bits 0-11) for <c>excode_client</c>: the expansions
-        /// this client can show. LandSandBoat does not read the field.
-        /// </summary>
-        public const uint AllExpansions = 0x0FFF;
-
         /// <summary>Writes the 28-byte header: size, terminator, command and the session hash as the identifier.</summary>
         public static void WriteHeader(Span<byte> packet, byte command, ReadOnlySpan<byte> sessionHash)
         {
@@ -205,34 +196,6 @@ namespace Gordian.Core.Network.Lobby
             BinaryPrimitives.WriteUInt32LittleEndian(packet[4..], Terminator);
             BinaryPrimitives.WriteUInt32LittleEndian(packet[8..], command);
             CopyHash(sessionHash, packet.Slice(12, SessionHashLength));
-        }
-
-        /// <summary>C2S 0x26 RequestLobbyLogin (0x98): the client version at 0x74 and the installed expansions at 0x84.</summary>
-        public static void WriteLobbyLogin(Span<byte> packet, ReadOnlySpan<byte> sessionHash, string clientVersion, uint expansions = AllExpansions)
-        {
-            packet = packet[..LobbyLoginSize];
-            WriteHeader(packet, LobbyCommand.RequestLobbyLogin, sessionHash);
-            WriteAscii(packet.Slice(0x74, 16), clientVersion);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x84..], expansions);
-        }
-
-        /// <summary>C2S 0x1F RequestGetChr (0x2C).</summary>
-        public static void WriteGetCharacters(Span<byte> packet, ReadOnlySpan<byte> sessionHash) =>
-            WriteHeader(packet[..GetCharactersSize], LobbyCommand.RequestGetChr, sessionHash);
-
-        /// <summary>C2S 0x24 RequestQueryWorldList (0x2C).</summary>
-        public static void WriteQueryWorldList(Span<byte> packet, ReadOnlySpan<byte> sessionHash) =>
-            WriteHeader(packet[..QueryWorldListSize], LobbyCommand.RequestQueryWorldList, sessionHash);
-
-        /// <summary>C2S 0x07 RequestSelectChr (0x58): content id, server id, name; the checksum index 3 at 0x44.</summary>
-        public static void WriteSelectCharacter(Span<byte> packet, ReadOnlySpan<byte> sessionHash, uint contentId, uint serverId, string name)
-        {
-            packet = packet[..SelectCharacterSize];
-            WriteHeader(packet, LobbyCommand.RequestSelectChr, sessionHash);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[28..], contentId);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[32..], serverId);
-            WriteAscii(packet.Slice(36, NameLength - 1), name);
-            BinaryPrimitives.WriteUInt32LittleEndian(packet[0x44..], SelectChecksumIndex);
         }
 
         /// <summary>C2S 0x14 RequestDeleteChr (0x34): content id and server id.</summary>

@@ -88,9 +88,8 @@ namespace Gordian.Core.Network.Retail
 
         /// <summary>
         /// Bytes <c>+0x10..+0x19</c> of the FFXI lobby key request: selector <c>00 00 00 01</c>, then
-        /// <c>01 00 05 00 00 01</c> (spec v2.1.23 section 4.3.5, test vector 18). Before v2.1.23 the spec gave
-        /// <c>00 00 00 00 00 01 00 05 00 01</c>, which the server answers with a key of the Viewer's kind, and the lobby then
-        /// refused the AuthCode with 3301.
+        /// <c>01 00 05 00 00 01</c> (spec v2.1.23 section 4.3.5, test vector 18). The Viewer's selector also gets a
+        /// key, but the lobby refuses an AuthCode built from it with 3301.
         /// </summary>
         public static ReadOnlySpan<byte> LobbyKeySelector => [0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x05, 0x00, 0x00, 0x01];
 
@@ -284,8 +283,6 @@ namespace Gordian.Core.Network.Retail
             var header = PolPresencePackets.ReadResponseHeader(plainHeader);
             if (header.Type != PolPresencePackets.ResponseType)
                 throw new RetailLoginException(stage, $"Unexpected response type 0x{header.Type:X2}.");
-            if (header.Status == PolPresencePackets.StatusBadAccount)
-                throw new RetailLoginException(stage, "The Square Enix ID or password was not accepted.", header.Status);
             if (header.Status != 0)
                 throw new RetailLoginException(stage, $"The server refused the request (status 0x{header.Status:X2}).", header.Status);
 

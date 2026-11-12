@@ -43,13 +43,13 @@ namespace Gordian.Core.Profiles
     public sealed class AccountProfile
     {
         /// <summary>LandSandBoat's default auth (login) port.</summary>
-        public const int DefaultLsbAuthPort = 54231;
+        public const int DefaultLsbAuthPort = Network.LandSandBoat.LsbLoginClient.DefaultConnectPort;
 
         /// <summary>LandSandBoat's default data (xi_data) port.</summary>
-        public const int DefaultLsbDataPort = 54230;
+        public const int DefaultLsbDataPort = Network.LandSandBoat.LsbLoginClient.DefaultDataPort;
 
         /// <summary>LandSandBoat's default view (xi_view) port.</summary>
-        public const int DefaultLsbViewPort = 54001;
+        public const int DefaultLsbViewPort = Network.LandSandBoat.LsbLoginClient.DefaultViewPort;
 
         public string ProfileName { get; set; } = "Default Profile";
         public string CharacterName { get; set; } = string.Empty;

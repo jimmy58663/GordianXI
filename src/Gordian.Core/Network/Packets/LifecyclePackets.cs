@@ -1027,7 +1027,7 @@ namespace Gordian.Core.Network.Packets
         /// </summary>
         public bool RetailMapHandshake { get; set; }
 
-        /// <summary>How long after the retail 0x011 the client sends 0x00C. Retail waits about 2 s, for its zone loading.</summary>
+        /// <summary>How long after the retail 0x011 the client sends 0x00C (retail waits about 2 s while it loads the zone; 1 s works live). Settable for tests.</summary>
         public static TimeSpan RetailGameOkDelay { get; set; } = TimeSpan.FromSeconds(1);
 
         private int _retailZoneInAnswered;

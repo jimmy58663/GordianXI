@@ -282,9 +282,10 @@ namespace Gordian.Core.Network
         public MapLoginDatagramBuilder? LoginDatagramBuilder { get; set; }
 
         /// <summary>
-        /// Speaks to a retail map server (spec v2.1.24 sections 4.6.3 and 4.6.4): every datagram's header carries the
-        /// server's last 16 <c>State</c> bytes (<c>+0x0C..+0x1B</c>) with word 0's low byte set to 0x01, and the first
-        /// 0x00A is answered with 0x011 before 0x00C. LandSandBoat sessions leave the State bytes zero.
+        /// Speaks to a retail map server (spec v2.1.25 sections 4.6.3 and 4.6.4): every datagram's header carries the send
+        /// time's milliseconds at <c>+0x04</c> and the server's last 16 <c>State</c> bytes (<c>+0x0C..+0x1B</c>) with word 0's
+        /// low byte set to 0x01 and word 2 set to <see cref="RetailClientAddress"/>; the first 0x00A is answered with 0x011
+        /// before 0x00C; and the keep-alive is an empty datagram. LandSandBoat sessions leave those header bytes zero.
         /// </summary>
         public bool RetailMapProtocol
         {
@@ -693,7 +694,6 @@ namespace Gordian.Core.Network
                 _emptyDatagramQueued = true;
                 return;
             }
-            if (_currentBufferLength + KeepAliveSize > MaxDatagramSize) return;
             _outboundQueueBuffer.AsSpan(0, KeepAliveSize).Clear();
             _currentBufferLength = KeepAliveSize;
         }
@@ -1151,11 +1151,13 @@ namespace Gordian.Core.Network
                 BinaryPrimitives.WriteUInt16LittleEndian(headerSpan.Slice(2, 2), Volatile.Read(ref _serverPacketIdSequence));
 
                 long sentAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), (uint)(sentAtMs / 1000));
-
                 if (RetailMapProtocol)
                 {
                     lock (_serverState) RetailMapPackets.WriteHeader(headerSpan, sentAtMs, _serverState, RetailClientAddress);
+                }
+                else
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), (uint)(sentAtMs / 1000));
                 }
 
                 if (_outboundWireTrace > 0)

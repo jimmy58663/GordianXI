@@ -56,17 +56,9 @@ namespace Gordian.Core.Network.Retail
             _key = key;
         }
 
-        /// <summary>
-        /// The AuthCode token. Its inputs, D28 and H16 are logged (spec v2.1.22 section 9 item 8): they are this login's
-        /// session keys, worthless once the session ends, and are what a 3301 (session-correlation failure) is checked against.
-        /// </summary>
+        /// <summary>The AuthCode token for 0x26 (spec section 4.5.2): from the lobby key, the greeting's server time and K8.</summary>
         public byte[] CreateAuthCode()
         {
-            byte[] preimage = new byte[PolAuthCode.PreimageLength];
-            PolAuthCode.WritePreimage(preimage, LobbyKey, _login.GreetingTimestamp, _login.SessionKey8);
-            Diagnostics.GordianLog.Debug("RETAIL_LOGIN",
-                $"AuthCode inputs: lobby key {Convert.ToHexString(LobbyKey)}, greeting time 0x{_login.GreetingTimestamp:X8}, " +
-                $"K8 {Convert.ToHexString(_login.SessionKey8)}; D28 {Convert.ToHexString(preimage)}, H16 {Convert.ToHexString(System.Security.Cryptography.MD5.HashData(preimage))}.");
             return PolAuthCode.Generate(LobbyKey, _login.GreetingTimestamp, _login.SessionKey8, _login.RoutingToken);
         }
 
