@@ -236,6 +236,49 @@ namespace Gordian.Core.Animation
         private float _overlayElapsed;
         private float _overlayDuration;
 
+        private readonly object _controlLockSync = new();
+        private readonly List<(long Start, long Until, ActionFreezeSource Source)> _controlLocks = new();
+
+        /// <summary>
+        /// The sources of the control locks (routine op 0x2E, <see cref="MotionRoutine.ControlLocks"/>) holding the entity at
+        /// <paramref name="now"/> (a <see cref="Stopwatch"/> timestamp), or <see cref="ActionFreezeSource.None"/> (#511). Each
+        /// routine's locks run on their own timers from the moment the routine starts, so overlapping locks hold until the last
+        /// of them ends, and a lock outlives a routine another action replaces. Thread-safe: the locomotion controller reads it.
+        /// </summary>
+        public ActionFreezeSource ControlLocksAt(long now)
+        {
+            var sources = ActionFreezeSource.None;
+            lock (_controlLockSync)
+            {
+                foreach (var (start, until, source) in _controlLocks)
+                {
+                    if (start <= now && now < until) sources |= source;
+                }
+            }
+            return sources;
+        }
+
+        /// <summary>Ends every control lock at once (a zone change, a death).</summary>
+        public void ClearControlLocks()
+        {
+            lock (_controlLockSync) _controlLocks.Clear();
+        }
+
+        private void AddControlLocks(MotionRoutine routine, ActionFreezeSource source, long now)
+        {
+            if (routine.ControlLocks.Count == 0) return;
+            double stopwatchPerTick = Stopwatch.Frequency / RoutineTicksPerSecond / Math.Max(_actionSpeed, 0.01f);
+            lock (_controlLockSync)
+            {
+                _controlLocks.RemoveAll(l => l.Until <= now);
+                foreach (var controlLock in routine.ControlLocks)
+                {
+                    if (controlLock.Ticks <= 0) continue;
+                    _controlLocks.Add((now + (long)(controlLock.StartTick * stopwatchPerTick), now + (long)(controlLock.EndTick * stopwatchPerTick), source));
+                }
+            }
+        }
+
         /// <summary>Queues an action for the actor (thread-safe; it plays from the next <c>Advance</c> with a model).</summary>
         public void EnqueueAction(ActionRequest request)
         {
@@ -764,6 +807,7 @@ namespace Gordian.Core.Animation
             _actionHiddenWeapons = model.DefaultHiddenWeaponSlots;
             _weaponChangeIndex = 0;
             ApplyWeaponChanges(routine);
+            AddControlLocks(routine, weaponMotion == WeaponMotion.None ? ActionFreezeSource.Actions : ActionFreezeSource.Engage, now);
             request?.MarkStarted(now, _actionHitTick);
             EnterSegment(model, 0);
         }

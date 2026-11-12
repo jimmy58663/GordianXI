@@ -38,6 +38,16 @@ namespace Gordian.Core.Resources.Models
     public readonly record struct WeaponVisibilityChange(int Tick, int Slot, bool Hide);
 
     /// <summary>
+    /// A control lock (routine op 0x2E, <c>IdleLockCasterControl</c>): from <paramref name="StartTick"/> for
+    /// <paramref name="Ticks"/> 60 Hz ticks the routine's caster cannot move (#511).
+    /// </summary>
+    public readonly record struct ControlLock(int StartTick, int Ticks)
+    {
+        /// <summary>The tick the lock lets go at.</summary>
+        public int EndTick => StartTick + Ticks;
+    }
+
+    /// <summary>
     /// A motion routine flattened for playback: the clip steps in order, the ticks at which the action's result lands
     /// (the link to the shared hit routines <c>dada</c> / <c>mdam</c>), and the procedural reactions it carries.
     /// Built from the actor's own Section 0x07 routines (e.g. the swing <c>ati0</c>, the chant <c>cabk</c>, the guard
@@ -76,6 +86,12 @@ namespace Gordian.Core.Resources.Models
         /// routine ends, when the actor's default (<see cref="EntityModel.DefaultHiddenWeaponSlots"/>) comes back.
         /// </summary>
         public IReadOnlyList<WeaponVisibilityChange> WeaponChanges { get; init; } = Array.Empty<WeaponVisibilityChange>();
+
+        /// <summary>
+        /// The control locks (op 0x2E) the routine puts on its caster, by start tick, through its links and the shared
+        /// <see cref="SharedControlLocks"/>: while one runs, a player character cannot move (#511).
+        /// </summary>
+        public IReadOnlyList<ControlLock> ControlLocks { get; init; } = Array.Empty<ControlLock>();
 
         /// <summary>The tick the first clip starts at (the routine's hit is timed from the routine start, not from this).</summary>
         public int FirstClipTick => Segments.Count > 0 ? Segments[0].StartTick : 0;
@@ -137,6 +153,22 @@ namespace Gordian.Core.Resources.Models
                 ["stlg"] = Melee,
                 ["splg"] = Melee,
             };
+    }
+
+    /// <summary>
+    /// The control locks (op 0x2E) of the shared <c>ROM/0/0.DAT</c> routines the actors' own routines link: <c>wash</c> and
+    /// <c>waso</c>, which every spell release (<c>shbk</c>, <c>shwh</c>...), item use finish (<c>shit</c>) and ranged finish
+    /// (<c>shlg</c>) waits on (op 0x3B), each lock the caster for 60 ticks from its start. Read from the retail
+    /// <c>ROM/0/0.DAT</c> (2026-11-12, #511; <c>SharedControlLocks_MatchTheRetailDat</c>).
+    /// </summary>
+    public static class SharedControlLocks
+    {
+        /// <summary>Routine name to its control lock length in ticks (the lock starts with the routine).</summary>
+        public static IReadOnlyDictionary<string, int> ByName { get; } = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["wash"] = 60,
+            ["waso"] = 60,
+        };
     }
 
     /// <summary>A Section 0x07 routine's commands, before links are followed.</summary>

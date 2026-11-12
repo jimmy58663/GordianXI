@@ -330,7 +330,11 @@ namespace Gordian.App.Graphics
                     // Last: the help bar for an open menu whose window drew none of its own (#313).
                     DrawMenuHelpBar(renderer, library, session, width, height);
                 }
-                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0) DrawCompass(renderer, library, session, coverFrom, width, height);
+                // The server's FreezeFlag (S2C 0x037) removes the compass while it holds the player (XiPackets, #511).
+                if (!cutscene && (_hiddenElements & StockUiElement.Compass) == 0 && !session.LocalPlayer.IsServerFrozen)
+                {
+                    DrawCompass(renderer, library, session, coverFrom, width, height);
+                }
             }
             if (session.ActionService.ButtonPreview.IsActive) _buttonPreview.Draw(renderer, _font, session.ActionService.ButtonPreview, Layout.Scale, width, height);
             bool unlocked = Drag.Unlocked;

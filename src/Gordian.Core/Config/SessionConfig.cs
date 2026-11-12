@@ -42,7 +42,13 @@ namespace Gordian.Core.Config
         EntityCollisionOverride = 1UL << 7,
 
         /// <summary>Blocks ignoring knockback (the Anchor option): the server's knockback always moves the character.</summary>
-        KnockbackOverride = 1UL << 8
+        KnockbackOverride = 1UL << 8,
+
+        /// <summary>
+        /// Blocks ignoring action freezes (the <c>/actionfreeze off</c> option): the control locks of the player's own actions,
+        /// weapon draws and sheathes always hold the character in place, as in retail.
+        /// </summary>
+        ActionFreezeOverride = 1UL << 9
     }
 
     /// <summary>

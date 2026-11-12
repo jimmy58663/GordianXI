@@ -775,6 +775,19 @@ namespace Gordian.Engine.Input
         /// <summary>LandSandBoat's Sit animation status (<c>xi.animation.SIT</c>), sent in S2C 0x037.</summary>
         public const byte StatusSitting = Gordian.Core.Animation.RestPosture.StatusSitting;
 
+        /// <summary>
+        /// Whether a control lock (routine op 0x2E) of a routine the player's character is playing holds it at
+        /// <paramref name="now"/>, leaving out the sources the player chose to ignore (<c>/actionfreeze</c>, unless the server's
+        /// <see cref="Gordian.Core.Config.FeatureRestrictions.ActionFreezeOverride"/> bit forbids it). #511.
+        /// </summary>
+        internal bool IsActionFrozen(WorldEntity localEnt, long now)
+        {
+            var locks = localEnt.Animation.ControlLocksAt(now);
+            if (locks == Gordian.Core.Animation.ActionFreezeSource.None) return false;
+            var ignored = _actionService?.ActionFreeze.GetIgnored(_actionService.Profile) ?? Gordian.Core.Animation.ActionFreezeSource.None;
+            return (locks & ~ignored) != 0;
+        }
+
         private bool _healCancelSent;
         private readonly SeatedMovementHold _seatedHold = new();
 
@@ -905,6 +918,7 @@ namespace Gordian.Engine.Input
             {
                 _lastZoneId = zone;
                 _inputState.AutorunActive = false;
+                localEnt.Animation.ClearControlLocks(); // no action freeze crosses a zone line
             }
 
             // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops. The Mog House Layout
@@ -917,9 +931,11 @@ namespace Gordian.Engine.Input
                 return;
             }
 
-            // Locked by the server (an event) or charmed (the server drives the character): no input movement. Resting or
-            // sitting, and standing up from either, roots the player in place too (#343).
-            if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true })
+            // Locked by the server (an event, the 0x037 FreezeFlag) or charmed (the server drives the character): no input
+            // movement. Resting or sitting, and standing up from either, roots the player in place too (#343), and so does an
+            // action freeze: a control lock of a routine the player is playing (#511).
+            if (_localPlayer.IsMovementLocked || _localPlayer.IsServerFrozen || (localEnt is PlayerEntity { IsCharmed: true })
+                || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp())
                 || _seatedHold.IsRooted(_localPlayer.ServerStatus, localEnt.Animation, System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency))
             {
                 localEnt.Speed = 0;

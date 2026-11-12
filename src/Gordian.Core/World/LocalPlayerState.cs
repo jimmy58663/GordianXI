@@ -17,6 +17,7 @@ namespace Gordian.Core.World
         private byte _pendingDirection;
         private bool _hasPendingCorrection;
         private volatile bool _isMovementLocked;
+        private volatile bool _isServerFrozen;
 
         /// <summary>
         /// Queues a server-authoritative placement (a warp, a draw-in, charm movement) or, with a null position, a
@@ -81,6 +82,13 @@ namespace Gordian.Core.World
             get => _isMovementLocked;
             set => _isMovementLocked = value;
         }
+
+        /// <summary>
+        /// The server's FreezeFlag (S2C 0x037 flags1 bit 13, #511): while set the player is held in place and the compass is
+        /// not drawn. No option lifts it (unlike the action freezes of <c>ActionFreezeSettings</c>). Layout and meaning
+        /// referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
+        /// </summary>
+        public bool IsServerFrozen => _isServerFrozen;
         #endregion
 
         #region Vitals
@@ -587,6 +595,7 @@ namespace Gordian.Core.World
                 NamePlate = status.NamePlate;
                 LinkshellColor = (status.LsColorR, status.LsColorG, status.LsColorB);
                 GmLevel = status.GmLevel;
+                _isServerFrozen = status.IsFrozen;
 
                 if (status.Speed > 0 && Speed != status.Speed)
                 {
