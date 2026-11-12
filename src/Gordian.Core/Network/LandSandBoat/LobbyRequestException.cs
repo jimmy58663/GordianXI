@@ -12,6 +12,11 @@ namespace Gordian.Core.Network.LandSandBoat
     {
         public const int CharacterAlreadyLoggedIn = 201;
         public const int WorldIsFull = 208;
+        /// <summary>
+        /// FFXI-3301: a communication error between the lobby and the FFXI server; the client tells the player to log out of
+        /// PlayOnline and wait a few minutes (XiPackets lobby/Protocol.md). The retail lobby answered a retail 0x26 with it.
+        /// </summary>
+        public const int CommunicationError = 301;
         public const int UnableToConnectToWorldServer = 305;
         public const int CharacterNameUnavailable = 313;
         public const int FailedToRegisterWithNameServer = 314;
@@ -27,6 +32,7 @@ namespace Gordian.Core.Network.LandSandBoat
         {
             CharacterAlreadyLoggedIn => "CHARACTER_ALREADY_LOGGED_IN",
             WorldIsFull => "WORLD_IS_FULL",
+            CommunicationError => "COMMUNICATION_ERROR",
             UnableToConnectToWorldServer => "UNABLE_TO_CONNECT_TO_WORLD_SERVER",
             CharacterNameUnavailable => "CHARACTER_NAME_UNAVAILABLE",
             FailedToRegisterWithNameServer => "FAILED_TO_REGISTER_WITH_THE_NAME_SERVER",

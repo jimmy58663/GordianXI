@@ -1,6 +1,7 @@
 // src/Gordian.Core/Network/Lobby/LobbySession.cs
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
@@ -163,9 +164,13 @@ namespace Gordian.Core.Network.Lobby
             LobbySession? session = null;
             try
             {
+                long start = Stopwatch.GetTimestamp();
                 await client.ConnectAsync(host, port, ct).ConfigureAwait(false);
+                GordianLog.Info("LOBBY", $"Lobby connected to {client.Client.RemoteEndPoint} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
                 session = new LobbySession(client, handoff, log, timeout ?? TimeSpan.FromSeconds(10));
+                start = Stopwatch.GetTimestamp();
                 await handoff.OpenAsync(ct).ConfigureAwait(false);
+                GordianLog.Info("LOBBY", $"Lobby handoff ({handoff.Name}) ready in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
                 await session.LoginAsync(ct).ConfigureAwait(false);
                 return session;
             }
@@ -185,12 +190,17 @@ namespace Gordian.Core.Network.Lobby
         {
             LobbyClientPackets.WriteLobbyLogin(_lobbyLoginPacket, _handoff.CreateAuthCode(), _handoff.ClientVersion);
             await SendAsync(_lobbyLoginPacket, "GP_LOBBY_LOGIN", ct).ConfigureAwait(false);
+            long sent = Stopwatch.GetTimestamp();
+            // The AuthCode (+0x34..+0x73) carries the public address, so only the fields around it are logged.
+            GordianLog.Info("LOBBY", $"Lobby login (0x26) sent ({_handoff.Name}): +0x00 {Convert.ToHexString(_lobbyLoginPacket, 0, 0x34)} ... +0x74 {Convert.ToHexString(_lobbyLoginPacket, 0x74, _lobbyLoginPacket.Length - 0x74)}");
 
             byte[] reply = await ReadAsync("login", ct).ConfigureAwait(false);
             byte command = LobbyPackets.ReadCommand(reply);
+            GordianLog.Info("LOBBY", $"Lobby login answered with 0x{command:X2} ({reply.Length} bytes) after {Stopwatch.GetElapsedTime(sent).TotalMilliseconds:0} ms.");
             if (command == LobbyCommand.ResponseError)
             {
                 int code = LobbyPackets.ReadErrorCode(reply);
+                GordianLog.Info("LOBBY", $"Lobby error reply: {Convert.ToHexString(reply)}");
                 throw Broken(new LobbyRequestException("login", code,
                     $"The lobby refused the login: error code {code} ({LobbyErrorCode.Describe(code)}, FFXI-{LobbyErrorCode.DisplayCode(code)})."));
             }
