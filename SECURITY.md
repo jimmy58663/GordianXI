@@ -34,10 +34,9 @@ GordianXI is a volunteer project, so these times are targets, not promises. We w
 
 In scope: code in this repository and the release archives built from it. We are most interested in:
 - **Lua addon sandbox escapes.** An addon reaching anything outside its curated API: CLR reflection, `io`/`os`, processes, files outside its own storage folder, or another addon's state.
-- **The named-pipe handoff.** Another local process reading or injecting the session credentials passed over `GordianXI_Handoff`, or impersonating either end of the pipe.
 - **Packet parsing.** A malicious or compromised game server causing a crash, memory corruption, code execution or file access through crafted packets.
 - **Update and download integrity.** Anything that lets a tampered release, update, addon download or DAT file pass as genuine, or gets around the release attestations.
-- **Proxy DLL staging.** `ProxyStager` swapping `FFXiMain.dll` in the game folder: DLL planting or hijacking, leaving the game folder modified, or writing outside it.
+- **Stored credentials.** Reading the account and POL passwords or authenticator keys saved in profiles without the per-user key.
 - Any other bug that lets untrusted input (server data, addons, DAT files, settings files) run code or read or change data it should not.
 
 Out of scope:

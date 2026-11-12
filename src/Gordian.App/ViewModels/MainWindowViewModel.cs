@@ -47,9 +47,6 @@ namespace Gordian.App.ViewModels
         private TwoFactorMode _formTwoFactorMode = TwoFactorMode.None;
         private bool _isEditorOpen;
         private bool _formShowPasswords;
-        // The editing profile's legacy bootloader fields, kept on save so its old retail launch path keeps working.
-        private string _editingBootloaderPath = string.Empty;
-        private string _editingArguments = string.Empty;
         private string _newFolderName = string.Empty;
         private string _statusMessage = string.Empty;
 
@@ -476,9 +473,6 @@ namespace Gordian.App.ViewModels
             ViewportWindowManager.Default.SetPrimaryViewModel(Viewport);
             // ...and a pop-out window's character when that window gets the focus (#29 round 4).
             AttachViewportFocus(ViewportWindowManager.Default.WindowFocus);
-
-            // Startup self-healing: restore any orphaned FFXiMain.dll.orig from ungraceful shutdowns
-            ProxyStager.SelfHealStartup();
 
             LoadProfiles();
         }
@@ -1230,13 +1224,10 @@ namespace Gordian.App.ViewModels
             FormAutoLogin = item.Profile.EffectiveLoginMode == ProfileLoginMode.AutoLogin;
             FormFolder = item.Profile.Folder;
             FormServerType = item.Profile.EffectiveServerType;
-            // An older profile's host and ports may still sit in its bootloader arguments: show the values in effect.
             FormServerHost = item.Profile.EffectiveServerType == ProfileServerType.LandSandBoat ? item.Profile.EffectiveServerHost : item.Profile.ServerHost;
             FormServerPort = item.Profile.EffectiveServerPort;
             FormDataPort = item.Profile.EffectiveDataPort;
             FormViewPort = item.Profile.EffectiveViewPort;
-            _editingBootloaderPath = item.Profile.BootloaderPath;
-            _editingArguments = item.Profile.Arguments;
             FormUsername = item.Profile.Username;
             FormPassword = item.Profile.Password;
             FormPolId = item.Profile.PolId;
@@ -1306,8 +1297,6 @@ namespace Gordian.App.ViewModels
             FormServerPort = AccountProfile.DefaultLsbAuthPort;
             FormDataPort = AccountProfile.DefaultLsbDataPort;
             FormViewPort = AccountProfile.DefaultLsbViewPort;
-            _editingBootloaderPath = string.Empty;
-            _editingArguments = string.Empty;
             FormUsername = string.Empty;
             FormPassword = string.Empty;
             FormPolId = string.Empty;
@@ -1401,8 +1390,6 @@ namespace Gordian.App.ViewModels
                 ServerPort = lsb ? FormServerPort : AccountProfile.DefaultLsbAuthPort,
                 DataPort = lsb ? FormDataPort : 0,
                 ViewPort = lsb ? FormViewPort : 0,
-                BootloaderPath = _editingBootloaderPath,
-                Arguments = _editingArguments,
                 Username = FormUsername.Trim(),
                 Password = FormPassword,
                 PolId = lsb ? string.Empty : FormPolId.Trim(),
@@ -1493,8 +1480,8 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
-        /// Logs in one saved private server profile by name, for the <c>--profile</c> launch option. A retail profile is
-        /// refused, because launching one stages the proxy DLL in the game folder.
+        /// Logs in one saved profile by name, retail or private server, for the <c>--profile</c> launch option. It goes
+        /// through the same checks as the Launch button.
         /// </summary>
         public void LaunchProfileByName(string profileName)
         {
@@ -1505,12 +1492,6 @@ namespace Gordian.App.ViewModels
                 StatusMessage = $"Launch option: no profile named {profileName}.";
                 return;
             }
-            if (profile.EffectiveServerType != ProfileServerType.LandSandBoat)
-            {
-                StatusMessage = $"Launch option: {profileName} is not a private server profile.";
-                return;
-            }
-
             LaunchProfiles([profile]);
         }
 
@@ -1534,10 +1515,9 @@ namespace Gordian.App.ViewModels
 
         private void LaunchProfiles(List<AccountProfile> targetsToLaunch)
         {
-            // Separate private server profiles (direct native LsbLoginClient) from retail profiles
+            // Separate LandSandBoat profiles (LsbLoginClient) from retail profiles (direct retail login)
             var directLsbProfiles = new List<AccountProfile>();
             var directRetailProfiles = new List<AccountProfile>();
-            var retailProfiles = new List<AccountProfile>();
             var problems = new List<string>();
 
             foreach (var p in targetsToLaunch)
@@ -1554,11 +1534,6 @@ namespace Gordian.App.ViewModels
                 if (p.EffectiveServerType == ProfileServerType.LandSandBoat)
                 {
                     directLsbProfiles.Add(p);
-                }
-                else if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
-                {
-                    // The old pol.exe + proxy path, kept until direct retail login is proven.
-                    retailProfiles.Add(p);
                 }
                 else
                 {
@@ -1660,7 +1635,7 @@ namespace Gordian.App.ViewModels
                 });
             }
 
-            // 2. Retail profiles without a bootloader log in directly (docs/network/retail-login.md), one at a time.
+            // 2. Retail profiles log in directly (docs/network/retail-login.md), one at a time.
             if (directRetailProfiles.Count > 0)
             {
                 _ = Task.Run(async () =>
@@ -1688,75 +1663,6 @@ namespace Gordian.App.ViewModels
                         }
                     }
                 });
-            }
-
-            // 3. Retail bootloader / Proxy staging flow (preserved for retail POL)
-            if (retailProfiles.Count > 0)
-            {
-                string? gameDir = GameDirectoryDetector.DetectGameDirectory();
-                if (string.IsNullOrWhiteSpace(gameDir))
-                {
-                    foreach (var p in retailProfiles)
-                    {
-                        if (!string.IsNullOrWhiteSpace(p.BootloaderPath))
-                        {
-                            string? parent = Path.GetDirectoryName(p.BootloaderPath);
-                            if (parent != null)
-                            {
-                                string candidate = Path.GetFullPath(Path.Combine(parent, "..", "SquareEnix", "FINAL FANTASY XI"));
-                                if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "FFXiMain.dll")))
-                                {
-                                    gameDir = candidate;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                bool staged = false;
-                if (!string.IsNullOrWhiteSpace(gameDir))
-                {
-                    staged = ProxyStager.StageProxy(gameDir);
-                    if (staged)
-                    {
-                        StatusMessage = $"Proxy staged in '{Path.GetFileName(gameDir)}'. Spawning bootloader...";
-                    }
-                }
-
-                int launched = LaunchOrchestrator.LaunchSelectedProfiles(retailProfiles, _sessionRegistry);
-                StatusMessage = $"Launched {launched} character profile(s). Awaiting handoff...";
-                RefreshAllStatuses();
-
-                if (staged && !string.IsNullOrWhiteSpace(gameDir))
-                {
-                    string stagedDir = gameDir;
-                    _ = Task.Run(async () =>
-                    {
-                        int waitMs = 0;
-                        const int maxWaitMs = 30000;
-                        const int stepMs = 500;
-                        int initialSessionCount = _sessionRegistry.ActiveSessions.Count;
-
-                        while (waitMs < maxWaitMs)
-                        {
-                            await Task.Delay(stepMs).ConfigureAwait(false);
-                            waitMs += stepMs;
-
-                            if (_sessionRegistry.ActiveSessions.Count > initialSessionCount)
-                            {
-                                await Task.Delay(500).ConfigureAwait(false);
-                                break;
-                            }
-                        }
-
-                        bool restored = ProxyStager.RestoreOriginal(stagedDir);
-                        if (restored)
-                        {
-                            StatusMessage = "Original FFXiMain.dll restored. Client running.";
-                        }
-                    });
-                }
             }
         }
 

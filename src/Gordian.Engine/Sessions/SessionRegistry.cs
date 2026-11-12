@@ -9,7 +9,7 @@ namespace Gordian.Engine.Sessions
 {
     /// <summary>
     /// Thread-safe central registry tracking all active in-memory character sessions.
-    /// Provides the single source of truth for LaunchOrchestrator, Gordian.App (UI dashboards),
+    /// Provides the single source of truth for Gordian.App (launching and UI dashboards),
     /// and Gordian.Automation (team coordination).
     /// </summary>
     public sealed class SessionRegistry : IDisposable
@@ -164,63 +164,6 @@ namespace Gordian.Engine.Sessions
                     }
                     SessionRegistered?.Invoke(this, session);
                 }
-            }
-        }
-
-        /// <summary>
-        /// Creates, registers, and initializes a new CharacterSession from proxy handoff parameters.
-        /// </summary>
-        public CharacterSession CreateAndRegisterSession(SessionHandoffArgs handoff, string? accountUsername = null)
-        {
-            ArgumentNullException.ThrowIfNull(handoff);
-
-            lock (_registrationLock)
-            {
-                var networkManager = new SessionNetworkManager(handoff.ServerIp, handoff.ServerPort)
-                {
-                    CharacterId = handoff.CharacterId,
-                    CharacterName = handoff.TargetCharacterName,
-                    AccountName = accountUsername ?? string.Empty
-                };
-
-                // Initialize crypto key if base64 token provided
-                if (!string.IsNullOrWhiteSpace(handoff.Base64SessionToken))
-                {
-                    try
-                    {
-                        byte[] key = Convert.FromBase64String(handoff.Base64SessionToken);
-                        networkManager.Parser.InitializeSessionCrypto(key);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SessionRegistry] Failed to parse Base64SessionToken: {ex.Message}");
-                    }
-                }
-
-                networkManager.CurrentState = SessionState.ConnectingToGameServer;
-
-                var session = new CharacterSession(
-                    handoff.TargetCharacterName,
-                    handoff.CharacterId,
-                    accountUsername ?? string.Empty,
-                    networkManager
-                );
-
-                if (_sessions.TryAdd(session.SessionId, session))
-                {
-                    HookSessionDisconnect(session);
-                    if (_primaryRenderingSession == null)
-                    {
-                        _primaryRenderingSession = session;
-                        session.IsRendering3D = true;
-                    }
-                    else
-                    {
-                        session.IsRendering3D = false;
-                    }
-                    SessionRegistered?.Invoke(this, session);
-                }
-                return session;
             }
         }
 

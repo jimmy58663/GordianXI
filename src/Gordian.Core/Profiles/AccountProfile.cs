@@ -84,26 +84,14 @@ namespace Gordian.Core.Profiles
 
         /// <summary>
         /// The server type the player chose, or null for a profile saved before the choice existed: such a profile is a
-        /// LandSandBoat profile when it names a server host (or used xiloader or a server argument) and retail otherwise
-        /// (<see cref="EffectiveServerType"/>).
+        /// LandSandBoat profile when it names a server host and retail otherwise (<see cref="EffectiveServerType"/>).
         /// </summary>
         public ProfileServerType? ServerType { get; set; }
 
         /// <summary>The server type in effect: the chosen one, or for an older profile the one its fields imply.</summary>
         [JsonIgnore]
-        public ProfileServerType EffectiveServerType => ServerType ?? InferLegacyServerType();
-
-        /// <summary>
-        /// The bootloader of the old retail launch path (pol.exe through the <c>ProxyStager</c> COM proxy). No longer
-        /// edited: it is kept so profiles that have one still launch that way until direct retail login is proven.
-        /// </summary>
-        public string BootloaderPath { get; set; } = string.Empty;
-
-        /// <summary>
-        /// The old bootloader's command line. No longer edited; still read for the server host and ports older
-        /// LandSandBoat profiles carried in it (<c>--server</c>, <c>--authport</c>, <c>--dataport</c>, <c>--viewport</c>).
-        /// </summary>
-        public string Arguments { get; set; } = string.Empty;
+        public ProfileServerType EffectiveServerType =>
+            ServerType ?? (string.IsNullOrWhiteSpace(ServerHost) ? ProfileServerType.Retail : ProfileServerType.LandSandBoat);
 
         /// <summary>The account name: the LandSandBoat account, or on retail the Square Enix ID.</summary>
         public string Username { get; set; } = string.Empty;
@@ -140,31 +128,27 @@ namespace Gordian.Core.Profiles
         /// </summary>
         public int ServerPort { get; set; } = DefaultLsbAuthPort;
 
-        /// <summary>The LandSandBoat data (xi_data) port, or 0 for the default (or the one an older profile's arguments name).</summary>
+        /// <summary>The LandSandBoat data (xi_data) port, or 0 for the default.</summary>
         public int DataPort { get; set; }
 
-        /// <summary>The LandSandBoat view (xi_view) port, or 0 for the default (or the one an older profile's arguments name).</summary>
+        /// <summary>The LandSandBoat view (xi_view) port, or 0 for the default.</summary>
         public int ViewPort { get; set; }
 
-        /// <summary>The server host in effect: <see cref="ServerHost"/>, or an older profile's <c>--server</c> argument.</summary>
+        /// <summary>The server host in effect (<see cref="ServerHost"/>, trimmed).</summary>
         [JsonIgnore]
-        public string EffectiveServerHost =>
-            !string.IsNullOrWhiteSpace(ServerHost) ? ServerHost.Trim() : LegacyServerHost();
+        public string EffectiveServerHost => (ServerHost ?? string.Empty).Trim();
 
-        /// <summary>The auth port in effect: <see cref="ServerPort"/>, an older profile's <c>--authport</c>, or 54231.</summary>
+        /// <summary>The auth port in effect: <see cref="ServerPort"/>, or 54231.</summary>
         [JsonIgnore]
-        public int EffectiveServerPort =>
-            ServerPort > 0 ? ServerPort : ParsePortArgument(Arguments, "--authport", DefaultLsbAuthPort);
+        public int EffectiveServerPort => ServerPort > 0 ? ServerPort : DefaultLsbAuthPort;
 
-        /// <summary>The data port in effect: <see cref="DataPort"/>, an older profile's <c>--dataport</c>, or 54230.</summary>
+        /// <summary>The data port in effect: <see cref="DataPort"/>, or 54230.</summary>
         [JsonIgnore]
-        public int EffectiveDataPort =>
-            DataPort > 0 ? DataPort : ParsePortArgument(Arguments, "--dataport", DefaultLsbDataPort);
+        public int EffectiveDataPort => DataPort > 0 ? DataPort : DefaultLsbDataPort;
 
-        /// <summary>The view port in effect: <see cref="ViewPort"/>, an older profile's <c>--viewport</c>, or 54001.</summary>
+        /// <summary>The view port in effect: <see cref="ViewPort"/>, or 54001.</summary>
         [JsonIgnore]
-        public int EffectiveViewPort =>
-            ViewPort > 0 ? ViewPort : ParsePortArgument(Arguments, "--viewport", DefaultLsbViewPort);
+        public int EffectiveViewPort => ViewPort > 0 ? ViewPort : DefaultLsbViewPort;
 
         /// <summary>
         /// Gets or sets the plaintext password in memory.
@@ -232,8 +216,8 @@ namespace Gordian.Core.Profiles
         {
             if (EffectiveServerType == ProfileServerType.LandSandBoat && string.IsNullOrWhiteSpace(EffectiveServerHost))
                 return "has no server host";
-            // A retail profile without the old bootloader logs in directly: it needs both accounts.
-            if (EffectiveServerType == ProfileServerType.Retail && string.IsNullOrWhiteSpace(BootloaderPath))
+            // A retail profile logs in directly (docs/network/retail-login.md): it needs both accounts.
+            if (EffectiveServerType == ProfileServerType.Retail)
             {
                 if (!Network.Retail.PolIdEncoding.IsValid((PolId ?? string.Empty).Trim().ToUpperInvariant()))
                     return "has no valid POL ID (4 letters, then 4 digits)";
@@ -249,58 +233,6 @@ namespace Gordian.Core.Profiles
             };
         }
 
-        private ProfileServerType InferLegacyServerType()
-        {
-            if (!string.IsNullOrWhiteSpace(ServerHost)) return ProfileServerType.LandSandBoat;
-            if ((BootloaderPath ?? string.Empty).Contains("xiloader", StringComparison.OrdinalIgnoreCase)) return ProfileServerType.LandSandBoat;
-            string args = Arguments ?? string.Empty;
-            if (args.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-                args.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
-                args.Contains("--server", StringComparison.OrdinalIgnoreCase))
-            {
-                return ProfileServerType.LandSandBoat;
-            }
-            return ProfileServerType.Retail;
-        }
-
-        /// <summary>
-        /// The host an older profile's bootloader command line names: the <c>--server</c> (or <c>-s</c>) value, or
-        /// 127.0.0.1 as xiloader assumes. Empty for a profile with neither a bootloader nor arguments.
-        /// </summary>
-        private string LegacyServerHost()
-        {
-            if (string.IsNullOrWhiteSpace(Arguments) && string.IsNullOrWhiteSpace(BootloaderPath)) return string.Empty;
-            string[] parts = SplitArguments(Arguments);
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (string.Equals(parts[i], "--server", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(parts[i], "-s", StringComparison.OrdinalIgnoreCase))
-                {
-                    return parts[i + 1];
-                }
-            }
-            return "127.0.0.1";
-        }
-
-        /// <summary>The value of an older profile's port argument (<paramref name="name"/>), or <paramref name="fallback"/>.</summary>
-        internal static int ParsePortArgument(string? arguments, string name, int fallback)
-        {
-            string[] parts = SplitArguments(arguments);
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (string.Equals(parts[i], name, StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(parts[i + 1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int port) &&
-                    port is > 0 and <= 65535)
-                {
-                    return port;
-                }
-            }
-            return fallback;
-        }
-
-        private static string[] SplitArguments(string? arguments) =>
-            (arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
         /// <summary>
         /// Creates a deep copy of this account profile with an optional new name.
         /// </summary>
@@ -313,8 +245,6 @@ namespace Gordian.Core.Profiles
                 CharacterSlot = CharacterSlot,
                 LoginMode = LoginMode,
                 ServerType = ServerType,
-                BootloaderPath = BootloaderPath,
-                Arguments = Arguments,
                 Username = Username,
                 PolId = PolId,
                 PolPassword = PolPassword,

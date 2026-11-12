@@ -49,11 +49,7 @@ namespace Gordian.App.Services
                     string cleanPath = rawPath.Trim();
                     if (Directory.Exists(cleanPath))
                     {
-                        // Check if FFXiMain.dll or FFXiMain.dll.orig exists in this directory
-                        string dllPath = Path.Combine(cleanPath, TargetDllName);
-                        string origDllPath = Path.Combine(cleanPath, TargetDllName + ".orig");
-
-                        if (File.Exists(dllPath) || File.Exists(origDllPath))
+                        if (File.Exists(Path.Combine(cleanPath, TargetDllName)))
                         {
                             return cleanPath;
                         }

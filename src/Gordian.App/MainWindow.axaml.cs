@@ -15,7 +15,6 @@ namespace Gordian.App
     public partial class MainWindow : Window
     {
         private readonly MainWindowViewModel _viewModel;
-        private readonly HandoffPipeServer _ipcServer;
         private readonly DispatcherTimer _inputLoopTimer;
         private readonly IGamepadDriver _gamepadDriver;
         private long _lastInputLoopTimestamp;
@@ -74,10 +73,6 @@ namespace Gordian.App
                 });
             };
 
-            _ipcServer = new HandoffPipeServer();
-            _ipcServer.SessionReceived += OnSessionTokenIntercepted;
-            _ipcServer.Start();
-
             // Initialize cross-platform Gamepad Driver via SDL3 (ppy.SDL3-CS; supports XInput, DirectInput, DualSense, HID)
             var sdlDriver = new SdlGamepadDriver();
             if (sdlDriver.IsAvailable)
@@ -107,48 +102,11 @@ namespace Gordian.App
             _inputLoopTimer.Start();
         }
 
-        private void OnSessionTokenIntercepted(object? sender, SessionHandoffArgs e)
-        {
-            Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[NET_TRACE] Secure handoff caught for character: {e.TargetCharacterName} | Target Server: {e.ServerIp}:{e.ServerPort}"
-                );
-
-                // Restore genuine FFXiMain.dll immediately upon session handoff
-                string? gameDir = GameDirectoryDetector.DetectGameDirectory();
-                if (gameDir != null && ProxyStager.IsStaged)
-                {
-                    ProxyStager.RestoreOriginal(gameDir);
-                }
-
-                var session = SessionRegistry.Default.CreateAndRegisterSession(e);
-                _viewModel.RefreshAllStatuses();
-
-                try
-                {
-                    await session.NetworkManager.ConnectAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[NET_TRACE] Failed to connect character session for '{e.TargetCharacterName}': {ex.Message}");
-                }
-            });
-        }
-
         protected override void OnUnloaded(RoutedEventArgs e)
         {
             _inputLoopTimer.Stop();
             _inputLoopTimer.Tick -= OnInputLoopTick;
 
-            string? gameDir = GameDirectoryDetector.DetectGameDirectory();
-            if (gameDir != null)
-            {
-                ProxyStager.RestoreOriginal(gameDir);
-            }
-
-            _ipcServer.SessionReceived -= OnSessionTokenIntercepted;
-            _ipcServer.Dispose();
             _gamepadDriver.Dispose();
             _viewModel.Dispose();
             SessionRegistry.Default.Clear();

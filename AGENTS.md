@@ -77,12 +77,11 @@ When executing tasks or testing code changes, run these native .NET CLI commands
 
 ---
 
-## 🔄 Bootloader Handoff & Interception Architecture
-GordianXI intercepts game sessions without permanent modifications to user game folders:
-1. **Registry Detection:** `GameDirectoryDetector.cs` queries 32-bit `InstallFolder\0001` across `PlayOnlineUS`, `PlayOnlineEU`, and `PlayOnline`.
-2. **Ephemeral Proxy Swap:** `ProxyStager.cs` renames genuine `FFXiMain.dll` to `FFXiMain.dll.orig`, deploys the COM proxy `FFXiMain.dll`, spawns the bootloader (`xiloader` or `pol`), awaits handoff, and restores the original DLL.
-3. **Startup Self-Healing:** On app startup, `ProxyStager.SelfHealStartup()` immediately checks for and restores any orphaned `FFXiMain.dll.orig`.
-4. **IPC Channel:** The proxy passes session credentials to GordianXI via local Named Pipe `\\.\pipe\GordianXI_Handoff`.
+## 🔄 Login & Launch Architecture
+GordianXI logs in by itself: it starts no bootloader (`xiloader`, `pol.exe`), and logging in never modifies the user's game folder.
+1. **Registry Detection:** `GameDirectoryDetector.cs` queries 32-bit `InstallFolder\0001` across `PlayOnlineUS`, `PlayOnlineEU`, and `PlayOnline` (and `1000` for the PlayOnline Viewer).
+2. **LandSandBoat:** `LsbLoginClient` logs in to the auth, data and view servers directly; `LobbySession` with `XiloaderLobbyHandoff` runs character select (`docs/network/session-and-packets.md`).
+3. **Retail:** the direct (POL-bypass) login in `src/Gordian.Core/Network/Retail`, launched by `LaunchRetailAsync` in `MainWindowViewModel` (`docs/network/retail-login.md`).
 
 ---
 
@@ -126,7 +125,7 @@ GordianXI intercepts game sessions without permanent modifications to user game 
 2.  **NO Windows-only code in class libraries:** Keep class libraries cross-platform agnostic. Guard OS-specific calls behind `OperatingSystem.IsWindows()`.
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
-5.  **NO Permanent game modifications:** Never overwrite game directory files without the ephemeral backup/restore pattern managed by `ProxyStager`.
+5.  **NO Game folder modifications:** Never create, change, rename or delete anything in a game install (the FFXI and PlayOnline folders), whether directly or by running GordianXI or its updater; ask the maintainer if a task seems to need it. In GordianXI's own code, only the planned POL/FFXI patch updater may write there, and only as designed and signed off by the maintainer in its own issue. Login, rendering, addons and every other feature only read the install.
 6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`).
 7.  **NO GPL/AGPL Code Copying:** Never copy or translate verbatim C++, Rust, or JavaScript code from reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`). GordianXI is an independent, clean-room C# implementation under the MIT license. Wire formats and functional binary schemas (e.g., packet opcodes, DAT chunk formats) may be referenced for interoperability, but must be authored from scratch.
 8.  **NO Undocumented Protocol Additions:** Whenever adding packet definitions, opcode mappings, crypto/compression routines, or DAT chunk parsers derived from community research, always add an XML doc-comment citing the reference source.
@@ -147,7 +146,7 @@ GordianXI's retail (direct, POL-bypassing) login is built as a **two-party clean
 
 ## 📜 Licensing, Clean-Room & Protocol Attribution Standards
 * **Independent Clean-Room Implementation:** GordianXI is licensed under the **MIT License**. Reference projects `LSBserver`, `xiloader`, and `xi-model-viewer` are licensed under **GPLv3**; `XiEvents` and `XiPackets` are licensed under **AGPLv3**.
-* **Protocol Interoperability Citation:** When implementing packet schemas, opcode mappings, cryptographic steps, bootloader handoff structures, event VM opcodes, or DAT chunk decoders based on community research:
+* **Protocol Interoperability Citation:** When implementing packet schemas, opcode mappings, cryptographic steps, login handoff structures, event VM opcodes, or DAT chunk decoders based on community research:
   * Always document the reference source in the class or method XML doc-comment (e.g., `/// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)`, `/// DAT chunk format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer)`, `/// Event VM opcode referenced from XiEvents (https://github.com/atom0s/XiEvents)`, or `/// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets)`).
   * Never copy or translate source blocks verbatim; implement natively using modern C# (.NET 10) idioms (`Span<byte>`, `ref struct`, BCL cryptography).
 * **Dependency Notice Maintenance:** If introducing any new third-party NuGet package or external library, update `THIRD_PARTY_NOTICES.md` to preserve its copyright notice and license.

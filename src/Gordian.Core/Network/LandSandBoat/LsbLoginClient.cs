@@ -28,7 +28,7 @@ namespace Gordian.Core.Network.LandSandBoat
     /// Clean-room C# (.NET 10) login client for LandSandBoat private servers.
     /// Interacts directly with xi_connect (port 54231) and xi_data (port 54230) via TLS,
     /// generating the Blowfish session key and acquiring the zone map endpoint without
-    /// requiring third-party bootloaders or DLL file swapping.
+    /// requiring a third-party bootloader.
     /// Protocol wire specifications referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public sealed class LsbLoginClient

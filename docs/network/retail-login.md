@@ -55,9 +55,8 @@ Unverified defaults GordianXI follows as the spec says: zeros in the AuthCode co
 
 ## Launch (`MainWindowViewModel`)
 
-A retail profile without the old bootloader path logs in directly (`LaunchRetailAsync`): the profile's POL ID (upper-cased), POL password, Square Enix ID and password, the 2FA code from its mode, and its game folder (or the registry install). `AccountProfile.GetLaunchProblem` names a missing POL ID, POL password or Square Enix login before anything is sent. Character select opens the retail lobby in the viewport; Auto-Login picks the profile's character by name or slot and selects it. The PlayOnline session ends when the player leaves character select, a lobby return fails, or the game session ends without going back to character select. Profiles that still have a bootloader path keep the old `ProxyStager` launch until this login is proven.
+Every retail profile logs in directly (`LaunchRetailAsync`): the profile's POL ID (upper-cased), POL password, Square Enix ID and password, the 2FA code from its mode, and its game folder (or the registry install). `AccountProfile.GetLaunchProblem` names a missing POL ID, POL password or Square Enix login before anything is sent. Character select opens the retail lobby in the viewport; Auto-Login picks the profile's character by name or slot and selects it. The PlayOnline session ends when the player leaves character select, a lobby return fails, or the game session ends without going back to character select. This login replaced the old launch through pol.exe and a proxy `FFXiMain.dll`, which was removed.
 
 ## Next steps
 
-- Remove the old `ProxyStager` path now that this login works.
 - PlayOnline communication is not built: the friend list and presence (#534), messages (#535), and the section 4.3.7 requests retail sends after the Square Enix login (#536).

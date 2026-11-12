@@ -21,7 +21,7 @@
 dotnet run --project src/Gordian.App/Gordian.App.csproj -- --profiles-dir <path> --profile <name>
 ```
 
-`--profile` accepts only private server profiles. Profile passwords are encrypted with the per-user key in `~/.gordian_key`, so a shared folder works from every build under the same user. Selection state for the launch list is not changed.
+`--profile` takes retail and private server profiles alike, with the same checks as the Launch button; a retail profile logs in to Square Enix's live servers. Profile passwords are encrypted with the per-user key in `~/.gordian_key`, so a shared folder works from every build under the same user. Selection state for the launch list is not changed.
 
 ## Screenshots
 
@@ -59,12 +59,12 @@ The retail field limits come from [retail-login-spec.md](../network/retail-login
   - **Enter code at launch**: the card gets a 6-digit code box. Launch uses the code once and clears it (`AccountProfile.EnteredOneTimeCode`, never saved), so a later login, such as the return to character select after Log Out, needs a new code typed on the card. A profile in this mode with no valid code is not launched.
   - Switching modes keeps a stored key, because an authenticator key is hard to get again.
 - **Game Folder** is empty for the install the registry names. Fill it in only for a separate install, such as a private server's own client: Horizon ships one with changed DATs applied through XIPivot, and it can lag behind retail. Save checks that the folder has `VTABLE.DAT` and `FTABLE.DAT`, and a 📦 on the card marks a profile with its own folder. One install is loaded per GordianXI process (`AppResourceManager`). The first launch loads the profile's folder, or the registry install when the profile has none or the viewport opened first. A later profile that names a different install is not launched ("Restart GordianXI to switch installs"): the zone, model and UI caches and the static DAT loaders are shared by all sessions.
-- **Retail launch.** Direct retail login is not built yet, so a retail profile is refused with "direct retail login is not available yet". The exception is an older profile that still has a bootloader path: it goes through the old pol.exe and `ProxyStager` path, which stays until direct retail login is proven in testing.
+- **Retail launch.** A retail profile logs in directly ([network/retail-login.md](../network/retail-login.md)). No bootloader is started and the game folder is not changed.
 - **Older profiles** load without the new fields and keep working:
-  - The server type follows their fields: a server host, an xiloader bootloader, or a `--server`, `127.0.0.1` or `localhost` argument makes a LandSandBoat profile; anything else is retail.
-  - Their host and ports come from the old bootloader arguments (`--server` / `-s`, `--authport`, `--dataport`, `--viewport`; xiloader with no `--server` means 127.0.0.1) until the profile is saved, which writes them to the new fields.
+  - Without a server type, a profile is LandSandBoat when it names a server host and retail otherwise.
+  - The removed `BootloaderPath` and `Arguments` fields are ignored when a file loads and dropped when it is saved. They are not migrated: the bootloader launch was never distributed.
   - A stored key means the authenticator-key mode.
-  - The old Folder Group, Target Bootloader and Custom Arguments fields are gone from the editor. `BootloaderPath` and `Arguments` stay in the file for the old retail path.
+  - The old Folder Group, Target Bootloader and Custom Arguments fields are gone from the editor.
 
 ## Profile character and online status (#179, #180)
 

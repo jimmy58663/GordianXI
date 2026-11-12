@@ -67,8 +67,7 @@ GordianXI/
 │   ├── Gordian.Engine/     # Class Library: playback, events, audio, input, macros, stock UI state, per-character sessions
 │   ├── Gordian.Automation/ # Class Library: optional automation (Gambits, pathing, target sync)
 │   ├── Gordian.Addons/     # Class Library: sandboxed Lua 5.4 addon runtime
-│   ├── Gordian.App/        # Avalonia UI app: desktop shell, GPU renderer, audio output, input devices, ImGui
-│   └── Gordian.Proxy/      # Native FFXiMain.dll proxy for the bootloader session handoff (Windows)
+│   └── Gordian.App/        # Avalonia UI app: desktop shell, GPU renderer, audio output, input devices, ImGui
 ├── tests/                  # One test project per assembly (Core, Engine, Automation, Addons, App)
 └── docs/                   # How each subsystem works (index: docs/README.md)
 ```
@@ -85,7 +84,7 @@ GordianXI/
 
 Development follows a minimum viable product (MVP) lifecycle. Live status is in **[ROADMAP.md](ROADMAP.md)**, and open work is in [GitHub Issues](https://github.com/jimmy58663/GordianXI/issues), grouped by milestone.
 
-*   **Phases 1-4 (done):** the foundation and desktop shell, bootloader handoff and direct LandSandBoat login, the full packet engine with zone transitions, and world state with the DAT resource pipeline and VFS.
+*   **Phases 1-4 (done):** the foundation and desktop shell, direct LandSandBoat login, the full packet engine with zone transitions, and world state with the DAT resource pipeline and VFS.
 *   **Phase 5 (current focus, MVP):** the 3D viewport (zone terrain, sky and weather, entity models, skeletal and combat animation), collision, the character lobby, audio, and the retail stock UI, the last of which is still being finished.
 *   **Phases 6-10 (post-MVP):** the sandboxed Lua addon runtime, the Gambit automation engine with the server kill-switch, multi-instance shell features, self-updating cross-platform packaging, and the GordianXI MCP server.
 

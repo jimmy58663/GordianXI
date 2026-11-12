@@ -1,6 +1,7 @@
 // tests/Gordian.Core.Tests/Profiles/ProfileServerTypeTests.cs
 using System;
 using System.IO;
+using System.Text.Json;
 using Gordian.Core.Profiles;
 using Xunit;
 
@@ -10,16 +11,24 @@ namespace Gordian.Core.Tests.Profiles
     public class ProfileServerTypeTests
     {
         [Theory]
-        [InlineData("127.0.0.1", "", "", ProfileServerType.LandSandBoat)]
-        [InlineData("", "C:/xi/xiloader.exe", "", ProfileServerType.LandSandBoat)]
-        [InlineData("", "", "--server play.example.net", ProfileServerType.LandSandBoat)]
-        [InlineData("", "C:/pol/pol.exe", "--windowed", ProfileServerType.Retail)]
-        [InlineData("", "", "", ProfileServerType.Retail)]
-        public void OlderProfiles_WithoutAType_GetTheOneTheirFieldsImply(string host, string bootloader, string args, ProfileServerType expected)
+        [InlineData("127.0.0.1", ProfileServerType.LandSandBoat)]
+        [InlineData("", ProfileServerType.Retail)]
+        public void OlderProfiles_WithoutAType_AreLandSandBoatWhenTheyNameAHost(string host, ProfileServerType expected)
         {
-            var profile = new AccountProfile { ServerHost = host, BootloaderPath = bootloader, Arguments = args };
+            var profile = new AccountProfile { ServerHost = host };
             Assert.Null(profile.ServerType);
             Assert.Equal(expected, profile.EffectiveServerType);
+        }
+
+        [Fact]
+        public void TheRemovedBootloaderFields_AreIgnoredOnLoad_AndDroppedOnSave()
+        {
+            var profile = JsonSerializer.Deserialize<AccountProfile>(
+                "{\"ProfileName\":\"Old\",\"ServerHost\":\"127.0.0.1\",\"BootloaderPath\":\"\",\"Arguments\":\"--hairpin\"}")!;
+            Assert.Equal(ProfileServerType.LandSandBoat, profile.EffectiveServerType);
+            string json = JsonSerializer.Serialize(profile);
+            Assert.DoesNotContain("BootloaderPath", json);
+            Assert.DoesNotContain("Arguments", json);
         }
 
         [Fact]
@@ -30,27 +39,9 @@ namespace Gordian.Core.Tests.Profiles
         }
 
         [Fact]
-        public void OlderProfiles_KeepTheHostAndPortsTheirArgumentsName()
+        public void ExplicitPorts_Win_AndDefaultsApplyOtherwise()
         {
-            var profile = new AccountProfile
-            {
-                BootloaderPath = "xiloader.exe",
-                Arguments = "--server 10.1.2.3 --dataport 60230 --viewport 60001 --authport 60231",
-                ServerPort = 0,
-            };
-            Assert.Equal("10.1.2.3", profile.EffectiveServerHost);
-            Assert.Equal(60231, profile.EffectiveServerPort);
-            Assert.Equal(60230, profile.EffectiveDataPort);
-            Assert.Equal(60001, profile.EffectiveViewPort);
-
-            // xiloader with no --server means the local machine, as before.
-            Assert.Equal("127.0.0.1", new AccountProfile { BootloaderPath = "xiloader.exe" }.EffectiveServerHost);
-        }
-
-        [Fact]
-        public void ExplicitPorts_WinOverArguments_AndDefaultsApplyOtherwise()
-        {
-            var profile = new AccountProfile { ServerHost = "h", Arguments = "--dataport 1", DataPort = 2 };
+            var profile = new AccountProfile { ServerHost = "h", DataPort = 2 };
             Assert.Equal(2, profile.EffectiveDataPort);
             Assert.Equal(AccountProfile.DefaultLsbViewPort, profile.EffectiveViewPort);
             Assert.Equal(AccountProfile.DefaultLsbAuthPort, profile.EffectiveServerPort);
@@ -120,8 +111,6 @@ namespace Gordian.Core.Tests.Profiles
             noSquareEnix.Password = string.Empty;
             Assert.Equal("has no Square Enix ID and password", noSquareEnix.GetLaunchProblem());
 
-            // The old pol.exe path brings its own login: nothing is checked.
-            Assert.Null(new AccountProfile { ServerType = ProfileServerType.Retail, BootloaderPath = "pol.exe" }.GetLaunchProblem());
         }
 
         private static AccountProfile Retail() => new()

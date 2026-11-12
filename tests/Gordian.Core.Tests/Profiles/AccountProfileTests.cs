@@ -44,8 +44,7 @@ namespace Gordian.Core.Tests.Profiles
                 Username = "warrior_main",
                 Password = plaintextPassword,
                 OtpSeed = plaintextOtpSeed,
-                BootloaderPath = @"C:\GordianXI\xiloader.exe",
-                Arguments = "--server 127.0.0.1 --hairpin"
+                ServerHost = "127.0.0.1"
             };
 
             // Act

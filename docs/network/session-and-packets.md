@@ -1,14 +1,11 @@
 # Session Handoff & Packet Engine
 
-> Bootloader handoff, direct LandSandBoat login, UDP framing, Blowfish, and the zero-allocation packet registry (Phases 2 and 3). The handoff/proxy rules themselves are in `AGENTS.md`. Status and open work: [ROADMAP.md](../../ROADMAP.md) and GitHub Issues.
+> Direct LandSandBoat login, UDP framing, Blowfish, and the zero-allocation packet registry (Phases 2 and 3). The retail login is in [retail-login.md](retail-login.md). Status and open work: [ROADMAP.md](../../ROADMAP.md) and GitHub Issues.
 
-## Bootloader handoff and direct login (Phase 2)
+## Direct login (Phase 2)
 
-- Reverse-engineered `xiloader.exe` and `pol.exe` COM launch mechanisms
 - Multi-region 32-bit registry detection (`GameDirectoryDetector.cs` for US/EU/JP under `InstallFolder\0001`)
-- Ephemeral proxy swapping & self-healing startup (`ProxyStager.cs` managing `FFXiMain.dll` $\leftrightarrow$ `FFXiMain.dll.orig`)
-- COM-compliant 32-bit proxy (`Gordian.Proxy` with `DllGetClassObject`, `DllCanUnloadNow`, `IClassFactory`)
-- Named Pipe IPC bridge (`\\.\pipe\GordianXI_Handoff`)
+- The first version launched `xiloader.exe` or `pol.exe` with a proxy `FFXiMain.dll` swapped into the game folder and took the session over a named pipe. It was never proven or distributed and was removed once the direct logins worked.
 - Native LandSandBoat login client (`LsbLoginClient` with TLS auth on 54231, data on 54230, Blowfish session key derivation, and direct map connection)
 - Full in-game verification: launch `Local (Cybin)` -> direct LSB login -> live UDP packet stream
 
