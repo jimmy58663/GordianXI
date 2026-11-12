@@ -295,6 +295,10 @@ Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTY
 
 DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing, 12 flowerpot (Brass Flowerpot 217), 14 mannequin (256-263; types 12 and 14 checked against the retail item DAT 2026-11-02, `MogHouseFurniture.*ItemType`, #93). Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
 
+## Area-of-effect shapes (`AreaOfEffectShape`)
+
+The shape byte of the client's spell (`mgc_` +0x47) and command (`comm` +0x12, xi-tools' "AoE type") records, read from the retail table 2026-11-12 (#356); the radius beside it (+0x46 / +0x11) is a code in the range table, not yalms ([dat-files.md](../world/dat-files.md#spell-and-command-tables)). 0 single target (a few self buffs such as Occultation carry radius 15 with shape 0), 1 around the target (the -ga spells, Curaga, Protectra, party songs, Horde Lullaby, Corsair's Rolls, Circle Blade, Cyclone, Warcry), 2 cone (Poison Breath, Radiant Breath, Sonic Thrust, Foxfire, breath moves), 3 around the caster (Self-Destruct, Cold Wave, Mysterious Light, monster self-centred moves). **Beyond xi-tools:** the meanings, named from the spells and moves carrying each value. Only 1 draws the range guide.
+
 ## Collision terrain types (`CollisionTriangle.Terrain`)
 
 The terrain of a collision triangle, from bit 3 of each of its four index words' top nibbles (xi-tools `docs/sounds/footsteps.md` §1, after xim `TerrainType`). It names the footstep pointer `0<terrain><move><shake+1>` and the foot effect `0<terrain hex>00` (#40, #342); the sound ids and the census of foot effects per terrain are in [audio.md](../design/audio.md#footsteps-40).

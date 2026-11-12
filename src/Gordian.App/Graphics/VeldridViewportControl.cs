@@ -1023,6 +1023,10 @@ namespace Gordian.App.Graphics
                                 var target = actions?.CurrentTarget;
                                 // The sub-target cursor (#240) has its own anchor; the target keeps its cursor (retail capture 2026-10-11).
                                 entityRenderer.SubTargetServerId = actions?.SubTargeting?.Current.ServerId ?? 0;
+                                // Retail's area-of-effect range guide around the entity under the cursor (#356).
+                                _renderer.AoeGuide = Gordian.Engine.Actions.AreaOfEffectGuide.For(actions?.SubTargeting, actions?.Catalog) is { } guide
+                                    ? (guide.Center.ServerId, guide.Radius)
+                                    : null;
                                 entityRenderer.TargetServerId = target?.ServerId ?? 0;
                                 entityRenderer.TargetFlashAmount = target != null && actions!.TargetSelectedTimestamp != 0
                                     ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)
