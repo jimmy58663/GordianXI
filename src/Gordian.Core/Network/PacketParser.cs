@@ -468,6 +468,9 @@ namespace Gordian.Core.Network
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
         /// and iterative sub-packet dispatching via <see cref="PacketDispatcher"/>.
         /// </summary>
+        /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
+        internal int SubPacketTrace { get; set; }
+
         public bool ProcessIncomingChunk(Span<byte> rawPacketBuffer)
         {
             long startTicks = Stopwatch.GetTimestamp();
@@ -553,6 +556,11 @@ namespace Gordian.Core.Network
 
             // 3. Iterate concatenated sub-packets and dispatch
             ReadOnlySpan<byte> subPackets = _decompressionScratch.AsSpan(0, decompressedBytes);
+            if (SubPacketTrace > 0)
+            {
+                SubPacketTrace--;
+                GordianLog.Info("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+            }
             int offset = 0;
             int inboundSubPacketCount = 0;
 

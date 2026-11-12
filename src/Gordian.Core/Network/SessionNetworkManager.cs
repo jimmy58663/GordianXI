@@ -51,7 +51,7 @@ namespace Gordian.Core.Network
         /// server's carries the ack of our sequence at +2) and our sub-packets before compression. Enough to see whether a
         /// map server accepts our first datagrams.
         /// </summary>
-        private const int WireTraceDatagrams = 12;
+        private const int WireTraceDatagrams = 20;
         private int _outboundWireTrace, _inboundWireTrace;
         private ushort _lastProcessedSequence = 0;
         private bool _hasProcessedAnySequence = false;
@@ -985,7 +985,7 @@ namespace Gordian.Core.Network
                 {
                     _clientPacketIdSequence = 1;
                     _zoneChanges = 0;
-                    _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+                    ArmWireTrace();
                     Array.Clear(_serverState);
                     _parser.LifecycleModule.ResetMapHandshake();
                     byte[] loginDatagram = BuildLoginDatagram();
@@ -1603,7 +1603,7 @@ namespace Gordian.Core.Network
                 // Reset packet sequence numbers for new map server
                 _clientPacketIdSequence = 1;
                 Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
-                _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+                ArmWireTrace();
                 Array.Clear(_serverState);
                 _parser.LifecycleModule.ResetMapHandshake();
                 ResetSequenceTracking();
@@ -1656,11 +1656,19 @@ namespace Gordian.Core.Network
             }
         }
 
+        /// <summary>Logs the next <see cref="WireTraceDatagrams"/> datagrams each way: headers, and sub-packets both ways.</summary>
+        private void ArmWireTrace()
+        {
+            _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+            _parser.SubPacketTrace = WireTraceDatagrams;
+        }
+
         /// <summary>
         /// Transmits a C2S 0x05E MapRect packet requesting to cross a zoneline by FourCC tag.
         /// </summary>
         public Task RequestZoneTransitionByZonelineAsync(string rectTag)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestZoneChangeAsync(rectTag, PositionX, PositionY, PositionZ, TargetIndex);
         }
 
@@ -1669,6 +1677,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public Task RequestZoneTransitionByZonelineAsync(uint rectId)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestZoneChangeAsync(rectId, PositionX, PositionY, PositionZ, TargetIndex);
         }
 
@@ -1677,6 +1686,7 @@ namespace Gordian.Core.Network
         /// </summary>
         public Task RequestMogHouseExitAsync(MogHouseExitBit exitBit, MogHouseExitMode exitMode)
         {
+            ArmWireTrace();
             return _parser.LifecycleModule.RequestMogHouseExitAsync(exitBit, exitMode, PositionX, PositionY, PositionZ, TargetIndex);
         }
 
