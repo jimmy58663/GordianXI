@@ -750,7 +750,7 @@ namespace Gordian.Engine.Tests.Network
             byte[] payload = new byte[0x44];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000002);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 42); // ActorIndex
-            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name);
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name | EntityUpdateFlags.Model);
 
             // look_t at offset 0x2C:
             // 0x2C: size = 1 (MODEL_EQUIPPED)
@@ -792,7 +792,7 @@ namespace Gordian.Engine.Tests.Network
         {
             byte[] payload = new byte[0x44];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x010F5042);
-            payload[6] = (byte)EntityUpdateFlags.Position;
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Model);
             Convert.FromHexString("01000F0000101120113011401150006000700000").CopyTo(payload.AsSpan(0x2C));
 
             var npc = new S2C_0x00E_CharNpc(payload);
@@ -907,7 +907,7 @@ namespace Gordian.Engine.Tests.Network
             byte[] payload = new byte[0x44];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000004);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 55); // ActorIndex
-            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name);
+            payload[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.Name | EntityUpdateFlags.Model);
 
             // look_t: size = 1 (MODEL_EQUIPPED), race = 1 (HumeMale), face = 5
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 1);
@@ -925,6 +925,44 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal((1 << 8) | 5, entity.Appearance.FaceModel);
             Assert.Equal(10, entity.Appearance.Head);
             Assert.Equal(20, entity.Appearance.Body);
+        }
+
+        /// <summary>
+        /// #532: retail spawns Port Windurst's Pankii-Mankii (index 125) with send flags 0x57 and a Tarutaru gear look, then
+        /// sends updates with no send flags whose look bytes are zero but for SubKind 1. Those must not replace the look
+        /// (read as a look, race 0 became the Hume male). Payloads are the first 0x44 bytes of the retail packets
+        /// (gordian_system_20261112.log, 08:26:54).
+        /// </summary>
+        [Fact]
+        public void EntityPacketModule_HandleCharNpc_GearLookWithoutModelFlagKeepsTheLook()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+            void Send(byte[] payload) => dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            byte[] spawn = new byte[0x50];
+            BinaryPrimitives.WriteUInt32LittleEndian(spawn.AsSpan(0, 4), 0x010F007D);
+            BinaryPrimitives.WriteUInt16LittleEndian(spawn.AsSpan(4, 2), 125);
+            spawn[6] = 0x57;
+            Convert.FromHexString("010000050010012001300140015000600070000000000000").CopyTo(spawn.AsSpan(0x2C));
+            Send(spawn);
+
+            Assert.True(world.TryGetByServerId(0x010F007D, out var npc));
+            Assert.Equal((5 << 8) | 0, npc!.Appearance.FaceModel);
+            Assert.Equal(0x1000, npc.Appearance.Head);
+
+            byte[] refresh = new byte[0x50];
+            BinaryPrimitives.WriteUInt32LittleEndian(refresh.AsSpan(0, 4), 0x010F007D);
+            BinaryPrimitives.WriteUInt16LittleEndian(refresh.AsSpan(4, 2), 125);
+            refresh[0x2C] = 1; // SubKind 1, the rest of the look zero
+            var decoded = new S2C_0x00E_CharNpc(refresh);
+            Assert.False(decoded.TryGetEquippedLook(out _, out _, out _));
+            Send(refresh);
+
+            Assert.Equal((5 << 8) | 0, npc.Appearance.FaceModel);
+            Assert.Equal(0x1000, npc.Appearance.Head);
+            Assert.Equal(0u, npc.Appearance.ModelId);
         }
 
         [Fact]
@@ -1030,6 +1068,7 @@ namespace Gordian.Engine.Tests.Network
             byte[] payload = new byte[0x44];
             BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x01000006);
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 201);
+            payload[6] = (byte)EntityUpdateFlags.Model;
 
             // look_t: size = 7 (MODEL_CHOCOBO), face = 1, race = 4
             BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2C, 2), 7);

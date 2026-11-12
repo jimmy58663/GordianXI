@@ -229,13 +229,13 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 | SubKind | Name | `EntityType` | Notes |
 |---|---|---|---|
 | 0 | Standard | Npc below index 1024, Monster at 1024 and up; MonsterFlag makes an index below 1024 a Monster, TrustFlag makes one at 1024 and up a Trust | model id at payload 0x2E (`GetModelId`) |
-| 1 | Equipped | as 0 | 20-byte look (race, face, eight gear slots) |
+| 1 | Equipped | as 0 | 20-byte look (race, face, eight gear slots), read only with the Model send flag (#532) |
 | 2 | Door | Door | no model, not drawn |
 | 3 | Elevator | Elevator | FourCC, leg start, travel time (`TryGetTransport`) |
 | 4 | Ship | Ship | FourCC, leg start |
 | 5 | Unknown5 | as 0 | simple model id |
 | 6 | Automaton | Pet | simple model id |
-| 7 | Chocobo | as 0 | full look |
+| 7 | Chocobo | as 0 | full look, read only with the Model send flag |
 
 `EntityType` itself (Player 0, Npc 1, Monster 2, Pet 3, Trust 4, Elevator 5, Ship 6, Door 7) is internal, not a wire value.
 
