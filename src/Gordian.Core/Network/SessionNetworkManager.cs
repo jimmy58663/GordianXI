@@ -44,6 +44,14 @@ namespace Gordian.Core.Network
 
         private ushort _serverPacketIdSequence = 0;
         private ushort _clientPacketIdSequence = 0;
+
+        /// <summary>
+        /// How many more datagrams each way are logged in full at the start of a map session: the 28-byte headers (the
+        /// server's carries the ack of our sequence at +2) and our sub-packets before compression. Enough to see whether a
+        /// map server accepts our first datagrams.
+        /// </summary>
+        private const int WireTraceDatagrams = 12;
+        private int _outboundWireTrace, _inboundWireTrace;
         private ushort _lastProcessedSequence = 0;
         private bool _hasProcessedAnySequence = false;
         private ulong _sequenceHistoryBitmask = 0;
@@ -955,6 +963,7 @@ namespace Gordian.Core.Network
                 {
                     _clientPacketIdSequence = 1;
                     _zoneChanges = 0;
+                    _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
                     byte[] loginDatagram = BuildLoginDatagram();
 
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
@@ -1103,6 +1112,13 @@ namespace Gordian.Core.Network
 
                 uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
+
+                if (_outboundWireTrace > 0)
+                {
+                    _outboundWireTrace--;
+                    GordianLog.Info("NET", $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
+                        $"{_currentBufferLength} sub-packet bytes compressed to {compressedBytes}: {Convert.ToHexString(bundledChunks)}");
+                }
 
                 // 5. Encrypt and sign payload + trailing MD5 hash in-place
                 int datagramLength = _parser.CryptoSuite.EncryptAndSign(
@@ -1299,6 +1315,13 @@ namespace Gordian.Core.Network
                         }
 
                         GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+                        if (_inboundWireTrace > 0 && result.ReceivedBytes >= FfxiHeaderSize)
+                        {
+                            _inboundWireTrace--;
+                            ReadOnlySpan<byte> inHeader = packetBuffer.WritableData.Slice(0, FfxiHeaderSize);
+                            GordianLog.Info("NET", $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
+                                $"acks our Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader[2..])}: header {Convert.ToHexString(inHeader)}");
+                        }
                         _performance.RecordInboundDatagram(result.ReceivedBytes);
 
                         Span<byte> activeChunk = packetBuffer.WritableData.Slice(0, result.ReceivedBytes);
@@ -1533,6 +1556,7 @@ namespace Gordian.Core.Network
                 // Reset packet sequence numbers for new map server
                 _clientPacketIdSequence = 1;
                 Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
+                _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
                 ResetSequenceTracking();
                 _zoneKeyAdvanced = true;
             }
