@@ -32,15 +32,24 @@ namespace Gordian.Core.Network.Retail
         public static byte[] MapKey(ReadOnlySpan<byte> lobbySessionKey, uint selectModifier) => MD5.HashData(MapRawKey(lobbySessionKey, selectModifier));
 
         /// <summary>
-        /// The 0x00A <c>Ticket</c>: MD5(the 15-byte account field as sent, all zeros + the 16-byte map key). Whether retail
-        /// cuts a map key at a zero byte here is untested; the key is used as it is.
+        /// The 0x00A <c>Ticket</c>: MD5(the 15-byte account field as sent, all zeros + the 16-byte map key after the zero-byte
+        /// preparation: from its first 0x00 on, every byte is 0x00, length still 16) (spec v2.1.24 sections 4.6.1 and 5.6
+        /// item 2, verified on capture 231055's key with a zero at index 10). The map cipher cuts the key the same way.
         /// </summary>
         public static byte[] Ticket(ReadOnlySpan<byte> mapKey)
         {
             Span<byte> buffer = stackalloc byte[15 + 16];
             buffer[..15].Clear();
             mapKey[..16].CopyTo(buffer[15..]);
+            TruncateAtZero(buffer[15..]);
             return MD5.HashData(buffer);
+        }
+
+        /// <summary>Sets the first 0x00 byte of <paramref name="key"/> and every byte after it to 0x00 (spec v2.1.24 section 5.6 item 2).</summary>
+        public static void TruncateAtZero(Span<byte> key)
+        {
+            int zero = key.IndexOf((byte)0);
+            if (zero >= 0) key[zero..].Clear();
         }
 
         /// <summary>

@@ -285,6 +285,17 @@ namespace Gordian.Core.Tests.Network.Retail
                 Convert.ToHexString(RetailMapPackets.Ticket(Convert.FromHexString("919129145BDE35AFC2D02CEC08A5327B"))));
 
         [Fact]
+        public void MapTicket_CutsTheKeyAtItsFirstZeroByte()
+        {
+            // Spec v2.1.24 section 4.6.1: capture 231055's key has 0x00 at index 10; the ticket hashes the key with that byte
+            // and every later one set to zero, length still 16.
+            byte[] key = Convert.FromHexString("35436F045F992608C77D002A4C886A58");
+            byte[] expected = MD5.HashData(new byte[15].Concat(Convert.FromHexString("35436F045F992608C77D000000000000")).ToArray());
+            Assert.Equal(expected, RetailMapPackets.Ticket(key));
+            Assert.NotEqual(MD5.HashData(new byte[15].Concat(key).ToArray()), RetailMapPackets.Ticket(key));
+        }
+
+        [Fact]
         public void Vector7_PmlDigest()
         {
             string userName = PolHashes.PmlUserName(Convert.FromHexString("50C30A0200C0"));

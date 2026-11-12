@@ -280,6 +280,20 @@ namespace Gordian.Core.Network
         /// </summary>
         public MapLoginDatagramBuilder? LoginDatagramBuilder { get; set; }
 
+        /// <summary>
+        /// Speaks to a retail map server (spec v2.1.24 sections 4.6.3 and 4.6.4): every datagram's header carries the
+        /// server's last 16 <c>State</c> bytes (<c>+0x0C..+0x1B</c>) with word 0's low byte set to 0x01, and the first
+        /// 0x00A is answered with 0x011 before 0x00C. LandSandBoat sessions leave the State bytes zero.
+        /// </summary>
+        public bool RetailMapProtocol
+        {
+            get => _parser.LifecycleModule.RetailMapHandshake;
+            set => _parser.LifecycleModule.RetailMapHandshake = value;
+        }
+
+        /// <summary>The <c>State</c> bytes of the latest map server datagram (retail only).</summary>
+        private readonly byte[] _serverState = new byte[16];
+
         /// <summary>Zone changes since <see cref="ConnectAsync"/>: each one has added 2 to the map key's counter.</summary>
         private int _zoneChanges;
 
@@ -964,6 +978,8 @@ namespace Gordian.Core.Network
                     _clientPacketIdSequence = 1;
                     _zoneChanges = 0;
                     _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+                    Array.Clear(_serverState);
+                    _parser.LifecycleModule.ResetMapHandshake();
                     byte[] loginDatagram = BuildLoginDatagram();
 
                     ReadOnlySpan<byte> loginSubPacket = loginDatagram.AsSpan(HandshakePackets.FfxiHeaderSize, HandshakePackets.LoginSubPacketSize);
@@ -1112,6 +1128,12 @@ namespace Gordian.Core.Network
 
                 uint timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8, 4), timestamp);
+
+                if (RetailMapProtocol)
+                {
+                    lock (_serverState) _serverState.CopyTo(headerSpan.Slice(0x0C, 16));
+                    headerSpan[0x0C] = 0x01;
+                }
 
                 if (_outboundWireTrace > 0)
                 {
@@ -1315,6 +1337,10 @@ namespace Gordian.Core.Network
                         }
 
                         GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+                        if (RetailMapProtocol && result.ReceivedBytes >= FfxiHeaderSize)
+                        {
+                            lock (_serverState) packetBuffer.WritableData.Slice(0x0C, 16).CopyTo(_serverState);
+                        }
                         if (_inboundWireTrace > 0 && result.ReceivedBytes >= FfxiHeaderSize)
                         {
                             _inboundWireTrace--;
@@ -1557,6 +1583,8 @@ namespace Gordian.Core.Network
                 _clientPacketIdSequence = 1;
                 Volatile.Write(ref _serverPacketIdSequence, (ushort)0);
                 _outboundWireTrace = _inboundWireTrace = WireTraceDatagrams;
+                Array.Clear(_serverState);
+                _parser.LifecycleModule.ResetMapHandshake();
                 ResetSequenceTracking();
                 _zoneKeyAdvanced = true;
             }

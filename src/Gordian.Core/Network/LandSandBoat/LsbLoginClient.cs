@@ -46,6 +46,9 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>The first map datagram's builder for the map session, or null for LandSandBoat's (retail login sets it).</summary>
         public MapLoginDatagramBuilder? LoginDatagramBuilder { get; init; }
 
+        /// <summary>Whether the map server is retail's (spec v2.1.24 section 4.6): see <c>SessionNetworkManager.RetailMapProtocol</c>.</summary>
+        public bool RetailMapProtocol { get; init; }
+
         /// <summary>The search server the lobby named (retail's 0x0B does), or null to use the map server's host.</summary>
         public string? SearchIp { get; init; }
 

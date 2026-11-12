@@ -107,6 +107,7 @@ namespace Gordian.Core.Network.Retail
                     RetailMapPackets.MapKey(lobbyKey, unchecked(selectModifier + 2u * (uint)zoneChanges))),
                 SearchIp = next.CacheAddress != 0 ? new IPAddress(next.CacheAddress).ToString() : null,
                 SearchPort = (int)next.CachePort,
+                RetailMapProtocol = true,
             };
         }
 

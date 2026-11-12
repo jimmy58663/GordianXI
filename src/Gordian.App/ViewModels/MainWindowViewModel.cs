@@ -2032,6 +2032,7 @@ namespace Gordian.App.ViewModels
             netManager.Parser.InitializeSessionCrypto(ticket.CryptoKeyCandidates);
             // Retail: its own first datagram, and the search server the lobby named.
             netManager.LoginDatagramBuilder = ticket.LoginDatagramBuilder;
+            netManager.RetailMapProtocol = ticket.RetailMapProtocol;
             if (!string.IsNullOrWhiteSpace(ticket.SearchIp) && ticket.SearchPort > 0)
             {
                 netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort);
