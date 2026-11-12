@@ -85,6 +85,9 @@ namespace Gordian.Core.Tests.Network.Retail
             byte[] afterZone = ticket.LoginDatagramBuilder!(1);
             Assert.Equal(RetailMapPackets.Ticket(RetailMapPackets.MapKey(LobbyKey, Seed + 9)),
                 afterZone[(RetailMapPackets.TransportHeaderSize + 0x40)..(RetailMapPackets.TransportHeaderSize + 0x50)]);
+            // The 0x00A after a zone change says the client was in the map already (+0x06 = 1); the first one does not.
+            Assert.Equal(0, ticket.LoginDatagramBuilder!(0)[RetailMapPackets.TransportHeaderSize + 6]);
+            Assert.Equal(1, afterZone[RetailMapPackets.TransportHeaderSize + 6]);
 
             Assert.False(session.IsConnected); // the server closes after 0x0B
         }

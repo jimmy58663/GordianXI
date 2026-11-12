@@ -28,6 +28,8 @@ namespace Gordian.Core.Network.Retail
         private readonly PolPresenceClient _presence;
         private readonly Action<PacketLogEntry>? _log;
         private int _disposed;
+        /// <summary>Character selections that went to the map in this PlayOnline session.</summary>
+        private int _mapLogins;
 
         internal RetailAccountSession(PolCoreSession core, PolPresenceClient presence, string clientVersion, uint clientChecksum, Action<PacketLogEntry>? log)
         {
@@ -56,7 +58,8 @@ namespace Gordian.Core.Network.Retail
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
             var login = new RetailLobbyLogin(_core.GreetingTimestamp, _core.SessionKey, _core.RoutingToken, ClientVersion, ClientChecksum);
-            var handoff = new PolLobbyHandoff(login, token => _presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, token));
+            var handoff = new PolLobbyHandoff(login, token => _presence.RequestSessionKeyAsync(PolSessionKeyService.Lobby, token),
+                () => Interlocked.Increment(ref _mapLogins) > 1);
             return RetailLoginClient.Stage("FFXI lobby", () => LobbySession.ConnectAsync(host, port, handoff, _log, TimeSpan.FromSeconds(15), ct), ct);
         }
 

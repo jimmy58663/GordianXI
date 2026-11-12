@@ -651,5 +651,18 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal(new byte[] { 1, 0, 0xFF, 0xFF }, packet[0x58..0x5C]);
             Assert.Equal(MD5.HashData(packet), d[120..]);
         }
+
+        // Research answer on capture #6 (2026-11-12): a second map login (after a Log Out, or a zone change) differs only
+        // in the ticket and the u16 at +0x06, which is 1; the checksum byte does not cover it.
+        [Fact]
+        public void Map_ReturningFirstDatagramSetsTheFlagAt0x06()
+        {
+            byte[] mapKey = Convert.FromHexString("919129145BDE35AFC2D02CEC08A5327B");
+            byte[] first = RetailMapPackets.BuildFirstDatagram(0x000A915E, mapKey);
+            byte[] again = RetailMapPackets.BuildFirstDatagram(0x000A915E, mapKey, returningToMap: true);
+            Assert.Equal(new byte[] { 1, 0 }, again[(28 + 6)..(28 + 8)]);
+            Assert.Equal(first[28 + 4], again[28 + 4]);
+            Assert.Equal(first[(28 + 8)..120], again[(28 + 8)..120]);
+        }
     }
 }

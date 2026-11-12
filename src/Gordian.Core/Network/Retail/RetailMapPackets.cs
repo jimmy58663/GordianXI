@@ -82,9 +82,11 @@ namespace Gordian.Core.Network.Retail
         /// The 136-byte first datagram. The transport header is capture #5's (client sequence 1). Its bytes after the
         /// sequence are memory residue in retail's first datagram (spec v2.1.25 section 4.6.3: zeros would do); these got an
         /// answer live, so they are kept. Every later datagram's header is written by <see cref="WriteHeader"/>. The 0x00A sends a single space as the name, an empty account field, the
-        /// <c>UniqueNo</c> from 0x0B, the ticket, "WIN", language 1 and 0xFFFF at +0x5A.
+        /// <c>UniqueNo</c> from 0x0B, the ticket, "WIN", language 1 and 0xFFFF at +0x5A. The u16 at +0x06 is 1 when this
+        /// is not the client's first map login of the session (after a zone change, or a Log Out and a new character
+        /// select), else 0; the checksum does not cover it (spec v2.1.25, research answer on capture #6, 2026-11-12).
         /// </summary>
-        public static byte[] BuildFirstDatagram(uint uniqueNo, ReadOnlySpan<byte> mapKey)
+        public static byte[] BuildFirstDatagram(uint uniqueNo, ReadOnlySpan<byte> mapKey, bool returningToMap = false)
         {
             var datagram = new byte[FirstDatagramSize];
             ReadOnlySpan<byte> header = [0x01, 0x00, 0x00, 0x00, 0xC0, 0x02, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00];
@@ -95,6 +97,7 @@ namespace Gordian.Core.Network.Retail
             Span<byte> packet = datagram.AsSpan(TransportHeaderSize, LoginPacketSize);
             BinaryPrimitives.WriteUInt16LittleEndian(packet, (ushort)(0x00A | ((LoginPacketSize / 4) << 9)));
             BinaryPrimitives.WriteUInt16LittleEndian(packet[2..], 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(packet[0x06..], (ushort)(returningToMap ? 1 : 0));
             BinaryPrimitives.WriteUInt32LittleEndian(packet[0x0C..], uniqueNo);
             packet[0x22] = (byte)' ';
             Ticket(mapKey).CopyTo(packet[0x40..]);

@@ -30,13 +30,20 @@ namespace Gordian.Core.Network.Retail
 
         private readonly RetailLobbyLogin _login;
         private readonly Func<CancellationToken, Task<byte[]>> _lobbyKey;
+        private readonly Func<bool>? _takeMapLogin;
         private byte[]? _key;
 
         /// <param name="lobbyKey">Fetches the 16-byte lobby session key (the <c>:51220</c> service 0 request).</param>
-        public PolLobbyHandoff(RetailLobbyLogin login, Func<CancellationToken, Task<byte[]>> lobbyKey)
+        /// <param name="takeMapLogin">
+        /// Called once per character selection that goes to the map; returns whether the account was already in the map
+        /// during this PlayOnline session (a Log Out back to character select). Its 0x00A then carries 1 at +0x06
+        /// (<see cref="RetailMapPackets.BuildFirstDatagram"/>).
+        /// </param>
+        public PolLobbyHandoff(RetailLobbyLogin login, Func<CancellationToken, Task<byte[]>> lobbyKey, Func<bool>? takeMapLogin = null)
         {
             _login = login ?? throw new ArgumentNullException(nameof(login));
             _lobbyKey = lobbyKey ?? throw new ArgumentNullException(nameof(lobbyKey));
+            _takeMapLogin = takeMapLogin;
         }
 
         public string Name => "PlayOnline";
@@ -88,6 +95,7 @@ namespace Gordian.Core.Network.Retail
         {
             byte[] lobbyKey = LobbyKey;
             uint uniqueNo = next.ServerId;
+            bool returningToMap = _takeMapLogin?.Invoke() ?? false;
             return new MapSessionTicket
             {
                 CharacterId = character.ServerId,
@@ -96,7 +104,8 @@ namespace Gordian.Core.Network.Retail
                 ZonePort = (int)next.ServerPort,
                 BlowfishKey = RetailMapPackets.MapRawKey(lobbyKey, selectModifier),
                 LoginDatagramBuilder = zoneChanges => RetailMapPackets.BuildFirstDatagram(uniqueNo,
-                    RetailMapPackets.MapKey(lobbyKey, unchecked(selectModifier + 2u * (uint)zoneChanges))),
+                    RetailMapPackets.MapKey(lobbyKey, unchecked(selectModifier + 2u * (uint)zoneChanges)),
+                    returningToMap: returningToMap || zoneChanges > 0),
                 SearchIp = next.CacheAddress != 0 ? new IPAddress(next.CacheAddress).ToString() : null,
                 SearchPort = (int)next.CachePort,
                 RetailMapProtocol = true,

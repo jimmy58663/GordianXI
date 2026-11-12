@@ -623,7 +623,7 @@ namespace Gordian.Core.Network
                     var logout = new SessionLogout(state, PendingLogoutKind);
                     EndSession(logout, $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
                                        $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.",
-                               acknowledgeLastDatagram: RetailMapProtocol);
+                               retailGoodbye: RetailMapProtocol);
                 }
             };
         }
@@ -633,17 +633,16 @@ namespace Gordian.Core.Network
         /// (before the Disconnected state, so a handler can act first) and the session disconnects. Used for a logout
         /// S2C 0x00B and for a server that has stopped answering (<see cref="CheckServerSilence"/>).
         /// </summary>
-        /// <param name="acknowledgeLastDatagram">
-        /// Send one last empty datagram acknowledging the server's latest (the one that carried the 0x00B) before closing.
-        /// A retail map server that never got that acknowledgement ignored the character's next 0x00A for minutes: a Log
-        /// Out and reselect 5 s later, and a Shut Down and new login 20 s later, both got no answer (2026-11-12), and a
-        /// select 2.5 min after one of them got lobby error 201 (already logged in).
+        /// <param name="retailGoodbye">
+        /// Answer a retail logout 0x00B with 0x00D before closing (<see cref="SendRetailLogoutGoodbye"/>). Without it the
+        /// server kept the character for minutes: a Log Out and reselect 5 s later, and a Shut Down and new login 20 s later,
+        /// got no answer to 0x00A (2026-11-12), and a select 2.5 min after one of them got lobby error 201.
         /// </param>
-        private void EndSession(SessionLogout logout, string reason, bool acknowledgeLastDatagram = false)
+        private void EndSession(SessionLogout logout, string reason, bool retailGoodbye = false)
         {
             if (Interlocked.Exchange(ref _sessionEndingFlag, 1) != 0) return;
             GordianLog.Info("NET", reason);
-            if (acknowledgeLastDatagram) SendFinalAcknowledgement();
+            if (retailGoodbye) SendRetailLogoutGoodbye();
             SetConnectionLost(false);
             World.Clear();
             try { LoggedOut?.Invoke(logout); }
@@ -651,32 +650,47 @@ namespace Gordian.Core.Network
             Disconnect();
         }
 
+        /// <summary>Pause between the retail goodbye datagrams (retail: about 0.4-0.5 s).</summary>
+        internal static TimeSpan RetailGoodbyeInterval { get; set; } = TimeSpan.FromMilliseconds(450);
+
         /// <summary>
-        /// Sends an empty datagram whose ack is the server's latest sequence, then nothing more (the session is ending, so
-        /// the flush drops anything still queued). Runs on the receive loop; waits for the write lock only briefly.
+        /// Retail's answer to a logout 0x00B (spec v2.1.25 research answer, 2026-11-12, every captured Log Out and Shut
+        /// Down): a datagram with C2S 0x00D (state 0) and a 0x015, acking the 0x00B's datagram, then two more 0.4-0.5 s
+        /// apart, each with a new sequence and 0x015 but the same 0x00D with its original sync; the socket closes about
+        /// 1.1-1.5 s after the 0x00B. The server sends nothing more. Runs on the receive loop before the session closes.
         /// </summary>
-        private void SendFinalAcknowledgement()
+        private void SendRetailLogoutGoodbye()
         {
             Socket? socket = _udpSocket;
             EndPoint? endpoint = _serverEndpoint;
             if (socket == null || endpoint == null) return;
             try
             {
-                if (!_writeLock.Wait(TimeSpan.FromMilliseconds(250))) return;
-                try
+                byte[]? netEnd = null;
+                for (int i = 0; i < 3; i++)
                 {
-                    _emptyDatagramQueued = true;
-                    FlushBundledPacketAsync(socket, endpoint, CancellationToken.None).GetAwaiter().GetResult();
-                    GordianLog.Debug("NET", $"Acknowledged the server's Seq={Volatile.Read(ref _serverPacketIdSequence)} before closing.");
+                    if (i > 0) Thread.Sleep(RetailGoodbyeInterval);
+                    if (!_writeLock.Wait(TimeSpan.FromMilliseconds(250))) return;
+                    try
+                    {
+                        netEnd ??= LifecycleOutboundPackets.BuildNetEnd(sequenceId: unchecked((ushort)(_clientPacketIdSequence + 1)));
+                        byte[] pos = HandshakePackets.BuildPosPingPongSubPacket(sequenceId: 0, x: PositionX, y: PositionY, z: PositionZ,
+                            dir: Direction, moveFrame: StationaryRunCount, isWalking: false, targetIndex: TargetIndex);
+                        netEnd.CopyTo(_outboundQueueBuffer, 0);
+                        pos.CopyTo(_outboundQueueBuffer, netEnd.Length);
+                        _currentBufferLength = netEnd.Length + pos.Length;
+                        FlushBundledPacketAsync(socket, endpoint, CancellationToken.None, closingDatagram: true).GetAwaiter().GetResult();
+                    }
+                    finally
+                    {
+                        _writeLock.Release();
+                    }
                 }
-                finally
-                {
-                    _writeLock.Release();
-                }
+                GordianLog.Debug("NET", $"Answered the logout with 0x00D (acking the server's Seq={Volatile.Read(ref _serverPacketIdSequence)}).");
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("NET", $"Could not acknowledge the server's last datagram: {ex.Message}");
+                GordianLog.Warning("NET", $"Could not send 0x00D after the logout: {ex.Message}");
             }
         }
 
@@ -1139,9 +1153,11 @@ namespace Gordian.Core.Network
         /// <summary>
         /// Consolidates, compresses, encrypts, and transmits all bundled staging chunks down the UDP socket.
         /// </summary>
-        private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token)
+        private async Task FlushBundledPacketAsync(Socket socket, EndPoint remoteEndpoint, CancellationToken token, bool closingDatagram = false)
         {
-            DropRefusedQueuedSubPackets();
+            // The goodbye datagrams after a retail logout go out although the session is ending, and keep a repeated
+            // 0x00D's original sync (see SendRetailLogoutGoodbye).
+            if (!closingDatagram) DropRefusedQueuedSubPackets();
             bool sendEmpty = _emptyDatagramQueued;
             _emptyDatagramQueued = false;
             if (_currentBufferLength == 0 && !sendEmpty) return;
@@ -1161,7 +1177,8 @@ namespace Gordian.Core.Network
                     int subSize = (_outboundQueueBuffer[subOffset + 1] & 0xFE) * 2;
                     if (subSize < 4 || subOffset + subSize > _currentBufferLength) break;
 
-                    BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
+                    if (!closingDatagram || BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2)) == 0)
+                        BinaryPrimitives.WriteUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset + 2, 2), clientSeq);
 
                     ushort rawTypeAndSize = BinaryPrimitives.ReadUInt16LittleEndian(_outboundQueueBuffer.AsSpan(subOffset, 2));
                     ushort packetId = (ushort)(rawTypeAndSize & 0x1FF);
