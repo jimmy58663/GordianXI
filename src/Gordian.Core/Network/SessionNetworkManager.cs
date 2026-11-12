@@ -622,7 +622,8 @@ namespace Gordian.Core.Network
                 {
                     var logout = new SessionLogout(state, PendingLogoutKind);
                     EndSession(logout, $"Logged out by S2C 0x00B: State={state}, Requested={logout.RequestedKind?.ToString() ?? "none"}, " +
-                                       $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.");
+                                       $"{(logout.ReturnsToLobby ? "returning to character select" : "ending the session")}.",
+                               acknowledgeLastDatagram: RetailMapProtocol);
                 }
             };
         }
@@ -632,15 +633,51 @@ namespace Gordian.Core.Network
         /// (before the Disconnected state, so a handler can act first) and the session disconnects. Used for a logout
         /// S2C 0x00B and for a server that has stopped answering (<see cref="CheckServerSilence"/>).
         /// </summary>
-        private void EndSession(SessionLogout logout, string reason)
+        /// <param name="acknowledgeLastDatagram">
+        /// Send one last empty datagram acknowledging the server's latest (the one that carried the 0x00B) before closing.
+        /// A retail map server that never got that acknowledgement ignored the character's next 0x00A for minutes: a Log
+        /// Out and reselect 5 s later, and a Shut Down and new login 20 s later, both got no answer (2026-11-12), and a
+        /// select 2.5 min after one of them got lobby error 201 (already logged in).
+        /// </param>
+        private void EndSession(SessionLogout logout, string reason, bool acknowledgeLastDatagram = false)
         {
             if (Interlocked.Exchange(ref _sessionEndingFlag, 1) != 0) return;
             GordianLog.Info("NET", reason);
+            if (acknowledgeLastDatagram) SendFinalAcknowledgement();
             SetConnectionLost(false);
             World.Clear();
             try { LoggedOut?.Invoke(logout); }
             catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
             Disconnect();
+        }
+
+        /// <summary>
+        /// Sends an empty datagram whose ack is the server's latest sequence, then nothing more (the session is ending, so
+        /// the flush drops anything still queued). Runs on the receive loop; waits for the write lock only briefly.
+        /// </summary>
+        private void SendFinalAcknowledgement()
+        {
+            Socket? socket = _udpSocket;
+            EndPoint? endpoint = _serverEndpoint;
+            if (socket == null || endpoint == null) return;
+            try
+            {
+                if (!_writeLock.Wait(TimeSpan.FromMilliseconds(250))) return;
+                try
+                {
+                    _emptyDatagramQueued = true;
+                    FlushBundledPacketAsync(socket, endpoint, CancellationToken.None).GetAwaiter().GetResult();
+                    GordianLog.Debug("NET", $"Acknowledged the server's Seq={Volatile.Read(ref _serverPacketIdSequence)} before closing.");
+                }
+                finally
+                {
+                    _writeLock.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("NET", $"Could not acknowledge the server's last datagram: {ex.Message}");
+            }
         }
 
         private void SuspendPositionUpdates(LogoutState state)
