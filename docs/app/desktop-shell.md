@@ -64,7 +64,6 @@ The retail field limits come from [retail-login-spec.md](../network/retail-login
   - Their old `BootloaderPath` and `Arguments` are read once when the file loads (`AccountProfile.OnDeserialized`) and never written again. Without a server type, an xiloader bootloader or a `--server`, `127.0.0.1` or `localhost` argument makes a LandSandBoat profile, and its host and ports come from those arguments (`--server` / `-s`, `--authport`, `--dataport`, `--viewport`; xiloader with no `--server` means 127.0.0.1) where the profile has none of its own. Any other profile, including one that launched pol.exe through the removed proxy path, is LandSandBoat when it names a server host and retail otherwise, and a retail one now needs its POL and Square Enix accounts filled in.
   - A stored key means the authenticator-key mode.
   - The old Folder Group, Target Bootloader and Custom Arguments fields are gone from the editor.
-- **Startup repair.** The removed proxy launch path renamed `FFXiMain.dll` to `FFXiMain.dll.orig` while it ran. At startup `LegacyProxyCleanup` moves an orphaned `.orig` back over `FFXiMain.dll` in the registry install.
 
 ## Profile character and online status (#179, #180)
 

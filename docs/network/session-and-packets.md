@@ -5,7 +5,7 @@
 ## Direct login (Phase 2)
 
 - Multi-region 32-bit registry detection (`GameDirectoryDetector.cs` for US/EU/JP under `InstallFolder\0001`)
-- The first version launched `xiloader.exe` or `pol.exe` with a proxy `FFXiMain.dll` swapped into the game folder and took the session over a named pipe. It was never proven and was removed once the direct logins worked; `LegacyProxyCleanup` restores a `FFXiMain.dll` it left renamed.
+- The first version launched `xiloader.exe` or `pol.exe` with a proxy `FFXiMain.dll` swapped into the game folder and took the session over a named pipe. It was never proven or distributed and was removed once the direct logins worked.
 - Native LandSandBoat login client (`LsbLoginClient` with TLS auth on 54231, data on 54230, Blowfish session key derivation, and direct map connection)
 - Full in-game verification: launch `Local (Cybin)` -> direct LSB login -> live UDP packet stream
 

@@ -474,9 +474,6 @@ namespace Gordian.App.ViewModels
             // ...and a pop-out window's character when that window gets the focus (#29 round 4).
             AttachViewportFocus(ViewportWindowManager.Default.WindowFocus);
 
-            // An install left with a renamed FFXiMain.dll by the removed proxy launch path gets its original back.
-            LegacyProxyCleanup.RestoreOrphanedBackup(GameDirectoryDetector.DetectGameDirectory());
-
             LoadProfiles();
         }
 
