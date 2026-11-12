@@ -78,7 +78,7 @@ When executing tasks or testing code changes, run these native .NET CLI commands
 ---
 
 ## 🔄 Login & Launch Architecture
-GordianXI logs in by itself: it starts no bootloader (`xiloader`, `pol.exe`) and never modifies the user's game folder.
+GordianXI logs in by itself: it starts no bootloader (`xiloader`, `pol.exe`), and logging in never modifies the user's game folder.
 1. **Registry Detection:** `GameDirectoryDetector.cs` queries 32-bit `InstallFolder\0001` across `PlayOnlineUS`, `PlayOnlineEU`, and `PlayOnline` (and `1000` for the PlayOnline Viewer).
 2. **LandSandBoat:** `LsbLoginClient` logs in to the auth, data and view servers directly; `LobbySession` with `XiloaderLobbyHandoff` runs character select (`docs/network/session-and-packets.md`).
 3. **Retail:** the direct (POL-bypass) login in `src/Gordian.Core/Network/Retail`, launched by `LaunchRetailAsync` in `MainWindowViewModel` (`docs/network/retail-login.md`).
@@ -125,7 +125,7 @@ GordianXI logs in by itself: it starts no bootloader (`xiloader`, `pol.exe`) and
 2.  **NO Windows-only code in class libraries:** Keep class libraries cross-platform agnostic. Guard OS-specific calls behind `OperatingSystem.IsWindows()`.
 3.  **NO text string formatting for paths:** Refuse suggestions that use `"\\"`. Use `Path.Combine`.
 4.  **NO Brute-force packet array allocation:** Never return `new byte[]` allocations inside packet parsers. Use `Span<byte>` arrays.
-5.  **NO Game folder modifications:** Never write, rename or delete files in the user's game directory.
+5.  **NO Game folder modifications:** Never create, change, rename or delete anything in a game install (the FFXI and PlayOnline folders), whether directly or by running GordianXI or its updater; ask the maintainer if a task seems to need it. In GordianXI's own code, only the planned POL/FFXI patch updater may write there, and only as designed and signed off by the maintainer in its own issue. Login, rendering, addons and every other feature only read the install.
 6.  **NO Modifying Reference Workspaces:** Never make edits, write files, or execute mutating commands in reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`).
 7.  **NO GPL/AGPL Code Copying:** Never copy or translate verbatim C++, Rust, or JavaScript code from reference repositories (`LSBserver`, `xiloader`, `xi-model-viewer`, `xi-tools`, `XiEvents`, `XiPackets`). GordianXI is an independent, clean-room C# implementation under the MIT license. Wire formats and functional binary schemas (e.g., packet opcodes, DAT chunk formats) may be referenced for interoperability, but must be authored from scratch.
 8.  **NO Undocumented Protocol Additions:** Whenever adding packet definitions, opcode mappings, crypto/compression routines, or DAT chunk parsers derived from community research, always add an XML doc-comment citing the reference source.

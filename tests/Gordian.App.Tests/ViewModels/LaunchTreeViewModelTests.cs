@@ -53,14 +53,16 @@ namespace Gordian.App.Tests.ViewModels
         }
 
         [Fact]
-        public void LaunchProfileByName_RetailProfile_IsRefused()
+        public void LaunchProfileByName_RetailProfile_GoesThroughTheLaunchChecks()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
-            vm.Profiles.Add(new ProfileItemViewModel(new AccountProfile { ProfileName = "RetailOnly" }, _testRegistry));
+            vm.Profiles.Add(new ProfileItemViewModel(
+                new AccountProfile { ProfileName = "RetailOnly", ServerType = ProfileServerType.Retail }, _testRegistry));
 
             vm.LaunchProfileByName("RetailOnly");
 
-            Assert.Equal("Launch option: RetailOnly is not a private server profile.", vm.StatusMessage);
+            // Accepted as a retail launch, and stopped by the same check the Launch button makes: it has no accounts.
+            Assert.Equal("[RetailOnly] Not launched: it has no valid POL ID (4 letters, then 4 digits)", vm.StatusMessage);
         }
 
         [Fact]

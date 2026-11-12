@@ -1480,8 +1480,8 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
-        /// Logs in one saved private server profile by name, for the <c>--profile</c> launch option, which is for scripted
-        /// test runs on a private server. A retail profile is refused.
+        /// Logs in one saved profile by name, retail or private server, for the <c>--profile</c> launch option. It goes
+        /// through the same checks as the Launch button.
         /// </summary>
         public void LaunchProfileByName(string profileName)
         {
@@ -1492,12 +1492,6 @@ namespace Gordian.App.ViewModels
                 StatusMessage = $"Launch option: no profile named {profileName}.";
                 return;
             }
-            if (profile.EffectiveServerType != ProfileServerType.LandSandBoat)
-            {
-                StatusMessage = $"Launch option: {profileName} is not a private server profile.";
-                return;
-            }
-
             LaunchProfiles([profile]);
         }
 
