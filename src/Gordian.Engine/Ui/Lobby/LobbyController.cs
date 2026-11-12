@@ -151,7 +151,7 @@ namespace Gordian.Engine.Ui.Lobby
         }
 
         /// <summary>Raised (on a pool thread) when a character was selected: start the game session with the ticket.</summary>
-        public event Action<LsbSessionTicket>? CharacterSelected;
+        public event Action<MapSessionTicket>? CharacterSelected;
 
         /// <summary>Raised when the player leaves the lobby (Back) or the connection is lost for good.</summary>
         public event Action<string?>? Closed;
@@ -401,7 +401,7 @@ namespace Gordian.Engine.Ui.Lobby
         }
 
         /// <summary>A character was selected: the lobby is done and the launcher starts the game with the ticket.</summary>
-        private void Enter(LsbSessionTicket ticket)
+        private void Enter(MapSessionTicket ticket)
         {
             lock (SyncRoot)
             {

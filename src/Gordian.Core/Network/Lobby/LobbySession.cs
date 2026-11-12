@@ -30,8 +30,8 @@ namespace Gordian.Core.Network.Lobby
         Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default);
         Task CreateCharacterAsync(LobbyCharacter freeSlot, LobbyCharacterCreation creation, CancellationToken ct = default);
         Task DeleteCharacterAsync(LobbyCharacter character, CancellationToken ct = default);
-        Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default);
-        Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default);
+        Task<MapSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default);
+        Task<MapSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default);
     }
 
     /// <summary>A character change the lobby confirmed (0x03), which some handoffs account for.</summary>
@@ -94,7 +94,7 @@ namespace Gordian.Core.Network.Lobby
         void OnRefused(byte command, int code);
 
         /// <summary>The game session's ticket for the selected character, from the 0x0B the lobby sent.</summary>
-        LsbSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier);
+        MapSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier);
     }
 
     /// <summary>
@@ -324,7 +324,7 @@ namespace Gordian.Core.Network.Lobby
         }
 
         /// <summary>Renames a character the server flagged for renaming (0x28 -> 0x03), then selects it under the new name.</summary>
-        public async Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default)
+        public async Task<MapSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default)
         {
             ArgumentNullException.ThrowIfNull(character);
             await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -341,7 +341,7 @@ namespace Gordian.Core.Network.Lobby
             finally { _gate.Release(); }
         }
 
-        public async Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default)
+        public async Task<MapSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default)
         {
             ArgumentNullException.ThrowIfNull(character);
             await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -353,7 +353,7 @@ namespace Gordian.Core.Network.Lobby
         }
 
         /// <summary>0x07 -> 0x0B; the handoff turns the 0x0B into the game session's ticket.</summary>
-        private async Task<LsbSessionTicket> SelectUnlockedAsync(LobbyCharacter character, CancellationToken ct)
+        private async Task<MapSessionTicket> SelectUnlockedAsync(LobbyCharacter character, CancellationToken ct)
         {
             EnsureUsable();
             // LandSandBoat looks the id and name up together and drops the connection on a mismatch.

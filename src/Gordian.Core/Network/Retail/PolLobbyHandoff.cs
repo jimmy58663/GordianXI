@@ -92,11 +92,11 @@ namespace Gordian.Core.Network.Retail
         /// builder for the first map datagram whose <c>UniqueNo</c> is 0x0B's +0x20 and whose ticket follows the key across
         /// zone changes (+2 each, spec section 5.6). The search server is the one 0x0B names.
         /// </summary>
-        public LsbSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier)
+        public MapSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier)
         {
             byte[] lobbyKey = LobbyKey;
             uint uniqueNo = next.ServerId;
-            return new LsbSessionTicket
+            return new MapSessionTicket
             {
                 CharacterId = character.ServerId,
                 CharacterName = next.Name.Length > 0 ? next.Name : character.Name,

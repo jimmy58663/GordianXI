@@ -20,71 +20,9 @@ using Gordian.Core.Network.Lobby;
 namespace Gordian.Core.Network.LandSandBoat
 {
     /// <summary>
-    /// Holds the results of a successful LandSandBoat login and character selection handshake.
-    /// </summary>
-    public sealed class LsbSessionTicket
-    {
-        public uint AccountId { get; init; }
-        public uint CharacterId { get; init; }
-        public string CharacterName { get; init; } = string.Empty;
-        public string ZoneIp { get; init; } = "127.0.0.1";
-        public int ZonePort { get; init; } = 54230;
-        public byte[] SessionHash { get; init; } = Array.Empty<byte>();
-
-        /// <summary>
-        /// The old-style (<see cref="LsbKeyStyle.Legacy"/>) map session key: the key sent in 0xA2 with LandSandBoat's
-        /// old per-operation increments. The key the server really uses is one of <see cref="KeyCandidates"/>.
-        /// </summary>
-        public byte[] BlowfishKey { get; init; } = Array.Empty<byte>();
-
-        /// <summary>Every map session key the server may use, newest LandSandBoat scheme first (see <see cref="LsbSessionKeys"/>).</summary>
-        public IReadOnlyList<LsbSessionKeyCandidate> KeyCandidates { get; init; } = Array.Empty<LsbSessionKeyCandidate>();
-
-        /// <summary>The lobby key counter when 0xA2 was sent (the counter key's bytes 16-19 are this + 3); 0 if never set.</summary>
-        public uint LobbyKeyCounter { get; init; }
-
-        /// <summary>The first map datagram's builder for the map session, or null for LandSandBoat's (retail login sets it).</summary>
-        public MapLoginDatagramBuilder? LoginDatagramBuilder { get; init; }
-
-        /// <summary>Whether the map server is retail's (spec v2.1.24 section 4.6): see <c>SessionNetworkManager.RetailMapProtocol</c>.</summary>
-        public bool RetailMapProtocol { get; init; }
-
-        /// <summary>
-        /// Our public IPv4 address as the retail login saw it, in network byte order, for the map header's State word 2;
-        /// null for LandSandBoat. See <c>SessionNetworkManager.RetailClientAddress</c>.
-        /// </summary>
-        public byte[]? RetailClientAddress { get; init; }
-
-        /// <summary>The search server the lobby named (retail's 0x0B does), or null to use the map server's host.</summary>
-        public string? SearchIp { get; init; }
-
-        /// <summary>The search server's port, used with <see cref="SearchIp"/>.</summary>
-        public int SearchPort { get; init; }
-
-        /// <summary>The candidates for the packet crypto suite, or the single <see cref="BlowfishKey"/> when there are none.</summary>
-        public IReadOnlyList<Gordian.Core.Network.Crypto.SessionKeyCandidate> CryptoKeyCandidates =>
-            KeyCandidates.Count > 0
-                ? KeyCandidates.Select(c => c.ToCryptoCandidate()).ToList()
-                : new[] { new Gordian.Core.Network.Crypto.SessionKeyCandidate(nameof(LsbKeyStyle.Legacy), BlowfishKey) };
-    }
-
-    /// <summary>
     /// One character of the xi_view 0x20 list: its 1-based slot (raw list position, free slots counted), id and name.
     /// </summary>
     public readonly record struct LsbCharacterSlot(int Slot, uint Id, string Name);
-
-    /// <summary>
-    /// Information about an available character returned by the LandSandBoat data server.
-    /// </summary>
-    public sealed class LsbCharacterInfo
-    {
-        public uint CharacterId { get; init; }
-        public uint ContentId { get; init; }
-        public string CharacterName { get; init; } = string.Empty;
-        public ushort CharIdMain { get; init; }
-        public byte WorldId { get; init; }
-        public byte CharIdExtra { get; init; }
-    }
 
     /// <summary>
     /// Clean-room C# (.NET 10) login client for LandSandBoat private servers.
@@ -421,7 +359,7 @@ namespace Gordian.Core.Network.LandSandBoat
         /// requests character information, selects the target character, registers the Blowfish session key,
         /// and acquires the target zone map IP and UDP port.
         /// </summary>
-        public async Task<LsbSessionTicket> SelectCharacterAsync(
+        public async Task<MapSessionTicket> SelectCharacterAsync(
             string host,
             int dataPort,
             int viewPort,
@@ -508,7 +446,7 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>
         /// Convenience overload for SelectCharacterAsync that uses DefaultViewPort.
         /// </summary>
-        public Task<LsbSessionTicket> SelectCharacterAsync(
+        public Task<MapSessionTicket> SelectCharacterAsync(
             string host,
             int dataPort,
             uint accountId,
@@ -537,7 +475,7 @@ namespace Gordian.Core.Network.LandSandBoat
         /// Includes automatic transient retry to gracefully handle server-side session hash collisions,
         /// lingering socket teardown, or timing races during reconnect.
         /// </summary>
-        public async Task<LsbSessionTicket> LoginAndSelectAsync(
+        public async Task<MapSessionTicket> LoginAndSelectAsync(
             string host,
             string username,
             string password,

@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 
 namespace Gordian.Core.Tests.Network
 {

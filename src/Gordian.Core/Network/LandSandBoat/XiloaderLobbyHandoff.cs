@@ -193,7 +193,7 @@ namespace Gordian.Core.Network.LandSandBoat
             if (command == LobbyCommand.RequestSelectChr && code == LobbyErrorCode.CharacterAlreadyLoggedIn) _keyIncrement += 1;
         }
 
-        public LsbSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier)
+        public MapSessionTicket CreateTicket(LobbyCharacter character, in LobbyNextLogin next, uint selectModifier)
         {
             string zoneIp = next.ServerAddress == 0 ? _host : new IPAddress(next.ServerAddress).ToString();
             int zonePort = next.ServerPort != 0 ? (int)next.ServerPort : LsbLoginClient.DefaultDataPort;
@@ -207,7 +207,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 GordianLog.Warning("LSB_LOGIN", "No lobby key counter (no 0x05 reply seen); the counter-style key keeps the loader's bytes 16-19, as LandSandBoat does.");
             GordianLog.Info("LSB_LOGIN", $"Map session key candidates (lobby key counter {_counterAtKey:X8}, legacy increment {KeyIncrement}): " +
                 string.Join("; ", candidates.Select(c => c.Describe())) + ". Compare with the connect server's \"key value\" / \"key counter\" line.");
-            var ticket = new LsbSessionTicket
+            var ticket = new MapSessionTicket
             {
                 AccountId = _accountId,
                 CharacterId = character.ContentId,

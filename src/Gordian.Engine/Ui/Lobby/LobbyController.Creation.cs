@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Resources.Tables;
 
 namespace Gordian.Engine.Ui.Lobby

@@ -186,7 +186,7 @@ namespace Gordian.Core.Tests.Network
         private static Task<LobbySession> Connect(FakeLsbLobbyServer server) =>
             LobbySession.ConnectAsync("127.0.0.1", server.ViewPort, new XiloaderLobbyHandoff("127.0.0.1", server.DataPort, Account, Hash, timeout: TimeSpan.FromSeconds(5)), timeout: TimeSpan.FromSeconds(5));
 
-        private static void AssertCounterKeyMatches(FakeLsbLobbyServer server, LsbSessionTicket ticket)
+        private static void AssertCounterKeyMatches(FakeLsbLobbyServer server, MapSessionTicket ticket)
         {
             Assert.Equal(LsbKeyStyle.Counter, ticket.KeyCandidates[0].Style);
             Assert.Equal(server.StoredKey, ticket.KeyCandidates[0].Key);

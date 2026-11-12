@@ -1,10 +1,10 @@
-// src/Gordian.Core/Network/LandSandBoat/LobbyPackets.cs
+// src/Gordian.Core/Network/Lobby/LobbyPackets.cs
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Gordian.Core.Network.LandSandBoat
+namespace Gordian.Core.Network.Lobby
 {
     /// <summary>
     /// Lobby (xi_view, TCP 54001) commands. Every view packet starts with the 28-byte header: u32 packet size, the

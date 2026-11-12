@@ -1,7 +1,7 @@
-// src/Gordian.Core/Network/LandSandBoat/LobbyRequestException.cs
+// src/Gordian.Core/Network/Lobby/LobbyRequestException.cs
 using System;
 
-namespace Gordian.Core.Network.LandSandBoat
+namespace Gordian.Core.Network.Lobby
 {
     /// <summary>
     /// The lobby error codes LandSandBoat sends in S2C 0x04 ResponseError. The client shows them with 3000 added

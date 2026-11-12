@@ -13,6 +13,7 @@ using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
 using Gordian.Core.Network.LandSandBoat;
+using Gordian.Core.Network.Lobby;
 using Gordian.Core.Network.Retail;
 using Gordian.Core.Profiles;
 using Gordian.Engine.Sessions;
@@ -1904,7 +1905,7 @@ namespace Gordian.App.ViewModels
                     return;
                 }
 
-                LsbSessionTicket ticket;
+                MapSessionTicket ticket;
                 await using (var lobby = await account.OpenLobbyAsync().ConfigureAwait(false))
                 {
                     var slots = lobby.Characters.Where(c => !c.IsEmpty).Select(c => new LsbCharacterSlot(c.Slot, c.ContentId, c.Name)).ToList();
@@ -1993,7 +1994,7 @@ namespace Gordian.App.ViewModels
         /// Runs once when the game session ends without going back to character select (a retail login ends its
         /// PlayOnline session there).
         /// </param>
-        private async Task StartLsbSessionAsync(AccountProfile profile, LsbSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
+        private async Task StartLsbSessionAsync(AccountProfile profile, MapSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
             Func<ValueTask>? ended = null)
         {
             GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");

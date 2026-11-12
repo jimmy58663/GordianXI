@@ -52,8 +52,8 @@ namespace Gordian.App.Tests.Graphics
             public Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default) => Task.CompletedTask;
             public Task CreateCharacterAsync(LobbyCharacter freeSlot, LobbyCharacterCreation creation, CancellationToken ct = default) => Task.CompletedTask;
             public Task DeleteCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.CompletedTask;
-            public Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default) => Task.FromResult(new LsbSessionTicket());
-            public Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => new TaskCompletionSource<LsbSessionTicket>().Task;
+            public Task<MapSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default) => Task.FromResult(new MapSessionTicket());
+            public Task<MapSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => new TaskCompletionSource<MapSessionTicket>().Task;
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
 
@@ -212,8 +212,8 @@ namespace Gordian.App.Tests.Graphics
             public Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default) => Task.CompletedTask;
             public Task CreateCharacterAsync(LobbyCharacter freeSlot, LobbyCharacterCreation creation, CancellationToken ct = default) => Task.CompletedTask;
             public Task DeleteCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.CompletedTask;
-            public Task<LsbSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default) => Task.FromResult(new LsbSessionTicket());
-            public Task<LsbSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.FromResult(new LsbSessionTicket { CharacterName = character.Name });
+            public Task<MapSessionTicket> RenameAndSelectAsync(LobbyCharacter character, string newName, CancellationToken ct = default) => Task.FromResult(new MapSessionTicket());
+            public Task<MapSessionTicket> SelectCharacterAsync(LobbyCharacter character, CancellationToken ct = default) => Task.FromResult(new MapSessionTicket { CharacterName = character.Name });
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
 
