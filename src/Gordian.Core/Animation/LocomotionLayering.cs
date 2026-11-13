@@ -154,13 +154,8 @@ namespace Gordian.Core.Animation
         /// relative to the swing's chest, turned and moved rigidly so that chest lands on the locomotion's. Both poses are model
         /// space, from <see cref="SkeletonPoseEvaluator"/> with the same <paramref name="parentOverrides"/>.
         /// </summary>
-        /// <param name="squareTorso">
-        /// For a standing swing played while moving (the hand-to-hand off-hand punch, round 8): the swing's whole upper body,
-        /// spine included, keeps the swing's own orientation, square to the target as the standing clip is authored, and is
-        /// placed on the locomotion's spine root. Laid on the strafe's twisted chest, the punch aimed off to the side.
-        /// </param>
         public static SkeletonPoseEvaluator.EvaluatedPose Combine(Skeleton skeleton, SkeletonPoseEvaluator.EvaluatedPose upper,
-            SkeletonPoseEvaluator.EvaluatedPose lower, IReadOnlyDictionary<int, int>? parentOverrides = null, bool squareTorso = false)
+            SkeletonPoseEvaluator.EvaluatedPose lower, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             ArgumentNullException.ThrowIfNull(skeleton);
             var split = SplitOf(skeleton);
@@ -172,13 +167,12 @@ namespace Gordian.Core.Animation
             var translations = (Vector3[])lower.Translations.Clone();
             var scales = lower.Scales.Length == n ? (Vector3[])lower.Scales.Clone() : new Vector3[n];
             if (lower.Scales.Length != n) Array.Fill(scales, Vector3.One);
-            int anchor = squareTorso ? split.UpperRoot : chest;
-            var turn = squareTorso ? Quaternion.Identity : Quaternion.Normalize(lower.Rotations[chest] * Quaternion.Inverse(upper.Rotations[chest]));
+            var turn = Quaternion.Normalize(lower.Rotations[chest] * Quaternion.Inverse(upper.Rotations[chest]));
             for (int j = 0; j < n; j++)
             {
-                if ((split.Spine[j] && !squareTorso) || !IsUpperBody(skeleton, j, parentOverrides)) continue;
+                if (split.Spine[j] || !IsUpperBody(skeleton, j, parentOverrides)) continue;
                 rotations[j] = Quaternion.Normalize(turn * upper.Rotations[j]);
-                translations[j] = lower.Translations[anchor] + Vector3.Transform(upper.Translations[j] - upper.Translations[anchor], turn);
+                translations[j] = lower.Translations[chest] + Vector3.Transform(upper.Translations[j] - upper.Translations[chest], turn);
                 if (upper.Scales.Length == n) scales[j] = upper.Scales[j];
             }
             return new SkeletonPoseEvaluator.EvaluatedPose(rotations, translations, scales);

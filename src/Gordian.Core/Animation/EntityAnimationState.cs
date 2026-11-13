@@ -914,18 +914,10 @@ namespace Gordian.Core.Animation
             if (LowerBodyClip is { } lowerBody)
             {
                 var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
-                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides, LowerBodyUnderStandingSwing);
+                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
             }
             return pose;
         }
-
-        /// <summary>
-        /// Whether the swing over <see cref="LowerBodyClip"/> is a standing one (<c>ati?</c> / <c>bti?</c>: the hand-to-hand off-hand
-        /// punch, which has no moving version), authored square to the target: its torso is kept square
-        /// (<see cref="LocomotionLayering.Combine"/>, round 8). The moving swings (<c>atf0</c>, <c>atr0</c>...) keep the walk or
-        /// run's torso twist.
-        /// </summary>
-        public bool LowerBodyUnderStandingSwing => _underlayClip != null && ActiveRoutine is { Name.Length: 4 } routine && routine.Name[2] == 'i';
 
         /// <summary>The time in <see cref="LowerBodyClip"/>, in seconds.</summary>
         public float LowerBodyElapsedSeconds => _underlayClip != null ? _underlayElapsed : ElapsedSeconds;
@@ -1078,17 +1070,10 @@ namespace Gordian.Core.Animation
             {
                 case ActionMotion.Swing:
                     string prefix = SwingPrefix(model, request.SubKind);
-                    // The dual-wield off-hand pack has its own moving swings (#308); the hand-to-hand packs' bti* do not. There a
-                    // moving off-hand hit plays the standing off-hand punch (at3 / at4) on the upper body over the walk or run
-                    // (LocomotionLayering), so the left hand punches while moving as it does standing (#511 round 7: the main
-                    // hand's moving swing stood in, and the left hand never punched).
-                    if (prefix == "bti" && routines.ContainsKey("btf0")) return ResolveSwing(model, prefix, "btf0", "btb0", "btl0", "btr0", isMoving);
-                    if (prefix == "bti" && isMoving)
-                    {
-                        var offHand = ResolveSwing(model, prefix, "atf0", "atb0", "atl0", "atr0", isMoving: false);
-                        if (offHand.Routine != null) return (offHand.Routine, true);
-                    }
-                    return ResolveSwing(model, prefix, "atf0", "atb0", "atl0", "atr0", isMoving);
+                    // The dual-wield off-hand pack has its own moving swings (#308); the hand-to-hand packs' bti* do not.
+                    return prefix == "bti" && routines.ContainsKey("btf0")
+                        ? ResolveSwing(model, prefix, "btf0", "btb0", "btl0", "btr0", isMoving)
+                        : ResolveSwing(model, prefix, "atf0", "atb0", "atl0", "atr0", isMoving);
 
                 case ActionMotion.Counter:
                     var counter = ResolveSwing(model, "cni", "cnf0", "cnb0", "cnl0", "cnr0", isMoving);

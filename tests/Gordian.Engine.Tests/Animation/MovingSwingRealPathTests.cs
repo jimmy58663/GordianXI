@@ -97,61 +97,28 @@ namespace Gordian.Engine.Tests.Animation
         }
 
         /// <summary>
-        /// Round 7: a hand-to-hand round while moving alternates the hands. The hand-to-hand packs have moving swings for the
-        /// main hand only (Elvaan male: atf0 / atb0 / atl0 / atr0), so an off-hand hit plays the standing off-hand punch
-        /// (bti0 / bti1: at3 / at4) on the upper body over the strafe, and the left hand punches.
+        /// Round 9 (retail-verified, the maintainer's capture of 2026-11-13): while moving, every hand-to-hand hit plays the main
+        /// hand's moving attack (Elvaan male atf0 / atb0 / atl0 / atr0), off-hand hits and kicks included. The packs have no
+        /// moving off-hand punch, and retail does not borrow the standing one.
         /// </summary>
         [Theory]
-        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
-        [InlineData(GordianKey.S, AnimationCategory.CombatMoveBackward, false)]
-        [InlineData(GordianKey.A, AnimationCategory.CombatMoveLeft, true)]
-        public void AMovingHandToHandRound_PunchesWithBothHands(GordianKey key, AnimationCategory expected, bool walking)
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, "atr0", false)]
+        [InlineData(GordianKey.S, AnimationCategory.CombatMoveBackward, "atb0", false)]
+        [InlineData(GordianKey.A, AnimationCategory.CombatMoveLeft, "atl0", true)]
+        public void AMovingHandToHandRound_UsesTheMainHandsMovingAttack(GordianKey key, AnimationCategory expected, string moving, bool walking)
         {
             if (Setup(CharacterRace.ElvaanMale, 484, 484, key, expected, walking) is not var (model, me, Frame, locomotion)) return;
-            var skeleton = model.Skeleton!;
-            int leftHand = skeleton.References[126].Index, rightHand = skeleton.References[127].Index, chest = LocomotionLayering.Chest(skeleton);
-            for (int h = 0; h < 4; h++)
-            {
-                me.Animation.EnqueueAction(new ActionRequest
-                {
-                    ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = (ushort)(h % 2),
-                    ReceivedTimestamp = Stopwatch.GetTimestamp()
-                });
-            }
+            for (ushort h = 0; h < 4; h++) me.Animation.EnqueueAction(Swing(me, h)); // main, off hand, kick, kick
 
             var routines = new HashSet<string>();
-            float leftReachOffHand = 0f, leftReachMainHand = 0f, rightReachOffHand = 0f;
-            var overrides = model.ParentOverrides;
-            for (int i = 0; i < 144 * 4; i++)
+            for (int i = 0; i < 144 * 5; i++)
             {
                 Frame();
                 if (me.Animation.ActiveRoutine is not { } routine) continue;
                 routines.Add(routine.Name);
-                Assert.Same(locomotion, me.Animation.LowerBodyClip); // the legs keep moving under either hand's punch
-                var pose = me.Animation.EvaluatePose(skeleton, overrides);
-                float left = Vector3.Distance(pose.Translations[leftHand], pose.Translations[chest]);
-                float right = Vector3.Distance(pose.Translations[rightHand], pose.Translations[chest]);
-                if (routine.Name.StartsWith("bti", StringComparison.Ordinal))
-                {
-                    leftReachOffHand = Math.Max(leftReachOffHand, left);
-                    rightReachOffHand = Math.Max(rightReachOffHand, right);
-                }
-                else
-                {
-                    leftReachMainHand = Math.Max(leftReachMainHand, left);
-                }
+                Assert.Same(locomotion, me.Animation.LowerBodyClip);
             }
-
-            string moving = expected switch
-            {
-                AnimationCategory.CombatMoveRight => "atr0",
-                AnimationCategory.CombatMoveLeft => "atl0",
-                _ => "atb0"
-            };
-            Assert.Contains(moving, routines); // the main hand's moving swing
-            Assert.Contains(routines, r => r.StartsWith("bti", StringComparison.Ordinal)); // and the off hand's punch
-            Assert.True(leftReachOffHand > leftReachMainHand + 0.1f, $"left hand reach: off-hand punch {leftReachOffHand:F2}, main-hand swing {leftReachMainHand:F2}");
-            Assert.True(leftReachOffHand > rightReachOffHand, $"off-hand punch: left {leftReachOffHand:F2}, right {rightReachOffHand:F2}");
+            Assert.Equal(new[] { moving }, routines.ToArray());
         }
 
         private static ActionRequest Swing(PlayerEntity me, ushort subKind) => new()
@@ -159,58 +126,6 @@ namespace Gordian.Engine.Tests.Animation
             ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = subKind,
             ReceivedTimestamp = Stopwatch.GetTimestamp()
         };
-
-        /// <summary>
-        /// The horizontal direction (degrees, model space) the left hand reaches furthest from the spine root during the next
-        /// off-hand punch, played on <paramref name="frame"/> after an off-hand hit is queued.
-        /// </summary>
-        private static float OffHandPunchAim(EntityModel model, PlayerEntity me, Func<AnimationCategory> frame)
-        {
-            var skeleton = model.Skeleton!;
-            int leftHand = skeleton.References[126].Index, spine = LocomotionLayering.UpperBodyRoot(skeleton);
-            me.Animation.EnqueueAction(Swing(me, 1));
-            float best = -1f, aim = 0f;
-            for (int i = 0; i < 144 * 2; i++)
-            {
-                frame();
-                if (me.Animation.ActiveRoutine?.Name.StartsWith("bti", StringComparison.Ordinal) != true) continue;
-                var pose = me.Animation.EvaluatePose(skeleton, model.ParentOverrides);
-                var reach = pose.Translations[leftHand] - pose.Translations[spine];
-                float distance = new Vector2(reach.X, reach.Z).Length();
-                if (distance > best)
-                {
-                    best = distance;
-                    aim = MathF.Atan2(reach.Z, reach.X) * 180f / MathF.PI;
-                }
-            }
-            Assert.True(best > 0f, "no off-hand punch played");
-            return aim;
-        }
-
-        /// <summary>
-        /// Round 8: the off-hand punch played while strafing (the standing clip over the strafe) aims where it does standing,
-        /// at the target, not off to the side along the strafe's twisted chest.
-        /// </summary>
-        [Theory]
-        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight)]
-        [InlineData(GordianKey.A, AnimationCategory.CombatMoveLeft)]
-        public void TheOffHandPunchWhileStrafing_AimsAsItDoesStanding(GordianKey key, AnimationCategory strafe)
-        {
-            if (Setup(CharacterRace.ElvaanMale, 484, 484, key, strafe, false) is not var (model, me, Frame, _)) return;
-            float strafing = OffHandPunchAim(model, me, Frame);
-
-            if (Setup(CharacterRace.ElvaanMale, 484, 484, GordianKey.W, AnimationCategory.CombatRun, false) is not var (standingModel, standingMe, _, _)) return;
-            AnimationCategory Standing()
-            {
-                standingMe.Animation.Advance(Dt, AnimationCategory.Combat, 0, standingModel);
-                return AnimationCategory.Combat;
-            }
-            for (int i = 0; i < 100; i++) Standing();
-            float standing = OffHandPunchAim(standingModel, standingMe, Standing);
-
-            float difference = MathF.Abs(((strafing - standing) % 360f + 540f) % 360f - 180f);
-            Assert.True(difference < 15f, $"off-hand punch aims {strafing:F0} degrees strafing, {standing:F0} standing");
-        }
 
         /// <summary>
         /// Round 8: the main-hand weapon (its grip re-parented into the right hand) stays rigidly in the hand through swings and
@@ -295,11 +210,8 @@ namespace Gordian.Engine.Tests.Animation
                 Assert.Same(locomotion, me.Animation.LowerBodyClip);
                 var shown = me.Animation.EvaluatePose(skeleton, overrides);
                 var legs = SkeletonPoseEvaluator.EvaluatePose(skeleton, locomotion, me.Animation.LowerBodyElapsedSeconds, true, overrides);
-                // The torso too: the spine up to the chest keeps the locomotion's twist (round 6: it turned square to the mob),
-                // except under the standing off-hand punch, which keeps its own square torso to aim at the target (round 8).
-                bool square = me.Animation.LowerBodyUnderStandingSwing;
-                Assert.Equal(routine.Name[2] == 'i', square);
-                foreach (int j in legJoints.Concat(Enumerable.Range(0, skeleton.Count).Where(j => !square && LocomotionLayering.IsSpine(skeleton, j))))
+                // The torso too: the spine up to the chest keeps the locomotion's twist (round 6: it turned square to the mob).
+                foreach (int j in legJoints.Concat(Enumerable.Range(0, skeleton.Count).Where(j => LocomotionLayering.IsSpine(skeleton, j))))
                 {
                     Assert.Equal(legs.Rotations[j], shown.Rotations[j]);
                     Assert.Equal(legs.Translations[j], shown.Translations[j]);
@@ -309,7 +221,7 @@ namespace Gordian.Engine.Tests.Animation
                 if (me.Animation.IsBlending) continue;
                 var swing = SkeletonPoseEvaluator.EvaluatePose(skeleton, me.Animation.CurrentClip, me.Animation.ElapsedSeconds, me.Animation.LoopsCurrentClip, overrides);
                 int chest = LocomotionLayering.Chest(skeleton);
-                var turn = square ? Quaternion.Identity : Quaternion.Normalize(shown.Rotations[chest] * Quaternion.Inverse(swing.Rotations[chest]));
+                var turn = Quaternion.Normalize(shown.Rotations[chest] * Quaternion.Inverse(swing.Rotations[chest]));
                 foreach (var v in weapons)
                 {
                     Vector3 inSwing = Skin(v, swing), inShown = Skin(v, shown);
