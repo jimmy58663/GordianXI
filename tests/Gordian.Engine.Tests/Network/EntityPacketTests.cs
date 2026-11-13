@@ -965,6 +965,86 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(0u, npc.Appearance.ModelId);
         }
 
+        /// <summary>
+        /// #533 round 2: a same-zone Home Point warp on retail sends the destination Home Point (Windurst Waters #3,
+        /// 0x010EE09A, index 154, model 51) a full update, a despawn and then a name-only update (send flags 0x08, the rest
+        /// zero). It must come back where it was, with its model, not as a new entity at 0,0,0.
+        /// </summary>
+        [Fact]
+        public void EntityPacketModule_HandleCharNpc_PartialUpdateAfterDespawnKeepsTheLastState()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+            void Send(byte[] payload) => dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            byte[] Packet(EntityUpdateFlags flags, float x = 0, float y = 0, float z = 0, ushort model = 0)
+            {
+                byte[] payload = new byte[0x40];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x010EE09A);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 154);
+                payload[6] = (byte)flags;
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(8, 4), x);
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(12, 4), y);
+                BinaryPrimitives.WriteSingleLittleEndian(payload.AsSpan(16, 4), z);
+                payload[26] = (byte)(model == 0 ? 0 : 100);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0x2E, 2), model);
+                return payload;
+            }
+
+            Send(Packet((EntityUpdateFlags)0x0F, 5, -4, -175, model: 51));
+            Send(Packet(EntityUpdateFlags.Despawn));
+            Assert.False(world.TryGetByServerId(0x010EE09A, out _));
+
+            Send(Packet(EntityUpdateFlags.Name));
+            Assert.True(world.TryGetByServerId(0x010EE09A, out var homePoint));
+            Assert.True(homePoint!.IsSpawned);
+            Assert.Equal(5f, homePoint.Position.X);
+            Assert.Equal(-175f, homePoint.Position.Z);
+            Assert.Equal(51u, homePoint.Appearance.ModelId);
+
+            // A zone change forgets despawned entities: a name-only update then makes a new one.
+            Send(Packet(EntityUpdateFlags.Despawn));
+            world.Clear();
+            Send(Packet(EntityUpdateFlags.Name));
+            Assert.True(world.TryGetByServerId(0x010EE09A, out var fresh));
+            Assert.Equal(0u, fresh!.Appearance.ModelId);
+        }
+
+        /// <summary>
+        /// An update with no send flags makes no entity (retail's flag-0 refreshes, #532) and leaves a despawned one kept for
+        /// the partial update that brings it back.
+        /// </summary>
+        [Fact]
+        public void EntityPacketModule_HandleCharNpc_FlagZeroUpdateMakesNoEntity()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+            void Send(byte[] payload) => dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+
+            byte[] spawn = new byte[0x40];
+            BinaryPrimitives.WriteUInt32LittleEndian(spawn.AsSpan(0, 4), 0x010EE09A);
+            BinaryPrimitives.WriteUInt16LittleEndian(spawn.AsSpan(4, 2), 154);
+            spawn[6] = 0x0F;
+            BinaryPrimitives.WriteSingleLittleEndian(spawn.AsSpan(8, 4), 5f);
+            BinaryPrimitives.WriteUInt16LittleEndian(spawn.AsSpan(0x2E, 2), 51);
+            Send(spawn);
+            byte[] despawn = (byte[])spawn.Clone();
+            despawn[6] = (byte)EntityUpdateFlags.Despawn;
+            Send(despawn);
+            byte[] refresh = (byte[])spawn.Clone();
+            refresh[6] = 0;
+            Send(refresh);
+
+            Assert.False(world.TryGetByServerId(0x010EE09A, out _));
+
+            byte[] name = (byte[])spawn.Clone();
+            name[6] = (byte)EntityUpdateFlags.Name;
+            Send(name);
+            Assert.True(world.TryGetByServerId(0x010EE09A, out var entity));
+            Assert.Equal(5f, entity!.Position.X);
+        }
+
         [Fact]
         public void S2C_0x00E_CharNpc_StatusBitsDoNotLeakIntoSubKind()
         {
