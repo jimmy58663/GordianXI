@@ -21,6 +21,17 @@ namespace Gordian.Core.Network.Packets
         private readonly Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? _logPacketCallback;
         private readonly Dictionary<ushort, DateTime> _pendingEntityRequests = new();
 
+        /// <summary>
+        /// 0x00E entities the server despawned in this zone, by ServerId, with their last known state. A later update for
+        /// one that has send flags but no <c>Position</c> flag brings it back as it was and applies only what the update
+        /// carries (#533 round 2): at a same-zone Home Point warp retail sends the destination Home Point a full update,
+        /// a despawn, the 0x065 move and then a name-only update (send flags 0x08, everything else zero; Windurst Waters,
+        /// 2026-11-12 19:58:57), and the next full update came about a minute later. Retail drew the Home Point at once, so
+        /// its client keeps the entity's state through the despawn. *Inferred* from that sequence; XiPackets describes the
+        /// Despawn flag only as "the entity is being despawned". **Beyond XiPackets.**
+        /// </summary>
+        private readonly Dictionary<uint, WorldEntity> _despawnedNpcs = new();
+
         public bool LogOutboundOnRoute { get; set; } = true;
 
         public WorldState World => _world;
@@ -51,6 +62,7 @@ namespace Gordian.Core.Network.Packets
             _world.EntitySpawned += (e) => EntitySpawned?.Invoke(e);
             _world.EntityUpdated += (e) => EntityUpdated?.Invoke(e);
             _world.EntityDespawned += (e) => EntityDespawned?.Invoke(e);
+            _world.WorldCleared += () => _despawnedNpcs.Clear();
         }
 
         public void Register(IPacketDispatcher dispatcher)
@@ -324,6 +336,10 @@ namespace Gordian.Core.Network.Packets
             {
                 GordianLog.Debug("ENTITY", $"NPC/Mob despawn: ServerId=0x{npcPacket.UniqueNo:X8}, Index={npcPacket.ActorIndex}");
                 _pendingEntityRequests.Remove(npcPacket.ActorIndex);
+                if (_world.TryGetByServerId(npcPacket.UniqueNo, out var leaving))
+                {
+                    _despawnedNpcs[npcPacket.UniqueNo] = leaving;
+                }
                 _world.RemoveEntity(npcPacket.UniqueNo);
                 return;
             }
@@ -341,8 +357,23 @@ namespace Gordian.Core.Network.Packets
             bool isNew = false;
             if (!_world.TryGetByServerId(npcPacket.UniqueNo, out var existing) || existing == null)
             {
-                entity = new WorldEntity(npcPacket.UniqueNo, npcPacket.ActorIndex, type);
-                isNew = true;
+                if (npcPacket.UpdateFlags == EntityUpdateFlags.None)
+                {
+                    // Retail's flag-0 refresh (#532) carries nothing: no entity is made from it.
+                    return;
+                }
+                if (!npcPacket.HasPosition && _despawnedNpcs.Remove(npcPacket.UniqueNo, out var kept))
+                {
+                    // Back from a despawn with a partial update: keep its last state and apply only the flagged fields.
+                    GordianLog.Debug("ENTITY", $"NPC back from despawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} flags=0x{(byte)npcPacket.UpdateFlags:X2}: " +
+                        $"kept pos=({kept.Position.X:F1},{kept.Position.Y:F1},{kept.Position.Z:F1}) model={kept.Appearance.ModelId}");
+                    entity = kept;
+                }
+                else
+                {
+                    entity = new WorldEntity(npcPacket.UniqueNo, npcPacket.ActorIndex, type);
+                    isNew = true;
+                }
             }
             else
             {

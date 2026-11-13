@@ -298,5 +298,106 @@ namespace Gordian.Core.Tests.Network
             Assert.False(mgr.ProcessInboundDatagram(Encrypt(plain, goodKey)));
             Assert.Equal(1, mgr.Performance.DuplicateDatagramsDropped);
         }
+        private static byte[] Concat(params byte[][] parts)
+        {
+            var all = new List<byte>();
+            foreach (byte[] part in parts) all.AddRange(part);
+            return all.ToArray();
+        }
+
+        /// <summary>
+        /// #533: a retail map server repeats a sub-packet, with the sync of the datagram it was first sent in, in its next
+        /// datagrams until our ack covers it (live retail 2026-11-12: datagram 5 repeated datagram 4's sub-packets, datagram
+        /// 12 carried syncs 10, 11 and 12). Each is dispatched once; the new sub-packets beside the resent ones still are.
+        /// </summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_SkipsResentSubPacketsByTheirSync()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            var seen = new List<string>();
+            mgr.ChatModule.ChatMessageReceived += msg => seen.Add(msg.Message);
+
+            byte[] first = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "first", sequenceId: 4);
+            byte[] second = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "second", sequenceId: 5);
+            byte[] third = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "third", sequenceId: 6);
+
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(4, 1, first)));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(5, 1, first)));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(6, 1, Concat(first, second))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(7, 1, Concat(first, second, third))));
+
+            Assert.Equal(new[] { "first", "second", "third" }, seen);
+            Assert.Equal(7, mgr.ServerPacketIdSequence);
+            Assert.Equal(0, mgr.Performance.DuplicateDatagramsDropped);
+        }
+
+        /// <summary>
+        /// #533 round 1: after a same-zone Home Point warp the destination Home Point's spawn never arrived. A group that
+        /// turns up after a newer one, with its older sync, is new and must be dispatched; only exact repeats are skipped.
+        /// </summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_DispatchesALateGroupWithAnOlderSync()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            var seen = new List<string>();
+            mgr.ChatModule.ChatMessageReceived += msg => seen.Add(msg.Message);
+
+            byte[] newer = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "newer", sequenceId: 11);
+            byte[] late = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "late", sequenceId: 10);
+
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(11, 1, newer)));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(12, 1, Concat(late, newer))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(13, 1, Concat(late, newer))));
+
+            Assert.Equal(new[] { "newer", "late" }, seen);
+        }
+
+        /// <summary>Two identical sub-packets in one group are both dispatched, and both skipped when the group repeats.</summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_CountsIdenticalSubPacketsInOneGroup()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            int count = 0;
+            mgr.ChatModule.ChatMessageReceived += _ => count++;
+
+            byte[] twice = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "twice", sequenceId: 7);
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(7, 1, Concat(twice, twice))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(8, 1, Concat(twice, twice))));
+
+            Assert.Equal(2, count);
+        }
+
+        /// <summary>Several sub-packets of one sync in one datagram are all new together; the sync wraps at 16 bits.</summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_DispatchesEverySubPacketOfANewSyncAcrossTheWrap()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            var seen = new List<string>();
+            mgr.ChatModule.ChatMessageReceived += msg => seen.Add(msg.Message);
+
+            byte[] a = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "a", sequenceId: 0xFFFF);
+            byte[] b = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "b", sequenceId: 0xFFFF);
+            byte[] c = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "c", sequenceId: 0);
+
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(0xFFFF, 1, Concat(a, b))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(0, 1, Concat(a, b, c))));
+
+            Assert.Equal(new[] { "a", "b", "c" }, seen);
+        }
+
+        /// <summary>LandSandBoat stamps every sub-packet with its datagram's sequence and resends whole datagrams: no sync filter.</summary>
+        [Fact]
+        public void ProcessInboundDatagram_LandSandBoat_DoesNotFilterBySync()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230);
+            int count = 0;
+            mgr.ChatModule.ChatMessageReceived += _ => count++;
+
+            byte[] chat = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "same sync", sequenceId: 1);
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(1, 1, chat)));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(2, 1, chat)));
+
+            Assert.Equal(2, count);
+        }
     }
 }
