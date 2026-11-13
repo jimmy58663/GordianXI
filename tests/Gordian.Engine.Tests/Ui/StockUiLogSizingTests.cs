@@ -24,6 +24,38 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void WrappedLine_GrowsTheWindowByAllItsRows()
+        {
+            // #519: an NPC line that wraps to four rows grows the log four lines, not one (retail: a two-row message grows
+            // the log 32 px at once). 8-px glyphs in a 160-px text area: 20 characters a row.
+            var log = new StockUiChatLog();
+            Func<char, float> advance = _ => 8;
+            int RowsOfNewest(int count)
+            {
+                var lines = new System.Collections.Generic.List<ChatLogLine>();
+                log.CopyVisible(1, count, lines);
+                int rows = 0;
+                foreach (var line in lines) rows += StockUiChatLog.GetWrappedRows(line, advance, 160, 0).Count;
+                return rows;
+            }
+
+            var sizing = new StockUiLogSizing();
+            sizing.Update(0, log.AddedCount(1), true, 0, 10, 2, false, rowsOfNewest: RowsOfNewest);
+            log.Add(ChatLogChannel.Say, "Pulloie : You can also change jobs there in your Mog House.");
+            Assert.Equal(4, RowsOfNewest(1));  // "Pulloie : You can" / "also change jobs" / "there in your Mog" / "House."
+            Assert.Equal(4, sizing.Update(0.1, log.AddedCount(1), true, 0, 10, 2, false, rowsOfNewest: RowsOfNewest));
+            log.Add(ChatLogChannel.Say, "Short line.");
+            Assert.Equal(5, sizing.Update(0.2, log.AddedCount(1), true, 0, 10, 2, false, rowsOfNewest: RowsOfNewest));
+            // Still capped at the maximum.
+            for (int i = 0; i < 3; i++) log.Add(ChatLogChannel.Say, "Pulloie : You can also change jobs there in your Mog House.");
+            Assert.Equal(10, sizing.Update(0.3, log.AddedCount(1), true, 0, 10, 2, false, rowsOfNewest: RowsOfNewest));
+            // Without a row count (no log font yet) a line still counts one.
+            var plain = new StockUiLogSizing();
+            plain.Update(0, 0, true, 0, 10, 2, false);
+            Assert.Equal(1, plain.Update(0.1, 1, true, 0, 10, 2, false));
+        }
+
+        [Fact]
         public void Floor_LetsTheLogShrinkOnlyToTheDialogRowsWhileAnEventLineWaits()
         {
             var sizing = new StockUiLogSizing();

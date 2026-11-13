@@ -114,8 +114,8 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(options.IsEquipSetOptions);
             byte[] optionsShot = All("gpu_equip_set_options.png");
             var op = Place(options);
-            // The grid at its own place (16,48 top left), the options right against the list at the top right.
-            Assert.Equal((int)lp.X - 112, (int)op.X);
+            // The options' left edge 95 px left of the list's, their right 17 px over its frame (#385, retail 2026-11-08: x 2337 against 2432).
+            Assert.Equal((int)lp.X - 95, (int)op.X);
             // No grid until Edit (round 2): the screen's left is the clear colour where the grid's Head slot would be.
             var clear = screen.Pixel(optionsShot, 2, 2);
             Assert.Equal(clear, screen.Pixel(optionsShot, 16 + 24 + 16, 48 + 45 + 16));
@@ -170,11 +170,13 @@ namespace Gordian.App.Tests.Graphics
                 Assert.True(screen.Resources.TryGetString(DMsgCategory.MenuMessages, id, out var text));
                 var prompt = menus.OpenYesNo(text, defaultYes: false, _ => { });
                 Assert.NotNull(prompt);
-                var f = prompt!.Menu.Frame;
+                // Written upright from the top left and wrapped there, as the options' Confirm opens them (#385, retail 2026-11-08).
+                prompt!.PromptTextLeft = true;
+                var f = prompt.Menu.Frame;
                 var at = StockUiLayout.Place(f.Anchor, f.X, f.Y, f.Width, f.Height, 1, screen.Width, screen.Height);
                 byte[] shot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, prompt, at, 0, logFont: screen.LogFont, screen: layout), $"gpu_set_prompt_{id}.png");
                 Assert.False(SpillsRight(screen, shot, at, f), $"prompt {id} runs out of its window");
-                Assert.True(screen.HasLightPixel(shot, (int)at.X + 8, (int)(at.X + f.Width) - 8, (int)at.Y + 30), $"no text in prompt {id}");
+                Assert.True(screen.HasLightPixel(shot, (int)at.X + 4, (int)at.X + 40, (int)at.Y + 13), $"no text at prompt {id}'s top left");
             }
 
             // "Examine ...?" with the longest key item name in the table.
@@ -201,5 +203,17 @@ namespace Gordian.App.Tests.Graphics
             var ep = StockUiLayout.Place(ef.Anchor, ef.X, ef.Y, ef.Width, ef.Height, 1, screen.Width, screen.Height);
             byte[] examineShot = screen.Render(r => StockUiMenuWindow.Draw(r, screen.Library, screen.Font, examine, ep, 0, logFont: screen.LogFont, screen: layout), "gpu_key_item_examine_long.png");
             Assert.False(SpillsRight(screen, examineShot, ep, ef), $"\"{examine.KeyItemQuestion}\" runs out of its window");
-        }    }
+        }
+
+        [Fact]
+        public void LogFont_DrawsTheMountNote()
+        {
+            using var screen = StockUiOffscreen.TryCreate();
+            if (screen?.LogFont is not { } font) return;
+            // moji cell 238 (CP932 0x81F4): mount key item names start with one eighth note, about 8 px of ink with no extra gap
+            // after it (#385, retail capture on local LSB 2026-11-08: ink at x 97-104, the name from 108). The advance runs from the
+            // cell's left edge to 2 px past the ink, as every glyph's.
+            Assert.InRange(font.GetAdvance('♪'), 10, 16);
+        }
+    }
 }

@@ -13,8 +13,9 @@ namespace Gordian.Engine.Ui
     /// The window's height follows the line count smoothly (<see cref="DisplayLines"/> moves towards
     /// <see cref="Lines"/> at <see cref="LinesPerSecond"/>, easing in the last line). Behaviour from the maintainer's
     /// in-game comparison (2026-10-04, #48); the resize timing follows retail videos (2026-10-18):
-    /// Resize Time is 3 s plus 1 s per slider step (0-27) per line, measured from retail videos. New lines count one line each,
-    /// however many rows they wrap to.
+    /// Resize Time is 3 s plus 1 s per slider step (0-27) per line, measured from retail videos. A new line grows the window
+    /// by every row it wraps to (#519, retail: a two-row message grows the log 32 px at once), when the caller says how many
+    /// rows the new lines take; otherwise one line each.
     /// </para>
     /// </summary>
     public sealed class StockUiLogSizing
@@ -44,13 +45,18 @@ namespace Gordian.Engine.Ui
         /// counter (<see cref="StockUiChatLog.AddedCount"/>) and its settings; returns the target line count. Read
         /// <see cref="DisplayLines"/> for the height to draw. <paramref name="floor"/> is the least lines
         /// the window may shrink to while an event line waits for Confirm: the rows of that dialog (#369, retail: the window still
-        /// shrinks and grows, but never below the line the NPC's dialog started on).
+        /// shrinks and grows, but never below the line the NPC's dialog started on). <paramref name="rowsOfNewest"/>, when given,
+        /// returns the wrapped rows of the window's newest n lines, so a line that wraps grows the window by all its rows (#519).
         /// </summary>
-        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, int floor = 0, long shrinkRequests = 0)
+        public int Update(double now, long addedCount, bool reactive, int minLines, int maxLines, double resizeSeconds, bool expanded, int floor = 0, long shrinkRequests = 0,
+            Func<int, int>? rowsOfNewest = null)
         {
             maxLines = Math.Max(1, maxLines);
             minLines = Math.Clamp(minLines, 0, maxLines);
             long added = _seen < 0 ? 0 : Math.Max(0, addedCount - _seen);
+            // Only the newest maxLines lines can show, so no more need measuring.
+            if (added > 0 && rowsOfNewest != null && reactive && !expanded)
+                added = Math.Max(added, rowsOfNewest((int)Math.Min(added, maxLines)));
             _seen = addedCount;
             double elapsed = double.IsNaN(_lastUpdate) ? 0 : Math.Max(0, now - _lastUpdate);
             _lastUpdate = now;

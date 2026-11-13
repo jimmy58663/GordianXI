@@ -485,9 +485,26 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(options.IsEquipSetOptions);
             Assert.Equal(3, options.EquipSetNumber);
             Assert.Equal(StockUiEquipSets.OptionsX, options.Menu.Frame.X);
-            // An empty set greys Equip and Style Lock; nothing is copied yet, so Paste is greyed.
-            Assert.True(options.IsGreyed(StockUiEquipSets.EquipButton));
+            // #385 (retail, 2026-11-08): only Paste is greyed, until a set is copied; an empty set's Equip and Style Lock stay white,
+            // and Equip on it logs "Set #3 equipped." with nothing sent.
+            Assert.False(options.IsGreyed(StockUiEquipSets.EquipButton));
+            var tinted = new List<string>();
+            h.Menus.TintedNoticePosted += (m, _) => { lock (tinted) tinted.Add(m); };
+            h.Choose(StockUiEquipSets.EquipButton);
+            Assert.Equal(new[] { "Set #3 equipped." }, tinted);
+            Assert.Empty(h.Equipped);
+            Assert.False(options.IsGreyed(StockUiEquipSets.StyleLockButton));
             Assert.True(options.IsGreyed(StockUiEquipSets.PasteButton));
+            // Its top is level with the chosen set's capsule (row 3 of the list).
+            var chosen = options.Parent!;
+            Assert.True(chosen.IsEquipSetList);
+            Assert.Equal(chosen.Menu.Frame.Y + chosen.Menu.Buttons.First(b => b.ButtonId == 3).Y, options.Menu.Frame.Y);
+            // Left of the list, overlapping its frame, and the list stays drawn with them (round 1 of 2026-11-12).
+            Assert.True(options.Menu.Frame.X < chosen.Menu.Frame.X);
+            Assert.False(options.OverlapsAuthored(chosen));
+            // The help bar: the set's name, and over the list "Equipment Set (#N)".
+            Assert.Equal("Set003", StockUiMenuHelpBar.Of(options, null, null).Title);
+            Assert.Equal(("Set003", "Equipment Set (#3)"), StockUiMenuHelpBar.Of(chosen, null, null));
 
             // Use Current asks first (ROM/165/72 #279).
             h.Choose(StockUiEquipSets.UseCurrentButton);
@@ -502,18 +519,46 @@ namespace Gordian.Engine.Tests.Ui
             h.Choose(StockUiEquipSets.StyleLockButton);
             Assert.Equal(new[] { 3 }, h.Equipped);
             Assert.Equal(new[] { 3 }, h.Locked);
+            for (int i = 0; i < 50 && tinted.Count < 2; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            lock (tinted) Assert.Equal(new[] { "Set #3 equipped.", "Set #3 equipped." }, tinted);
 
-            // Copy, then Paste into another set (it asks, #277).
+            // Copy goes back to the set list with no message (#385, retail), then Paste into another set (it asks, #277).
+            int notices = h.Notices.Count;
             h.Choose(StockUiEquipSets.CopyButton);
-            Assert.False(options.IsGreyed(StockUiEquipSets.PasteButton));
-            h.Menus.CloseTop();
+            Assert.Equal(notices, h.Notices.Count);
             var list = h.Menus.Top!;
+            Assert.True(list.IsEquipSetList);
             list.SelectedButtonId = 5;
             h.Menus.Activate();
             h.Choose(StockUiEquipSets.PasteButton);
             Assert.Equal(StockUiEquipSets.FallbackText(StockUiEquipSets.PastePromptText), h.Menus.Top!.Message);
+            Assert.False(h.Menus.OpenMenus.First(m => m.IsEquipSetOptions).IsGreyed(StockUiEquipSets.PasteButton));
             await AnswerYesAsync(h, () => !h.Book.Get(5).IsEmpty);
             Assert.Equal(set[EquipSlotId.Main], h.Book.Get(5)[EquipSlotId.Main]);
+        }
+
+        /// <summary>
+        /// #385 (retail, 2026-11-08): the set prompts are written from the window's top left; No keeps the options, and Esc goes back
+        /// to the set list, closing the options too.
+        /// </summary>
+        [Fact]
+        public async Task EquipSets_PromptEscGoesBackToTheList_NoKeepsTheOptions()
+        {
+            var h = new SetHarness();
+            h.Book.Set(2, new EquipmentSet("Kept").WithPiece(EquipSlotId.Head, EquipmentSetPiece.Item(ContainerId.Inventory, 4, BronzeCap)));
+            var options = h.OpenOptions(2);
+            h.Choose(StockUiEquipSets.DeleteButton);
+            Assert.True(h.Menus.Top!.PromptTextLeft);
+            h.Choose(2); // No
+            for (int i = 0; i < 50 && !ReferenceEquals(h.Menus.Top, options); i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.Same(options, h.Menus.Top);
+
+            h.Choose(StockUiEquipSets.DeleteButton);
+            h.Menus.CloseTop(); // Esc
+            for (int i = 0; i < 50 && !h.Menus.Top!.IsEquipSetList; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.True(h.Menus.Top!.IsEquipSetList);
+            Assert.DoesNotContain(h.Menus.OpenMenus, m => m.IsEquipSetOptions);
+            Assert.False(h.Book.Get(2).IsEmpty);
         }
 
         [Fact]

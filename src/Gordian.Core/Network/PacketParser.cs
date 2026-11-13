@@ -466,6 +466,16 @@ namespace Gordian.Core.Network
         /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
         internal int SubPacketTrace { get; set; }
 
+        /// <summary>How many datagrams after a retail S2C 0x065 move log their sub-packets.</summary>
+        internal const int ServerMoveTraceDatagrams = 20;
+
+        /// <summary>
+        /// Recognises the sub-packets a retail map server repeats until our ack covers them (#533). LandSandBoat resends
+        /// whole datagrams, which the session's sequence window drops, so only a retail session filters
+        /// (<see cref="Packets.LifecyclePacketModule.RetailMapHandshake"/>). A new map server gets a new filter.
+        /// </summary>
+        internal RetailResendFilter ResendFilter { get; set; } = new();
+
         /// <summary>
         /// Processes an incoming raw UDP datagram buffer.
         /// Performs decryption, MD5 checksum validation, custom zlib decompression,
@@ -556,13 +566,18 @@ namespace Gordian.Core.Network
 
             // 3. Iterate concatenated sub-packets and dispatch
             ReadOnlySpan<byte> subPackets = _decompressionScratch.AsSpan(0, decompressedBytes);
-            if (SubPacketTrace > 0)
+            bool traced = SubPacketTrace > 0;
+            if (traced)
             {
                 SubPacketTrace--;
                 GordianLog.Debug("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
             }
+            bool serverMove = false;
             int offset = 0;
             int inboundSubPacketCount = 0;
+            int resentSubPacketCount = 0;
+            bool filterResends = LifecycleModule.RetailMapHandshake;
+            if (filterResends) ResendFilter.BeginDatagram();
 
             while (offset + 4 <= subPackets.Length)
             {
@@ -577,11 +592,39 @@ namespace Gordian.Core.Network
 
                 ReadOnlySpan<byte> fullSubPacket = current.Slice(0, header.TotalSize);
                 ReadOnlySpan<byte> packetPayload = current.Slice(4, header.TotalSize - 4);
+                offset += header.TotalSize;
+
+                if (filterResends)
+                {
+                    if (ResendFilter.IsRepeat(header.SequenceId, fullSubPacket, out bool late))
+                    {
+                        resentSubPacketCount++;
+                        continue;
+                    }
+                    if (late)
+                    {
+                        // Evidence for the round 1 failure: a group first seen after a newer one.
+                        GordianLog.Debug("NET", $"Late sub-packet 0x{header.PacketId:X3} with sync {header.SequenceId} (newest {ResendFilter.NewestSync}): dispatched.");
+                    }
+                }
 
                 LogPacket(PacketDirection.Inbound, header.PacketId, header.SequenceId, fullSubPacket);
                 _dispatcher.Dispatch(header, packetPayload);
                 inboundSubPacketCount++;
-                offset += header.TotalSize;
+                if (header.PacketId == S2C_0x065_WPos2.PacketId) serverMove = true;
+            }
+
+            // A server move (a same-zone Home Point warp, #533) re-sends the entities around the player: dump this datagram
+            // and the next ones, as after a login, so a retail round captures the exact 0x00E sequence.
+            if (serverMove && filterResends)
+            {
+                if (!traced) GordianLog.Debug("NET", $"Map datagram in (0x065 move): {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+                SubPacketTrace = Math.Max(SubPacketTrace, ServerMoveTraceDatagrams);
+            }
+
+            if (resentSubPacketCount > 0)
+            {
+                GordianLog.Debug("NET", $"Skipped {resentSubPacketCount} resent sub-packets (already dispatched; newest sync {ResendFilter.NewestSync}).");
             }
 
             if (inboundSubPacketCount > 0)
