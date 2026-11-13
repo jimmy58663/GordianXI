@@ -914,10 +914,18 @@ namespace Gordian.Core.Animation
             if (LowerBodyClip is { } lowerBody)
             {
                 var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
-                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
+                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides, LowerBodyUnderStandingSwing);
             }
             return pose;
         }
+
+        /// <summary>
+        /// Whether the swing over <see cref="LowerBodyClip"/> is a standing one (<c>ati?</c> / <c>bti?</c>: the hand-to-hand off-hand
+        /// punch, which has no moving version), authored square to the target: its torso is kept square
+        /// (<see cref="LocomotionLayering.Combine"/>, round 8). The moving swings (<c>atf0</c>, <c>atr0</c>...) keep the walk or
+        /// run's torso twist.
+        /// </summary>
+        public bool LowerBodyUnderStandingSwing => _underlayClip != null && ActiveRoutine is { Name.Length: 4 } routine && routine.Name[2] == 'i';
 
         /// <summary>The time in <see cref="LowerBodyClip"/>, in seconds.</summary>
         public float LowerBodyElapsedSeconds => _underlayClip != null ? _underlayElapsed : ElapsedSeconds;

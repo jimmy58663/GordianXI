@@ -154,6 +154,101 @@ namespace Gordian.Engine.Tests.Animation
             Assert.True(leftReachOffHand > rightReachOffHand, $"off-hand punch: left {leftReachOffHand:F2}, right {rightReachOffHand:F2}");
         }
 
+        private static ActionRequest Swing(PlayerEntity me, ushort subKind) => new()
+        {
+            ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = subKind,
+            ReceivedTimestamp = Stopwatch.GetTimestamp()
+        };
+
+        /// <summary>
+        /// The horizontal direction (degrees, model space) the left hand reaches furthest from the spine root during the next
+        /// off-hand punch, played on <paramref name="frame"/> after an off-hand hit is queued.
+        /// </summary>
+        private static float OffHandPunchAim(EntityModel model, PlayerEntity me, Func<AnimationCategory> frame)
+        {
+            var skeleton = model.Skeleton!;
+            int leftHand = skeleton.References[126].Index, spine = LocomotionLayering.UpperBodyRoot(skeleton);
+            me.Animation.EnqueueAction(Swing(me, 1));
+            float best = -1f, aim = 0f;
+            for (int i = 0; i < 144 * 2; i++)
+            {
+                frame();
+                if (me.Animation.ActiveRoutine?.Name.StartsWith("bti", StringComparison.Ordinal) != true) continue;
+                var pose = me.Animation.EvaluatePose(skeleton, model.ParentOverrides);
+                var reach = pose.Translations[leftHand] - pose.Translations[spine];
+                float distance = new Vector2(reach.X, reach.Z).Length();
+                if (distance > best)
+                {
+                    best = distance;
+                    aim = MathF.Atan2(reach.Z, reach.X) * 180f / MathF.PI;
+                }
+            }
+            Assert.True(best > 0f, "no off-hand punch played");
+            return aim;
+        }
+
+        /// <summary>
+        /// Round 8: the off-hand punch played while strafing (the standing clip over the strafe) aims where it does standing,
+        /// at the target, not off to the side along the strafe's twisted chest.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight)]
+        [InlineData(GordianKey.A, AnimationCategory.CombatMoveLeft)]
+        public void TheOffHandPunchWhileStrafing_AimsAsItDoesStanding(GordianKey key, AnimationCategory strafe)
+        {
+            if (Setup(CharacterRace.ElvaanMale, 484, 484, key, strafe, false) is not var (model, me, Frame, _)) return;
+            float strafing = OffHandPunchAim(model, me, Frame);
+
+            if (Setup(CharacterRace.ElvaanMale, 484, 484, GordianKey.W, AnimationCategory.CombatRun, false) is not var (standingModel, standingMe, _, _)) return;
+            AnimationCategory Standing()
+            {
+                standingMe.Animation.Advance(Dt, AnimationCategory.Combat, 0, standingModel);
+                return AnimationCategory.Combat;
+            }
+            for (int i = 0; i < 100; i++) Standing();
+            float standing = OffHandPunchAim(standingModel, standingMe, Standing);
+
+            float difference = MathF.Abs(((strafing - standing) % 360f + 540f) % 360f - 180f);
+            Assert.True(difference < 15f, $"off-hand punch aims {strafing:F0} degrees strafing, {standing:F0} standing");
+        }
+
+        /// <summary>
+        /// Round 8: the main-hand weapon (its grip re-parented into the right hand) stays rigidly in the hand through swings and
+        /// hit reactions, standing and strafing. The off-hand claw of a hand-to-hand weapon is carried by its mount joint, not
+        /// re-parented, and drifts up to about 0.6 yalm in hit reactions on main as well: tracked separately, not part of #511.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, true)]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
+        public void TheMainHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving)
+        {
+            if (Setup(CharacterRace.ElvaanMale, 484, 484, key, strafe, false) is not var (model, me, Frame, _)) return;
+            var skeleton = model.Skeleton!;
+            var overrides = model.ParentOverrides!;
+            int rightHand = skeleton.References[127].Index;
+            var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 0).SelectMany(g => g.Vertices).Take(40).ToArray();
+            Func<AnimationCategory> step = moving ? Frame : () =>
+            {
+                me.Animation.Advance(Dt, AnimationCategory.Combat, 0, model);
+                return AnimationCategory.Combat;
+            };
+            for (int i = 0; i < 60; i++) step();
+            Vector3 InHand(SkeletonPoseEvaluator.EvaluatedPose pose, AnimatedMeshVertex v) =>
+                Vector3.Transform(Skin(v, pose) - pose.Translations[rightHand], Quaternion.Inverse(pose.Rotations[rightHand]));
+            var first = me.Animation.EvaluatePose(skeleton, overrides);
+            var held = claw.Select(v => InHand(first, v)).ToArray();
+            float drift = 0f;
+            for (int f = 0; f < 144 * 5; f++)
+            {
+                if (f % 144 == 10) me.Animation.EnqueueAction(Swing(me, (ushort)(f / 144 % 2)));
+                if (f % 144 == 100) me.Animation.EnqueueReaction(new HitReaction(default, 1f, 0, f % 288 == 100, default, 0, 0, 0, Stopwatch.GetTimestamp(), default, default));
+                step();
+                var pose = me.Animation.EvaluatePose(skeleton, overrides);
+                for (int k = 0; k < claw.Length; k++) drift = Math.Max(drift, Vector3.Distance(InHand(pose, claw[k]), held[k]));
+            }
+            Assert.True(drift < 0.002f, $"main-hand claw drifted {drift:F3} yalm from the hand");
+        }
+
         [Theory]
         [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight)]
         [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft)]
@@ -200,8 +295,11 @@ namespace Gordian.Engine.Tests.Animation
                 Assert.Same(locomotion, me.Animation.LowerBodyClip);
                 var shown = me.Animation.EvaluatePose(skeleton, overrides);
                 var legs = SkeletonPoseEvaluator.EvaluatePose(skeleton, locomotion, me.Animation.LowerBodyElapsedSeconds, true, overrides);
-                // The torso too: the spine up to the chest keeps the locomotion's twist (round 6: it turned square to the mob).
-                foreach (int j in legJoints.Concat(Enumerable.Range(0, skeleton.Count).Where(j => LocomotionLayering.IsSpine(skeleton, j))))
+                // The torso too: the spine up to the chest keeps the locomotion's twist (round 6: it turned square to the mob),
+                // except under the standing off-hand punch, which keeps its own square torso to aim at the target (round 8).
+                bool square = me.Animation.LowerBodyUnderStandingSwing;
+                Assert.Equal(routine.Name[2] == 'i', square);
+                foreach (int j in legJoints.Concat(Enumerable.Range(0, skeleton.Count).Where(j => !square && LocomotionLayering.IsSpine(skeleton, j))))
                 {
                     Assert.Equal(legs.Rotations[j], shown.Rotations[j]);
                     Assert.Equal(legs.Translations[j], shown.Translations[j]);
@@ -211,7 +309,7 @@ namespace Gordian.Engine.Tests.Animation
                 if (me.Animation.IsBlending) continue;
                 var swing = SkeletonPoseEvaluator.EvaluatePose(skeleton, me.Animation.CurrentClip, me.Animation.ElapsedSeconds, me.Animation.LoopsCurrentClip, overrides);
                 int chest = LocomotionLayering.Chest(skeleton);
-                var turn = Quaternion.Normalize(shown.Rotations[chest] * Quaternion.Inverse(swing.Rotations[chest]));
+                var turn = square ? Quaternion.Identity : Quaternion.Normalize(shown.Rotations[chest] * Quaternion.Inverse(swing.Rotations[chest]));
                 foreach (var v in weapons)
                 {
                     Vector3 inSwing = Skin(v, swing), inShown = Skin(v, shown);
