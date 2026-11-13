@@ -991,9 +991,16 @@ namespace Gordian.Core.Resources
                 }
 
                 // Shields (in Sub slot) have animType 0xFF or stdJoint 125 (shield back mount) or 0xFF,
-                // and are skinned directly to the Left Forearm joint. They must NOT be re-parented to the hand.
+                // and are skinned directly to the left hand (reference 126) or the forearm. They must NOT be re-parented.
+                // The off-hand claw of a hand-to-hand weapon reads the same (animType 0xFF, stdJoint 125) but is skinned to
+                // the mount itself, which the battle stance holds exactly on the left hand and the swings, flinches and
+                // cross-fades let drift off it: that mount is re-parented into the left hand (#546).
                 if (slot == CharacterSlot.Sub && (animTypeByte == 0xFF || stdJointByte == 125 || stdJointByte == 0xFF))
                 {
+                    if (stdJointByte == 125 && IsSkinnedOnlyTo(dat.Span, refs[125].Index) && refs[125].Index != refs[126].Index)
+                    {
+                        overrides[refs[125].Index] = refs[126].Index;
+                    }
                     continue;
                 }
 
@@ -1036,6 +1043,26 @@ namespace Gordian.Core.Resources
             }
 
             return overrides;
+        }
+
+        /// <summary>
+        /// Whether every skinned vertex of a gear DAT's meshes binds to <paramref name="joint"/> alone: the hand-to-hand
+        /// off-hand claws (Elvaan male sub looks 117-183 on mount joint 98), not the shields (skinned to the left hand, joint
+        /// 66, or the forearm 68). Scan of Elvaan male sub looks 1-1099, 2026-11-13.
+        /// </summary>
+        private static bool IsSkinnedOnlyTo(ReadOnlySpan<byte> dat, int joint)
+        {
+            var container = ParseDatContainer(dat, "WeaponInspect");
+            bool any = false;
+            foreach (var mesh in container.Meshes)
+            {
+                foreach (var v in mesh.Vertices)
+                {
+                    if (v.Joint0 >= 0 && v.Joint0 != joint || v.Joint1 >= 0 && v.Joint1 != joint) return false;
+                    any |= v.Joint0 >= 0;
+                }
+            }
+            return any;
         }
 
         /// <summary>

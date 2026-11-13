@@ -129,19 +129,33 @@ namespace Gordian.Engine.Tests.Animation
 
         /// <summary>
         /// Round 8: the main-hand weapon (its grip re-parented into the right hand) stays rigidly in the hand through swings and
-        /// hit reactions, standing and strafing. The off-hand claw of a hand-to-hand weapon is carried by its mount joint, not
-        /// re-parented, and drifts up to about 0.6 yalm in hit reactions on main as well: tracked separately, not part of #511.
+        /// hit reactions, standing and strafing.
         /// </summary>
         [Theory]
         [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, true)]
         [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
-        public void TheMainHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving)
+        public void TheMainHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving) =>
+            AssertWeaponStaysInHand(key, strafe, moving, weaponSlot: 0, handReference: 127);
+
+        /// <summary>
+        /// #546: the off-hand claw of a hand-to-hand weapon (its mount joint re-parented into the left hand, reference 126) stays
+        /// rigidly in the left hand through swings and hit reactions, standing and strafing. Before the fix it was carried by
+        /// the clips' own mount track and drifted up to about 0.2 yalm in swings and 0.6 yalm in hit reactions.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, true)]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
+        public void TheOffHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving) =>
+            AssertWeaponStaysInHand(key, strafe, moving, weaponSlot: 1, handReference: 126);
+
+        private static void AssertWeaponStaysInHand(GordianKey key, AnimationCategory strafe, bool moving, int weaponSlot, int handReference)
         {
             if (Setup(CharacterRace.ElvaanMale, 484, 484, key, strafe, false) is not var (model, me, Frame, _)) return;
             var skeleton = model.Skeleton!;
             var overrides = model.ParentOverrides!;
-            int rightHand = skeleton.References[127].Index;
-            var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 0).SelectMany(g => g.Vertices).Take(40).ToArray();
+            int rightHand = skeleton.References[handReference].Index;
+            var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == weaponSlot).SelectMany(g => g.Vertices).Take(40).ToArray();
+            Assert.NotEmpty(claw);
             Func<AnimationCategory> step = moving ? Frame : () =>
             {
                 me.Animation.Advance(Dt, AnimationCategory.Combat, 0, model);
@@ -161,7 +175,7 @@ namespace Gordian.Engine.Tests.Animation
                 var pose = me.Animation.EvaluatePose(skeleton, overrides);
                 for (int k = 0; k < claw.Length; k++) drift = Math.Max(drift, Vector3.Distance(InHand(pose, claw[k]), held[k]));
             }
-            Assert.True(drift < 0.002f, $"main-hand claw drifted {drift:F3} yalm from the hand");
+            Assert.True(drift < 0.002f, $"weapon slot {weaponSlot} drifted {drift:F3} yalm from the hand");
         }
 
         [Theory]

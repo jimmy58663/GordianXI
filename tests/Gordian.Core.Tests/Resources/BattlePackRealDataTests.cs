@@ -162,5 +162,33 @@ namespace Gordian.Core.Tests.Resources
                 }
             }
         }
+
+        /// <summary>
+        /// #546: the off-hand claw of a hand-to-hand weapon (sub look 484: Info type 0xFF and mount reference 125, as a shield
+        /// reads, but skinned to the mount joint itself) is held in the left hand: the mount is re-parented to reference 126.
+        /// A shield (sub look 1, skinned straight to the left hand or forearm) gets no override of its own.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(Races))]
+        public void HandToHandOffHandMount_IsReparentedIntoTheLeftHand_ButAShieldIsNot(CharacterRace race)
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            EntityModel Load(ushort sub)
+            {
+                var grap = new ushort[9];
+                grap[6] = 484;
+                grap[7] = sub;
+                return EntityModelLoader.AssembleCharacter(race, 1, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            }
+
+            var claws = Load(484);
+            var refs = claws.Skeleton!.References;
+            Assert.Equal(refs[126].Index, claws.ParentOverrides![refs[125].Index]);
+            Assert.Equal(refs[127].Index, claws.ParentOverrides[refs[112].Index]);
+
+            var shield = Load(1);
+            Assert.Equal(new[] { (int)refs[112].Index }, shield.ParentOverrides!.Keys.ToArray());
+        }
     }
 }
