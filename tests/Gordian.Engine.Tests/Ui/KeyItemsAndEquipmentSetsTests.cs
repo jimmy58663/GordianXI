@@ -499,6 +499,9 @@ namespace Gordian.Engine.Tests.Ui
             var chosen = options.Parent!;
             Assert.True(chosen.IsEquipSetList);
             Assert.Equal(chosen.Menu.Frame.Y + chosen.Menu.Buttons.First(b => b.ButtonId == 3).Y, options.Menu.Frame.Y);
+            // Left of the list, overlapping its frame, and the list stays drawn with them (round 1 of 2026-11-12).
+            Assert.True(options.Menu.Frame.X < chosen.Menu.Frame.X);
+            Assert.False(options.OverlapsAuthored(chosen));
             // The help bar: the set's name, and over the list "Equipment Set (#N)".
             Assert.Equal("Set003", StockUiMenuHelpBar.Of(options, null, null).Title);
             Assert.Equal(("Set003", "Equipment Set (#3)"), StockUiMenuHelpBar.Of(chosen, null, null));

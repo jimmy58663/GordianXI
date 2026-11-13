@@ -366,6 +366,9 @@ namespace Gordian.Engine.Ui
         {
             // An Auction House list under a bid's Yes / No keeps its item info and "Current Gil" drawn (image-27).
             if (other.AuctionBidConfirm) return false;
+            // A set's options lie 17 px over the Equipment Sets list's frame, and the list stays drawn beside them (#385, retail
+            // capture 2026-11-08; round 1 of 2026-11-12: the list went away while the options were open).
+            if (IsEquipSetOptions && other.IsEquipSetList) return false;
             var a = AuthoredBounds;
             var b = other.Menu.Frame;
             return a.X < b.X + b.Width && b.X < a.Right && a.Y < b.Y + b.Height && b.Y < a.Bottom;
