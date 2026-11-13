@@ -106,6 +106,17 @@ namespace Gordian.Engine.Input
         /// </summary>
         public long LastUpdateTimestamp { get; private set; }
 
+        /// <summary>
+        /// What the latest tick left, published in one piece once the tick has finished (#547): the player's position and
+        /// precise heading and the orbit angles, with the time the tick ran. A renderer on another thread reads this
+        /// instead of the live fields, which a running tick changes one by one: reading them mid-tick paired the new
+        /// tick's time with the old position or yaw, so the shown player and camera stepped back for a frame and on again.
+        /// Null until the first tick.
+        /// </summary>
+        public LocomotionTick? LastTick => System.Threading.Volatile.Read(ref _lastTick);
+
+        private LocomotionTick? _lastTick;
+
         /// <summary>See <see cref="EntityGrounding.StepUpHeight"/>.</summary>
         public const float StepUpHeight = EntityGrounding.StepUpHeight;
 
@@ -459,7 +470,36 @@ namespace Gordian.Engine.Input
         public void Update(TimeSpan elapsed)
         {
             if (elapsed <= TimeSpan.Zero) return;
-            LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            long stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            LastUpdateTimestamp = stamp;
+            try
+            {
+                UpdateTick(elapsed);
+            }
+            finally
+            {
+                PublishTick(stamp);
+            }
+        }
+
+        /// <summary>Publishes <see cref="LastTick"/> for the tick that started at <paramref name="stamp"/>.</summary>
+        private void PublishTick(long stamp)
+        {
+            uint localId = GetOrResolveLocalServerId();
+            WorldEntity? me = localId != 0 && _world.TryGetByServerId(localId, out var found) ? found : null;
+            var tick = new LocomotionTick(
+                stamp,
+                me?.ServerId ?? 0,
+                me?.Position ?? Vector3.Zero,
+                me != null ? LocalHeadingDegrees(me) * (MathF.PI / 180.0f) : 0.0f,
+                CameraYaw,
+                CameraPitch,
+                EffectiveCameraDistance);
+            System.Threading.Volatile.Write(ref _lastTick, tick);
+        }
+
+        private void UpdateTick(TimeSpan elapsed)
+        {
             _updateSeconds = elapsed.TotalSeconds;
 
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
@@ -566,6 +606,12 @@ namespace Gordian.Engine.Input
 
             // 4. Update Locomotion (movement, strafing, turning)
             UpdateLocomotion(elapsed);
+
+            // 4a. Hold the locked-on camera in its arc again for where this tick moved the player (#547 round 2). The hold in
+            //     UpdateCamera ran before the move, so riding the arc limit the yaw trailed the player by a tick: it was
+            //     stamped with this tick's time but took the previous tick's step, which after a long tick (31 ms) left
+            //     the view behind and then caught it up double, a visible jerk at the edge of the arc while strafing.
+            if (ClampLockOnCamera()) CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
 
             // 4b. Lock-on works with a stock menu open too (the command menu stays up while engaged in retail, 2026-10-03
             //     recording); before #137 it sat behind the menu gate below, so T / NumPad * did nothing while it was open.
@@ -834,7 +880,7 @@ namespace Gordian.Engine.Input
                 uint localId = GetOrResolveLocalServerId();
                 if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
                 {
-                    CameraYaw = (localEnt.Direction / 256.0f) * 360.0f;
+                    CameraYaw = LocalHeadingDegrees(localEnt);
                 }
                 CameraPitch = 15.0f;
                 cameraChanged = true;
@@ -1185,8 +1231,8 @@ namespace Gordian.Engine.Input
                     float speedYalmsPerSec = moveSpeed * 0.1f;
                     float distance = speedYalmsPerSec * dt;
 
-                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                    var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
+                    var right = WorldEntity.RightOf(LocalHeadingRadians(localEnt));
                     float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
                     float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
 
@@ -1219,8 +1265,7 @@ namespace Gordian.Engine.Input
                 float steer = Math.Clamp(leftStick.X, -1.0f, 1.0f);
                 if (steer != 0f)
                 {
-                    float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg + steer * _profile.TurnSpeedDegreesPerSec * dt));
+                    SetLocalHeading(localEnt, LocalHeadingDegrees(localEnt) + (steer * _profile.TurnSpeedDegreesPerSec * dt));
                 }
                 localEnt.LocomotionDirection = LocomotionDirection.Forward;
                 FollowHeadingWithCamera(localEnt, dt);
@@ -1228,7 +1273,7 @@ namespace Gordian.Engine.Input
                 byte autoSpeed = _inputState.IsWalking ? GetEffectiveWalkSpeed(localEnt) : GetEffectiveRunSpeed(localEnt);
                 localEnt.Speed = autoSpeed;
                 float autoDistance = autoSpeed * 0.1f * dt;
-                var autoFwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                var autoFwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
                 MoveHorizontally(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
@@ -1255,7 +1300,7 @@ namespace Gordian.Engine.Input
                 float speedYalmsPerSec = padSpeed * 0.1f;
                 float distance = speedYalmsPerSec * dt;
 
-                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
                 MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
@@ -1285,9 +1330,7 @@ namespace Gordian.Engine.Input
             if (turnInput != 0)
             {
                 // Positive turn input (stick right) turns right, which is an increasing wire heading.
-                float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                headingDeg = NormalizeDegrees(headingDeg + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
-                localEnt.Direction = WorldEntity.DirectionFromDegrees(headingDeg);
+                SetLocalHeading(localEnt, LocalHeadingDegrees(localEnt) + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
             }
 
             // 4. Calculate displacement
@@ -1327,8 +1370,8 @@ namespace Gordian.Engine.Input
                     distance /= MathF.Sqrt(2.0f);
                 }
 
-                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
+                var right = WorldEntity.RightOf(LocalHeadingRadians(localEnt));
                 float dx = (fwd.X * forwardInput + right.X * strafeInput) * distance;
                 float dz = (fwd.Y * forwardInput + right.Y * strafeInput) * distance;
 
@@ -1540,23 +1583,59 @@ namespace Gordian.Engine.Input
         {
             float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
             TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
-            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
+            localEnt.RenderHeadingRadians = LocalHeadingRadians(localEnt);
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
         {
-            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float headingDeg = LocalHeadingDegrees(localEnt);
             float diff = WrapDegrees(targetHeadingDeg - headingDeg);
             float maxStep = FacingTurnSpeedDegreesPerSec * dt;
             headingDeg = MathF.Abs(diff) <= maxStep ? targetHeadingDeg : headingDeg + (MathF.Sign(diff) * maxStep);
-            localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg));
+            SetLocalHeading(localEnt, headingDeg);
+        }
+
+        private float _localHeadingDeg;
+        private byte _localHeadingByte;
+        private uint _localHeadingEntity;
+        private bool _hasLocalHeading;
+
+        /// <summary>
+        /// The player's heading in wire degrees, kept to full precision (#547). The entity's <c>Direction</c> is the
+        /// wire byte (256 steps, 1.4 degrees each); turning from that byte and moving along it stepped the facing and
+        /// the strafe direction by whole steps, unevenly from tick to tick, so circling a mob ran a polygon and the
+        /// model turned in jerks. Anything else that sets <c>Direction</c> (a server placement, an event) is taken up
+        /// here as soon as the byte no longer matches.
+        /// </summary>
+        private float LocalHeadingDegrees(WorldEntity localEnt)
+        {
+            if (!_hasLocalHeading || _localHeadingEntity != localEnt.ServerId || _localHeadingByte != localEnt.Direction)
+            {
+                _localHeadingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+                _localHeadingByte = localEnt.Direction;
+                _localHeadingEntity = localEnt.ServerId;
+                _hasLocalHeading = true;
+            }
+            return _localHeadingDeg;
+        }
+
+        private float LocalHeadingRadians(WorldEntity localEnt) => LocalHeadingDegrees(localEnt) * (MathF.PI / 180.0f);
+
+        /// <summary>Turns the player to <paramref name="headingDeg"/>: kept precisely here, sent as the wire byte.</summary>
+        private void SetLocalHeading(WorldEntity localEnt, float headingDeg)
+        {
+            _localHeadingDeg = NormalizeDegrees(headingDeg);
+            _localHeadingByte = WorldEntity.DirectionFromDegrees(_localHeadingDeg);
+            localEnt.Direction = _localHeadingByte;
+            _localHeadingEntity = localEnt.ServerId;
+            _hasLocalHeading = true;
         }
 
         private void FollowHeadingWithCamera(WorldEntity localEnt, float dt)
         {
             if (_cameraYawInputThisFrame || _camera.Mode != CameraMode.ThirdPersonOrbital) return;
 
-            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float headingDeg = LocalHeadingDegrees(localEnt);
             float diff = WrapDegrees(headingDeg - CameraYaw);
             CameraYaw = NormalizeDegrees(CameraYaw + (diff * MathF.Min(1.0f, dt * CameraFollowRate)));
         }

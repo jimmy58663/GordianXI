@@ -981,6 +981,7 @@ namespace Gordian.App.Graphics
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
+                        _renderer.LocalPlayerDisplayHeading = cameraFrame.DisplayPlayerHeading;
                         _renderer.Furniture = _activeSession is { } roomSession ? MogHouseFurnitureScene.Build(roomSession, ResourceManager, _furnitureInstances) : null;
                         _renderer.HideSceneryAbove = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true ? MogHouseFurnitureScene.CeilingHeight : null;
                         _renderer.SoftTerrainHighlights = ViewportRenderSettings.SoftTerrainHighlights;
@@ -1172,6 +1173,12 @@ namespace Gordian.App.Graphics
             public TickPositionSmoother PlayerSmoother { get; } = new();
             public TickPositionSmoother OrbitSmoother { get; } = new(snapDistance: 120.0f);
 
+            /// <summary>The local player's heading (unwrapped radians, in X), on the same tick timeline as its position (#547).</summary>
+            public TickPositionSmoother HeadingSmoother { get; } = new(snapDistance: 1000.0f);
+            public float LastRawHeading { get; set; }
+            public float UnwrappedHeading { get; set; }
+            public bool HasHeading { get; set; }
+
             /// <summary>The session's <c>ArrivalSettleCount</c> this view last snapped to (#350).</summary>
             public int ArrivalSettleCount { get; set; }
             public uint SmoothedPlayerServerId { get; set; }
@@ -1214,7 +1221,7 @@ namespace Gordian.App.Graphics
         /// <summary>How often the cameras of characters not on screen are updated.</summary>
         private static readonly TimeSpan HiddenCameraInterval = TimeSpan.FromMilliseconds(33);
 
-        private readonly record struct CameraFrame(Vector3 PlayerPosition, bool HasPlayerPosition, Vector3? DisplayPlayerPosition);
+        private readonly record struct CameraFrame(Vector3 PlayerPosition, bool HasPlayerPosition, Vector3? DisplayPlayerPosition, float? DisplayPlayerHeading = null);
 
         private static uint LocalPlayerServerId(CharacterSession session) =>
             session.LocalPlayer.ServerId != 0 ? session.LocalPlayer.ServerId : session.CharacterId;
@@ -1245,13 +1252,24 @@ namespace Gordian.App.Graphics
                 view.ArrivalSettleCount = arrivalLocomotion.ArrivalSettleCount;
                 camera.ResetFollowHeight();
                 view.PlayerSmoother.Reset();
+                view.HeadingSmoother.Reset();
+                view.HasHeading = false;
             }
             if (snap)
             {
                 view.PlayerSmoother.Reset();
                 view.OrbitSmoother.Reset();
+                view.HeadingSmoother.Reset();
                 view.HasYaw = false;
+                view.HasHeading = false;
             }
+
+            // The latest finished locomotion tick, read once (#547): its position, heading and orbit angles are all from
+            // that tick, never a tick still running on the UI thread. One older than a few ticks (no ticks running) is not
+            // used, so a server placement still shows.
+            long frameNow = Stopwatch.GetTimestamp();
+            var lastTick = session?.Locomotion?.LastTick;
+            if (lastTick != null && Stopwatch.GetElapsedTime(lastTick.Timestamp, frameNow) > TimeSpan.FromSeconds(0.25)) lastTick = null;
 
             Vector3 playerPos = Vector3.Zero;
             bool hasPlayerPos = false;
@@ -1284,7 +1302,7 @@ namespace Gordian.App.Graphics
             {
                 // The orbit angles also advance on the locomotion tick (turning, swinging in behind a runner), so
                 // interpolate them too; yaw is unwrapped first so 359 -> 1 degrees never spins the long way round.
-                float rawYaw = locomotion.CameraYaw;
+                float rawYaw = lastTick?.CameraYaw ?? locomotion.CameraYaw;
                 if (!view.HasYaw)
                 {
                     view.UnwrappedCameraYaw = rawYaw;
@@ -1297,9 +1315,11 @@ namespace Gordian.App.Graphics
                     view.UnwrappedCameraYaw += yawStep;
                 }
                 view.LastRawCameraYaw = rawYaw;
-                var orbit = view.OrbitSmoother.Update(
-                    new Vector3(view.UnwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
-                    TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
+                var orbit = lastTick != null
+                    ? view.OrbitSmoother.Update(new Vector3(view.UnwrappedCameraYaw, lastTick.CameraPitch, lastTick.CameraDistance),
+                        TickSeconds(lastTick.Timestamp), TickSeconds(frameNow))
+                    : view.OrbitSmoother.Update(new Vector3(view.UnwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
+                        TickSeconds(locomotion.LastUpdateTimestamp != 0 ? locomotion.LastUpdateTimestamp : frameNow), TickSeconds(frameNow));
                 camera.Yaw = orbit.X;
                 camera.Pitch = orbit.Y;
                 camera.Distance = orbit.Z;
@@ -1313,8 +1333,11 @@ namespace Gordian.App.Graphics
             if (localPlayerServerId != view.SmoothedPlayerServerId)
             {
                 view.PlayerSmoother.Reset();
+                view.HeadingSmoother.Reset();
+                view.HasHeading = false;
                 view.SmoothedPlayerServerId = localPlayerServerId;
             }
+            float? displayHeading = null;
             if (hasPlayerPos)
             {
                 // Riding a moving platform: stand on its live height this frame. The tick-smoothed height trails a
@@ -1330,9 +1353,36 @@ namespace Gordian.App.Graphics
                     }
                 }
 
-                long tick = session?.Locomotion?.LastUpdateTimestamp ?? 0;
-                long frameTimestamp = Stopwatch.GetTimestamp();
-                playerPos = view.PlayerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                long frameTimestamp = frameNow;
+                if (lastTick != null && lastTick.PlayerServerId == localPlayerServerId && localPlayerServerId != 0)
+                {
+                    playerPos = view.PlayerSmoother.Update(lastTick.PlayerPosition, TickSeconds(lastTick.Timestamp), TickSeconds(frameTimestamp));
+
+                    // The heading on the same timeline (#547): it turns on the tick, so drawn as it was the model turned in
+                    // steps, ahead of its smoothed position, while the camera turned evenly.
+                    float rawHeading = lastTick.PlayerHeadingRadians;
+                    if (!view.HasHeading)
+                    {
+                        view.UnwrappedHeading = rawHeading;
+                        view.HasHeading = true;
+                    }
+                    else
+                    {
+                        float headingStep = rawHeading - view.LastRawHeading;
+                        headingStep -= MathF.Tau * MathF.Round(headingStep / MathF.Tau);
+                        view.UnwrappedHeading += headingStep;
+                    }
+                    view.LastRawHeading = rawHeading;
+                    displayHeading = view.HeadingSmoother.Update(new Vector3(view.UnwrappedHeading, 0f, 0f), TickSeconds(lastTick.Timestamp), TickSeconds(frameTimestamp)).X;
+                    displayHeading -= MathF.Tau * MathF.Floor(displayHeading.Value / MathF.Tau);
+                }
+                else
+                {
+                    long tick = session?.Locomotion?.LastUpdateTimestamp ?? 0;
+                    playerPos = view.PlayerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                    view.HeadingSmoother.Reset();
+                    view.HasHeading = false;
+                }
                 if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
             }
 
@@ -1401,7 +1451,7 @@ namespace Gordian.App.Graphics
             }
 
             view.LastUpdate = Stopwatch.GetTimestamp();
-            return new CameraFrame(playerPos, hasPlayerPos, displayPlayerPos);
+            return new CameraFrame(playerPos, hasPlayerPos, displayPlayerPos, displayHeading);
         }
 
         /// <summary>

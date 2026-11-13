@@ -1264,5 +1264,152 @@ namespace Gordian.Engine.Tests.Input
             // path drawn straight between ticks).
             Assert.True(largestRateChange < 12f, $"view yaw rate jumped by {largestRateChange:F1} degrees/s between frames");
         }
+        /// <summary>
+        /// Locked on with the camera riding the arc limit (#547 round 2: "at the edge of the camera angle while strafing"):
+        /// pushed to the limit, then strafing so the target drags the camera along. Drawn at 144 fps through the viewport's
+        /// path (the published tick, tick smoothers, orbit camera, lock-on aim), the view turns evenly, the character moves
+        /// evenly across the screen and the model turns evenly. The heading kept only as the wire byte (1.4 degree steps)
+        /// made the strafe run a polygon and the facing step unevenly from tick to tick.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.A, GordianKey.L)]
+        [InlineData(GordianKey.D, GordianKey.J)]
+        [InlineData(GordianKey.S, GordianKey.L)]
+        public void LockOnAtTheArcLimit_StrafingStaysSmooth(GordianKey strafe, GordianKey pushCamera)
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            controller.CameraDistance = 8f;
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(pushCamera);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(pushCamera);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(strafe);
+
+            var camera = new ViewportCamera();
+            var playerSmoother = new TickPositionSmoother();
+            var orbitSmoother = new TickPositionSmoother(snapDistance: 120.0f);
+            var headingSmoother = new TickPositionSmoother(snapDistance: 1000.0f);
+            double tickTime = 0.0, nextTick = 0.0;
+            int tick = 0;
+            float unwrappedYaw = controller.CameraYaw, lastRawYaw = controller.CameraYaw;
+            float unwrappedHeading = controller.LastTick!.PlayerHeadingRadians, lastRawHeading = unwrappedHeading;
+            float? lastView = null, lastViewRate = null, lastScreenX = null, lastScreenStep = null, lastHeading = null, lastHeadingRate = null;
+            float viewRateJump = 0f, screenJump = 0f, headingRateJump = 0f;
+            const double frame = 1.0 / 144.0;
+            for (int f = 0; f < 144 * 3; f++)
+            {
+                double now = f * frame;
+                while (nextTick <= now)
+                {
+                    double interval = ++tick % 12 == 0 ? 0.031 : 0.016;
+                    controller.Update(TimeSpan.FromSeconds(Math.Max(nextTick - tickTime, 0.016)));
+                    tickTime = nextTick;
+                    nextTick += interval;
+                }
+
+                var last = controller.LastTick!;
+                float yawStep = last.CameraYaw - lastRawYaw;
+                yawStep -= 360f * MathF.Round(yawStep / 360f);
+                unwrappedYaw += yawStep;
+                lastRawYaw = last.CameraYaw;
+                float headingStep = last.PlayerHeadingRadians - lastRawHeading;
+                headingStep -= MathF.Tau * MathF.Round(headingStep / MathF.Tau);
+                unwrappedHeading += headingStep;
+                lastRawHeading = last.PlayerHeadingRadians;
+
+                var orbit = orbitSmoother.Update(new Vector3(unwrappedYaw, last.CameraPitch, last.CameraDistance), tickTime, now);
+                var player = playerSmoother.Update(last.PlayerPosition, tickTime, now);
+                float heading = headingSmoother.Update(new Vector3(unwrappedHeading, 0f, 0f), tickTime, now).X;
+                camera.Mode = controller.Camera.Mode;
+                controller.ApplyLockOnAim(camera);
+                var shown = new Vector3(-player.X, -player.Y, player.Z);
+                camera.Update(shown, orbit.Y, orbit.X, orbit.Z, 16f / 9f, (float)frame);
+
+                var view = camera.Forward;
+                float viewHeading = MathF.Atan2(view.Z, view.X) * (180f / MathF.PI);
+                var clip = Vector4.Transform(new Vector4(shown + new Vector3(0f, -1f, 0f), 1f), camera.ViewProjectionMatrix);
+                float screenX = clip.X / clip.W;
+                if (f > 144)
+                {
+                    if (lastView is { } lv)
+                    {
+                        float turned = viewHeading - lv;
+                        turned -= 360f * MathF.Round(turned / 360f);
+                        float rate = turned / (float)frame;
+                        if (lastViewRate is { } lr) viewRateJump = MathF.Max(viewRateJump, MathF.Abs(rate - lr));
+                        lastViewRate = rate;
+                    }
+                    if (lastScreenX is { } lx)
+                    {
+                        float step = screenX - lx;
+                        if (lastScreenStep is { } ls) screenJump = MathF.Max(screenJump, MathF.Abs(step - ls));
+                        lastScreenStep = step;
+                    }
+                    if (lastHeading is { } lh)
+                    {
+                        float rate = (heading - lh) * (180f / MathF.PI) / (float)frame;
+                        if (lastHeadingRate is { } lr) headingRateJump = MathF.Max(headingRateJump, MathF.Abs(rate - lr));
+                        lastHeadingRate = rate;
+                    }
+                }
+                lastView = viewHeading;
+                lastScreenX = screenX;
+                lastHeading = heading;
+            }
+
+            var toMob = mob.Position - me.Position;
+            float line = WorldEntity.HeadingOf(toMob.X, toMob.Z) * (180f / MathF.PI);
+            float diff = ((controller.CameraYaw - line + 540f) % 360f) - 180f;
+            float limit = diff > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.True(Math.Abs(Math.Abs(diff) - limit) < 1f, $"the camera rides the arc limit ({diff:F1} off the line, limit {limit})");
+            Assert.True(viewRateJump < 6f, $"view yaw rate jumped by {viewRateJump:F2} degrees/s between frames");
+            Assert.True(screenJump < 0.0015f, $"the character's screen step jumped by {screenJump:F5} between frames");
+            Assert.True(headingRateJump < 20f, $"the model's turn rate jumped by {headingRateJump:F2} degrees/s between frames");
+        }
+
+        /// <summary>
+        /// The heading is kept to full precision (#547 round 2): turning in small steps turns the player by exactly the
+        /// steps taken, where reading the wire byte back each tick rounded every step to 1.4 degrees. The wire byte
+        /// still follows it, and a heading set from outside (a server placement) is taken up.
+        /// </summary>
+        [Fact]
+        public void LocalHeading_KeepsFullPrecisionAndFollowsTheWireByte()
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            input.SetKeyDown(GordianKey.A); // strafing faces the target after every step
+            for (int i = 0; i < 120; i++)
+            {
+                controller.Update(TimeSpan.FromMilliseconds(16));
+                float expected = WorldEntity.HeadingOf(mob.Position.X - me.Position.X, mob.Position.Z - me.Position.Z);
+                if (i < 30) continue; // turning to face it first
+                float off = MathF.Abs(MathF.IEEERemainder(controller.LastTick!.PlayerHeadingRadians - expected, MathF.Tau));
+                Assert.True(off < 0.002f, $"tick {i}: heading {off} rad off the target line (a wire step is {MathF.Tau / 256f})");
+                Assert.Equal(WorldEntity.DirectionFromRadians(controller.LastTick!.PlayerHeadingRadians), me.Direction);
+            }
+            input.SetKeyUp(GordianKey.A);
+
+            me.Direction = 128; // set from outside
+            controller.Update(TimeSpan.FromMilliseconds(1));
+            Assert.InRange(controller.LastTick!.PlayerHeadingRadians, MathF.PI - 0.1f, MathF.PI + 0.1f);
+        }
+
+        /// <summary>The published tick carries the position, heading and orbit the tick left, with the tick's time (#547 round 2).</summary>
+        [Fact]
+        public void LastTick_IsPublishedWhenTheTickEnds()
+        {
+            var (controller, input, _, _, me) = CreateTestHarness();
+            Assert.Null(controller.LastTick);
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            var last = controller.LastTick!;
+            Assert.Equal(controller.LastUpdateTimestamp, last.Timestamp);
+            Assert.Equal(me.ServerId, last.PlayerServerId);
+            Assert.Equal(me.Position, last.PlayerPosition);
+            Assert.Equal(controller.CameraYaw, last.CameraYaw);
+            Assert.Equal(controller.CameraPitch, last.CameraPitch);
+            Assert.Equal(controller.EffectiveCameraDistance, last.CameraDistance);
+        }
     }
 }
