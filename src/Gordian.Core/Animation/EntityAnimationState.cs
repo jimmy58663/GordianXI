@@ -444,7 +444,7 @@ namespace Gordian.Core.Animation
                     Current = newCategory;
                     SubAnimation = subAnimation;
                     CurrentStance = targetStance;
-                    RelayerLocomotion(model);
+                    AdvanceUnderlay(dt, model);
                     AdvanceAction(dt, model);
                     return;
                 }
@@ -811,6 +811,7 @@ namespace Gordian.Core.Animation
             EventMotionBank? bank = null)
         {
             _isWorkSchedule = false;
+            _blendingOutOfUnderlay = false;
             _actionBank = bank;
             _isPresentation = request?.Asset?.Motion is { } motion && ReferenceEquals(motion, bank);
             _holdsLastClip = request?.Motion == ActionMotion.EventMotion && routine.HoldsLastClip;
@@ -867,44 +868,64 @@ namespace Gordian.Core.Animation
             AnimationClip? clip = null;
             if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
             else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
-            _layerBase = null;
-            _layerLocomotion = null;
             if (_actionAllowsLocomotion)
             {
-                // A moving swing animates the upper body only: the legs keep the walk or run under it (#511 rounds 2-3).
-                _layerBase = clip;
-                _layerRate = _actionSpeed * segment.Speed;
-                _layerLocomotion = LocomotionUnder(model);
-                clip = _layerLocomotion != null ? LocomotionLayering.Over(clip, _layerLocomotion, _layerRate) : clip;
+                // A moving swing plays on the upper body; the walk or run already playing keeps the lower body, on its own
+                // clock (#511 rounds 2-4, LocomotionLayering).
+                if (_underlayClip == null && LocomotionUnder(model) is { } locomotion)
+                {
+                    _underlayClip = locomotion;
+                    _underlayElapsed = ReferenceEquals(CurrentClip, locomotion) ? ElapsedSeconds : 0f;
+                }
+            }
+            else
+            {
+                _underlayClip = null;
             }
             SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond / _actionSpeed, previousLoops, restart: true);
         }
 
-        /// <summary>The moving swing's own clip, before the locomotion is laid under it, or null when no swing is layered.</summary>
-        private AnimationClip? _layerBase;
+        private AnimationClip? _underlayClip;
+        private float _underlayElapsed;
+        private bool _blendingOutOfUnderlay;
 
-        /// <summary>The locomotion clip laid under <see cref="_layerBase"/>, or null.</summary>
-        private AnimationClip? _layerLocomotion;
+        /// <summary>
+        /// The locomotion clip playing on the lower body under a moving swing (#511 rounds 2-4), or null: the renderer
+        /// evaluates it at <see cref="LowerBodyElapsedSeconds"/> and joins the action's upper body onto it
+        /// (<see cref="LocomotionLayering.Combine"/>). It is the walk or run that was playing when the swing started, on its own
+        /// clock, and follows the entity's locomotion while the swing plays (a strafe, a back step, walk or run); stopping
+        /// gives the legs back to the swing. While the body blends back out of such a swing, it is the stance clip itself.
+        /// </summary>
+        public AnimationClip? LowerBodyClip => _underlayClip ?? (_blendingOutOfUnderlay && IsBlending ? CurrentClip : null);
 
-        /// <summary>Seconds of the swing's clip per real second (the routine clock's speed times the step's).</summary>
-        private float _layerRate = 1f;
+        /// <summary>The time in <see cref="LowerBodyClip"/>, in seconds.</summary>
+        public float LowerBodyElapsedSeconds => _underlayClip != null ? _underlayElapsed : ElapsedSeconds;
 
         /// <summary>The clip the entity would show for its current category without the swing (null when not moving).</summary>
         private AnimationClip? LocomotionUnder(EntityModel model) =>
             IsLocomotion(Current) ? NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance) : null;
 
         /// <summary>
-        /// Keeps the legs under a moving swing on the locomotion the entity shows now (#511 round 3): the direction (strafe,
-        /// back), walk or run, and standing still can change while the swing plays, and the layer follows each change at once,
-        /// keeping the swing's clip time. Called every frame the swing plays, after the category is taken.
+        /// Keeps the lower body under a moving swing on the locomotion the entity shows now and advances its clock (#511
+        /// rounds 3-4). A change of locomotion clip keeps the cycle's phase. Called every frame the action plays, after the
+        /// category is taken.
         /// </summary>
-        private void RelayerLocomotion(EntityModel model)
+        private void AdvanceUnderlay(float dt, EntityModel model)
         {
-            if (_layerBase == null) return;
+            if (!_actionAllowsLocomotion) return;
             var locomotion = LocomotionUnder(model);
-            if (ReferenceEquals(locomotion, _layerLocomotion)) return;
-            _layerLocomotion = locomotion;
-            CurrentClip = locomotion != null ? LocomotionLayering.Over(_layerBase, locomotion, _layerRate) : _layerBase;
+            if (locomotion == null)
+            {
+                _underlayClip = null; // stopped: the swing's own legs
+                return;
+            }
+            if (!ReferenceEquals(locomotion, _underlayClip))
+            {
+                float phase = _underlayClip is { DurationSeconds: > 0.0001f } previous ? _underlayElapsed / previous.DurationSeconds : 0f;
+                _underlayClip = locomotion;
+                _underlayElapsed = phase * locomotion.DurationSeconds;
+            }
+            _underlayElapsed += dt;
         }
 
         private void AdvanceAction(float dt, EntityModel model)
@@ -971,8 +992,9 @@ namespace Gordian.Core.Animation
             bool actionClipLoops = LoopsCurrentClip;
             bool hitStillAhead = _isPresentation && _actionHitTick > _actionTicks;
             ActiveRoutine = null;
-            _layerBase = null;
-            _layerLocomotion = null;
+            var underlay = _underlayClip;
+            float underlayElapsed = _underlayElapsed;
+            _underlayClip = null;
             _actionRequest = null;
             _actionBank = null;
             _isPresentation = false;
@@ -996,9 +1018,16 @@ namespace Gordian.Core.Animation
                 : BlendDuration;
             _actionSpeed = 1f;
             AnimationClip? stanceClip = NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance);
+            _blendingOutOfUnderlay = false;
             if (blend)
             {
                 SwitchToClip(stanceClip, blendOut, actionClipLoops, restart: true);
+                if (underlay != null && ReferenceEquals(stanceClip, underlay))
+                {
+                    // The legs carry on in the walk or run they were in under the swing: no restart, no blend.
+                    ElapsedSeconds = underlayElapsed;
+                    _blendingOutOfUnderlay = true;
+                }
             }
             else if (stanceClip != null)
             {

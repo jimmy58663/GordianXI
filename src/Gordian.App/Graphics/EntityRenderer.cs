@@ -965,6 +965,12 @@ namespace Gordian.App.Graphics
             {
                 pose = SkeletonPoseEvaluator.EvaluatePose(skeleton, animState.CurrentClip, animState.ElapsedSeconds, loop, parentOverrides, overlay);
             }
+            // A moving swing plays on the upper body over the walk or run on the lower body (#511).
+            if (animState.LowerBodyClip is { } lowerBody)
+            {
+                var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, animState.LowerBodyElapsedSeconds, true, parentOverrides);
+                pose = Gordian.Core.Animation.LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
+            }
             // The talking mouth and the blink move the face joints, then an event's head look (0x1E / 0x4A / 0x79) turns
             // the head joint and what hangs from it.
             face?.Apply(model, pose);

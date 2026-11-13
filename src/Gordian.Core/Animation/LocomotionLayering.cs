@@ -2,74 +2,134 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// Lays an action clip over the walk or run (#511 round 2). The PC moving swings (<c>atf0</c> / <c>atb0</c> / <c>atl0</c> /
-    /// <c>atr0</c>, clips <c>amf</c> / <c>amb</c> / <c>aml</c> / <c>amr</c>) key every joint but animate only the upper body: on the
-    /// Hume male battle pack <c>ROM/32/13</c>, <c>amf</c> moves joints 3-17, 24 and 50-88 and holds the legs (25-47, which
-    /// <c>crun</c> animates) still. Played alone it freezes the legs mid-run, so retail must take the legs from the locomotion
-    /// clip. *Inference* from the clip data (2026-11-12): no reference describes the layering.
+    /// Plays a moving swing on the upper body over the walk or run already playing on the lower body (#511 rounds 2-4).
+    /// The PC moving swings (<c>atf0</c> / <c>atb0</c> / <c>atl0</c> / <c>atr0</c>, clips <c>amf</c> / <c>amb</c> / <c>aml</c> /
+    /// <c>amr</c>) animate the torso and arms with the pelvis facing forward and the legs held still, while the strafe clips
+    /// turn the pelvis 45 degrees (Hume male <c>cmvl</c> / <c>cmvr</c>: joint 2, with the spine root, joint 48, turned back the
+    /// other way). So the body is split by the skeleton's hierarchy, not by which joints a clip moves: the root, the pelvis
+    /// and everything under it except the spine (the hips and both legs, and the small joints hung on the pelvis) come from
+    /// the locomotion; the spine and what hangs from it (the torso, arms and head), and the weapon joints re-parented into
+    /// the hands, come from the swing, facing the way the swing has them and carried on the locomotion's pelvis.
+    /// *Inference* from the retail clips and skeletons (2026-11-13); no reference describes the layering.
     /// </summary>
     public static class LocomotionLayering
     {
-        /// <summary>A joint whose keys turn less than this (1 - |dot|, about 1.6 degrees) is held still by the clip.</summary>
-        private const float StillRotation = 0.0001f;
+        private static readonly ConditionalWeakTable<Skeleton, SplitInfo> Splits = new();
 
-        /// <summary>A joint whose keys move less than this (yalms) is held still by the clip.</summary>
-        private const float StillTranslation = 0.001f;
+        private sealed record SplitInfo(int UpperRoot, bool[] UpperSubtree);
 
         /// <summary>
-        /// Whether <paramref name="clip"/> holds <paramref name="joint"/> still: no track, a reset entry, or keys that neither turn
-        /// nor move it.
+        /// The joint the upper body hangs from: on the first joint down from the root with two or more children (the pelvis),
+        /// the child with the largest subtree (the spine, carrying the arms and head; the hips carry only the legs). -1 when the
+        /// skeleton has no such joint.
         /// </summary>
-        public static bool HoldsStill(AnimationClip clip, int joint)
+        public static int UpperBodyRoot(Skeleton skeleton) => SplitOf(skeleton).UpperRoot;
+
+        private static SplitInfo SplitOf(Skeleton skeleton)
         {
-            ArgumentNullException.ThrowIfNull(clip);
-            if (!clip.Tracks.TryGetValue(joint, out var track) || track.IsReset) return true;
-            var rotations = track.Rotations;
-            for (int i = 1; i < rotations.Length; i++)
+            ArgumentNullException.ThrowIfNull(skeleton);
+            return Splits.GetValue(skeleton, Compute);
+
+            static SplitInfo Compute(Skeleton skeleton)
             {
-                if (1f - MathF.Abs(Quaternion.Dot(rotations[i], rotations[0])) > StillRotation) return false;
+                int n = skeleton.Count;
+                var children = new List<int>[n];
+                for (int i = 0; i < n; i++) children[i] = new List<int>();
+                int root = -1;
+                for (int i = 0; i < n; i++)
+                {
+                    int parent = skeleton.Joints[i].Parent;
+                    if (parent >= 0 && parent < n && parent != i) children[parent].Add(i);
+                    else if (root < 0) root = i;
+                }
+                var subtree = new int[n];
+                int Size(int j)
+                {
+                    if (subtree[j] > 0) return subtree[j];
+                    int size = 1;
+                    foreach (int c in children[j]) size += Size(c);
+                    return subtree[j] = size;
+                }
+
+                int hub = root;
+                for (int guard = 0; hub >= 0 && guard < n && children[hub].Count == 1; guard++) hub = children[hub][0];
+                if (hub < 0 || children[hub].Count < 2) return new SplitInfo(-1, new bool[n]);
+
+                int upper = -1;
+                foreach (int c in children[hub])
+                {
+                    if (upper < 0 || Size(c) > Size(upper)) upper = c;
+                }
+                var mask = new bool[n];
+                var stack = new Stack<int>();
+                stack.Push(upper);
+                while (stack.Count > 0)
+                {
+                    int j = stack.Pop();
+                    mask[j] = true;
+                    foreach (int c in children[j]) stack.Push(c);
+                }
+                return new SplitInfo(upper, mask);
             }
-            var translations = track.Translations;
-            for (int i = 1; i < translations.Length; i++)
-            {
-                if (Vector3.DistanceSquared(translations[i], translations[0]) > StillTranslation * StillTranslation) return false;
-            }
-            return true;
         }
 
         /// <summary>
-        /// <paramref name="action"/> with each joint it holds still and <paramref name="locomotion"/> animates taken from
-        /// <paramref name="locomotion"/>, looping at the locomotion clip's own length. <paramref name="clipRate"/> is how many
-        /// seconds of the action clip play per real second (the routine clock's speed times the step's), so the legs keep
-        /// the locomotion clip's real pace. Returns <paramref name="action"/> itself when nothing is taken.
+        /// Whether joint <paramref name="joint"/> belongs to the upper body: under the spine, or a joint
+        /// <paramref name="parentOverrides"/> re-parents into it (the weapon grips held in the hands), or under such a joint.
         /// </summary>
-        public static AnimationClip Over(AnimationClip action, AnimationClip? locomotion, float clipRate)
+        public static bool IsUpperBody(Skeleton skeleton, int joint, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
-            ArgumentNullException.ThrowIfNull(action);
-            if (locomotion == null || ReferenceEquals(action, locomotion) || locomotion.DurationSeconds <= 0.0001f || clipRate <= 0f) return action;
-
-            Dictionary<int, BoneAnimationTrack>? tracks = null;
-            foreach (var (joint, track) in locomotion.Tracks)
+            var split = SplitOf(skeleton);
+            if (split.UpperRoot < 0) return false;
+            for (int guard = 0, j = joint; j >= 0 && j < skeleton.Count && guard <= skeleton.Count; guard++)
             {
-                if (track.IsReset || HoldsStill(locomotion, joint) || !HoldsStill(action, joint)) continue;
-                tracks ??= new Dictionary<int, BoneAnimationTrack>(action.Tracks);
-                tracks[joint] = new BoneAnimationTrack
+                if (split.UpperSubtree[j]) return true;
+                if (parentOverrides != null && parentOverrides.TryGetValue(j, out int target))
                 {
-                    JointIndex = joint,
-                    Rotations = track.Rotations,
-                    Translations = track.Translations,
-                    Scales = track.Scales,
-                    PartDurationSeconds = (track.PartDurationSeconds > 0f ? track.PartDurationSeconds : locomotion.DurationSeconds) * clipRate,
-                    LoopsAlways = true,
-                };
+                    j = target;
+                    continue;
+                }
+                int parent = skeleton.Joints[j].Parent;
+                if (parent == j) break;
+                j = parent;
             }
-            if (tracks == null) return action;
-            return new AnimationClip { Name = action.Name, NumFrames = action.NumFrames, KeyFrameDuration = action.KeyFrameDuration, Tracks = tracks };
+            return false;
+        }
+
+        /// <summary>
+        /// The pose with the upper body of <paramref name="upper"/> (the swing) on the lower body of <paramref name="lower"/>
+        /// (the locomotion): lower-body joints are the locomotion's; upper-body joints keep the swing's orientation and are
+        /// moved so the spine starts where the locomotion's spine starts. Both poses are model space, from
+        /// <see cref="SkeletonPoseEvaluator"/> with the same <paramref name="parentOverrides"/>.
+        /// </summary>
+        public static SkeletonPoseEvaluator.EvaluatedPose Combine(Skeleton skeleton, SkeletonPoseEvaluator.EvaluatedPose upper,
+            SkeletonPoseEvaluator.EvaluatedPose lower, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            int root = UpperBodyRoot(skeleton);
+            int n = Math.Min(upper.Rotations.Length, lower.Rotations.Length);
+            if (root < 0 || root >= n) return upper;
+
+            var rotations = (Quaternion[])lower.Rotations.Clone();
+            var translations = (Vector3[])lower.Translations.Clone();
+            var scales = lower.Scales.Length == n ? (Vector3[])lower.Scales.Clone() : new Vector3[n];
+            if (lower.Scales.Length != n) Array.Fill(scales, Vector3.One);
+            Vector3 offset = lower.Translations[root] - upper.Translations[root];
+            for (int j = 0; j < n; j++)
+            {
+                if (!IsUpperBody(skeleton, j, parentOverrides)) continue;
+                rotations[j] = upper.Rotations[j];
+                translations[j] = upper.Translations[j] + offset;
+                if (upper.Scales.Length == n) scales[j] = upper.Scales[j];
+            }
+            return new SkeletonPoseEvaluator.EvaluatedPose(rotations, translations, scales);
         }
     }
 }
