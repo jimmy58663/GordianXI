@@ -65,7 +65,7 @@ namespace Gordian.Core.Network
         CollisionToggle,
         /// <summary><c>/anchor [on|off]</c>: ignore knockback, unless the server forbids it.</summary>
         AnchorToggle,
-        /// <summary><c>/actionfreeze [on|off] [actions|engage]</c>: keep or ignore the action freezes (#511), unless the server forbids ignoring them.</summary>
+        /// <summary><c>/actionfreeze [actions|engage|all] [on|off]</c>: keep, ignore or toggle the action freezes (#511), unless the server forbids ignoring them.</summary>
         ActionFreezeToggle,
         UiLayout,
         /// <summary><c>/stockui [hide|show &lt;element&gt;...] | reset</c>: hides stock HUD elements at run time (#29); client only.</summary>

@@ -2766,15 +2766,15 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// Handles <c>/actionfreeze [on|off] [actions|engage]</c> (#511): <c>off</c> ignores the action freezes (the control
-        /// locks of the player's own actions, and of the weapon draw / sheathe on engage and disengage), <c>on</c> keeps them as
-        /// retail does; no source means both, no argument reports the state. The server's
+        /// Handles <c>/actionfreeze [actions|engage|all] [on|off]</c> (#511), parsed as <c>/collision</c> is: the sources first
+        /// (none named means both), then an optional state; without one the named sources toggle, and no arguments only reports.
+        /// <c>off</c> ignores the action freezes (the control locks of the player's own actions, and of the weapon draw /
+        /// sheathe on engage and disengage), <c>on</c> keeps them as retail does. The server's
         /// <see cref="FeatureRestrictions.ActionFreezeOverride"/> bit keeps every freeze on whatever the player asks.
         /// </summary>
         public PlayerActionResult ApplyActionFreezeCommand(string args)
         {
             const ChatCommandResultKind Kind = ChatCommandResultKind.ActionFreezeToggle;
-            const string Usage = "Usage: /actionfreeze [on|off] [actions|engage]";
             var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             bool? keep = null;
             var sources = ActionFreezeSource.None;
@@ -2787,22 +2787,31 @@ namespace Gordian.Engine.Actions
                     case "actions" or "action": sources |= ActionFreezeSource.Actions; break;
                     case "engage" or "draw": sources |= ActionFreezeSource.Engage; break;
                     case "all": sources |= ActionFreezeSource.All; break;
-                    default: return PlayerActionResult.Warn(Usage, Kind);
+                    default: return PlayerActionResult.Warn("Usage: /actionfreeze [actions|engage|all] [on|off]", Kind);
                 }
             }
-            if (keep == null && sources != ActionFreezeSource.None) return PlayerActionResult.Warn(Usage, Kind);
-            if (sources == ActionFreezeSource.None) sources = ActionFreezeSource.All;
-            if (keep == true) ActionFreeze.IgnoreRequested &= ~sources;
-            else if (keep == false) ActionFreeze.IgnoreRequested |= sources;
+
+            if (parts.Length > 0)
+            {
+                if (sources == ActionFreezeSource.None) sources = ActionFreezeSource.All;
+                // Toggle: when every named source is kept, ignore them; otherwise keep them all.
+                bool on = keep ?? (ActionFreeze.IgnoreRequested & sources) != ActionFreezeSource.None;
+                ActionFreeze.IgnoreRequested = on ? ActionFreeze.IgnoreRequested & ~sources : ActionFreeze.IgnoreRequested | sources;
+            }
 
             var ignored = ActionFreeze.GetIgnored(_profile);
-            static string State(ActionFreezeSource ignored, ActionFreezeSource source) => (ignored & source) != 0 ? "ignored" : "on";
-            string summary = $"Action freezes: actions {State(ignored, ActionFreezeSource.Actions)}, engage {State(ignored, ActionFreezeSource.Engage)}.";
-            if (ActionFreeze.IgnoreRequested != ActionFreezeSource.None && ActionFreezeSettings.IsLocked(_profile))
+            bool locked = ActionFreezeSettings.IsLocked(_profile);
+            string Describe(ActionFreezeSource source, string name)
             {
-                return PlayerActionResult.Warn(summary + " (The server keeps action freezes on.)", Kind);
+                string state = (ignored & source) != 0 ? "off" : "on";
+                return locked && (ActionFreeze.IgnoreRequested & source) != 0 ? $"{name} {state} (server-enforced)" : $"{name} {state}";
             }
-            return keep == null ? PlayerActionResult.Info(summary, Kind) : PlayerActionResult.Ok(summary, Kind);
+
+            string summary = $"Action freezes: {Describe(ActionFreezeSource.Actions, "actions")}, {Describe(ActionFreezeSource.Engage, "engage")}.";
+            if (parts.Length == 0) return PlayerActionResult.Info(summary, Kind);
+            return locked && ActionFreeze.IgnoreRequested != ActionFreezeSource.None
+                ? PlayerActionResult.Warn(summary, Kind)
+                : PlayerActionResult.Ok(summary, Kind);
         }
 
         private const string UiLayoutUsage =

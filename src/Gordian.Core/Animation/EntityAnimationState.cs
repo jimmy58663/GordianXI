@@ -424,13 +424,16 @@ namespace Gordian.Core.Animation
 
             AdvanceReactions(dt, model, now);
 
-            // An action keeps the body until it ends. Death and a new model end it at once; moving ends a standing action,
-            // and stopping ends a moving swing once its hit has landed (so it does not slide in place).
+            // An action keeps the body until it ends. Death and a new model end it at once; moving ends a standing swing,
+            // chant or gesture, and stopping ends a moving swing once its hit has landed (so it does not slide in place).
+            // Weapon draws and sheathes, presentations and finish routines keep the body while the entity moves: it slides
+            // across the ground in the action's motion, as retail shows an action used while moving (#511 round 1).
             if (ActiveRoutine != null)
             {
                 bool movingSwingStopped = !isLocomotion && _actionAllowsLocomotion && (_actionHitTick < 0 || _actionTicks >= _actionHitTick);
                 bool scheduleLeft = _isWorkSchedule && !PlaysWorkSchedule(newCategory, subAnimation);
-                if (modelChanged || newCategory == AnimationCategory.Death || (isLocomotion && !_actionAllowsLocomotion) || movingSwingStopped || scheduleLeft)
+                bool movedOff = isLocomotion && !_actionAllowsLocomotion && !SlidesWhileMoving;
+                if (modelChanged || newCategory == AnimationCategory.Death || movedOff || movingSwingStopped || scheduleLeft)
                 {
                     if (modelChanged) _lastModel = model;
                     EndAction(model, blend: !modelChanged);
@@ -494,9 +497,9 @@ namespace Gordian.Core.Animation
                     StartTransition(transClip);
                     _transitionIsStandUp = standingUp && restTransition;
                 }
-                else if (combatFlipped && !isLocomotionOrDeath && TryStartWeaponMotion(model, IsCombat(newCategory), now))
+                else if (combatFlipped && newCategory != AnimationCategory.Death && TryStartWeaponMotion(model, IsCombat(newCategory), now))
                 {
-                    // Standing still, the weapon draw / sheathe plays, then blends into the new stance.
+                    // The weapon draw / sheathe plays (sliding, if the entity moves), then blends into the new stance.
                     AdvanceAction(dt, model);
                     return;
                 }
@@ -754,6 +757,25 @@ namespace Gordian.Core.Animation
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Whether the playing action keeps the body while the entity moves (#511 round 1): a weapon draw or sheathe, an
+        /// action presentation's <c>main</c>, or a finish routine (a release, an item use's finish, a job ability stand-in).
+        /// Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
+        /// sustained routines and event gestures give way to the walk or run.
+        /// </summary>
+        private bool SlidesWhileMoving
+        {
+            get
+            {
+                if (_weaponMotion != WeaponMotion.None || _isPresentation) return true;
+                if (_actionRequest is not { } request || ActiveRoutine is not { } routine) return false;
+                if (request.Motion is ActionMotion.Swing or ActionMotion.EventMotion or ActionMotion.None) return false;
+                if (request.Category is ActionCategory.SkillStart or ActionCategory.MagicStart or ActionCategory.ItemStart
+                    or ActionCategory.AbilityStart or ActionCategory.RangedStart) return false;
+                return !routine.IsSustained && !routine.HoldsLastClip;
+            }
         }
 
         /// <summary>A chant with an action waiting behind it plays at least this long (60 Hz ticks) before giving way.</summary>

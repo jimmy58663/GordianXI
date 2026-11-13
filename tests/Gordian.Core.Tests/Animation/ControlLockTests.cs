@@ -130,6 +130,50 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal(ActionFreezeSource.Engage, state.ControlLocksAt(After(start, 0.5)));
         }
 
+        private static void Run(EntityAnimationState state, EntityModel model, AnimationCategory category, int ticks)
+        {
+            for (int i = 0; i < ticks; i++) state.Advance(Tick, category, 0, model);
+        }
+
+        /// <summary>
+        /// Round 1 of the in-game test (#511): an action used while moving plays over the run, the character sliding, as retail
+        /// shows it with the freezes off; a draw started while running plays too. A chant still gives way to the run.
+        /// </summary>
+        [Theory]
+        [InlineData("shit", (byte)Gordian.Core.Network.Packets.ActionCategory.ItemFinish, true)]
+        [InlineData("cabk", (byte)Gordian.Core.Network.Packets.ActionCategory.MagicStart, false)]
+        public void FinishRoutinesKeepTheBodyWhileMoving_StartRoutinesGiveWay(string name, byte category, bool slides)
+        {
+            var model = Model((name, MotionRoutineBuilder.Routine(60, MotionRoutineBuilder.PlayClip("cm0?", 0, 60, 4, 4, 1))));
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+
+            state.EnqueueAction(new ActionRequest
+            {
+                Motion = ActionMotion.Routine, Routine = name, Category = (Gordian.Core.Network.Packets.ActionCategory)category,
+                ReceivedTimestamp = Stopwatch.GetTimestamp()
+            });
+            Run(state, model, AnimationCategory.Run, 10);
+
+            if (slides) Assert.Equal(name, state.ActiveRoutine?.Name);
+            else Assert.Null(state.ActiveRoutine);
+        }
+
+        [Fact]
+        public void EngagingWhileRunning_PlaysTheDraw()
+        {
+            var model = Model(("in 0", MotionRoutineBuilder.Routine(72, ControlLock(0, 72), MotionRoutineBuilder.PlayClip("ind?", 0, 72, 4, 4, 1))));
+            var state = new EntityAnimationState();
+            Run(state, model, AnimationCategory.Run, 2);
+
+            Run(state, model, AnimationCategory.CombatRun, 10);
+
+            Assert.Equal("in 0", state.ActiveRoutine?.Name);
+            Assert.Equal("ind", state.CurrentClip?.Name);
+            Run(state, model, AnimationCategory.CombatRun, 70);
+            Assert.Null(state.ActiveRoutine); // then the run takes the body back
+        }
+
         [Fact]
         public void Settings_IgnoreOnlyWhatTheServerAllows()
         {

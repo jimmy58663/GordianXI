@@ -931,11 +931,9 @@ namespace Gordian.Engine.Input
                 return;
             }
 
-            // Locked by the server (an event, the 0x037 FreezeFlag) or charmed (the server drives the character): no input
-            // movement. Resting or sitting, and standing up from either, roots the player in place too (#343), and so does an
-            // action freeze: a control lock of a routine the player is playing (#511).
-            if (_localPlayer.IsMovementLocked || _localPlayer.IsServerFrozen || (localEnt is PlayerEntity { IsCharmed: true })
-                || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp())
+            // Locked by the server (an event) or charmed (the server drives the character): no input movement. Resting or
+            // sitting, and standing up from either, roots the player in place too (#343).
+            if (_localPlayer.IsMovementLocked || (localEnt is PlayerEntity { IsCharmed: true })
                 || _seatedHold.IsRooted(_localPlayer.ServerStatus, localEnt.Animation, System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency))
             {
                 localEnt.Speed = 0;
@@ -955,6 +953,15 @@ namespace Gordian.Engine.Input
 
             // A knockback slides the player on top of whatever it does itself.
             StepKnockback(localEnt, dt);
+
+            // An action freeze (a control lock of a routine the player is playing) or the server's 0x037 FreezeFlag holds the
+            // player's own movement and turning only (#511): falls, moving platforms and knockback still move it.
+            if (_localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
+            {
+                localEnt.Speed = 0;
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
 
             // Check gamepad analog left stick
             var pad = _inputState.CurrentGamepad;
