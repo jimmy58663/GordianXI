@@ -146,6 +146,73 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.True(freeForward.Y < 0.0f); // looking down
         }
 
+        /// <summary>
+        /// Entering the free camera from third person opens on the exact view the player had, lock-on aim included: same
+        /// eye, same look direction (#551).
+        /// </summary>
+        [Theory]
+        [InlineData(15f, 0f, 0f)]
+        [InlineData(40f, 200f, 0f)]
+        [InlineData(-10f, 300f, 1f)] // locked on: the view looks off the orbit yaw
+        public void ViewportCamera_FreeCamEntry_FromThirdPersonKeepsTheView(float pitch, float yaw, float aimBlend)
+        {
+            var player = new Vector3(5f, -2f, 7f);
+            var camera = new ViewportCamera { Mode = CameraMode.ThirdPersonOrbital, AimPoint = new Vector3(-20f, -2f, 30f), AimBlend = aimBlend };
+            camera.Update(player, pitch, yaw, 8f, 1.5f);
+            var eye = camera.Position;
+            var forward = camera.Forward;
+
+            var entry = ViewportCamera.FreeCamEntryPose(camera, CameraMode.ThirdPersonOrbital, player, 8f);
+            var free = new ViewportCamera { Mode = CameraMode.FreeCam };
+            free.SetFreeCamPose(entry.Position, entry.Pitch, entry.Yaw, 1.5f);
+
+            Assert.Equal(eye, free.Position);
+            Assert.True(Vector3.Dot(forward, free.Forward) > 0.9999f, $"third person {forward} vs free {free.Forward}");
+        }
+
+        /// <summary>
+        /// Entering the free camera from first person (Change View cycles third, first, free) opened inside the head (#551):
+        /// it now opens on the third-person view of the same look, outside the character and looking at it.
+        /// </summary>
+        [Theory]
+        [InlineData(0f, 0f)]
+        [InlineData(-30f, 120f)] // first person looking down (first person's pitch tilts the other way)
+        [InlineData(30f, 250f)]  // looking up: the free camera is held to the orbit's pitch range
+        public void ViewportCamera_FreeCamEntry_FromFirstPersonStartsOutsideTheCharacter(float pitch, float yaw)
+        {
+            var player = new Vector3(5f, -2f, 7f);
+            var camera = new ViewportCamera { Mode = CameraMode.FirstPerson, FirstPersonEyeHeight = 1.66f };
+            camera.Update(player, pitch, yaw, 0.5f, 1.5f);
+            var head = camera.Position;
+            var firstPersonLook = camera.Forward;
+
+            var entry = ViewportCamera.FreeCamEntryPose(camera, CameraMode.FirstPerson, player, 8f);
+            var free = new ViewportCamera { Mode = CameraMode.FreeCam };
+            free.SetFreeCamPose(entry.Position, entry.Pitch, entry.Yaw, 1.5f);
+
+            Assert.True(Vector3.Distance(free.Position, head) > 6f, $"free camera at {free.Position}, head at {head}");
+            // It looks at the character (the orbit look-at point above its feet) ...
+            var toCharacter = Vector3.Normalize(player + camera.EyeOffset - free.Position);
+            Assert.True(Vector3.Dot(toCharacter, free.Forward) > 0.999f, $"looks {free.Forward}, character at {toCharacter}");
+            // ... facing the way first person did (the same heading; the same tilt unless it was held to the orbit range).
+            var flatFirst = Vector3.Normalize(firstPersonLook with { Y = 0f });
+            var flatFree = Vector3.Normalize(free.Forward with { Y = 0f });
+            Assert.True(Vector3.Dot(flatFirst, flatFree) > 0.9999f);
+            if (pitch <= 15f) Assert.True(Vector3.Dot(firstPersonLook, free.Forward) > 0.9999f);
+            Assert.True(free.Position.Y >= player.Y + 0.25f - 1e-4f); // not under the floor
+        }
+
+        [Fact]
+        public void ViewportCamera_FreeCamAngles_InvertFreeCamForward()
+        {
+            foreach (var (pitch, yaw) in new[] { (0f, 0f), (20f, 30f), (-45f, 200f), (79f, 359f) })
+            {
+                var (p, y) = ViewportCamera.FreeCamAngles(ViewportCamera.FreeCamForward(pitch, yaw));
+                Assert.Equal(pitch, p, 3);
+                Assert.Equal(yaw, y, 3);
+            }
+        }
+
         [Fact]
         public void ViewportCamera_FreeCam_FliesWhereItLooks()
         {

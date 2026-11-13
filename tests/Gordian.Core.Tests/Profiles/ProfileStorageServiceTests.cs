@@ -174,5 +174,21 @@ namespace Gordian.Core.Tests.Profiles
             Assert.Contains(loaded.Folders, f => f.Path == "Party1");
             Assert.Contains(loaded.Folders, f => f.Path == "Party1/Dps");
         }
+
+        /// <summary>A profile's saved camera zoom survives the store and a copy (#550); an older store has none.</summary>
+        [Fact]
+        public void CameraZoom_RoundTripsThroughTheStore()
+        {
+            var doc = new ProfileStoreDocument();
+            doc.Profiles.Add(new AccountProfile { ProfileName = "Zoomed", CameraZoom = new CameraZoom { Distance = 11.5f, FirstPerson = true } });
+            doc.Profiles.Add(new AccountProfile { ProfileName = "Fresh" });
+            ProfileStorageService.Save(_tempDirectory, doc);
+
+            var loaded = ProfileStorageService.Load(_tempDirectory);
+            var zoomed = loaded.Profiles.Single(p => p.ProfileName == "Zoomed");
+            Assert.Equal(new CameraZoom { Distance = 11.5f, FirstPerson = true }, zoomed.CameraZoom);
+            Assert.Equal(zoomed.CameraZoom, zoomed.Clone().CameraZoom);
+            Assert.Null(loaded.Profiles.Single(p => p.ProfileName == "Fresh").CameraZoom);
+        }
     }
 }
