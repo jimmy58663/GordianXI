@@ -444,6 +444,7 @@ namespace Gordian.Core.Animation
                     Current = newCategory;
                     SubAnimation = subAnimation;
                     CurrentStance = targetStance;
+                    RelayerLocomotion(model);
                     AdvanceAction(dt, model);
                     return;
                 }
@@ -866,12 +867,44 @@ namespace Gordian.Core.Animation
             AnimationClip? clip = null;
             if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
             else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
-            // A moving swing animates the upper body only: the legs keep the walk or run under it (#511 round 2).
-            if (_actionAllowsLocomotion && IsLocomotion(Current))
+            _layerBase = null;
+            _layerLocomotion = null;
+            if (_actionAllowsLocomotion)
             {
-                clip = LocomotionLayering.Over(clip, NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance), _actionSpeed * segment.Speed);
+                // A moving swing animates the upper body only: the legs keep the walk or run under it (#511 rounds 2-3).
+                _layerBase = clip;
+                _layerRate = _actionSpeed * segment.Speed;
+                _layerLocomotion = LocomotionUnder(model);
+                clip = _layerLocomotion != null ? LocomotionLayering.Over(clip, _layerLocomotion, _layerRate) : clip;
             }
             SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond / _actionSpeed, previousLoops, restart: true);
+        }
+
+        /// <summary>The moving swing's own clip, before the locomotion is laid under it, or null when no swing is layered.</summary>
+        private AnimationClip? _layerBase;
+
+        /// <summary>The locomotion clip laid under <see cref="_layerBase"/>, or null.</summary>
+        private AnimationClip? _layerLocomotion;
+
+        /// <summary>Seconds of the swing's clip per real second (the routine clock's speed times the step's).</summary>
+        private float _layerRate = 1f;
+
+        /// <summary>The clip the entity would show for its current category without the swing (null when not moving).</summary>
+        private AnimationClip? LocomotionUnder(EntityModel model) =>
+            IsLocomotion(Current) ? NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance) : null;
+
+        /// <summary>
+        /// Keeps the legs under a moving swing on the locomotion the entity shows now (#511 round 3): the direction (strafe,
+        /// back), walk or run, and standing still can change while the swing plays, and the layer follows each change at once,
+        /// keeping the swing's clip time. Called every frame the swing plays, after the category is taken.
+        /// </summary>
+        private void RelayerLocomotion(EntityModel model)
+        {
+            if (_layerBase == null) return;
+            var locomotion = LocomotionUnder(model);
+            if (ReferenceEquals(locomotion, _layerLocomotion)) return;
+            _layerLocomotion = locomotion;
+            CurrentClip = locomotion != null ? LocomotionLayering.Over(_layerBase, locomotion, _layerRate) : _layerBase;
         }
 
         private void AdvanceAction(float dt, EntityModel model)
@@ -938,6 +971,8 @@ namespace Gordian.Core.Animation
             bool actionClipLoops = LoopsCurrentClip;
             bool hitStillAhead = _isPresentation && _actionHitTick > _actionTicks;
             ActiveRoutine = null;
+            _layerBase = null;
+            _layerLocomotion = null;
             _actionRequest = null;
             _actionBank = null;
             _isPresentation = false;

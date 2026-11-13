@@ -61,10 +61,13 @@ namespace Gordian.Core.Tests.Animation
         private static EntityModel Model()
         {
             var model = new EntityModel { Name = "Test" };
-            foreach (var name in new[] { "idl", "btl", "wlk", "run", "crun" }) model.Animations[name] = Clip(name, Arm, Leg);
-            model.Animations["amf"] = Clip("amf", Arm);
+            foreach (var name in new[] { "idl", "btl", "wlk", "run", "crun", "cwlk", "cmvl", "cmvr", "cmvb" }) model.Animations[name] = Clip(name, Arm, Leg);
+            foreach (var (routine, clip) in new[] { ("atf0", "amf"), ("atb0", "amb"), ("atl0", "aml"), ("atr0", "amr") })
+            {
+                model.Animations[clip] = Clip(clip, Arm);
+                model.RawMotionRoutines[routine] = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(68, MotionRoutineBuilder.PlayClip(clip + "?", 40, 68, 4, 4, 1), MotionRoutineBuilder.Link(0x03, "dada", 28)), routine)!;
+            }
             model.Animations["at0"] = Clip("at0", Arm, Leg);
-            model.RawMotionRoutines["atf0"] = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(68, MotionRoutineBuilder.PlayClip("amf?", 0, 68, 4, 4, 1)), "atf0")!;
             model.RawMotionRoutines["ati0"] = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(98, MotionRoutineBuilder.PlayClip("at0?", 0, 98, 4, 4, 1)), "ati0")!;
             model.RebuildMotionRoutines();
             return model;
@@ -89,6 +92,59 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal("amf", state.CurrentClip!.Name);
             Assert.Same(model.Animations["crun"].Tracks[Leg].Rotations, state.CurrentClip.Tracks[Leg].Rotations);
             Assert.Same(model.Animations["amf"].Tracks[Arm], state.CurrentClip.Tracks[Arm]);
+        }
+
+        private static void AssertLegsFrom(EntityModel model, EntityAnimationState state, string locomotion) =>
+            Assert.Same(model.Animations[locomotion].Tracks[Leg].Rotations, state.CurrentClip!.Tracks[Leg].Rotations);
+
+        /// <summary>Round 3: the legs under a swing follow the strafe and the back step, not the forward run.</summary>
+        [Theory]
+        [InlineData(AnimationCategory.CombatMoveLeft, "atl0", "aml", "cmvl")]
+        [InlineData(AnimationCategory.CombatMoveRight, "atr0", "amr", "cmvr")]
+        [InlineData(AnimationCategory.CombatMoveBackward, "atb0", "amb", "cmvb")]
+        [InlineData(AnimationCategory.CombatWalk, "atf0", "amf", "cwlk")]
+        public void ASwingWhileStrafingOrBacking_KeepsThatLocomotionOnTheLegs(AnimationCategory moving, string routine, string clip, string locomotion)
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            for (int i = 0; i < 5; i++) state.Advance(Tick, moving, 0, model);
+
+            state.EnqueueAction(Swing());
+            state.Advance(Tick, moving, 0, model);
+
+            Assert.Equal(routine, state.ActiveRoutine?.Name);
+            Assert.Equal(clip, state.CurrentClip!.Name);
+            AssertLegsFrom(model, state, locomotion);
+            Assert.Same(model.Animations[clip].Tracks[Arm], state.CurrentClip.Tracks[Arm]);
+        }
+
+        /// <summary>
+        /// Round 3: the legs follow a change of direction, walk or run and stopping while the swing plays, keeping the swing's
+        /// own clip and its time.
+        /// </summary>
+        [Fact]
+        public void TheLegsFollowTheLocomotionAsItChangesDuringTheSwing()
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            for (int i = 0; i < 5; i++) state.Advance(Tick, AnimationCategory.CombatRun, 0, model);
+            state.EnqueueAction(Swing());
+            state.Advance(Tick, AnimationCategory.CombatRun, 0, model);
+            AssertLegsFrom(model, state, "crun");
+
+            state.Advance(Tick, AnimationCategory.CombatMoveLeft, 0, model);
+            Assert.Equal("atf0", state.ActiveRoutine?.Name); // the swing goes on
+            AssertLegsFrom(model, state, "cmvl");
+            float elapsed = state.ElapsedSeconds;
+            state.Advance(Tick, AnimationCategory.CombatMoveBackward, 0, model);
+            AssertLegsFrom(model, state, "cmvb");
+            Assert.True(state.ElapsedSeconds > elapsed); // the swing's clip time carries on
+            state.Advance(Tick, AnimationCategory.CombatWalk, 0, model);
+            AssertLegsFrom(model, state, "cwlk");
+
+            state.Advance(Tick, AnimationCategory.Combat, 0, model); // stopped before the hit: the swing's own legs
+            Assert.Equal("atf0", state.ActiveRoutine?.Name);
+            Assert.Same(model.Animations["amf"], state.CurrentClip);
         }
 
         [Fact]
