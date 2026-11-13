@@ -466,36 +466,12 @@ namespace Gordian.Core.Network
         /// <summary>How many more inbound datagrams log their decompressed sub-packets (the session's wire trace sets it).</summary>
         internal int SubPacketTrace { get; set; }
 
-        private bool _hasSubPacketSync;
-        private ushort _lastSubPacketSync;
-
         /// <summary>
-        /// The newest sub-packet <c>sync</c> (header bytes 2-3, <c>SendCnt</c>) dispatched from this map server, or null.
-        /// A retail map server stamps each sub-packet with the sequence of the datagram it was first sent in and repeats it,
-        /// with that same sync, in its next datagrams until our ack covers it: live retail, 2026-11-12, datagram 5 repeated
-        /// all 48 sub-packets of datagram 4 (sync 4), and datagram 12 carried syncs 10, 11 and 12. Each sub-packet is
-        /// dispatched once, the first time its sync is newer than every sync dispatched before (#533: a repeated 0x034
-        /// restarted the Home Point event after its 0x05C had overwritten the event's parameters). LandSandBoat resends
+        /// Recognises the sub-packets a retail map server repeats until our ack covers them (#533). LandSandBoat resends
         /// whole datagrams, which the session's sequence window drops, so only a retail session filters
-        /// (<see cref="Packets.LifecyclePacketModule.RetailMapHandshake"/>). Sync semantics referenced from XiPackets
-        /// (https://github.com/atom0s/XiPackets/blob/main/world/HEADER.md), <c>sync</c>.
+        /// (<see cref="Packets.LifecyclePacketModule.RetailMapHandshake"/>). A new map server gets a new filter.
         /// </summary>
-        internal ushort? LastSubPacketSync
-        {
-            get => _hasSubPacketSync ? _lastSubPacketSync : null;
-            set
-            {
-                _hasSubPacketSync = value.HasValue;
-                _lastSubPacketSync = value.GetValueOrDefault();
-            }
-        }
-
-        /// <summary>
-        /// True when a retail sub-packet with <paramref name="sync"/> was already dispatched: its sync is not newer than
-        /// <see cref="LastSubPacketSync"/> (16-bit wrap-around).
-        /// </summary>
-        private bool IsResentSubPacket(ushort sync) =>
-            LifecycleModule.RetailMapHandshake && _hasSubPacketSync && unchecked((short)(sync - _lastSubPacketSync)) <= 0;
+        internal RetailResendFilter ResendFilter { get; set; } = new();
 
         /// <summary>
         /// Processes an incoming raw UDP datagram buffer.
@@ -595,8 +571,8 @@ namespace Gordian.Core.Network
             int offset = 0;
             int inboundSubPacketCount = 0;
             int resentSubPacketCount = 0;
-            bool hasNewestSync = false;
-            ushort newestSync = 0;
+            bool filterResends = LifecycleModule.RetailMapHandshake;
+            if (filterResends) ResendFilter.BeginDatagram();
 
             while (offset + 4 <= subPackets.Length)
             {
@@ -613,15 +589,18 @@ namespace Gordian.Core.Network
                 ReadOnlySpan<byte> packetPayload = current.Slice(4, header.TotalSize - 4);
                 offset += header.TotalSize;
 
-                if (IsResentSubPacket(header.SequenceId))
+                if (filterResends)
                 {
-                    resentSubPacketCount++;
-                    continue;
-                }
-                if (!hasNewestSync || unchecked((short)(header.SequenceId - newestSync)) > 0)
-                {
-                    newestSync = header.SequenceId;
-                    hasNewestSync = true;
+                    if (ResendFilter.IsRepeat(header.SequenceId, fullSubPacket, out bool late))
+                    {
+                        resentSubPacketCount++;
+                        continue;
+                    }
+                    if (late)
+                    {
+                        // Evidence for the round 1 failure: a group first seen after a newer one.
+                        GordianLog.Debug("NET", $"Late sub-packet 0x{header.PacketId:X3} with sync {header.SequenceId} (newest {ResendFilter.NewestSync}): dispatched.");
+                    }
                 }
 
                 LogPacket(PacketDirection.Inbound, header.PacketId, header.SequenceId, fullSubPacket);
@@ -631,10 +610,8 @@ namespace Gordian.Core.Network
 
             if (resentSubPacketCount > 0)
             {
-                GordianLog.Debug("NET", $"Skipped {resentSubPacketCount} resent sub-packets (sync not newer than {_lastSubPacketSync}).");
+                GordianLog.Debug("NET", $"Skipped {resentSubPacketCount} resent sub-packets (already dispatched; newest sync {ResendFilter.NewestSync}).");
             }
-            // Only after the whole datagram: its sub-packets of one sync are all new together.
-            if (hasNewestSync && LifecycleModule.RetailMapHandshake) LastSubPacketSync = newestSync;
 
             if (inboundSubPacketCount > 0)
             {

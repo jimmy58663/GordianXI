@@ -331,6 +331,42 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(0, mgr.Performance.DuplicateDatagramsDropped);
         }
 
+        /// <summary>
+        /// #533 round 1: after a same-zone Home Point warp the destination Home Point's spawn never arrived. A group that
+        /// turns up after a newer one, with its older sync, is new and must be dispatched; only exact repeats are skipped.
+        /// </summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_DispatchesALateGroupWithAnOlderSync()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            var seen = new List<string>();
+            mgr.ChatModule.ChatMessageReceived += msg => seen.Add(msg.Message);
+
+            byte[] newer = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "newer", sequenceId: 11);
+            byte[] late = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "late", sequenceId: 10);
+
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(11, 1, newer)));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(12, 1, Concat(late, newer))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(13, 1, Concat(late, newer))));
+
+            Assert.Equal(new[] { "newer", "late" }, seen);
+        }
+
+        /// <summary>Two identical sub-packets in one group are both dispatched, and both skipped when the group repeats.</summary>
+        [Fact]
+        public void ProcessInboundDatagram_Retail_CountsIdenticalSubPacketsInOneGroup()
+        {
+            using var mgr = new SessionNetworkManager("127.0.0.1", 54230) { RetailMapProtocol = true };
+            int count = 0;
+            mgr.ChatModule.ChatMessageReceived += _ => count++;
+
+            byte[] twice = BuildChatSubPacket(ChatMessageType.Say, "Cybin", "twice", sequenceId: 7);
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(7, 1, Concat(twice, twice))));
+            Assert.True(mgr.ProcessInboundDatagram(BuildTestDatagram(8, 1, Concat(twice, twice))));
+
+            Assert.Equal(2, count);
+        }
+
         /// <summary>Several sub-packets of one sync in one datagram are all new together; the sync wraps at 16 bits.</summary>
         [Fact]
         public void ProcessInboundDatagram_Retail_DispatchesEverySubPacketOfANewSyncAcrossTheWrap()

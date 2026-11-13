@@ -1544,13 +1544,13 @@ namespace Gordian.Core.Network
             ushort previous = Volatile.Read(ref _serverPacketIdSequence);
             Volatile.Write(ref _serverPacketIdSequence, newSeq);
             // A new map server numbers its sub-packets' sync afresh: none of them is a resend of the old server's.
-            ushort? previousSync = _parser.LastSubPacketSync;
-            _parser.LastSubPacketSync = null;
+            RetailResendFilter previousFilter = _parser.ResendFilter;
+            _parser.ResendFilter = new RetailResendFilter();
             bool accepted = _parser.ProcessIncomingChunk(activeChunk);
             if (!accepted)
             {
                 Volatile.Write(ref _serverPacketIdSequence, previous);
-                _parser.LastSubPacketSync = previousSync;
+                _parser.ResendFilter = previousFilter;
             }
             return accepted;
         }
