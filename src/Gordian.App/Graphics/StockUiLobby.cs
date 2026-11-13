@@ -95,8 +95,12 @@ namespace Gordian.App.Graphics
             return (rect.X + (creation ? 290 : 150) * s, rect.Y + 372 * s, rect.Y + 160 * s);
         }
 
-        /// <summary>The backgrounds: the title art on the main menu, the list screen's backdrop elsewhere.</summary>
-        public static void DrawBackground(StockUiRenderer renderer, LobbyController lobby, uint width, uint height)
+        /// <summary>
+        /// The backgrounds: the title art on the main menu, the list screen's backdrop elsewhere. <paramref name="overScene"/>:
+        /// the title fly-through is behind (#552), so the backdrops' plain <c>newtex</c> fill is left out and only their art
+        /// (the logos, the copyright line) is drawn; the licence page keeps its own backdrop either way.
+        /// </summary>
+        public static void DrawBackground(StockUiRenderer renderer, LobbyController lobby, uint width, uint height, bool overScene = false)
         {
             var library = lobby.Library;
             if (library == null) return;
@@ -131,7 +135,7 @@ namespace Gordian.App.Graphics
                     }
                     foreach (var shape in menu.Frame.Shapes)
                     {
-                        if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
+                        if (overScene || shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
                         var fills = new UiImage { Parts = image.Parts.Where(IsFill).ToList() };
                         if (fills.Parts.Count > 0) renderer.DrawImage(fills, stretch);
                     }

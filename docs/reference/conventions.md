@@ -67,6 +67,7 @@ Notes:
 | Skeletal clips | `KeyFrameDuration x 30` frames per second | Section 0x2B | `AnimationClip.DurationSeconds` (after xi-model-viewer) |
 | Vana'diel time | 25 x Earth; epoch Unix 1009810800 (2002-01-01 00:00 JST); 86,400 Vana'diel seconds a day; 8-day week (0 Firesday ... 7 Darksday); 84-day moon cycle | S2C 0x00A `GameTime` (Earth seconds since the Vana'diel epoch) | per session `WorldState.Clock` (`VanaClock`, synchronized from S2C 0x00A by `PacketParser`; [world-state](../world/world-state-and-resources.md#vanadiel-clock)); pure maths in `VanaTime` (LandSandBoat epoch); event 0x77 stops it at an hour (`WorldState.LockTimeOfDay`) |
 | Sun position | angle = hour · π / 12 | | `VanaTime.GetSunDirection` (display `(-sin a, -cos a, 0)`, after xi-model-viewer) |
+| Title fly-through clock | 1/60 s of the game day (216,000 a game hour; 2,592,000 = 12:00) | `ROM/0/23` op 0x7D | `TitleSceneResource.HourOf` (#552; read from the retail file, [character-lobby](../design/character-lobby.md#title-fly-through-552)) |
 
 ## Byte and bit order
 

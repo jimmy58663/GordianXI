@@ -483,7 +483,8 @@ namespace Gordian.App.Graphics
             return _presentationHeld;
         }
 
-        private void CheckAndLoadPendingZone()
+        /// <param name="lobby">The lobby's title fly-through asks (#552): no session's event scene zone applies.</param>
+        private void CheckAndLoadPendingZone(bool lobby = false)
         {
             ShowDeferredZone();
             var rm = ResourceManager;
@@ -492,7 +493,7 @@ namespace Gordian.App.Graphics
 
             int generation = rm.CacheGeneration;
             // An event may show another zone for a scene (0x34 / 0x35) and then the session's own again.
-            if (Volatile.Read(ref _isZoneLoading) == 0 && (_activeSession?.World ?? WorldState) is { } sceneWorld)
+            if (!lobby && Volatile.Read(ref _isZoneLoading) == 0 && (_activeSession?.World ?? WorldState) is { } sceneWorld)
             {
                 ushort sceneZone = sceneWorld.SceneZoneId;
                 if (sceneZone != 0 && sceneZone != _loadedZoneId) _pendingZoneLoad = sceneZone;
@@ -919,6 +920,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 _lobbyShown = null;
+                LeaveTitleScene();
 
                 // Between a Log Out and the lobby's title menu (the launcher logging in again): a black screen in the
                 // same window, which the lobby then fades in over.
@@ -1706,8 +1708,14 @@ namespace Gordian.App.Graphics
                     }
                     float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
                     BeginPerformancePasses();
+                    uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
+                    // The title fly-through behind the windows (#552), drawn by the zone renderer first.
+                    var title = UpdateTitleScene(lobby, deltaSeconds, out bool sceneDrawn);
+                    if (title != null && sceneDrawn) RenderTitleZone(title, framebuffer, width, height, deltaSeconds);
+                    var scene = title == null ? default
+                        : new LobbySceneLayer(Flythrough: true, Drawn: sceneDrawn, Tint: sceneDrawn ? title.Presentation.SceneColor : Vector3.Zero);
                     _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, framebuffer,
-                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
+                        width, height, deltaSeconds, brightness, scene);
                     EndPerformancePass(ViewportPass.Scene);
                     RenderTier3_ImGuiOverlays();
                     EndPerformancePass(ViewportPass.Overlay);
