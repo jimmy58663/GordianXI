@@ -166,7 +166,8 @@ namespace Gordian.Core.Tests.Resources
         /// <summary>
         /// #546: the off-hand claw of a hand-to-hand weapon (sub look 484: Info type 0xFF and mount reference 125, as a shield
         /// reads, but skinned to the mount joint itself) is held in the left hand: the mount is re-parented to reference 126.
-        /// A shield (sub look 1, skinned straight to the left hand or forearm) gets no override of its own.
+        /// A shield (sub look 20, skinned straight to the left arm; looks 19-63 are the shields, while looks below 19 draw no
+        /// off-hand mesh) gets no override of its own.
         /// </summary>
         [Theory]
         [MemberData(nameof(Races))]
@@ -187,7 +188,8 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(refs[126].Index, claws.ParentOverrides![refs[125].Index]);
             Assert.Equal(refs[127].Index, claws.ParentOverrides[refs[112].Index]);
 
-            var shield = Load(1);
+            var shield = Load(20);
+            Assert.Contains(shield.AnimatedMeshGroups, g => g.WeaponSlot == 1);
             Assert.Equal(new[] { (int)refs[112].Index }, shield.ParentOverrides!.Keys.ToArray());
         }
     }

@@ -1269,22 +1269,24 @@ namespace Gordian.Core.Animation
                     break;
 
                 case ActionResolution.Block:
-                    StartPoseRoutine(model, "gur1", "gurd");
+                    // The block's pose 0 is the guard, played with the shield arm (ShieldBlockPose, #546 round 1).
+                    StartPoseRoutine(model, "gur1", "gurd", shieldArm: true);
                     break;
             }
         }
 
         /// <summary>
         /// Plays a guard / parry / block routine as a pose flash: the PC routines carry op 0x5A (pose 0 = guard <c>gdm</c>,
-        /// 1 = parry <c>pym</c>), the monster ones a two-tick guard pose clip that blends out over its blend-out time.
+        /// 1 = parry <c>pym</c>; a block plays pose 0 with the shield arm, <see cref="ShieldBlockPose"/>), the monster ones a two-tick guard pose clip that blends out over its blend-out time.
         /// </summary>
-        private void StartPoseRoutine(EntityModel model, string name, string fallbackName)
+        private void StartPoseRoutine(EntityModel model, string name, string fallbackName, bool shieldArm = false)
         {
             if (!model.MotionRoutines.TryGetValue(name, out var routine) && !model.MotionRoutines.TryGetValue(fallbackName, out routine)) return;
 
             if (routine.PoseFlashIndex >= 0)
             {
-                string pose = routine.PoseFlashIndex == 1 ? "pym" : "gdm";
+                string pose = routine.PoseFlashIndex == 1 ? "pym"
+                    : shieldArm && model.Animations.ContainsKey(ShieldBlockPose.PoseName) ? ShieldBlockPose.PoseName : "gdm";
                 StartOverlay(model, pose, 1f, routine.PoseFlashTicks > 0 ? routine.PoseFlashTicks : DefaultPoseFlashTicks);
             }
             else if (routine.Segments.Count == 1)
