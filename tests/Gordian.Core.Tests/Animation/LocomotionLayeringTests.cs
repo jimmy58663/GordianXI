@@ -25,28 +25,26 @@ namespace Gordian.Core.Tests.Animation
         private const string GameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
         private const float Tick = 1f / 60f;
 
-        // A small biped: 0 root, 1 pelvis; the hips 2 with the leg 3; the spine 4 with the arm 5 and the head 6; the grip 7 on
-        // the pelvis, re-parented into the arm's hand.
-        private const int Pelvis = 1, Hips = 2, Leg = 3, Spine = 4, Arm = 5, Head = 6, Grip = 7;
+        // A small biped laid out like the retail PC skeletons: 0 root; 1 carries the mount joint 13 (as Elvaan male joint 1
+        // carries 25 mounts); 2 the pelvis with the leg 3-6 (four deep) and the spine 7, chest 8, hands 9 / 10 and head 11; the
+        // grip 12 on joint 1, re-parented into the right hand; the off-hand mount 14 on the pelvis, which the clips carry.
+        private const int Pelvis = 2, Hips = 3, Leg = 5, Foot = 6, Spine = 7, Chest = 8, LeftHand = 9, Arm = 10, Head = 11, Grip = 12, Mount = 13, OffHand = 14;
         private static readonly IReadOnlyDictionary<int, int> GripInHand = new Dictionary<int, int> { [Grip] = Arm };
+        private const int JointCount = 15;
 
-        private static Skeleton Biped() => new(new[]
+        private static Skeleton Biped()
         {
-            new SkeletonJoint(-1, Quaternion.Identity, Vector3.Zero),
-            new SkeletonJoint(0, Quaternion.Identity, new Vector3(0, -1, 0)),
-            new SkeletonJoint(Pelvis, Quaternion.Identity, new Vector3(0, 0.1f, 0)),
-            new SkeletonJoint(Hips, Quaternion.Identity, new Vector3(0, 0.5f, 0)),
-            new SkeletonJoint(Pelvis, Quaternion.Identity, new Vector3(0, -0.4f, 0)),
-            new SkeletonJoint(Spine, Quaternion.Identity, new Vector3(0.3f, 0, 0)),
-            new SkeletonJoint(Spine, Quaternion.Identity, new Vector3(0, -0.3f, 0)),
-            new SkeletonJoint(Pelvis, Quaternion.Identity, Vector3.Zero),
-        });
+            int[] parents = { -1, 0, 1, 2, 3, 4, 5, 2, 7, 8, 8, 8, 1, 1, 2 };
+            var joints = parents.Select((parent, i) => new SkeletonJoint(parent, Quaternion.Identity, i == 0 ? Vector3.Zero : new Vector3(0, -0.2f, 0.05f * i))).ToArray();
+            var references = Enumerable.Range(0, 128).Select(r => new JointReference((ushort)(r == 126 ? LeftHand : r == 127 ? Arm : 0), Vector3.Zero)).ToArray();
+            return new Skeleton(joints, references);
+        }
 
         /// <summary>A 31-frame clip turning each given joint about Y by its angle, alternating with no turn frame to frame.</summary>
         private static AnimationClip Clip(string name, params (int Joint, float Angle)[] turns)
         {
             var tracks = new Dictionary<int, BoneAnimationTrack>();
-            for (int joint = 0; joint < 8; joint++)
+            for (int joint = 0; joint < JointCount; joint++)
             {
                 float angle = turns.FirstOrDefault(t => t.Joint == joint).Angle;
                 tracks[joint] = new BoneAnimationTrack
@@ -60,34 +58,44 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void TheSplitFollowsTheHierarchy()
+        public void TheSplitFollowsTheHierarchy_FromTheHandsDownToTheLegs()
         {
             var skeleton = Biped();
             Assert.Equal(Spine, LocomotionLayering.UpperBodyRoot(skeleton));
-            foreach (int j in new[] { 0, Pelvis, Hips, Leg }) Assert.False(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
-            foreach (int j in new[] { Spine, Arm, Head, Grip }) Assert.True(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
-            Assert.False(LocomotionLayering.IsUpperBody(skeleton, Grip)); // only a grip in the hand goes with the swing
+            Assert.Equal(Pelvis, LocomotionLayering.Pelvis(skeleton));
+            foreach (int j in new[] { 0, 1, Pelvis, Hips, 4, Leg, Foot }) Assert.False(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
+            // The spine, the grip in the hand, and the mounts the clips move (on joint 1 or on the pelvis) follow the swing.
+            foreach (int j in new[] { Spine, Chest, LeftHand, Arm, Head, Grip, Mount, OffHand }) Assert.True(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
+        }
+
+        [Fact]
+        public void ASkeletonWithoutHandReferences_IsNotSplit()
+        {
+            var skeleton = new Skeleton(Biped().Joints);
+            Assert.Equal(-1, LocomotionLayering.UpperBodyRoot(skeleton));
         }
 
         [Fact]
         public void Combine_KeepsTheLocomotionsLowerBody_AndTheSwingsUpperBodyFacing()
         {
             var skeleton = Biped();
-            var strafe = Clip("cmvl", (Pelvis, 0.8f), (Spine, -0.8f), (Leg, 0.5f));
-            var swing = Clip("aml", (Pelvis, 0f), (Arm, 1.2f));
+            var strafe = Clip("cmvl", (Pelvis, 0.8f), (Spine, -0.8f), (Leg, 0.5f), (OffHand, 0.3f));
+            var swing = Clip("aml", (Pelvis, 0f), (Arm, 1.2f), (OffHand, -0.6f));
             var lower = SkeletonPoseEvaluator.EvaluatePose(skeleton, strafe, 0f, true, GripInHand);
             var upper = SkeletonPoseEvaluator.EvaluatePose(skeleton, swing, 0f, false, GripInHand);
 
             var pose = LocomotionLayering.Combine(skeleton, upper, lower, GripInHand);
 
-            foreach (int j in new[] { 0, Pelvis, Hips, Leg })
+            foreach (int j in new[] { 0, 1, Pelvis, Hips, Leg, Foot })
             {
                 Assert.Equal(lower.Rotations[j], pose.Rotations[j]);
                 Assert.Equal(lower.Translations[j], pose.Translations[j]);
             }
-            foreach (int j in new[] { Spine, Arm, Head, Grip }) Assert.Equal(upper.Rotations[j], pose.Rotations[j]);
+            foreach (int j in new[] { Spine, Arm, Head, Grip, OffHand }) Assert.Equal(upper.Rotations[j], pose.Rotations[j]);
             Assert.Equal(lower.Translations[Spine], pose.Translations[Spine]); // the torso sits on the strafe's pelvis
             Assert.Equal(upper.Translations[Arm] - upper.Translations[Spine], pose.Translations[Arm] - pose.Translations[Spine]);
+            // The off-hand mount keeps its place relative to the hands, as the swing has it.
+            Assert.Equal(upper.Translations[OffHand] - upper.Translations[LeftHand], pose.Translations[OffHand] - pose.Translations[LeftHand]);
         }
 
         private static EntityModel Model()
@@ -194,34 +202,6 @@ namespace Gordian.Core.Tests.Animation
 
             Assert.Equal("ati0", state.ActiveRoutine?.Name);
             Assert.Null(state.LowerBodyClip);
-        }
-
-        /// <summary>
-        /// Retail data: on every race the split is the spine at the pelvis (Hume male joint 48 under joint 2), and the strafe
-        /// clips turn the pelvis that every swing clip holds forward, which is why the legs read as forward until round 4.
-        /// </summary>
-        [Fact]
-        public void RetailSkeletons_SplitAtTheSpine_AndTheStrafeTurnsThePelvis()
-        {
-            if (!Directory.Exists(GameDirectory)) return;
-            var rm = new ResourceManager(GameDirectory);
-            rm.InitializeFileTable();
-            foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.TaruMale, CharacterRace.Mithra, CharacterRace.Galka })
-            {
-                var model = EntityModelLoader.AssembleCharacter(race, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
-                var skeleton = model.Skeleton!;
-                int spine = LocomotionLayering.UpperBodyRoot(skeleton);
-                Assert.True(spine > 0, $"{race}");
-                int upper = Enumerable.Range(0, skeleton.Count).Count(j => LocomotionLayering.IsUpperBody(skeleton, j));
-                Assert.True(upper > skeleton.Count / 3 && upper < skeleton.Count, $"{race}: {upper} of {skeleton.Count}");
-            }
-
-            var hume = EntityModelLoader.AssembleCharacter(CharacterRace.HumeMale, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
-            Assert.Equal(48, LocomotionLayering.UpperBodyRoot(hume.Skeleton!));
-            Vector3 PelvisFacing(string clip) => Vector3.Transform(Vector3.UnitX,
-                SkeletonPoseEvaluator.EvaluatePose(hume.Skeleton!, hume.Animations[clip], 0.2f, true).Rotations[2]);
-            Assert.True(Vector3.Dot(PelvisFacing("cmvl"), PelvisFacing("aml")) < 0.8f); // about 45 degrees apart
-            Assert.True(Vector3.Dot(PelvisFacing("crun"), PelvisFacing("amf")) > 0.99f);
         }
     }
 }

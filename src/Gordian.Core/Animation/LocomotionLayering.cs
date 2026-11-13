@@ -9,28 +9,41 @@ using Gordian.Core.Resources.Models;
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// Plays a moving swing on the upper body over the walk or run already playing on the lower body (#511 rounds 2-4).
+    /// Plays a moving swing on the upper body over the walk or run already playing on the lower body (#511 rounds 2-5).
     /// The PC moving swings (<c>atf0</c> / <c>atb0</c> / <c>atl0</c> / <c>atr0</c>, clips <c>amf</c> / <c>amb</c> / <c>aml</c> /
     /// <c>amr</c>) animate the torso and arms with the pelvis facing forward and the legs held still, while the strafe clips
     /// turn the pelvis 45 degrees (Hume male <c>cmvl</c> / <c>cmvr</c>: joint 2, with the spine root, joint 48, turned back the
-    /// other way). So the body is split by the skeleton's hierarchy, not by which joints a clip moves: the root, the pelvis
-    /// and everything under it except the spine (the hips and both legs, and the small joints hung on the pelvis) come from
-    /// the locomotion; the spine and what hangs from it (the torso, arms and head), and the weapon joints re-parented into
-    /// the hands, come from the swing, facing the way the swing has them and carried on the locomotion's pelvis.
-    /// *Inference* from the retail clips and skeletons (2026-11-13); no reference describes the layering.
+    /// other way). So the body is split by the skeleton's hierarchy: the lower body is the chain from the root to the pelvis
+    /// and the legs hanging from the pelvis, taken from the locomotion; everything else (the spine with the torso, arms and
+    /// head, and the gear and weapon mount joints hung on the pelvis or above it) comes from the swing, facing the way the
+    /// swing has it and carried on the locomotion's pelvis.
+    /// <para>
+    /// The pelvis is found from the hands (joint references 126 / 127 on every PC skeleton): up the spine from the joint the
+    /// two arms meet at, the first joint that also carries a long chain (four or more joints deep: a leg). Hume male: the arms
+    /// meet at 50, the spine starts at 48, the pelvis is 2 and the legs hang from 25. Elvaan male: 28, 26, 2 and 3. Galka: 38,
+    /// 36, 2 and 3. The first rule tried, the first joint with two or more children, stops at Elvaan male joint 1, which carries
+    /// 25 mount joints, and took the legs for the upper body (round 5). The mount joints matter too: a hand-to-hand or
+    /// dual-wield off-hand mount hangs from the pelvis and the battle clips carry it into the hand, so it must follow the
+    /// swing, not the run. *Inference* from the retail clips and skeletons (2026-11-13); no reference describes the layering.
+    /// </para>
     /// </summary>
     public static class LocomotionLayering
     {
         private static readonly ConditionalWeakTable<Skeleton, SplitInfo> Splits = new();
 
-        private sealed record SplitInfo(int UpperRoot, bool[] UpperSubtree);
+        /// <summary>Joint references of the left and right hands on the PC skeletons (xi-tools skeleton reference table).</summary>
+        private const int LeftHandReference = 126, RightHandReference = 127;
 
-        /// <summary>
-        /// The joint the upper body hangs from: on the first joint down from the root with two or more children (the pelvis),
-        /// the child with the largest subtree (the spine, carrying the arms and head; the hips carry only the legs). -1 when the
-        /// skeleton has no such joint.
-        /// </summary>
+        /// <summary>A branch at least this many joints deep hanging from the pelvis is a leg.</summary>
+        private const int LegDepth = 4;
+
+        private sealed record SplitInfo(int UpperRoot, int Pelvis, bool[] Lower);
+
+        /// <summary>The joint the spine starts at (the upper body's root), or -1 when the skeleton cannot be split.</summary>
         public static int UpperBodyRoot(Skeleton skeleton) => SplitOf(skeleton).UpperRoot;
+
+        /// <summary>The pelvis: the joint both the spine and the legs hang from, or -1.</summary>
+        public static int Pelvis(Skeleton skeleton) => SplitOf(skeleton).Pelvis;
 
         private static SplitInfo SplitOf(Skeleton skeleton)
         {
@@ -40,67 +53,84 @@ namespace Gordian.Core.Animation
             static SplitInfo Compute(Skeleton skeleton)
             {
                 int n = skeleton.Count;
+                var none = new SplitInfo(-1, -1, new bool[n]);
+                if (skeleton.References.Count <= RightHandReference) return none;
+                int left = skeleton.References[LeftHandReference].Index, right = skeleton.References[RightHandReference].Index;
+                if (left >= n || right >= n) return none;
+
                 var children = new List<int>[n];
                 for (int i = 0; i < n; i++) children[i] = new List<int>();
-                int root = -1;
                 for (int i = 0; i < n; i++)
                 {
-                    int parent = skeleton.Joints[i].Parent;
-                    if (parent >= 0 && parent < n && parent != i) children[parent].Add(i);
-                    else if (root < 0) root = i;
+                    int parent = ParentOf(skeleton, i);
+                    if (parent >= 0) children[parent].Add(i);
                 }
-                var subtree = new int[n];
-                int Size(int j)
+                var depth = new int[n];
+                int Depth(int j)
                 {
-                    if (subtree[j] > 0) return subtree[j];
-                    int size = 1;
-                    foreach (int c in children[j]) size += Size(c);
-                    return subtree[j] = size;
+                    if (depth[j] > 0) return depth[j];
+                    int deepest = 0;
+                    foreach (int c in children[j]) deepest = Math.Max(deepest, Depth(c));
+                    return depth[j] = deepest + 1;
                 }
 
-                int hub = root;
-                for (int guard = 0; hub >= 0 && guard < n && children[hub].Count == 1; guard++) hub = children[hub][0];
-                if (hub < 0 || children[hub].Count < 2) return new SplitInfo(-1, new bool[n]);
+                // Where the two arms meet: the deepest joint above both hands.
+                var aboveLeft = new HashSet<int>();
+                for (int j = left, guard = 0; j >= 0 && guard <= n; j = ParentOf(skeleton, j), guard++) aboveLeft.Add(j);
+                int meet = right;
+                for (int guard = 0; meet >= 0 && !aboveLeft.Contains(meet) && guard <= n; guard++) meet = ParentOf(skeleton, meet);
+                if (meet < 0) return none;
 
-                int upper = -1;
-                foreach (int c in children[hub])
+                // Up the spine to the joint that also carries a leg.
+                int upper = meet;
+                for (int guard = 0; guard <= n; guard++)
                 {
-                    if (upper < 0 || Size(c) > Size(upper)) upper = c;
+                    int pelvis = ParentOf(skeleton, upper);
+                    if (pelvis < 0) return none;
+                    bool carriesLeg = false;
+                    foreach (int c in children[pelvis]) carriesLeg |= c != upper && Depth(c) >= LegDepth;
+                    if (carriesLeg)
+                    {
+                        var lower = new bool[n];
+                        for (int j = pelvis, g = 0; j >= 0 && g <= n; j = ParentOf(skeleton, j), g++) lower[j] = true;
+                        var stack = new Stack<int>();
+                        foreach (int c in children[pelvis])
+                        {
+                            if (c != upper && Depth(c) >= LegDepth) stack.Push(c);
+                        }
+                        while (stack.Count > 0)
+                        {
+                            int j = stack.Pop();
+                            lower[j] = true;
+                            foreach (int c in children[j]) stack.Push(c);
+                        }
+                        return new SplitInfo(upper, pelvis, lower);
+                    }
+                    upper = pelvis;
                 }
-                var mask = new bool[n];
-                var stack = new Stack<int>();
-                stack.Push(upper);
-                while (stack.Count > 0)
-                {
-                    int j = stack.Pop();
-                    mask[j] = true;
-                    foreach (int c in children[j]) stack.Push(c);
-                }
-                return new SplitInfo(upper, mask);
+                return none;
             }
         }
 
+        private static int ParentOf(Skeleton skeleton, int joint)
+        {
+            int parent = skeleton.Joints[joint].Parent;
+            return parent >= 0 && parent < skeleton.Count && parent != joint ? parent : -1;
+        }
+
         /// <summary>
-        /// Whether joint <paramref name="joint"/> belongs to the upper body: under the spine, or a joint
-        /// <paramref name="parentOverrides"/> re-parents into it (the weapon grips held in the hands), or under such a joint.
+        /// Whether joint <paramref name="joint"/> follows the swing: anything not on the root-to-pelvis chain or a leg, and any
+        /// joint <paramref name="parentOverrides"/> re-parents into it (the weapon grips held in the hands).
         /// </summary>
         public static bool IsUpperBody(Skeleton skeleton, int joint, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             var split = SplitOf(skeleton);
-            if (split.UpperRoot < 0) return false;
-            for (int guard = 0, j = joint; j >= 0 && j < skeleton.Count && guard <= skeleton.Count; guard++)
+            if (split.UpperRoot < 0 || joint < 0 || joint >= skeleton.Count) return false;
+            if (parentOverrides != null && parentOverrides.TryGetValue(joint, out int target) && target >= 0 && target < skeleton.Count)
             {
-                if (split.UpperSubtree[j]) return true;
-                if (parentOverrides != null && parentOverrides.TryGetValue(j, out int target))
-                {
-                    j = target;
-                    continue;
-                }
-                int parent = skeleton.Joints[j].Parent;
-                if (parent == j) break;
-                j = parent;
+                return !split.Lower[target];
             }
-            return false;
+            return !split.Lower[joint];
         }
 
         /// <summary>

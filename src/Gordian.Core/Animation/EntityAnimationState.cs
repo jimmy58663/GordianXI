@@ -898,6 +898,27 @@ namespace Gordian.Core.Animation
         /// </summary>
         public AnimationClip? LowerBodyClip => _underlayClip ?? (_blendingOutOfUnderlay && IsBlending ? CurrentClip : null);
 
+        /// <summary>
+        /// The pose the entity is drawn in this frame, in model space: the playing clip (cross-faded from the previous one) with
+        /// the hit flinch or guard flash over it, and under a moving swing the walk or run on the lower body
+        /// (<see cref="LocomotionLayering.Combine"/>). The renderer draws exactly this, so tests can check what is shown.
+        /// </summary>
+        public SkeletonPoseEvaluator.EvaluatedPose EvaluatePose(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            var overlay = Overlay;
+            var pose = IsBlending && PreviousClip != null
+                ? SkeletonPoseEvaluator.EvaluateBlendedPose(skeleton, PreviousClip, PreviousElapsedSeconds, PreviousClipLoops,
+                    CurrentClip, ElapsedSeconds, LoopsCurrentClip, BlendWeight, parentOverrides, overlay)
+                : SkeletonPoseEvaluator.EvaluatePose(skeleton, CurrentClip, ElapsedSeconds, LoopsCurrentClip, parentOverrides, overlay);
+            if (LowerBodyClip is { } lowerBody)
+            {
+                var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
+                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
+            }
+            return pose;
+        }
+
         /// <summary>The time in <see cref="LowerBodyClip"/>, in seconds.</summary>
         public float LowerBodyElapsedSeconds => _underlayClip != null ? _underlayElapsed : ElapsedSeconds;
 
