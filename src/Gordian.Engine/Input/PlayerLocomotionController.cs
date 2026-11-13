@@ -35,7 +35,33 @@ namespace Gordian.Engine.Input
             {
                 // The free camera remembers the view it was entered from, for the zoom that is saved meanwhile (#550).
                 if (value == CameraMode.FreeCam && _camera.Mode != CameraMode.FreeCam) _modeBeforeFreeCam = _camera.Mode;
+                if (value != CameraMode.FreeCam) lock (_freeCamLock) _pendingFreeCamLook = null;
                 _camera.Mode = value;
+            }
+        }
+
+        private readonly object _freeCamLock = new();
+        private (float Pitch, float Yaw)? _pendingFreeCamLook;
+
+        /// <summary>
+        /// Starts the free camera looking along <paramref name="pitch"/> / <paramref name="yaw"/> (degrees,
+        /// <see cref="ViewportCamera.FreeCamForward"/>): the viewport works out where the free camera opens
+        /// (<see cref="ViewportCamera.FreeCamEntryPose"/>, #551) and hands its look here, since the free camera's pitch tilts
+        /// the other way to first person's and a lock-on view looks off the orbit yaw. Thread-safe (the viewport renders on
+        /// its own thread); the next input tick takes it, and <see cref="FreeCamLook"/> reports it until then.
+        /// </summary>
+        public void BeginFreeCam(float pitch, float yaw)
+        {
+            if (_camera.Mode != CameraMode.FreeCam) return;
+            lock (_freeCamLock) _pendingFreeCamLook = (Math.Clamp(pitch, -80.0f, 80.0f), NormalizeDegrees(yaw));
+        }
+
+        /// <summary>The free camera's look (pitch, yaw in degrees): one <see cref="BeginFreeCam"/> asked for, else the controller's.</summary>
+        public (float Pitch, float Yaw) FreeCamLook
+        {
+            get
+            {
+                lock (_freeCamLock) return _pendingFreeCamLook ?? (CameraPitch, CameraYaw);
             }
         }
 
@@ -785,6 +811,16 @@ namespace Gordian.Engine.Input
                     moveDelta.Z += leftStick.Y * flySpeed * dt;
                 }
 
+                lock (_freeCamLock)
+                {
+                    if (_pendingFreeCamLook is { } look)
+                    {
+                        _camera.SetFreeCamPose(_camera.Position, look.Pitch, look.Yaw, _camera.AspectRatio);
+                        CameraPitch = look.Pitch;
+                        CameraYaw = look.Yaw;
+                        _pendingFreeCamLook = null;
+                    }
+                }
                 _camera.MoveFreeCam(moveDelta, pitchDelta, yawDelta);
                 CameraPitch = _camera.Pitch;
                 CameraYaw = _camera.Yaw;

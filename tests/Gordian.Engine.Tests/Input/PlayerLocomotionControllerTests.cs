@@ -1160,5 +1160,32 @@ namespace Gordian.Engine.Tests.Input
             Assert.True(controller.CurrentZoom.FirstPerson);
             Assert.Equal(10f, controller.CurrentZoom.Distance);
         }
+    
+        /// <summary>
+        /// The view hands the free camera its entry look (#551); the controller reports it at once and flies along it from
+        /// the next tick. Outside the free camera it is ignored.
+        /// </summary>
+        [Fact]
+        public void BeginFreeCam_SetsTheFreeCameraLook()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            controller.BeginFreeCam(30f, 100f);
+            Assert.Equal((controller.CameraPitch, controller.CameraYaw), controller.FreeCamLook);
+
+            controller.ToggleFreeCam();
+            controller.BeginFreeCam(30f, 100f);
+            Assert.Equal((30f, 100f), controller.FreeCamLook);
+            input.SetKeyDown(GordianKey.W);
+            var before = controller.Camera.Position;
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(30f, controller.CameraPitch, 3);
+            Assert.Equal(100f, controller.CameraYaw, 3);
+            var moved = Vector3.Normalize(controller.Camera.Position - before);
+            Assert.True(Vector3.Dot(moved, ViewportCamera.FreeCamForward(30f, 100f)) > 0.999f);
+
+            controller.ToggleFreeCam(); // leaving drops a look not yet taken
+            controller.BeginFreeCam(-10f, 5f);
+            Assert.Equal((controller.CameraPitch, controller.CameraYaw), controller.FreeCamLook);
+        }
     }
 }

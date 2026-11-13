@@ -1179,6 +1179,9 @@ namespace Gordian.App.Graphics
             public float UnwrappedCameraYaw { get; set; }
             public bool HasYaw { get; set; }
             public bool FreeCamActive { get; set; }
+
+            /// <summary>The camera mode of the last frame drawn outside the free camera (where a free camera is entered from).</summary>
+            public CameraMode ViewModeBeforeFreeCam { get; set; } = CameraMode.ThirdPersonOrbital;
             public Vector3 FreeCamStart { get; set; }
             public Vector3 FreeCamControllerStart { get; set; }
 
@@ -1350,22 +1353,28 @@ namespace Gordian.App.Graphics
             }
             else if (camera.Mode == CameraMode.FreeCam && session?.Locomotion is { } freeLocomotion)
             {
-                // The free camera starts where the view was and moves by what the controller's free camera has moved
-                // since (WASD / left stick, display space); it looks along the controller's yaw and pitch. Before,
-                // this branch only kept the aspect ratio, so the view froze in free camera mode.
+                // The free camera starts outside the character on the view the player had (#551: from first person, the
+                // third-person view of the same look; ViewportCamera.FreeCamEntryPose) and moves by what the controller's
+                // free camera has moved since (WASD / left stick, display space), looking along the controller's free
+                // camera look, which the view on screen sets on entry.
                 var controllerEye = freeLocomotion.Camera.Position;
                 if (!view.FreeCamActive)
                 {
                     view.FreeCamActive = true;
-                    view.FreeCamStart = camera.Position;
+                    float thirdPersonDistance = MathF.Max(freeLocomotion.CameraDistance, Gordian.Engine.Input.PlayerLocomotionController.FirstPersonExitDistance);
+                    var entry = ViewportCamera.FreeCamEntryPose(camera, view.ViewModeBeforeFreeCam, displayPlayerPos, thirdPersonDistance);
+                    view.FreeCamStart = entry.Position;
                     view.FreeCamControllerStart = controllerEye;
+                    // Only the view on screen steers the controller (a thumbnail or a hidden character's view must not).
+                    if (view == _view && !IsThumbnail) freeLocomotion.BeginFreeCam(entry.Pitch, entry.Yaw);
                 }
-                camera.SetFreeCamPose(view.FreeCamStart + (controllerEye - view.FreeCamControllerStart), freeLocomotion.CameraPitch,
-                    freeLocomotion.CameraYaw, aspect);
+                var look = freeLocomotion.FreeCamLook;
+                camera.SetFreeCamPose(view.FreeCamStart + (controllerEye - view.FreeCamControllerStart), look.Pitch, look.Yaw, aspect);
             }
             else if (camera.Mode != CameraMode.FreeCam)
             {
                 view.FreeCamActive = false;
+                view.ViewModeBeforeFreeCam = camera.Mode;
                 camera.FirstPersonEyeHeight = camera.Mode == CameraMode.FirstPerson ? FirstPersonEyeHeight(cameraEntity) : null;
                 if (displayPlayerPos.HasValue)
                 {
