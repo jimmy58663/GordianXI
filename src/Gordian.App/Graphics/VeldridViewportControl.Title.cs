@@ -96,7 +96,8 @@ namespace Gordian.App.Graphics
         /// <summary>Asks for the segment's zone and preloads the next segment's, once each.</summary>
         private void RequestTitleZones(TitleFlythrough title)
         {
-            if (title.ZoneId != _loadedZoneId && _pendingZoneLoad != title.ZoneId) _pendingZoneLoad = title.ZoneId;
+            // Only the fly-through's zone loads while the lobby is up (a character under it asks again when it leaves).
+            _pendingZoneLoad = title.ZoneId != _loadedZoneId ? title.ZoneId : 0;
             // A lobby shows no session's zone: never wait for a session's fade before showing the title's.
             _ungatedZoneSwap = true;
             CheckAndLoadPendingZone(lobby: true);
@@ -107,7 +108,7 @@ namespace Gordian.App.Graphics
                 _titlePreloadedZone = next;
                 if (!renderer.SharedResources.Zones.PreloadInBackground(rm, next))
                 {
-                    GordianLog.Info("Graphics", $"Title fly-through: zone {next} not preloaded (zone cache budget); it loads when its segment starts.");
+                    GordianLog.Info("Graphics", $"Title fly-through: zone {next} not preloaded (already loading, or over the zone cache budget); it loads when its segment starts if need be.");
                 }
             }
         }
