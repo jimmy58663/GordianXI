@@ -1187,5 +1187,82 @@ namespace Gordian.Engine.Tests.Input
             controller.BeginFreeCam(-10f, 5f);
             Assert.Equal((controller.CameraPitch, controller.CameraYaw), controller.FreeCamLook);
         }
+        /// <summary>
+        /// The lock-on view aims at the target where it is drawn now, not where the last input tick saw it (#547): a mob's
+        /// position is played back every frame, between the ticks.
+        /// </summary>
+        [Fact]
+        public void LockOnAim_FollowsTheTargetsLivePosition()
+        {
+            var (controller, _, _, _, _, mob) = EngagedHarness(lockOn: true);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            mob.Position = new Vector3(3f, 0f, 11f); // moved by playback since the tick
+            var camera = new ViewportCamera();
+            controller.ApplyLockOnAim(camera);
+            Assert.Equal(new Vector3(-3f, 0f, 11f), camera.AimPoint);
+            Assert.True(camera.AimBlend > 0.99f);
+        }
+
+        /// <summary>
+        /// Locked on and strafing round a mob that moves (#547), with input ticks of 16 ms and an occasional 31 ms, drawn at
+        /// 144 fps through the viewport's path (tick smoothers, orbit camera, lock-on aim): the view turns at an even rate.
+        /// The aim at the tick's sample of the target and a render delay that jumped with the tick intervals made the view
+        /// yaw rate jump from frame to frame.
+        /// </summary>
+        [Fact]
+        public void LockOnCircling_ViewTurnsEvenly()
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            controller.CameraDistance = 8f;
+            input.SetKeyDown(GordianKey.D); // strafe right round the mob
+            var camera = new ViewportCamera();
+            var playerSmoother = new TickPositionSmoother();
+            var orbitSmoother = new TickPositionSmoother(snapDistance: 120.0f);
+            double tickTime = 0.0, nextTick = 0.0;
+            int tick = 0;
+            float unwrappedYaw = controller.CameraYaw, lastRawYaw = controller.CameraYaw;
+            float? lastHeading = null, lastRate = null;
+            float largestRateChange = 0f;
+            const double frame = 1.0 / 144.0;
+            for (int f = 0; f < 144 * 3; f++)
+            {
+                double now = f * frame;
+                mob.Position += new Vector3(1.5f * (float)frame, 0f, 0f); // the mob drifts, played back every frame
+                while (nextTick <= now)
+                {
+                    double interval = ++tick % 12 == 0 ? 0.031 : 0.016;
+                    controller.Update(TimeSpan.FromSeconds(nextTick - tickTime));
+                    tickTime = nextTick;
+                    nextTick += interval;
+                }
+
+                float yawStep = controller.CameraYaw - lastRawYaw;
+                yawStep -= 360f * MathF.Round(yawStep / 360f);
+                unwrappedYaw += yawStep;
+                lastRawYaw = controller.CameraYaw;
+                var orbit = orbitSmoother.Update(new Vector3(unwrappedYaw, controller.CameraPitch, controller.EffectiveCameraDistance), tickTime, now);
+                var player = playerSmoother.Update(me.Position, tickTime, now);
+                camera.Mode = controller.Camera.Mode;
+                controller.ApplyLockOnAim(camera);
+                camera.Update(new Vector3(-player.X, -player.Y, player.Z), orbit.Y, orbit.X, orbit.Z, 16f / 9f, (float)frame);
+
+                var view = camera.Forward;
+                float heading = MathF.Atan2(view.Z, view.X) * (180f / MathF.PI);
+                if (lastHeading is { } previous)
+                {
+                    float turned = heading - previous;
+                    turned -= 360f * MathF.Round(turned / 360f);
+                    float rate = turned / (float)frame;
+                    if (f > 144 && lastRate is { } lr) largestRateChange = MathF.Max(largestRateChange, MathF.Abs(rate - lr));
+                    lastRate = rate;
+                }
+                lastHeading = heading;
+            }
+
+            Assert.True(Vector3.Distance(me.Position, Vector3.Zero) > 5f, "the player moved round the mob");
+            // Degrees per second, frame to frame: 57.8 before #547 (a 0.4 degree jolt in a frame), 7.3 after (the turn of a
+            // path drawn straight between ticks).
+            Assert.True(largestRateChange < 12f, $"view yaw rate jumped by {largestRateChange:F1} degrees/s between frames");
+        }
     }
 }

@@ -877,10 +877,18 @@ namespace Gordian.Engine.Input
             float lockDistance = LockOnZoomedDistance(dt);
             // The view re-aims at the target on the same eased blend as the zoom (retail recording 2026-10-03).
             var aimTarget = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
-            if (aimTarget is { IsSpawned: true }) _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+            if (aimTarget is { IsSpawned: true })
+            {
+                _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+                _lastAimEntity = aimTarget;
+            }
             _camera.AimPoint = _lastAimPoint;
             _camera.AimBlend = LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
-            if (_lockZoomBlend <= 0f) _lastAimPoint = null;
+            if (_lockZoomBlend <= 0f)
+            {
+                _lastAimPoint = null;
+                _lastAimEntity = null;
+            }
             _camera.Update(targetPos, CameraPitch, CameraYaw, lockDistance, _camera.AspectRatio);
 
             if (cameraChanged)
@@ -1960,6 +1968,8 @@ namespace Gordian.Engine.Input
         /// <summary>The locked-on target's position (internal space), kept while the aim eases back out; null when none.</summary>
         public Vector3? LockOnAimPoint => _lastAimPoint;
 
+        private WorldEntity? _lastAimEntity;
+
         /// <summary>
         /// Sets <paramref name="renderCamera"/>'s aim for this frame: the viewport's own camera works in display space
         /// (-x, -y, z), so the aim point is mirrored the same way the player position is.
@@ -1967,7 +1977,10 @@ namespace Gordian.Engine.Input
         public void ApplyLockOnAim(ViewportCamera renderCamera)
         {
             ArgumentNullException.ThrowIfNull(renderCamera);
-            var aim = LockOnAimPoint;
+            // The target's live position (#547): a mob's position is played back every frame on the render thread, while
+            // LockOnAimPoint is sampled on the irregular input tick (16 / 31 ms). Aiming at that sample stepped the view
+            // yaw toward a target that moves on each tick, which shook the whole view while circling or strafing a mob.
+            var aim = _lastAimPoint is null ? null : _lastAimEntity is { IsSpawned: true } live ? live.Position : _lastAimPoint;
             renderCamera.AimPoint = aim is { } a ? new Vector3(-a.X, -a.Y, a.Z) : null;
             renderCamera.AimBlend = LockOnAimBlend;
         }
