@@ -2,169 +2,209 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// The shield block pose (#546 round 1): the guard pose mirrored onto the shield arm.
+    /// The shield block (#546 rounds 1-3): the shield arm swings the shield up in front of the chest, upright and facing
+    /// the attacker.
     /// <para>
-    /// A block plays the PC routine <c>gur1</c>, whose op 0x5A pose flash is pose 0, the same as the guard routine
-    /// <c>gurd</c>. Pose 0 is the guard pose <c>gdm</c> (over its neutral twin <c>gdi6</c>), and that pose bends the weapon
-    /// arm: the right hand rises about 0.7 yalm and comes 0.5 forward across the body, while the left arm barely moves. The
-    /// maintainer saw the block come from the wrong hand (in-game test round 1). The game data has no other block pose, so
-    /// retail picks the arm itself. Its block raises and thrusts the shield arm toward the attacker for about 0.2 s: in
-    /// <c>Shield_Block_Retail.mp4</c> (the maintainer's retail recording of a paladin with a shield, 2026-11-13)
-    /// the shield goes up toward the attacker at about 46.2 s and out at it at about 51.4 s, each for about 3 frames at 15
-    /// fps, then back to the stance.
+    /// A block plays the PC routine <c>gur1</c>, whose op 0x5A pose flash is pose 0, the guard pose <c>gdm</c> of the guard
+    /// routine <c>gurd</c> (xi-tools names the op IdleCasterGuard). That guard is the weapon arm's (Hume male: the right hand
+    /// rises about 1.0 yalm, the left about 0.1), so the block came from the wrong hand (in-game test round 1), and the game
+    /// data has no block pose of its own. The maintainer's retail recording <c>Shield_Block_Retail.mp4</c> (a paladin with a
+    /// shield, 2026-11-13) shows the block: at about 51.4 s the shield is held out in front of the chest toward the attacker,
+    /// upright, its face toward the attacker, for about 8 frames at 30 fps (about 0.27 s), then back to the stance; at about
+    /// 46.2 s it goes up toward the attacker the same way. Round 2 played the guard mirrored onto the shield arm; the arm
+    /// chains' local frames mirror each other, but the guard's own motion does not make a block: in game the arm went out
+    /// away from the attacker, and over the idle stance (a block while not engaged) the shield lay flat (round 3).
     /// </para>
     /// <para>
-    /// So the block plays <c>gdm</c> / <c>gdi6</c> mirrored left for right: <see cref="PoseName"/> / <see cref="NeutralName"/>.
-    /// The two arm chains (from the chest to the hand references 126 / 127) mirror each other in the skeleton: each left
-    /// joint's bind rotation is its right twin's reflected through the body's midplane (model Z: (x, y, z, w) to
-    /// (-x, -y, z, w)) and its offset has Z negated (checked on the Hume, Elvaan and Galka skeletons, 2026-11-13). So each
-    /// arm joint takes its twin's track reflected the same way, and the spine joints below the chest take their own track
-    /// reflected where their bind is symmetric. Other joints (fingers, mounts, legs) keep the guard's tracks. *Inference*:
-    /// that retail mirrors the guard rather than playing a pose of its own is read from the video.
+    /// So the block is procedural, laid on whatever pose is playing (<see cref="Apply"/>): the whole shield arm, from the
+    /// joint where it leaves the chest (the first joint above the left hand reference 126 that is not above the right hand
+    /// 127), turns rigidly so the shield's outward face points straight ahead (model +X, toward the attacker) and the shield
+    /// comes in front of the chest. The turn keeps the angle between the arm and the shield's face, so the arm's direction
+    /// is chosen to make the face land exactly ahead: forward by that angle, the rest down and out to the shield side. The
+    /// shield is found from its mesh (<see cref="Find"/>: the off-hand slot's vertices, all bound to one arm joint on every
+    /// race checked: Hume male 87, Galka 74, Tarutaru male 28, Elvaan female 94). *Inference*: the arm's path is ours; the
+    /// video shows the end pose (and the body turning toward the attacker, which is not modelled).
     /// </para>
     /// </summary>
     public static class ShieldBlockPose
     {
-        /// <summary>The mirrored guard pose, played over <see cref="NeutralName"/> by a block.</summary>
-        public const string PoseName = "bkm";
-
-        /// <summary>The mirrored neutral twin of the guard pose (<c>gdi6</c>).</summary>
-        public const string NeutralName = "bki6";
-
-        private const string GuardPose = "gdm", GuardNeutral = "gdi6";
         private const int LeftHandReference = 126, RightHandReference = 127;
 
         /// <summary>
-        /// Adds <see cref="PoseName"/> and <see cref="NeutralName"/> to a PC model carrying the guard pose and its twin. Does
-        /// nothing when the model lacks them or its arm chains do not pair up.
+        /// The least the arm points forward at the block (the cosine to straight ahead): a shield bound almost along the arm
+        /// would otherwise be held out to the side to face ahead exactly; with this it comes in front, its face a little off.
         /// </summary>
-        public static void AddTo(EntityModel model)
+        private const float MinForward = 0.65f;
+
+        /// <summary>The off-hand weapon slot (the shield's meshes).</summary>
+        private const int SubSlot = 1;
+
+        /// <summary>
+        /// Where the shield sits on the arm: the joint its meshes are bound to, and the shield's centre and face normal in
+        /// that joint's frame; <see cref="Pivot"/> is the joint the arm turns about, <see cref="Chest"/> its parent.
+        /// </summary>
+        public sealed record ShieldMount(int Joint, Vector3 LocalCentre, Vector3 LocalNormal, int Pivot, int Chest);
+
+        /// <summary>
+        /// The model's shield, or null: the off-hand slot's meshes bound wholly to one joint of the left arm, flat (a plate:
+        /// its thickness under a third of its width), as the shields (sub looks 19-63) are.
+        /// </summary>
+        public static ShieldMount? Find(EntityModel model)
         {
             ArgumentNullException.ThrowIfNull(model);
-            if (model.Skeleton is not { } skeleton
-                || !model.Animations.TryGetValue(GuardPose, out var guard)
-                || !model.Animations.TryGetValue(GuardNeutral, out var neutral)) return;
-            var mirror = MirrorMap(skeleton);
-            if (mirror == null) return;
-            if (HandTravel(skeleton, guard, neutral, RightHandReference) <= HandTravel(skeleton, guard, neutral, LeftHandReference))
+            if (model.Skeleton is not { } skeleton || skeleton.References.Count <= RightHandReference) return null;
+            int joint = -1;
+            var points = new List<Vector3>();
+            foreach (var group in model.AnimatedMeshGroups)
             {
-                // The guard already moves the shield hand more (Tarutaru and Elvaan female: a small guard, 0.1-0.2 yalm,
-                // slightly to the left): the block plays it as it is.
-                model.Animations[PoseName] = guard;
-                model.Animations[NeutralName] = neutral;
-                return;
+                if (group.WeaponSlot != SubSlot) continue;
+                foreach (var v in group.Vertices)
+                {
+                    if (v.Joint1 >= 0 || (joint >= 0 && v.Joint0 != joint)) return null;
+                    joint = v.Joint0;
+                    points.Add(v.Position0);
+                }
             }
-            model.Animations[PoseName] = Mirror(guard, PoseName, mirror);
-            model.Animations[NeutralName] = Mirror(neutral, NeutralName, mirror);
-        }
+            if (joint < 0 || points.Count < 8 || joint >= skeleton.Count) return null;
 
-        /// <summary>How far the pose moves a hand (reference) from where its neutral twin holds it, in yalms (model space).</summary>
-        private static float HandTravel(Skeleton skeleton, AnimationClip pose, AnimationClip neutral, int handReference)
-        {
-            var a = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(skeleton, pose, 0f, false);
-            var b = Gordian.Core.Resources.Graphics.SkeletonPoseEvaluator.EvaluatePose(skeleton, neutral, 0f, false);
-            return Vector3.Distance(
-                Skeleton.ResolveJointReference(skeleton, a.Translations, a.Rotations, a.Scales, handReference),
-                Skeleton.ResolveJointReference(skeleton, b.Translations, b.Rotations, b.Scales, handReference));
+            int left = skeleton.References[LeftHandReference].Index, right = skeleton.References[RightHandReference].Index;
+            if (left >= skeleton.Count || right >= skeleton.Count) return null;
+            var aboveRight = new HashSet<int>();
+            for (int j = right, guard = 0; j >= 0 && guard <= skeleton.Count; j = Parent(skeleton, j), guard++) aboveRight.Add(j);
+            int pivot = -1;
+            for (int j = left, guard = 0; j >= 0 && guard <= skeleton.Count; j = Parent(skeleton, j), guard++)
+            {
+                if (aboveRight.Contains(j)) break;
+                pivot = j;
+            }
+            if (pivot < 0 || Parent(skeleton, pivot) < 0 || !IsBelow(skeleton, joint, pivot)) return null;
+
+            var (centre, normal, flat) = Plane(points);
+            return flat ? new ShieldMount(joint, centre, normal, pivot, Parent(skeleton, pivot)) : null;
         }
 
         /// <summary>
-        /// Each joint's mirror twin for the arm chains, itself for a symmetric spine joint, or -1 for a joint left as it is;
-        /// null when the skeleton's arms do not pair up.
+        /// Turns the shield arm of <paramref name="pose"/> (model space, in place) toward the block by <paramref name="weight"/>
+        /// (0 none, 1 the full block).
         /// </summary>
-        internal static int[]? MirrorMap(Skeleton skeleton)
+        public static void Apply(Skeleton skeleton, in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount, float weight,
+            IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
-            int n = skeleton.Count;
-            if (skeleton.References.Count <= RightHandReference) return null;
-            int left = skeleton.References[LeftHandReference].Index, right = skeleton.References[RightHandReference].Index;
-            if (left >= n || right >= n || left == right) return null;
-            var leftChain = Chain(skeleton, left);
-            var rightChain = Chain(skeleton, right);
-            if (leftChain.Count != rightChain.Count) return null;
-
-            var map = new int[n];
-            Array.Fill(map, -1);
-            int shared = 0;
-            while (shared < leftChain.Count && leftChain[shared] == rightChain[shared]) shared++;
-            if (shared == 0) return null;
-            for (int k = 0; k < shared; k++)
+            ArgumentNullException.ThrowIfNull(skeleton);
+            ArgumentNullException.ThrowIfNull(mount);
+            int n = Math.Min(skeleton.Count, pose.Rotations.Length);
+            if (weight <= 0f || mount.Joint >= n || mount.Pivot >= n || mount.Chest >= n) return;
+            var turn = Turn(pose, mount);
+            if (weight < 1f) turn = Quaternion.Normalize(Quaternion.Slerp(Quaternion.Identity, turn, weight));
+            Vector3 pivot = pose.Translations[mount.Pivot];
+            for (int j = 0; j < n; j++)
             {
-                int joint = leftChain[k];
-                if (Differs(skeleton.Joints[joint].Rotation, Reflect(skeleton.Joints[joint].Rotation)) < 1e-3f) map[joint] = joint;
+                if (!IsBelow(skeleton, j, mount.Pivot, parentOverrides)) continue;
+                pose.Translations[j] = pivot + Vector3.Transform(pose.Translations[j] - pivot, turn);
+                pose.Rotations[j] = Quaternion.Normalize(turn * pose.Rotations[j]);
             }
-            for (int k = shared; k < leftChain.Count; k++)
-            {
-                int a = leftChain[k], b = rightChain[k];
-                // The hand joints themselves differ by more than a reflection (their own frames); the chains above them pair up.
-                if (k < leftChain.Count - 1 && Differs(skeleton.Joints[a].Rotation, Reflect(skeleton.Joints[b].Rotation)) > 1e-2f) return null;
-                map[a] = b;
-                map[b] = a;
-            }
-            return map;
         }
 
-        private static List<int> Chain(Skeleton skeleton, int joint)
+        /// <summary>The shield's centre and outward face normal (away from the chest) in a model-space pose.</summary>
+        public static (Vector3 Centre, Vector3 Outward) ShieldIn(in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount)
         {
-            var chain = new List<int>();
+            ArgumentNullException.ThrowIfNull(mount);
+            var rotation = pose.Rotations[mount.Joint];
+            var centre = pose.Translations[mount.Joint] + Vector3.Transform(mount.LocalCentre, rotation);
+            var normal = Vector3.Normalize(Vector3.Transform(mount.LocalNormal, rotation));
+            return (centre, Vector3.Dot(normal, centre - pose.Translations[mount.Chest]) >= 0f ? normal : -normal);
+        }
+
+        /// <summary>
+        /// The rigid turn about the pivot that brings the shield's outward face to straight ahead (+X) with the shield in
+        /// front: the arm (pivot to shield centre) goes to a direction whose forward part equals the cosine between the arm and
+        /// the face (which any turn keeps), the rest down and out to the shield side; then a twist about the arm sets the face.
+        /// </summary>
+        private static Quaternion Turn(in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount)
+        {
+            var (centre, outward) = ShieldIn(pose, mount);
+            var arm = centre - pose.Translations[mount.Pivot];
+            if (arm.LengthSquared() < 1e-8f) return Quaternion.Identity;
+            var along = Vector3.Normalize(arm);
+            float forward = Math.Clamp(Vector3.Dot(outward, along), MinForward, 0.95f);
+            // Down (+Y in model space) and out to the shield's side (+Z, the left), as the shield hangs in the stance.
+            var aside = Vector3.Normalize(new Vector3(0f, 0.75f, 0.66f));
+            var aim = Vector3.Normalize(forward * Vector3.UnitX + MathF.Sqrt(1f - forward * forward) * aside);
+
+            var swing = FromTo(along, aim);
+            var face = Vector3.Transform(outward, swing);
+            Vector3 Across(Vector3 v) => v - Vector3.Dot(v, aim) * aim;
+            var from = Across(face);
+            var to = Across(Vector3.UnitX);
+            if (from.LengthSquared() < 1e-8f || to.LengthSquared() < 1e-8f) return swing;
+            from = Vector3.Normalize(from);
+            to = Vector3.Normalize(to);
+            float twist = MathF.Atan2(Vector3.Dot(Vector3.Cross(from, to), aim), Vector3.Dot(from, to));
+            return Quaternion.Normalize(Quaternion.CreateFromAxisAngle(aim, twist) * swing);
+        }
+
+        private static Quaternion FromTo(Vector3 from, Vector3 to)
+        {
+            float dot = Math.Clamp(Vector3.Dot(from, to), -1f, 1f);
+            var axis = Vector3.Cross(from, to);
+            if (axis.LengthSquared() < 1e-10f)
+            {
+                if (dot > 0f) return Quaternion.Identity;
+                axis = Vector3.Cross(from, MathF.Abs(from.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY);
+            }
+            return Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.Acos(dot));
+        }
+
+        /// <summary>The points' centre and the normal of their best plane, and whether they lie flat.</summary>
+        private static (Vector3 Centre, Vector3 Normal, bool Flat) Plane(List<Vector3> points)
+        {
+            var c = Vector3.Zero;
+            foreach (var p in points) c += p;
+            c /= points.Count;
+            float xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+            foreach (var p in points)
+            {
+                var d = p - c;
+                xx += d.X * d.X; xy += d.X * d.Y; xz += d.X * d.Z; yy += d.Y * d.Y; yz += d.Y * d.Z; zz += d.Z * d.Z;
+            }
+            const float e = 1e-6f;
+            var m = new Matrix4x4(xx + e, xy, xz, 0, xy, yy + e, yz, 0, xz, yz, zz + e, 0, 0, 0, 0, 1);
+            if (!Matrix4x4.Invert(m, out var inverse)) return (c, Vector3.UnitX, false);
+            // Inverse power iteration: the covariance's smallest axis, the plate's normal.
+            var normal = Vector3.Normalize(new Vector3(1f, 0.3f, 0.2f));
+            for (int i = 0; i < 60; i++) normal = Vector3.Normalize(Vector3.TransformNormal(normal, inverse));
+            float thin = 0f, wide = 0f;
+            foreach (var p in points)
+            {
+                var d = p - c;
+                float across = Vector3.Dot(d, normal);
+                thin = MathF.Max(thin, MathF.Abs(across));
+                wide = MathF.Max(wide, (d - across * normal).Length());
+            }
+            return (c, normal, thin < wide / 3f);
+        }
+
+        private static int Parent(Skeleton skeleton, int joint)
+        {
+            int parent = skeleton.Joints[joint].Parent;
+            return parent >= 0 && parent < skeleton.Count && parent != joint ? parent : -1;
+        }
+
+        /// <summary>Whether <paramref name="joint"/> is <paramref name="ancestor"/> or hangs below it (a re-parented joint by its new parent).</summary>
+        private static bool IsBelow(Skeleton skeleton, int joint, int ancestor, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
             for (int guard = 0; joint >= 0 && joint < skeleton.Count && guard <= skeleton.Count; guard++)
             {
-                chain.Add(joint);
-                int parent = skeleton.Joints[joint].Parent;
-                joint = parent == joint ? -1 : parent;
+                if (joint == ancestor) return true;
+                joint = parentOverrides != null && parentOverrides.TryGetValue(joint, out int over) ? over : Parent(skeleton, joint);
             }
-            chain.Reverse();
-            return chain;
+            return false;
         }
-
-        private static AnimationClip Mirror(AnimationClip source, string name, int[] map)
-        {
-            var tracks = new Dictionary<int, BoneAnimationTrack>(source.Tracks.Count);
-            foreach (var (joint, track) in source.Tracks)
-            {
-                if (joint >= map.Length || map[joint] < 0) tracks[joint] = track;
-            }
-            for (int joint = 0; joint < map.Length; joint++)
-            {
-                int twin = map[joint];
-                if (twin < 0) continue;
-                if (source.Tracks.TryGetValue(twin, out var track)) tracks[joint] = Reflect(track, joint);
-            }
-            return new AnimationClip
-            {
-                Name = name,
-                NumFrames = source.NumFrames,
-                KeyFrameDuration = source.KeyFrameDuration,
-                Tracks = tracks
-            };
-        }
-
-        private static BoneAnimationTrack Reflect(BoneAnimationTrack track, int joint)
-        {
-            var rotations = new Quaternion[track.Rotations.Length];
-            for (int i = 0; i < rotations.Length; i++) rotations[i] = Reflect(track.Rotations[i]);
-            var translations = new Vector3[track.Translations.Length];
-            for (int i = 0; i < translations.Length; i++) translations[i] = new Vector3(track.Translations[i].X, track.Translations[i].Y, -track.Translations[i].Z);
-            return new BoneAnimationTrack
-            {
-                JointIndex = joint,
-                Rotations = rotations,
-                Translations = translations,
-                Scales = track.Scales,
-                PartDurationSeconds = track.PartDurationSeconds,
-                IsReset = track.IsReset,
-                LoopsAlways = track.LoopsAlways
-            };
-        }
-
-        /// <summary>A rotation reflected through the model's midplane (normal Z).</summary>
-        internal static Quaternion Reflect(Quaternion q) => new(-q.X, -q.Y, q.Z, q.W);
-
-        private static float Differs(Quaternion a, Quaternion b) =>
-            1f - MathF.Abs(Quaternion.Dot(Quaternion.Normalize(a), Quaternion.Normalize(b)));
     }
 }

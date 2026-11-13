@@ -15,11 +15,12 @@ using Xunit;
 namespace Gordian.Engine.Tests.Animation
 {
     /// <summary>
-    /// #546 round 1: a shield block comes from the shield arm. The retail model with a sword (look 5) and a shield (sub
-    /// look 20) in the battle stance, the block reaction played through <see cref="EntityAnimationState"/> and the pose the
-    /// renderer draws (<see cref="EntityAnimationState.EvaluatePose"/>). Retail reference: the maintainer's
-    /// <c>Shield_Block_Retail.mp4</c> (2026-11-13), where the shield arm rises toward the attacker at about 46.2 s and
-    /// 51.4 s.
+    /// #546 rounds 1-3: a shield block holds the shield up in front of the chest, upright, its face toward the attacker, as
+    /// the maintainer's retail recording <c>Shield_Block_Retail.mp4</c> shows at about 51.4 s (2026-11-13). The retail model
+    /// with a sword (look 5) and a shield (sub look 20), the block reaction played through <see cref="EntityAnimationState"/>
+    /// over the battle stance and over the idle stance (a block while not engaged), and the pose the renderer draws
+    /// (<see cref="EntityAnimationState.EvaluatePose"/>). The shield is measured from its own skinned mesh: its centre and
+    /// the normal of its plate, turned to face away from the chest. The model faces +X with Y down.
     /// </summary>
     public class ShieldBlockRealPathTests
     {
@@ -37,11 +38,25 @@ namespace Gordian.Engine.Tests.Animation
             return p0 + v.Weight0 * pose.Translations[v.Joint0] + p1 + v.Weight1 * pose.Translations[v.Joint1];
         }
 
-        /// <summary>
-        /// How far each hand and the shield move at most from the stance while the reaction plays: (left hand, right hand,
-        /// shield centre), in yalms.
-        /// </summary>
-        private static (float Left, float Right, float Shield)? Reaction(CharacterRace race, ActionResolution resolution)
+        /// <summary>The points' centre and the normal of their best plane (the covariance's smallest axis).</summary>
+        private static (Vector3 Centre, Vector3 Normal) Plate(Vector3[] points)
+        {
+            var c = points.Aggregate(Vector3.Zero, (a, b) => a + b) / points.Length;
+            float xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+            foreach (var p in points)
+            {
+                var d = p - c;
+                xx += d.X * d.X; xy += d.X * d.Y; xz += d.X * d.Z; yy += d.Y * d.Y; yz += d.Y * d.Z; zz += d.Z * d.Z;
+            }
+            Assert.True(Matrix4x4.Invert(new Matrix4x4(xx + 1e-6f, xy, xz, 0, xy, yy + 1e-6f, yz, 0, xz, yz, zz + 1e-6f, 0, 0, 0, 0, 1), out var inverse));
+            var n = Vector3.Normalize(new Vector3(1f, 0.3f, 0.2f));
+            for (int i = 0; i < 60; i++) n = Vector3.Normalize(Vector3.TransformNormal(n, inverse));
+            return (c, n);
+        }
+
+        /// <summary>The shield at the block's strongest frame, the chest's position then, and how far the shield moved.</summary>
+        private static (Vector3 Centre, Vector3 Outward, Vector3 Chest, float Travel)? Block(
+            CharacterRace race, AnimationCategory stance, ActionResolution resolution = ActionResolution.Block)
         {
             if (!Directory.Exists(GameDirectory)) return null;
             var rm = new ResourceManager(GameDirectory);
@@ -50,65 +65,74 @@ namespace Gordian.Engine.Tests.Animation
             grap[6] = 5;
             grap[7] = ShieldLook;
             var model = EntityModelLoader.AssembleCharacter(race, 1, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
+            Assert.NotNull(model.Shield);
             var skeleton = model.Skeleton!;
             var overrides = model.ParentOverrides;
             var shield = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 1).SelectMany(g => g.Vertices).ToArray();
             Assert.NotEmpty(shield);
+            int chest = model.Shield!.Chest;
 
             var state = new EntityAnimationState();
-            for (int i = 0; i < 300; i++) state.Advance(Dt, AnimationCategory.Combat, 0, model);
-            var stance = state.EvaluatePose(skeleton, overrides);
-            Vector3 Hand(SkeletonPoseEvaluator.EvaluatedPose p, int reference) =>
-                Skeleton.ResolveJointReference(skeleton, p.Translations, p.Rotations, p.Scales, reference);
-            Vector3 Shield(SkeletonPoseEvaluator.EvaluatedPose p) => shield.Aggregate(Vector3.Zero, (s, v) => s + Skin(v, p)) / shield.Length;
+            for (int i = 0; i < 300; i++) state.Advance(Dt, stance, 0, model);
+            var before = state.EvaluatePose(skeleton, overrides);
+            var (stanceCentre, _) = Plate(shield.Select(v => Skin(v, before)).ToArray());
 
-            // The stance holds still enough over the reaction's 16 ticks that the stance pose stands for it.
             state.EnqueueReaction(new HitReaction(resolution, 0f, 0, true, default, 0, 0, 0, Stopwatch.GetTimestamp()));
-            float left = 0, right = 0, moved = 0;
+            float travel = -1f;
+            (Vector3 Centre, Vector3 Outward, Vector3 Chest) best = default;
             for (int i = 0; i < 60; i++)
             {
-                state.Advance(Dt, AnimationCategory.Combat, 0, model);
+                state.Advance(Dt, stance, 0, model);
                 var pose = state.EvaluatePose(skeleton, overrides);
-                left = Math.Max(left, Vector3.Distance(Hand(pose, 126), Hand(stance, 126)));
-                right = Math.Max(right, Vector3.Distance(Hand(pose, 127), Hand(stance, 127)));
-                moved = Math.Max(moved, Vector3.Distance(Shield(pose), Shield(stance)));
+                var (centre, normal) = Plate(shield.Select(v => Skin(v, pose)).ToArray());
+                var outward = Vector3.Dot(normal, centre - pose.Translations[chest]) >= 0f ? normal : -normal;
+                float moved = Vector3.Distance(centre, stanceCentre);
+                if (moved > travel)
+                {
+                    travel = moved;
+                    best = (centre, outward, pose.Translations[chest]);
+                }
             }
-            return (left, right, moved);
+            return (best.Centre, best.Outward, best.Chest, travel);
+        }
+
+        public static TheoryData<CharacterRace, AnimationCategory> Cases()
+        {
+            var data = new TheoryData<CharacterRace, AnimationCategory>();
+            foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.ElvaanFemale,
+                         CharacterRace.TaruMale, CharacterRace.TaruFemale, CharacterRace.Mithra, CharacterRace.Galka })
+            {
+                data.Add(race, AnimationCategory.Combat);
+                data.Add(race, AnimationCategory.Idle);
+            }
+            return data;
         }
 
         /// <summary>
-        /// A block moves the shield hand at least as far as the weapon hand, and carries the shield at least as far as a
-        /// guard does. Where the guard is the weapon arm's (every race but Tarutaru and Elvaan female), the block is that guard
-        /// mirrored: the shield goes 1.8-5 times as far as in the guard (Hume male 0.87 against 0.17 yalm, Galka 1.16 against
-        /// 0.55). Measured 2026-11-13; before, a block was the guard itself, the weapon hand up (Hume male 1.00 yalm, the
-        /// shield hand 0.12).
+        /// At the block's height the shield faces the attacker (its outward normal within about 25 degrees of straight ahead,
+        /// not tipped flat) and sits in front of the chest, both engaged and not. Measured 2026-11-13: the face within 15
+        /// degrees of ahead on every race, tipped at most 12, the shield 0.25-0.8 yalm in front of the chest at chest height. Round 2's mirrored guard failed this: Hume
+        /// male's shield face pointed about 50 degrees off ahead and tipped 25 degrees, and over the idle stance Galka's lay
+        /// nearly flat, as the maintainer saw in game (round 3).
         /// </summary>
         [Theory]
-        [InlineData(CharacterRace.HumeMale, true)]
-        [InlineData(CharacterRace.HumeFemale, true)]
-        [InlineData(CharacterRace.ElvaanMale, true)]
-        [InlineData(CharacterRace.ElvaanFemale, false)]
-        [InlineData(CharacterRace.TaruMale, false)]
-        [InlineData(CharacterRace.TaruFemale, false)]
-        [InlineData(CharacterRace.Mithra, true)]
-        [InlineData(CharacterRace.Galka, true)]
-        public void ABlock_ComesFromTheShieldArm(CharacterRace race, bool mirrored)
+        [MemberData(nameof(Cases))]
+        public void ABlock_HoldsTheShieldUprightInFront_FacingTheAttacker(CharacterRace race, AnimationCategory stance)
         {
-            if (Reaction(race, ActionResolution.Block) is not { } block) return;
-            var guard = Reaction(race, ActionResolution.Guard)!.Value;
-            Assert.True(block.Left >= block.Right - 0.02f, $"block: shield hand {block.Left:F2}, weapon hand {block.Right:F2}");
-            Assert.True(block.Shield >= guard.Shield - 0.01f, $"the shield moved {block.Shield:F2} in a block, {guard.Shield:F2} in a guard");
-            if (mirrored) Assert.True(block.Shield > 1.5f * guard.Shield, $"the shield moved {block.Shield:F2} in a block, {guard.Shield:F2} in a guard");
+            if (Block(race, stance) is not { } block) return;
+            Assert.True(block.Outward.X > 0.9f, $"shield face {block.Outward:F2}: not toward the attacker (+X)");
+            Assert.True(MathF.Abs(block.Outward.Y) < 0.35f, $"shield face {block.Outward:F2}: tipped (Y is up and down)");
+            Assert.True(block.Centre.X > block.Chest.X + 0.1f, $"shield at {block.Centre:F2}, chest at {block.Chest:F2}: not in front");
         }
 
-        /// <summary>A guard (no shield involved) still comes from the weapon arm, as its pose is authored.</summary>
+        /// <summary>A guard (no shield involved) still plays the guard pose: it does not turn the shield to face ahead.</summary>
         [Theory]
         [InlineData(CharacterRace.HumeMale)]
         [InlineData(CharacterRace.Galka)]
-        public void AGuard_StillRaisesTheWeaponArm(CharacterRace race)
+        public void AGuard_DoesNotTurnTheShield(CharacterRace race)
         {
-            if (Reaction(race, ActionResolution.Guard) is not var (left, right, _)) return;
-            Assert.True(right > 2f * left, $"weapon hand {right:F2} against shield hand {left:F2}");
+            if (Block(race, AnimationCategory.Combat, ActionResolution.Guard) is not { } guard) return;
+            Assert.True(guard.Outward.X < 0.9f, $"shield face {guard.Outward:F2} in a guard");
         }
     }
 }

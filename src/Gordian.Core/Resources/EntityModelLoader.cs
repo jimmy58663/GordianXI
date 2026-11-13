@@ -509,7 +509,7 @@ namespace Gordian.Core.Resources
 
             // Last, as the motion packs above regroup the clips.
             ApplyChairPack(model, race, datByFileId);
-            Gordian.Core.Animation.ShieldBlockPose.AddTo(model);
+            model.Shield = Gordian.Core.Animation.ShieldBlockPose.Find(model);
             if (faceId == CharacterEquipmentResolver.MannequinFace) ApplyMannequinPose(model, race, datByPath);
             return model;
         }

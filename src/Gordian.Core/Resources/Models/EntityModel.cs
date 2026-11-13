@@ -20,6 +20,9 @@ namespace Gordian.Core.Resources.Models
         public Dictionary<string, AnimationClip> Animations { get; } = new(StringComparer.OrdinalIgnoreCase);
         public IReadOnlyDictionary<int, int>? ParentOverrides { get; set; }
 
+        /// <summary>The shield the model holds on its left arm, which a block swings up (<c>ShieldBlockPose</c>), or null.</summary>
+        public Gordian.Core.Animation.ShieldBlockPose.ShieldMount? Shield { get; set; }
+
         /// <summary>
         /// The actor's motion routines by name (Section 0x07 of its model and motion packs, flattened for playback), e.g.
         /// the swings <c>ati0</c>-<c>ati2</c>, the chant <c>cabk</c>, the reactions <c>damg</c> and <c>gurd</c>.
