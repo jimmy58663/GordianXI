@@ -1179,6 +1179,27 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        /// <summary>
+        /// Saves a session's settled camera zoom on its account profile (#550): on the profile now in the launch list under
+        /// that name (an edit while logged in replaces the instance), or the one the session launched with. Writes only
+        /// when the zoom changed.
+        /// </summary>
+        private void SaveCameraZoom(AccountProfile launched, CameraZoom zoom)
+        {
+            var target = Profiles.FirstOrDefault(p => string.Equals(p.ProfileName, launched.ProfileName, StringComparison.OrdinalIgnoreCase))?.Profile ?? launched;
+            bool changed = target.CameraZoom != zoom;
+            launched.CameraZoom = target.CameraZoom = zoom;
+            if (!changed) return;
+            try
+            {
+                SaveProfilesToStore();
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Warning("SESSION", $"Saving '{launched.ProfileName}''s camera zoom failed: {ex.Message}");
+            }
+        }
+
         public void SaveProfilesToStore()
         {
             var doc = new ProfileStoreDocument();
@@ -1398,7 +1419,9 @@ namespace Gordian.App.ViewModels
                 // Kept whatever the mode: an authenticator key is hard to get again, so switching modes must not lose it.
                 OtpSeed = FormOtpSeed.Trim(),
                 TwoFactor = FormTwoFactorMode,
-                IsSelectedForLaunch = existing != null ? isSelected : true
+                IsSelectedForLaunch = existing != null ? isSelected : true,
+                // Not on the form: the camera zoom the profile saved in game (#550) carries over.
+                CameraZoom = existing?.Profile.CameraZoom
             };
 
             profile.SaveToFile(GordianStorage.ProfilesDirectory);
@@ -1956,11 +1979,21 @@ namespace Gordian.App.ViewModels
                 ProfileName = profile.ProfileName
             };
 
+            // The profile's saved camera zoom comes back before the first frame; a settled zoom is saved on it (#550).
+            session.Locomotion.RestoreZoom(profile.CameraZoom);
+            session.Locomotion.ZoomSettled += zoom => Avalonia.Threading.Dispatcher.UIThread.Post(() => SaveCameraZoom(profile, zoom));
+
             bool timedOut = false;
             bool returningToLobby = false;
             int endedOnce = 0;
             netManager.StateChanged += (s, state) =>
             {
+                if (state == SessionState.Disconnected)
+                {
+                    // Logging out within ZoomSaveDelaySeconds of a zoom still keeps it.
+                    var lastZoom = session.Locomotion.CurrentZoom;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => SaveCameraZoom(profile, lastZoom));
+                }
                 if (state == SessionState.Disconnected && ended != null && !Volatile.Read(ref returningToLobby) &&
                     Interlocked.Exchange(ref endedOnce, 1) == 0)
                 {

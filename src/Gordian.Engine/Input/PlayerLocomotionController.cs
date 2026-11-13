@@ -3,6 +3,7 @@
 // FFXI coordinate space specifications: 0=East (+X), 64=South (-Z), 128=West (-X), 192=North (+Z).
 
 using System;
+using Gordian.Core.Profiles;
 using System.Numerics;
 using Gordian.Engine.Actions;
 using Gordian.Core.Config;
@@ -30,8 +31,15 @@ namespace Gordian.Engine.Input
         public CameraMode CameraMode
         {
             get => _camera.Mode;
-            set => _camera.Mode = value;
+            set
+            {
+                // The free camera remembers the view it was entered from, for the zoom that is saved meanwhile (#550).
+                if (value == CameraMode.FreeCam && _camera.Mode != CameraMode.FreeCam) _modeBeforeFreeCam = _camera.Mode;
+                _camera.Mode = value;
+            }
         }
+
+        private CameraMode _modeBeforeFreeCam = CameraMode.ThirdPersonOrbital;
 
         public void ToggleCameraMode()
         {
@@ -234,7 +242,97 @@ namespace Gordian.Engine.Input
         // Camera Spherical Angles (in degrees and yalms)
         public float CameraPitch { get; set; } = 15.0f; // degrees (-80 to +80)
         public float CameraYaw { get; set; } = 0.0f;    // degrees (0 to 360)
-        public float CameraDistance { get; set; } = 6.0f; // yalms (1.5 to 25.0)
+        public float CameraDistance { get; set; } = DefaultCameraDistance; // yalms (0.5 to 30.0)
+
+        /// <summary>
+        /// The third-person camera distance a profile starts at before it has saved a zoom of its own, in yalms (#550): two
+        /// mouse-wheel notches (<see cref="InputProfile.MouseWheelZoomStep"/>, 1 yalm) further out than the 6.0 the camera
+        /// used to start at, which the maintainer found too close (2026-11-13). Not derived from retail.
+        /// </summary>
+        public const float DefaultCameraDistance = 8.0f;
+
+        /// <summary>Nearest and furthest third-person camera distance the zoom allows, in yalms.</summary>
+        public const float MinCameraDistance = 0.5f, MaxCameraDistance = 30.0f;
+
+        /// <summary>The distance the first-person camera keeps, and the one zooming out of first person jumps to.</summary>
+        public const float FirstPersonCameraDistance = 0.5f, FirstPersonExitDistance = 2.0f;
+
+        /// <summary>Zooming in from this third-person distance or closer switches to first person, in yalms.</summary>
+        public const float FirstPersonZoomThreshold = 1.6f;
+
+        /// <summary>
+        /// How long the zoom must stay unchanged before <see cref="ZoomSettled"/> reports it for saving, in seconds, so a
+        /// run of wheel notches or a held zoom key writes the profile once, not on every step (#550).
+        /// </summary>
+        public const float ZoomSaveDelaySeconds = 1.0f;
+
+        /// <summary>
+        /// Raised (on the input thread) once the zoom has stayed at a new value for <see cref="ZoomSaveDelaySeconds"/>:
+        /// the shell saves it on the account profile (#550). Not raised for the zoom <see cref="RestoreZoom"/> put back.
+        /// </summary>
+        public event Action<CameraZoom>? ZoomSettled;
+
+        /// <summary>
+        /// The zoom to save: the base <see cref="CameraDistance"/> (never <see cref="EffectiveCameraDistance"/>, which
+        /// carries the lock-on zoom) and whether the view is first person. In the free camera it is the view the free
+        /// camera was entered from.
+        /// </summary>
+        public CameraZoom CurrentZoom => new()
+        {
+            Distance = CameraDistance,
+            FirstPerson = (_camera.Mode == CameraMode.FreeCam ? _modeBeforeFreeCam : _camera.Mode) == CameraMode.FirstPerson,
+        };
+
+        // The default zoom counts as saved: a profile that never zooms writes nothing.
+        private CameraZoom _settledZoom = new() { Distance = DefaultCameraDistance };
+        private CameraZoom _watchedZoom = new() { Distance = DefaultCameraDistance };
+        private float _zoomQuietSeconds;
+
+        /// <summary>
+        /// Puts back a saved zoom (#550): the distance (clamped to the zoom range) and first or third person. Call before
+        /// the first frame so the camera does not visibly jump; null keeps <see cref="DefaultCameraDistance"/>.
+        /// </summary>
+        public void RestoreZoom(CameraZoom? zoom)
+        {
+            if (zoom == null) return;
+            float distance = float.IsFinite(zoom.Distance) ? Math.Clamp(zoom.Distance, MinCameraDistance, MaxCameraDistance) : DefaultCameraDistance;
+            if (zoom.FirstPerson)
+            {
+                _camera.Mode = CameraMode.FirstPerson;
+                // Zoomed in to first person, the distance is the first-person one; switched by Change View, the third-person
+                // distance it keeps for the way back.
+                CameraDistance = distance;
+            }
+            else
+            {
+                if (_camera.Mode == CameraMode.FirstPerson) _camera.Mode = CameraMode.ThirdPersonOrbital;
+                // A third-person distance inside the first-person threshold would zoom straight into first person.
+                CameraDistance = distance <= FirstPersonZoomThreshold ? FirstPersonExitDistance : distance;
+            }
+            EffectiveCameraDistance = CameraDistance;
+            _settledZoom = _watchedZoom = CurrentZoom;
+            _zoomQuietSeconds = 0f;
+        }
+
+        /// <summary>
+        /// Raises <see cref="ZoomSettled"/> once the zoom has stayed at a value other than the last saved one for
+        /// <see cref="ZoomSaveDelaySeconds"/> of input ticks.
+        /// </summary>
+        private void TrackZoomForSave(float dt)
+        {
+            var zoom = CurrentZoom;
+            if (zoom != _watchedZoom)
+            {
+                _watchedZoom = zoom;
+                _zoomQuietSeconds = 0f;
+                return;
+            }
+            if (zoom == _settledZoom) return;
+            _zoomQuietSeconds += dt;
+            if (_zoomQuietSeconds < ZoomSaveDelaySeconds) return;
+            _settledZoom = zoom;
+            ZoomSettled?.Invoke(zoom);
+        }
 
         public InputProfile Profile
         {
@@ -594,6 +692,7 @@ namespace Gordian.Engine.Input
         {
             float dt = (float)elapsed.TotalSeconds;
             bool cameraChanged = false;
+            TrackZoomForSave(dt);
 
             // Keyboard Camera Controls
             float pitchDelta = 0;
@@ -715,16 +814,16 @@ namespace Gordian.Engine.Input
                 if (_camera.Mode == CameraMode.FirstPerson && zoomDelta > 0)
                 {
                     _camera.Mode = CameraMode.ThirdPersonOrbital;
-                    CameraDistance = 2.0f;
+                    CameraDistance = FirstPersonExitDistance;
                 }
-                else if (_camera.Mode == CameraMode.ThirdPersonOrbital && CameraDistance <= 1.6f && zoomDelta < 0)
+                else if (_camera.Mode == CameraMode.ThirdPersonOrbital && CameraDistance <= FirstPersonZoomThreshold && zoomDelta < 0)
                 {
                     _camera.Mode = CameraMode.FirstPerson;
-                    CameraDistance = 0.5f;
+                    CameraDistance = FirstPersonCameraDistance;
                 }
                 else
                 {
-                    CameraDistance = Math.Clamp(CameraDistance + zoomDelta, 0.5f, 30.0f);
+                    CameraDistance = Math.Clamp(CameraDistance + zoomDelta, MinCameraDistance, MaxCameraDistance);
                 }
 
                 cameraChanged = true;
@@ -1817,7 +1916,7 @@ namespace Gordian.Engine.Input
         /// The camera distance to draw with: <see cref="CameraDistance"/> with the lock-on zoom applied. The viewport
         /// draws with its own camera, so it must read this, not <see cref="CameraDistance"/> (#137).
         /// </summary>
-        public float EffectiveCameraDistance { get; private set; } = 6.0f;
+        public float EffectiveCameraDistance { get; private set; } = DefaultCameraDistance;
 
         /// <summary>How far the view is turned toward <see cref="LockOnAimPoint"/> (0 when not locked on).</summary>
         public float LockOnAimBlend { get; private set; }

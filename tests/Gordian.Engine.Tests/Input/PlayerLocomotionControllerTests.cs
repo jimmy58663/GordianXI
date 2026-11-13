@@ -1058,5 +1058,107 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, 4.99f, 5.01f);
         }
+
+        /// <summary>A profile with no saved zoom starts two wheel notches further out than the old 6.0 (#550).</summary>
+        [Fact]
+        public void CameraZoom_DefaultsToTwoNotchesOut()
+        {
+            var (controller, _, _, _, _) = CreateTestHarness();
+            Assert.Equal(8.0f, PlayerLocomotionController.DefaultCameraDistance);
+            Assert.Equal(6.0f + (2 * controller.Profile.MouseWheelZoomStep), controller.CameraDistance);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8.0f, controller.EffectiveCameraDistance);
+            controller.RestoreZoom(null);
+            Assert.Equal(8.0f, controller.CameraDistance);
+        }
+
+        /// <summary>A run of wheel notches is reported once, after the zoom has stayed put for the save delay (#550).</summary>
+        [Fact]
+        public void CameraZoom_SettledZoomIsReportedOnce()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            var saved = new System.Collections.Generic.List<Gordian.Core.Profiles.CameraZoom>();
+            controller.ZoomSettled += saved.Add;
+            for (int notch = 0; notch < 3; notch++)
+            {
+                input.AddMouseWheel(-1f); // three notches out
+                controller.Update(TimeSpan.FromMilliseconds(100));
+            }
+            Assert.Equal(11.0f, controller.CameraDistance, 3);
+            Assert.Empty(saved);
+            for (int i = 0; i < 15; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            var only = Assert.Single(saved);
+            Assert.Equal(11.0f, only.Distance, 3);
+            Assert.False(only.FirstPerson);
+        }
+
+        /// <summary>Zooming into first person saves first person (#550).</summary>
+        [Fact]
+        public void CameraZoom_FirstPersonIsSaved()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            Gordian.Core.Profiles.CameraZoom? saved = null;
+            controller.ZoomSettled += z => saved = z;
+            controller.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = 2.0f });
+            input.AddMouseWheel(1f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.AddMouseWheel(1f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(CameraMode.FirstPerson, controller.CameraMode);
+            for (int i = 0; i < 15; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.NotNull(saved);
+            Assert.True(saved!.FirstPerson);
+        }
+
+        /// <summary>The lock-on zoom only scales what is drawn: it is never the zoom that is saved (#550).</summary>
+        [Fact]
+        public void CameraZoom_LockOnZoomIsNotSaved()
+        {
+            var (controller, _, _, _, actionService, _) = EngagedHarness(lockOn: false);
+            int reports = 0;
+            controller.ZoomSettled += _ => reports++;
+            actionService.ToggleLockOn();
+            Assert.True(actionService.IsLockedOn);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.True(controller.EffectiveCameraDistance < PlayerLocomotionController.DefaultCameraDistance - 1f);
+            Assert.Equal(PlayerLocomotionController.DefaultCameraDistance, controller.CurrentZoom.Distance);
+            Assert.Equal(0, reports);
+        }
+
+        /// <summary>A saved zoom comes back as it was, third and first person, without being reported again (#550).</summary>
+        [Theory]
+        [InlineData(13.0f, false, 13.0f, CameraMode.ThirdPersonOrbital)]
+        [InlineData(0.5f, true, 0.5f, CameraMode.FirstPerson)]
+        [InlineData(9.0f, true, 9.0f, CameraMode.FirstPerson)] // switched by Change View: keeps the way-back distance
+        [InlineData(1.2f, false, 2.0f, CameraMode.ThirdPersonOrbital)] // inside the first-person threshold
+        [InlineData(99f, false, 30.0f, CameraMode.ThirdPersonOrbital)]
+        public void CameraZoom_RestoreRoundTrip(float distance, bool firstPerson, float expectedDistance, CameraMode expectedMode)
+        {
+            var (first, input, _, _, _) = CreateTestHarness();
+            first.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = distance, FirstPerson = firstPerson });
+            var saved = first.CurrentZoom;
+
+            var (second, _, _, _, _) = CreateTestHarness();
+            int reports = 0;
+            second.ZoomSettled += _ => reports++;
+            second.RestoreZoom(saved);
+            Assert.Equal(expectedDistance, second.CameraDistance);
+            Assert.Equal(expectedMode, second.CameraMode);
+            Assert.Equal(saved, second.CurrentZoom);
+            for (int i = 0; i < 15; i++) second.Update(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(0, reports);
+        }
+
+        /// <summary>The free camera saves the zoom of the view it was entered from (#550).</summary>
+        [Fact]
+        public void CameraZoom_FreeCameraKeepsTheViewItCameFrom()
+        {
+            var (controller, _, _, _, _) = CreateTestHarness();
+            controller.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = 10f, FirstPerson = true });
+            controller.ToggleCameraMode(); // first person -> free camera
+            Assert.Equal(CameraMode.FreeCam, controller.CameraMode);
+            Assert.True(controller.CurrentZoom.FirstPerson);
+            Assert.Equal(10f, controller.CurrentZoom.Distance);
+        }
     }
 }
