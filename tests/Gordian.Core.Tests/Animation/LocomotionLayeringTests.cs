@@ -63,6 +63,9 @@ namespace Gordian.Core.Tests.Animation
             var skeleton = Biped();
             Assert.Equal(Spine, LocomotionLayering.UpperBodyRoot(skeleton));
             Assert.Equal(Pelvis, LocomotionLayering.Pelvis(skeleton));
+            Assert.Equal(Chest, LocomotionLayering.Chest(skeleton));
+            Assert.True(LocomotionLayering.IsSpine(skeleton, Spine) && LocomotionLayering.IsSpine(skeleton, Chest));
+            Assert.False(LocomotionLayering.IsSpine(skeleton, Head) || LocomotionLayering.IsSpine(skeleton, Pelvis));
             foreach (int j in new[] { 0, 1, Pelvis, Hips, 4, Leg, Foot }) Assert.False(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
             // The spine, the grip in the hand, and the mounts the clips move (on joint 1 or on the pelvis) follow the swing.
             foreach (int j in new[] { Spine, Chest, LeftHand, Arm, Head, Grip, Mount, OffHand }) Assert.True(LocomotionLayering.IsUpperBody(skeleton, j, GripInHand));
@@ -76,27 +79,36 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void Combine_KeepsTheLocomotionsLowerBody_AndTheSwingsUpperBodyFacing()
+        public void Combine_KeepsTheLocomotionsLegsAndTorso_AndTheSwingsArmsAroundTheChest()
         {
             var skeleton = Biped();
             var strafe = Clip("cmvl", (Pelvis, 0.8f), (Spine, -0.8f), (Leg, 0.5f), (OffHand, 0.3f));
-            var swing = Clip("aml", (Pelvis, 0f), (Arm, 1.2f), (OffHand, -0.6f));
+            var swing = Clip("aml", (Pelvis, 0f), (Spine, 0.9f), (Arm, 1.2f), (OffHand, -0.6f));
             var lower = SkeletonPoseEvaluator.EvaluatePose(skeleton, strafe, 0f, true, GripInHand);
             var upper = SkeletonPoseEvaluator.EvaluatePose(skeleton, swing, 0f, false, GripInHand);
 
             var pose = LocomotionLayering.Combine(skeleton, upper, lower, GripInHand);
 
-            foreach (int j in new[] { 0, 1, Pelvis, Hips, Leg, Foot })
+            // The legs and the torso up to the chest: the strafe's, twist included (round 6: the swing's square torso is not taken).
+            foreach (int j in new[] { 0, 1, Pelvis, Hips, Leg, Foot, Spine, Chest })
             {
                 Assert.Equal(lower.Rotations[j], pose.Rotations[j]);
                 Assert.Equal(lower.Translations[j], pose.Translations[j]);
             }
-            foreach (int j in new[] { Spine, Arm, Head, Grip, OffHand }) Assert.Equal(upper.Rotations[j], pose.Rotations[j]);
-            Assert.Equal(lower.Translations[Spine], pose.Translations[Spine]); // the torso sits on the strafe's pelvis
-            Assert.Equal(upper.Translations[Arm] - upper.Translations[Spine], pose.Translations[Arm] - pose.Translations[Spine]);
-            // The off-hand mount keeps its place relative to the hands, as the swing has it.
-            Assert.Equal(upper.Translations[OffHand] - upper.Translations[LeftHand], pose.Translations[OffHand] - pose.Translations[LeftHand]);
+            // The arms, head, grip and off-hand mount: the swing's, turned with the chest onto the strafe's chest.
+            var turn = Quaternion.Normalize(lower.Rotations[Chest] * Quaternion.Inverse(upper.Rotations[Chest]));
+            foreach (int j in new[] { LeftHand, Arm, Head, Grip, OffHand })
+            {
+                AssertClose(Quaternion.Normalize(turn * upper.Rotations[j]), pose.Rotations[j]);
+                AssertClose(Vector3.Transform(upper.Translations[j] - upper.Translations[Chest], turn), pose.Translations[j] - pose.Translations[Chest]);
+            }
+            AssertClose(Vector3.Transform(upper.Translations[OffHand] - upper.Translations[LeftHand], turn), pose.Translations[OffHand] - pose.Translations[LeftHand]);
         }
+
+        private static void AssertClose(Vector3 expected, Vector3 actual) => Assert.True(Vector3.Distance(expected, actual) < 1e-4f, $"{expected} vs {actual}");
+
+        private static void AssertClose(Quaternion expected, Quaternion actual) =>
+            Assert.True(MathF.Abs(Quaternion.Dot(expected, actual)) > 0.9999f, $"{expected} vs {actual}");
 
         private static EntityModel Model()
         {

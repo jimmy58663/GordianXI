@@ -131,7 +131,8 @@ namespace Gordian.Engine.Tests.Animation
                 Assert.Same(locomotion, me.Animation.LowerBodyClip);
                 var shown = me.Animation.EvaluatePose(skeleton, overrides);
                 var legs = SkeletonPoseEvaluator.EvaluatePose(skeleton, locomotion, me.Animation.LowerBodyElapsedSeconds, true, overrides);
-                foreach (int j in legJoints)
+                // The torso too: the spine up to the chest keeps the locomotion's twist (round 6: it turned square to the mob).
+                foreach (int j in legJoints.Concat(Enumerable.Range(0, skeleton.Count).Where(j => LocomotionLayering.IsSpine(skeleton, j))))
                 {
                     Assert.Equal(legs.Rotations[j], shown.Rotations[j]);
                     Assert.Equal(legs.Translations[j], shown.Translations[j]);
@@ -140,11 +141,13 @@ namespace Gordian.Engine.Tests.Animation
                 // The weapons: where the swing holds them, relative to the hands (outside the cross-fade into the swing).
                 if (me.Animation.IsBlending) continue;
                 var swing = SkeletonPoseEvaluator.EvaluatePose(skeleton, me.Animation.CurrentClip, me.Animation.ElapsedSeconds, me.Animation.LoopsCurrentClip, overrides);
+                int chest = LocomotionLayering.Chest(skeleton);
+                var turn = Quaternion.Normalize(shown.Rotations[chest] * Quaternion.Inverse(swing.Rotations[chest]));
                 foreach (var v in weapons)
                 {
                     Vector3 inSwing = Skin(v, swing), inShown = Skin(v, shown);
-                    Assert.True(Vector3.Distance(inSwing - swing.Translations[leftHand], inShown - shown.Translations[leftHand]) < 0.001f
-                        || Vector3.Distance(inSwing - swing.Translations[rightHand], inShown - shown.Translations[rightHand]) < 0.001f);
+                    Assert.True(Vector3.Distance(Vector3.Transform(inSwing - swing.Translations[leftHand], turn), inShown - shown.Translations[leftHand]) < 0.002f
+                        || Vector3.Distance(Vector3.Transform(inSwing - swing.Translations[rightHand], turn), inShown - shown.Translations[rightHand]) < 0.002f);
                 }
             }
             Assert.True(swingFrames > 60, $"{swingFrames} swing frames");

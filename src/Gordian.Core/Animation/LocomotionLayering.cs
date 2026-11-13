@@ -13,10 +13,10 @@ namespace Gordian.Core.Animation
     /// The PC moving swings (<c>atf0</c> / <c>atb0</c> / <c>atl0</c> / <c>atr0</c>, clips <c>amf</c> / <c>amb</c> / <c>aml</c> /
     /// <c>amr</c>) animate the torso and arms with the pelvis facing forward and the legs held still, while the strafe clips
     /// turn the pelvis 45 degrees (Hume male <c>cmvl</c> / <c>cmvr</c>: joint 2, with the spine root, joint 48, turned back the
-    /// other way). So the body is split by the skeleton's hierarchy: the lower body is the chain from the root to the pelvis
-    /// and the legs hanging from the pelvis, taken from the locomotion; everything else (the spine with the torso, arms and
-    /// head, and the gear and weapon mount joints hung on the pelvis or above it) comes from the swing, facing the way the
-    /// swing has it and carried on the locomotion's pelvis.
+    /// other way). So the body is split by the skeleton's hierarchy: the chain from the root to the pelvis, the legs and the
+    /// spine up to the chest come from the locomotion, so the torso keeps the walk or run's twist (round 6); everything else
+    /// (the arms, the head, and the gear and weapon mount joints) comes from the swing, placed rigidly on the locomotion's
+    /// chest.
     /// <para>
     /// The pelvis is found from the hands (joint references 126 / 127 on every PC skeleton): up the spine from the joint the
     /// two arms meet at, the first joint that also carries a long chain (four or more joints deep: a leg). Hume male: the arms
@@ -37,10 +37,17 @@ namespace Gordian.Core.Animation
         /// <summary>A branch at least this many joints deep hanging from the pelvis is a leg.</summary>
         private const int LegDepth = 4;
 
-        private sealed record SplitInfo(int UpperRoot, int Pelvis, bool[] Lower);
+        private sealed record SplitInfo(int UpperRoot, int Pelvis, int Chest, bool[] Lower, bool[] Spine);
 
         /// <summary>The joint the spine starts at (the upper body's root), or -1 when the skeleton cannot be split.</summary>
         public static int UpperBodyRoot(Skeleton skeleton) => SplitOf(skeleton).UpperRoot;
+
+        /// <summary>The chest: the joint the two arms meet at, the top of the spine the locomotion keeps, or -1.</summary>
+        public static int Chest(Skeleton skeleton) => SplitOf(skeleton).Chest;
+
+        /// <summary>Whether <paramref name="joint"/> is on the spine from its root up to the chest (kept from the locomotion).</summary>
+        public static bool IsSpine(Skeleton skeleton, int joint) =>
+            joint >= 0 && joint < skeleton.Count && SplitOf(skeleton).Spine[joint];
 
         /// <summary>The pelvis: the joint both the spine and the legs hang from, or -1.</summary>
         public static int Pelvis(Skeleton skeleton) => SplitOf(skeleton).Pelvis;
@@ -53,7 +60,7 @@ namespace Gordian.Core.Animation
             static SplitInfo Compute(Skeleton skeleton)
             {
                 int n = skeleton.Count;
-                var none = new SplitInfo(-1, -1, new bool[n]);
+                var none = new SplitInfo(-1, -1, -1, new bool[n], new bool[n]);
                 if (skeleton.References.Count <= RightHandReference) return none;
                 int left = skeleton.References[LeftHandReference].Index, right = skeleton.References[RightHandReference].Index;
                 if (left >= n || right >= n) return none;
@@ -104,7 +111,13 @@ namespace Gordian.Core.Animation
                             lower[j] = true;
                             foreach (int c in children[j]) stack.Push(c);
                         }
-                        return new SplitInfo(upper, pelvis, lower);
+                        var spine = new bool[n];
+                        for (int j = meet, g = 0; j >= 0 && g <= n; j = ParentOf(skeleton, j), g++)
+                        {
+                            spine[j] = true;
+                            if (j == upper) break;
+                        }
+                        return new SplitInfo(upper, pelvis, meet, lower, spine);
                     }
                     upper = pelvis;
                 }
@@ -134,29 +147,32 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>
-        /// The pose with the upper body of <paramref name="upper"/> (the swing) on the lower body of <paramref name="lower"/>
-        /// (the locomotion): lower-body joints are the locomotion's; upper-body joints keep the swing's orientation and are
-        /// moved so the spine starts where the locomotion's spine starts. Both poses are model space, from
-        /// <see cref="SkeletonPoseEvaluator"/> with the same <paramref name="parentOverrides"/>.
+        /// The pose with the swing of <paramref name="upper"/> on the body of <paramref name="lower"/> (the locomotion). The legs,
+        /// the pelvis and the spine up to the chest are the locomotion's, so the torso keeps the twist the walk or run gives it
+        /// (a strafe turns the shoulders about 70 degrees from the battle stance; a swing's own torso faces the target square,
+        /// round 6). Everything else that follows the swing (the arms, the head, the weapon grips and mounts) keeps its place
+        /// relative to the swing's chest, turned and moved rigidly so that chest lands on the locomotion's. Both poses are model
+        /// space, from <see cref="SkeletonPoseEvaluator"/> with the same <paramref name="parentOverrides"/>.
         /// </summary>
         public static SkeletonPoseEvaluator.EvaluatedPose Combine(Skeleton skeleton, SkeletonPoseEvaluator.EvaluatedPose upper,
             SkeletonPoseEvaluator.EvaluatedPose lower, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             ArgumentNullException.ThrowIfNull(skeleton);
-            int root = UpperBodyRoot(skeleton);
+            var split = SplitOf(skeleton);
+            int chest = split.Chest;
             int n = Math.Min(upper.Rotations.Length, lower.Rotations.Length);
-            if (root < 0 || root >= n) return upper;
+            if (split.UpperRoot < 0 || chest < 0 || chest >= n) return upper;
 
             var rotations = (Quaternion[])lower.Rotations.Clone();
             var translations = (Vector3[])lower.Translations.Clone();
             var scales = lower.Scales.Length == n ? (Vector3[])lower.Scales.Clone() : new Vector3[n];
             if (lower.Scales.Length != n) Array.Fill(scales, Vector3.One);
-            Vector3 offset = lower.Translations[root] - upper.Translations[root];
+            var turn = Quaternion.Normalize(lower.Rotations[chest] * Quaternion.Inverse(upper.Rotations[chest]));
             for (int j = 0; j < n; j++)
             {
-                if (!IsUpperBody(skeleton, j, parentOverrides)) continue;
-                rotations[j] = upper.Rotations[j];
-                translations[j] = upper.Translations[j] + offset;
+                if (split.Spine[j] || !IsUpperBody(skeleton, j, parentOverrides)) continue;
+                rotations[j] = Quaternion.Normalize(turn * upper.Rotations[j]);
+                translations[j] = lower.Translations[chest] + Vector3.Transform(upper.Translations[j] - upper.Translations[chest], turn);
                 if (upper.Scales.Length == n) scales[j] = upper.Scales[j];
             }
             return new SkeletonPoseEvaluator.EvaluatedPose(rotations, translations, scales);
