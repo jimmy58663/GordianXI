@@ -12,8 +12,8 @@ Sources: XiPackets `world/server/0x000D`, `0x000E`, `0x0037` (bit names and docu
 | 1 | ClaimStatus | the claim / battle target field is valid | `ClaimServerId` taken only with it | same |
 | 2 | General | HP, status and the flag words are valid | name plate flags and linkshell colour are read only with it (a position-only update made a running player's pearl vanish) | same |
 | 3 | Name | the name is present | `GetName` | same |
-| 4 | Model | 0x00D: the grap id table is present | `TryGetGrapIdTable` | same |
-| 5 | Despawn | the entity leaves | `WorldState.RemoveEntity` | same |
+| 4 | Model | 0x00D: the grap id table is present. 0x00E: a gear look (SubKind 1 / 7) carries its look; without the flag the look bytes are not data | `TryGetGrapIdTable`; 0x00E `HasModel`: `TryGetEquippedLook` reads the look only with it (#532). Retail sends gear-look NPCs updates with no send flags whose look is zero but for SubKind 1 (Port Windurst, 2026-11-12); read as a look, race 0 drew a Hume male. **Beyond LandSandBoat**, which writes the look into every update and never sends send flags 0. A fixed model id (SubKind 0 / 5 / 6) is read whatever the flags, as XiPackets' SubKind 0 handler does (LandSandBoat spawns those with 0x0F, no Model flag); id 0 is ignored | same |
+| 5 | Despawn | the entity leaves | `WorldState.RemoveEntity`; 0x00E: `EntityPacketModule` keeps the entity's last state until the zone changes, and a later update with send flags but no Position flag brings it back as it was (#533). Retail sends a same-zone Home Point warp's destination Home Point a full update, a despawn, the 0x065 move and then a name-only update (Windurst Waters, 2026-11-12), and draws it at once; the next full update came a minute later. **Beyond XiPackets** (*inferred* from that sequence). An update with no send flags makes no entity | same |
 | 6 | Name2 | 0x00E only: the name is updated, read from payload 0x40 for SubKind 1 | `HasName2` | XiPackets 0x000E (0x000D marks bits 6-7 unused) |
 
 ## Flags0 (0x00D / 0x00E payload 20, packet 0x18)

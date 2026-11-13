@@ -782,6 +782,7 @@ namespace Gordian.App.Graphics
             var lensFlareDesc = weatherSkyAdditiveDesc;
             lensFlareDesc.DepthStencilState = DepthStencilStateDescription.Disabled;
             _lensFlarePipeline = factory.CreateGraphicsPipeline(lensFlareDesc);
+            CreateAoeGuideResources(factory);
 
             _skyDomeRenderer = new SkyDomeRenderer(_gd, _sceneLayout, _outputs);
             _commandList = factory.CreateCommandList();
@@ -1701,6 +1702,14 @@ namespace Gordian.App.Graphics
             // Actor shadows, after the water and world-effect layers so ground overlays drawn there (Bibiki Bay's cave
             // floor gradients) do not cover them (#7 round 2, F11).
             if (_entityRenderer != null) draws += _entityRenderer.DrawQueuedShadows(_commandList);
+
+            // The area-of-effect range guide (#356), over the shadows: retail's band lies on top of everything on the ground.
+            int guideDraws = DrawAoeGuide(activeSubmeshes, frustum, deltaSeconds, height);
+            if (guideDraws > 0)
+            {
+                draws += guideDraws;
+                currentBoundBlendPipeline = null;
+            }
 
             // Pass 3b: Optional synthetic sea-level ocean water plane (enhancement, not in the legacy client)
             // Rendered at sea level (Y = 0.0) with depth testing enabled and depth writing DISABLED.
@@ -3093,6 +3102,7 @@ namespace Gordian.App.Graphics
             foreach (var effectPipeline in _effectPipelines) effectPipeline?.Dispose();
             foreach (var effectPipeline in _culledEffectPipelines) effectPipeline?.Dispose();
             _lensFlarePipeline?.Dispose();
+            DisposeAoeGuideResources();
             _sceneResourceSet?.Dispose();
             _waterResourceSet?.Dispose();
             _sceneUniformBuffer?.Dispose();

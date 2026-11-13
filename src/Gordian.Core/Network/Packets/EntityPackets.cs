@@ -650,6 +650,9 @@ namespace Gordian.Core.Network.Packets
         public bool HasName => (UpdateFlags & EntityUpdateFlags.Name) != 0;
         public bool HasGeneral => (UpdateFlags & EntityUpdateFlags.General) != 0;
 
+        /// <summary>The <c>Model</c> send flag: a gear look (SubKind 1 / 7) carries its look only with it (<see cref="TryGetEquippedLook"/>).</summary>
+        public bool HasModel => (UpdateFlags & EntityUpdateFlags.Model) != 0;
+
         /// <summary>
         /// <c>Flags1.MonsterFlag</c> (bit 0 of packet byte 0x20): the client shows the entity as a monster (yellow name,
         /// attackable) rather than an NPC, which share the 0-1023 index range. LandSandBoat writes the entity's status in
@@ -962,11 +965,17 @@ namespace Gordian.Core.Network.Packets
         /// Returns a 9-element GrapIdTable matching GordianXI convention:
         /// Index 0: FaceModel ((race &lt;&lt; 8) | face), Indices 1..8: Head, Body, Hands, Legs, Feet, Main, Sub, Ranged.
         /// A gear look with race 0 is read as race 1, the Hume male (<see cref="GearLookDefaultRace"/>, #426).
+        /// The look is only there with the <c>Model</c> send flag: XiPackets' SubKind 1 and 7 handlers return before
+        /// touching the look without it. Retail sends gear-look NPCs updates with no send flags at all whose look bytes are
+        /// zero but for the SubKind (Port Windurst, 2026-11-12, #532); read as a look, that zero race became the Hume male.
+        /// LandSandBoat writes the look into every update but spawns gear looks with send flags 0x57, so it always sets
+        /// the flag where the look matters.
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server) entity_update.cpp
+        /// and XiPackets (https://github.com/atom0s/XiPackets/tree/main/world/server/0x000E) SubKind 1 / 7.
         /// </summary>
         public bool TryGetEquippedLook(out byte race, out byte face, out ushort[] grapIdTable)
         {
-            if (IsEquippedLook && _payload.Length >= 0x40)
+            if (IsEquippedLook && HasModel && _payload.Length >= 0x40)
             {
                 face = _payload[0x2E];
                 race = _payload[0x2F];

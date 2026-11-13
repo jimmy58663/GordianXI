@@ -641,6 +641,27 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         /// <summary>
+        /// #517: zoning clears the target (and so its window, cursor and tag). The world is emptied on every zone change, with
+        /// no despawn per entity, so the target must go with it.
+        /// </summary>
+        [Fact]
+        public void ZoneChangeClearsTheTarget()
+        {
+            var changes = new List<WorldEntity?>();
+            _actionService.SetTargetByServerId(0x02020202);
+            Assert.NotNull(_actionService.CurrentTarget);
+            _actionService.TargetChanged += changes.Add;
+
+            _world.Clear();
+
+            Assert.Null(_actionService.CurrentTarget);
+            Assert.False(_actionService.IsLockedOn);
+            Assert.Equal(new WorldEntity?[] { null }, changes);
+            _world.Clear();                         // nothing targeted: no further change
+            Assert.Single(changes);
+        }
+
+        /// <summary>
         /// #327: a selected monster entering the death status (server status 3, as LandSandBoat's CDeathState sends it) is
         /// dropped as the target, as retail does; so is one the server turns TargetOff (#334).
         /// </summary>

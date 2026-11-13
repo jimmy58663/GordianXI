@@ -229,13 +229,13 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 | SubKind | Name | `EntityType` | Notes |
 |---|---|---|---|
 | 0 | Standard | Npc below index 1024, Monster at 1024 and up; MonsterFlag makes an index below 1024 a Monster, TrustFlag makes one at 1024 and up a Trust | model id at payload 0x2E (`GetModelId`) |
-| 1 | Equipped | as 0 | 20-byte look (race, face, eight gear slots) |
+| 1 | Equipped | as 0 | 20-byte look (race, face, eight gear slots), read only with the Model send flag (#532) |
 | 2 | Door | Door | no model, not drawn |
 | 3 | Elevator | Elevator | FourCC, leg start, travel time (`TryGetTransport`) |
 | 4 | Ship | Ship | FourCC, leg start |
 | 5 | Unknown5 | as 0 | simple model id |
 | 6 | Automaton | Pet | simple model id |
-| 7 | Chocobo | as 0 | full look |
+| 7 | Chocobo | as 0 | full look, read only with the Model send flag |
 
 `EntityType` itself (Player 0, Npc 1, Monster 2, Pet 3, Trust 4, Elevator 5, Ship 6, Door 7) is internal, not a wire value.
 
@@ -294,6 +294,10 @@ Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExi
 Item valid targets (the DAT item record's `ValidTargets`, LandSandBoat `TARGETTYPE` in `battle_entity.h`; `StockUiItems.Target*`): 0x001 self, 0x002 party, 0x004 enemy, 0x008 alliance, 0x010 player, 0x020 dead player, 0x040 NPC, 0x080 party (Pianissimo), 0x100 pet. 0 means the item cannot be used (the Items window greys Use).
 
 DAT item types (the item record's type field, read from the English item DATs 2026-10-12; `StockUiItems.ItemType*`): 1 general (materials, key-like items, also some usable boxes and food flagged CanUse), 4 weapon (weapons, ammo, instruments, lures), 5 armour (armour and shields), 6 linkshell / pearl, 7 usable (medicine, food, boxes), 8 crystal, 10 furnishing, 12 flowerpot (Brass Flowerpot 217), 14 mannequin (256-263; types 12 and 14 checked against the retail item DAT 2026-11-02, `MogHouseFurniture.*ItemType`, #93). Only types 4 and 5 are equipment: a Linkshell's equip-slot field reads 0x01. The Items window's Type 1 sort is built on these (`StockUiItems.SortCategory`, [stock-ui.md](../ui/stock-ui.md#items-and-equipment-windows-351-352)).
+
+## Area-of-effect shapes (`AreaOfEffectShape`)
+
+The shape byte of the client's spell (`mgc_` +0x47) and command (`comm` +0x12, xi-tools' "AoE type") records, read from the retail table 2026-11-12 (#356); the radius beside it (+0x46 / +0x11) is a code in the range table, not yalms ([dat-files.md](../world/dat-files.md#spell-and-command-tables)). 0 single target (a few self buffs such as Occultation carry radius 15 with shape 0), 1 around the target (the -ga spells, Curaga, Protectra, party songs, Horde Lullaby, Corsair's Rolls, Circle Blade, Cyclone, Warcry), 2 cone (Poison Breath, Radiant Breath, Sonic Thrust, Foxfire, breath moves), 3 around the caster (Self-Destruct, Cold Wave, Mysterious Light, monster self-centred moves). **Beyond xi-tools:** the meanings, named from the spells and moves carrying each value. Only 1 draws the range guide.
 
 ## Collision terrain types (`CollisionTriangle.Terrain`)
 

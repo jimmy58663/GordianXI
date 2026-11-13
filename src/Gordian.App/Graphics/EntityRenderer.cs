@@ -126,6 +126,15 @@ namespace Gordian.App.Graphics
         /// <summary>The entity under the sub-target cursor (#240), 0 = none; its overhead point is <see cref="SubTargetAnchor"/>.</summary>
         public uint SubTargetServerId { get; set; }
 
+        /// <summary>
+        /// Entities that flash continuously this frame (#356 round 1): the one under the sub-target cursor and the characters
+        /// its AoE circle would affect. They take <see cref="SubTargetFlashAmount"/> (the brighter of it and the target flash).
+        /// </summary>
+        public HashSet<uint> SubTargetFlashServerIds { get; } = new();
+
+        /// <summary>Light added to <see cref="SubTargetFlashServerIds"/> this frame (see <see cref="TargetFlash.Continuous"/>).</summary>
+        public float SubTargetFlashAmount { get; set; }
+
         /// <summary>The sub-target's overhead point this frame, when drawn.</summary>
         public Vector3? SubTargetAnchor { get; private set; }
 
@@ -624,7 +633,9 @@ namespace Gordian.App.Graphics
                 };
                 bool isTarget = TargetServerId != 0 && entity.ServerId == TargetServerId;
                 // Z: the target flash; W: how see-through an event made the entity (1 - its alpha, 0x80 = opaque).
-                uniform.SkyLayerParams = new Vector4(0.0f, 0.0f, isTarget ? TargetFlashAmount : 0.0f,
+                float flash = isTarget ? TargetFlashAmount : 0.0f;
+                if (SubTargetFlashServerIds.Contains(entity.ServerId)) flash = MathF.Max(flash, SubTargetFlashAmount);
+                uniform.SkyLayerParams = new Vector4(0.0f, 0.0f, flash,
                     faded ? 1.0f - eventAlpha / (float)WorldEntity.OpaqueEventAlpha : 0.0f);
 
                 // Actors take the 0x2F model lights of the environment they stand in: a floor linked to a

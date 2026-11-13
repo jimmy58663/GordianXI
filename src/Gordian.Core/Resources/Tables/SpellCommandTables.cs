@@ -8,6 +8,29 @@ using Gordian.Core.Resources.Containers;
 namespace Gordian.Core.Resources.Tables
 {
     /// <summary>
+    /// The area an action's effect covers: spell record +0x47, command record +0x12 (xi-tools names the command byte "AoE
+    /// type"). <b>Beyond xi-tools:</b> the values named from the retail table (2026-11-12): every -ga spell, Curaga, the
+    /// Protectra / Shellra line, Advancing March and the other party songs, Horde Lullaby, the Corsair's Rolls, Circle Blade
+    /// and Cyclone are <see cref="AroundTarget"/>; the breath and conal monster moves (Poison Breath, Radiant Breath, Sonic
+    /// Thrust, Foxfire) are <see cref="Cone"/>; Self-Destruct, Cold Wave, Mysterious Light and the monster self-centred
+    /// moves are <see cref="AroundCaster"/>. A few self-only spells (Occultation, Harden Shell) carry radius 15 with shape 0.
+    /// </summary>
+    public enum AreaOfEffectShape
+    {
+        /// <summary>Single target.</summary>
+        None = 0,
+
+        /// <summary>A circle around the chosen target.</summary>
+        AroundTarget = 1,
+
+        /// <summary>A cone in front of the user (breaths, conal moves).</summary>
+        Cone = 2,
+
+        /// <summary>A circle around the user.</summary>
+        AroundCaster = 3,
+    }
+
+    /// <summary>
     /// One spell of the client's spell table (section 0x49 <c>mgc_</c>), decoded. Ids index the d_msg spell names
     /// (ROM/181/73) and the server's spell ids.
     /// </summary>
@@ -18,8 +41,18 @@ namespace Gordian.Core.Resources.Tables
     /// <param name="RecastQuarters">Recast in quarter seconds (Cure: 20 = 5 s).</param>
     /// <param name="JobLevels">Level per job in job order (0 none, 1 WAR ... 22 RUN, 23 MON); <see cref="SpellRecord.CannotLearn"/> when the job cannot learn it.</param>
     /// <param name="MenuIndex">The slot the known-spell list sorts the spell into.</param>
+    /// <param name="Range">
+    /// +0x45 (u8), the casting range index (Cure 12, Horde Lullaby 11, self-only spells 15). <b>Beyond xi-tools</b>, which
+    /// lists +0x44 onward as flags: the byte is the spell twin of the command record's range at +0x10.
+    /// </param>
+    /// <param name="AoeRadius">
+    /// +0x46 (u8), the area-of-effect radius index (0 single target): Curaga, Diaga, Protectra and Advancing March 8, Horde
+    /// Lullaby 3, the -ga spells of the Paralyga line 11. <b>Beyond xi-tools</b>; the twin of the command record's +0x11.
+    /// </param>
+    /// <param name="AoeShape">+0x47 (u8): see <see cref="AreaOfEffectShape"/>. <b>Beyond xi-tools</b>; the twin of the command record's +0x12.</param>
     public sealed record SpellRecord(int Id, int Kind, int Element, int TargetFlags, int Skill, int MpCost, int CastQuarters,
-        int RecastQuarters, IReadOnlyList<int> JobLevels, int MenuIndex, int Icon, int Icon2 = 0xFFFF)
+        int RecastQuarters, IReadOnlyList<int> JobLevels, int MenuIndex, int Icon, int Icon2 = 0xFFFF,
+        int Range = 0, int AoeRadius = 0, AreaOfEffectShape AoeShape = AreaOfEffectShape.None)
     {
         /// <summary>The <see cref="JobLevels"/> value of a job that cannot learn the spell.</summary>
         public const int CannotLearn = 0xFFFF;
@@ -45,7 +78,13 @@ namespace Gordian.Core.Resources.Tables
     /// 11, Shining Ruby 44, Healing Ruby II 124; retail image-46 shows a pact's "MP Cost" from it); the astral flow pacts read 0.
     /// </param>
     /// <param name="TpCost">TP the command costs (+0x0C, i16; -1 for none: weapon skills read -1 and take 1000 TP by rule).</param>
-    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1, int Icon2 = -1, int Charges = 0)
+    /// <param name="AoeRadius">
+    /// +0x11 (u8), the area-of-effect radius index, as xi-tools names it (0 single target): the Corsair's Rolls 7, Cyclone
+    /// and Holy Circle 8, Circle Blade 3, Warcry and Benediction 10. Same index as <see cref="SpellRecord.AoeRadius"/>.
+    /// </param>
+    /// <param name="AoeShape">+0x12 (u8), xi-tools' "AoE type": see <see cref="AreaOfEffectShape"/>.</param>
+    public sealed record CommandRecord(int Id, int Type, int Icon, int TargetFlags, int Range, int RecastId = 0, int TpCost = -1, int Icon2 = -1, int Charges = 0,
+        int AoeRadius = 0, AreaOfEffectShape AoeShape = AreaOfEffectShape.None)
     {
         /// <summary>The <see cref="Type"/> of a weapon skill.</summary>
         public const int WeaponSkillType = 3;
@@ -69,7 +108,8 @@ namespace Gordian.Core.Resources.Tables
     /// the spell fields were checked against the retail table on 2026-10-10 (Cure: white, light, healing magic, 8 MP,
     /// cast 2 s, recast 5 s, WHM 1 / RDM 3 / PLD 5; Fire: black, fire, elemental, 7 MP, BLM 13 / RDM 19; Sleep (253):
     /// enfeebling, dark, 19 MP, BLM 20 / RDM 25). Of the command fields, id, type, icon, targets, range, the recast id
-    /// (+0x08, see <see cref="CommandRecord.RecastId"/>) and the TP cost (+0x0C, Curing Waltz 200) were checked; the rest
+    /// (+0x08, see <see cref="CommandRecord.RecastId"/>), the TP cost (+0x0C, Curing Waltz 200) and the area of effect
+    /// (+0x11 / +0x12, and the spell's +0x45-+0x47; #356) were checked; the rest
     /// are not exposed (the level byte xi-tools names at +0x0F is set only on the Monstrosity moves, records 1792 and
     /// up; see docs/world/dat-files.md). ROM/118/116 is an older copy of both tables with the names inside, not read.
     /// </para>
@@ -185,7 +225,10 @@ namespace Gordian.Core.Resources.Tables
                 JobLevels: levels,
                 MenuIndex: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x3E)),
                 Icon: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x40)),
-                Icon2: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x42)));
+                Icon2: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x42)),
+                Range: r[0x45],
+                AoeRadius: r[0x46],
+                AoeShape: (AreaOfEffectShape)r[0x47]);
         }
 
         private static CommandRecord ReadCommand(ReadOnlySpan<byte> r) => new(
@@ -197,6 +240,8 @@ namespace Gordian.Core.Resources.Tables
             RecastId: BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(0x08)),
             TpCost: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x0C)),
             Icon2: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x04)),
-            Charges: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x06)));
+            Charges: BinaryPrimitives.ReadInt16LittleEndian(r.Slice(0x06)),
+            AoeRadius: r[0x11],
+            AoeShape: (AreaOfEffectShape)r[0x12]);
     }
 }

@@ -176,7 +176,11 @@ namespace Gordian.Engine.Ui
             return true;
         }
 
-        /// <summary>The options (<c>mcresmn</c>) for the set under the list's cursor, right against the list's left edge, level with the row.</summary>
+        /// <summary>
+        /// The options (<c>mcresmn</c>) for the set under the list's cursor: its top level with the chosen set's capsule top, its left edge
+        /// 223 px from the screen's right (#385, retail capture on local LSB 2026-11-08, <c>385-equipset-options-set010.png</c>: Set010's
+        /// capsule and the window's top both at y 198, the window from x 2337 at 2560 wide, UI 1:1).
+        /// </summary>
         private void OpenEquipSetOptions(StockUiOpenMenu list)
         {
             var library = _library;
@@ -184,7 +188,7 @@ namespace Gordian.Engine.Ui
             if (library == null || !EquipmentSetBook.IsValidNumber(number) || !library.TryGetMenu(StockUiEquipSets.OptionsMenu, out var template)) return;
             _lastEquipSet = number;
             var row = list.SelectedButton;
-            int y = list.Menu.Frame.Y + (row?.Y ?? 0) - 6;
+            int y = list.Menu.Frame.Y + (row?.Y ?? 0);
             y = Math.Clamp(y, 0, UiResourceLibrary.LayoutHeight - template.Frame.Height);
             var options = new StockUiOpenMenu(Placed(template, StockUiEquipSets.OptionsX, y, UiAnchor.TopRight), list, Array.Empty<string>(), null)
             {
@@ -223,18 +227,12 @@ namespace Gordian.Engine.Ui
             Buttons = template.Buttons,
         };
 
-        /// <summary>Paste is greyed until a set is copied (image-11 shows it greyed), Equip and Style Lock while the set is empty (PROVISIONAL).</summary>
-        private void RefreshEquipSetOptions(StockUiOpenMenu options)
-        {
-            var greyed = new HashSet<int>();
-            if (_copiedSet == null) greyed.Add(StockUiEquipSets.PasteButton);
-            if (options.EquipSet is { IsEmpty: true })
-            {
-                greyed.Add(StockUiEquipSets.StyleLockButton);
-                greyed.Add(StockUiEquipSets.EquipButton);
-            }
-            options.SetGreyed(greyed.Count > 0 ? greyed : null);
-        }
+        /// <summary>
+        /// Paste is greyed until a set is copied, and nothing else is: retail leaves Copy, Delete, Use Current, Equip and Style Lock
+        /// white on an empty set, and Equip on one works (#385, retail capture on local LSB 2026-11-08, <c>385-equipset-options-empty-set.png</c>).
+        /// </summary>
+        private void RefreshEquipSetOptions(StockUiOpenMenu options) =>
+            options.SetGreyed(_copiedSet == null ? new HashSet<int> { StockUiEquipSets.PasteButton } : null);
 
         private void ActivateEquipSetOption(StockUiOpenMenu options, UiMenuButton button)
         {
@@ -244,16 +242,27 @@ namespace Gordian.Engine.Ui
             var set = book.Get(number);
             if (options.IsGreyed(button.ButtonId))
             {
-                NoticePosted?.Invoke(button.ButtonId == StockUiEquipSets.PasteButton ? "No set has been copied." : $"Equipment set {number} ({set.Name}) is empty.");
+                NoticePosted?.Invoke("No set has been copied.");
                 return;
             }
-            void Confirm(int textId, Action yes) => OpenYesNo(MenuText(textId, StockUiEquipSets.FallbackText(textId)), defaultYes: false, answer =>
+            // The prompts start on No, are written upright from the window's top left and wrap there; Esc goes back to the set list,
+            // closing the options too (#385, retail capture on local LSB 2026-11-08, 385-equipset-*-prompt.png).
+            void Confirm(int textId, Action yes)
             {
-                if (answer != true) return;
-                yes();
-                RefreshEquipSetOptions(options);
-                Changed?.Invoke();
-            });
+                var prompt = OpenYesNo(MenuText(textId, StockUiEquipSets.FallbackText(textId)), defaultYes: false, answer =>
+                {
+                    if (answer == null)
+                    {
+                        CloseMenu(options);
+                        return;
+                    }
+                    if (answer != true) return;
+                    yes();
+                    RefreshEquipSetOptions(options);
+                    Changed?.Invoke();
+                });
+                if (prompt != null) prompt.PromptTextLeft = true;
+            }
             switch (button.ButtonId)
             {
                 case StockUiEquipSets.EditButton:
@@ -263,10 +272,9 @@ namespace Gordian.Engine.Ui
                     BeginNameEdit(options, number, set);
                     break;
                 case StockUiEquipSets.CopyButton:
+                    // Retail goes back to the set list with no message (#385, 2026-11-08 capture).
                     _copiedSet = set;
-                    RefreshEquipSetOptions(options);
-                    NoticePosted?.Invoke($"Copied equipment set {number} ({set.Name}).");
-                    Changed?.Invoke();
+                    CloseMenu(options);
                     break;
                 case StockUiEquipSets.PasteButton:
                     if (_copiedSet is { } copied) Confirm(StockUiEquipSets.PastePromptText, () => book.Set(number, copied));
@@ -278,7 +286,11 @@ namespace Gordian.Engine.Ui
                     Confirm(StockUiEquipSets.UseCurrentPromptText, () => book.Set(number, StockUiEquipSets.FromWorn(book.Get(number), Inventory)));
                     break;
                 case StockUiEquipSets.EquipButton:
-                    _ = RunEquipSetAsync(EquipSetEquip, number, "Equip");
+                    // Retail logs "Set #2 equipped." for Equip in this menu, even on an empty set (#385, capture on local LSB
+                    // 2026-11-08); LandSandBoat sends nothing for C2S 0x051, so the line is the client's. Its colour was not
+                    // captured: system white here (PROVISIONAL). An empty set changes nothing, so nothing is sent for it.
+                    if (set.IsEmpty) PostTinted(EquippedText(number), StockUiFontColors.FixedColor(ChatLogChannel.System));
+                    else _ = RunEquipSetAsync(EquipSetEquip, number, "Equip", EquippedText(number));
                     break;
                 case StockUiEquipSets.StyleLockButton:
                     _ = RunEquipSetAsync(EquipSetStyleLock, number, "Style Lock");
@@ -328,7 +340,10 @@ namespace Gordian.Engine.Ui
             Changed?.Invoke();
         }
 
-        private async Task RunEquipSetAsync(Func<int, Task<PlayerActionResult>>? run, int number, string what)
+        /// <summary>The line retail logs for the options' Equip (#385).</summary>
+        internal static string EquippedText(int number) => $"Set #{number} equipped.";
+
+        private async Task RunEquipSetAsync(Func<int, Task<PlayerActionResult>>? run, int number, string what, string? done = null)
         {
             if (run == null)
             {
@@ -339,6 +354,7 @@ namespace Gordian.Engine.Ui
             {
                 var result = await run(number).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(result.Message)) NoticePosted?.Invoke(result.Message);
+                if (done != null && result.Success) PostTinted(done, StockUiFontColors.FixedColor(ChatLogChannel.System));
             }
             catch (Exception ex)
             {
