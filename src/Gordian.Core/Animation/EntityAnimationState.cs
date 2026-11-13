@@ -236,6 +236,49 @@ namespace Gordian.Core.Animation
         private float _overlayElapsed;
         private float _overlayDuration;
 
+        private readonly object _controlLockSync = new();
+        private readonly List<(long Start, long Until, ActionFreezeSource Source)> _controlLocks = new();
+
+        /// <summary>
+        /// The sources of the control locks (routine op 0x2E, <see cref="MotionRoutine.ControlLocks"/>) holding the entity at
+        /// <paramref name="now"/> (a <see cref="Stopwatch"/> timestamp), or <see cref="ActionFreezeSource.None"/> (#511). Each
+        /// routine's locks run on their own timers from the moment the routine starts, so overlapping locks hold until the last
+        /// of them ends, and a lock outlives a routine another action replaces. Thread-safe: the locomotion controller reads it.
+        /// </summary>
+        public ActionFreezeSource ControlLocksAt(long now)
+        {
+            var sources = ActionFreezeSource.None;
+            lock (_controlLockSync)
+            {
+                foreach (var (start, until, source) in _controlLocks)
+                {
+                    if (start <= now && now < until) sources |= source;
+                }
+            }
+            return sources;
+        }
+
+        /// <summary>Ends every control lock at once (a zone change, a death).</summary>
+        public void ClearControlLocks()
+        {
+            lock (_controlLockSync) _controlLocks.Clear();
+        }
+
+        private void AddControlLocks(MotionRoutine routine, ActionFreezeSource source, long now)
+        {
+            if (routine.ControlLocks.Count == 0) return;
+            double stopwatchPerTick = Stopwatch.Frequency / RoutineTicksPerSecond / Math.Max(_actionSpeed, 0.01f);
+            lock (_controlLockSync)
+            {
+                _controlLocks.RemoveAll(l => l.Until <= now);
+                foreach (var controlLock in routine.ControlLocks)
+                {
+                    if (controlLock.Ticks <= 0) continue;
+                    _controlLocks.Add((now + (long)(controlLock.StartTick * stopwatchPerTick), now + (long)(controlLock.EndTick * stopwatchPerTick), source));
+                }
+            }
+        }
+
         /// <summary>Queues an action for the actor (thread-safe; it plays from the next <c>Advance</c> with a model).</summary>
         public void EnqueueAction(ActionRequest request)
         {
@@ -381,13 +424,16 @@ namespace Gordian.Core.Animation
 
             AdvanceReactions(dt, model, now);
 
-            // An action keeps the body until it ends. Death and a new model end it at once; moving ends a standing action,
-            // and stopping ends a moving swing once its hit has landed (so it does not slide in place).
+            // An action keeps the body until it ends. Death and a new model end it at once; moving ends a standing swing,
+            // chant or gesture, and stopping ends a moving swing once its hit has landed (so it does not slide in place).
+            // Weapon draws and sheathes, presentations and finish routines keep the body while the entity moves: it slides
+            // across the ground in the action's motion, as retail shows an action used while moving (#511 round 1).
             if (ActiveRoutine != null)
             {
                 bool movingSwingStopped = !isLocomotion && _actionAllowsLocomotion && (_actionHitTick < 0 || _actionTicks >= _actionHitTick);
                 bool scheduleLeft = _isWorkSchedule && !PlaysWorkSchedule(newCategory, subAnimation);
-                if (modelChanged || newCategory == AnimationCategory.Death || (isLocomotion && !_actionAllowsLocomotion) || movingSwingStopped || scheduleLeft)
+                bool movedOff = isLocomotion && !_actionAllowsLocomotion && !SlidesWhileMoving;
+                if (modelChanged || newCategory == AnimationCategory.Death || movedOff || movingSwingStopped || scheduleLeft)
                 {
                     if (modelChanged) _lastModel = model;
                     EndAction(model, blend: !modelChanged);
@@ -398,6 +444,7 @@ namespace Gordian.Core.Animation
                     Current = newCategory;
                     SubAnimation = subAnimation;
                     CurrentStance = targetStance;
+                    AdvanceUnderlay(dt, model);
                     AdvanceAction(dt, model);
                     return;
                 }
@@ -451,9 +498,9 @@ namespace Gordian.Core.Animation
                     StartTransition(transClip);
                     _transitionIsStandUp = standingUp && restTransition;
                 }
-                else if (combatFlipped && !isLocomotionOrDeath && TryStartWeaponMotion(model, IsCombat(newCategory), now))
+                else if (combatFlipped && newCategory != AnimationCategory.Death && TryStartWeaponMotion(model, IsCombat(newCategory), now))
                 {
-                    // Standing still, the weapon draw / sheathe plays, then blends into the new stance.
+                    // The weapon draw / sheathe plays (sliding, if the entity moves), then blends into the new stance.
                     AdvanceAction(dt, model);
                     return;
                 }
@@ -713,6 +760,25 @@ namespace Gordian.Core.Animation
             return false;
         }
 
+        /// <summary>
+        /// Whether the playing action keeps the body while the entity moves (#511 round 1): a weapon draw or sheathe, an
+        /// action presentation's <c>main</c>, or a finish routine (a release, an item use's finish, a job ability stand-in).
+        /// Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
+        /// sustained routines and event gestures give way to the walk or run.
+        /// </summary>
+        private bool SlidesWhileMoving
+        {
+            get
+            {
+                if (_weaponMotion != WeaponMotion.None || _isPresentation) return true;
+                if (_actionRequest is not { } request || ActiveRoutine is not { } routine) return false;
+                if (request.Motion is ActionMotion.Swing or ActionMotion.EventMotion or ActionMotion.None) return false;
+                if (request.Category is ActionCategory.SkillStart or ActionCategory.MagicStart or ActionCategory.ItemStart
+                    or ActionCategory.AbilityStart or ActionCategory.RangedStart) return false;
+                return !routine.IsSustained && !routine.HoldsLastClip;
+            }
+        }
+
         /// <summary>A chant with an action waiting behind it plays at least this long (60 Hz ticks) before giving way.</summary>
         public const float MinSustainedTicks = 6f;
 
@@ -745,6 +811,7 @@ namespace Gordian.Core.Animation
             EventMotionBank? bank = null)
         {
             _isWorkSchedule = false;
+            _blendingOutOfUnderlay = false;
             _actionBank = bank;
             _isPresentation = request?.Asset?.Motion is { } motion && ReferenceEquals(motion, bank);
             _holdsLastClip = request?.Motion == ActionMotion.EventMotion && routine.HoldsLastClip;
@@ -764,6 +831,7 @@ namespace Gordian.Core.Animation
             _actionHiddenWeapons = model.DefaultHiddenWeaponSlots;
             _weaponChangeIndex = 0;
             ApplyWeaponChanges(routine);
+            AddControlLocks(routine, weaponMotion == WeaponMotion.None ? ActionFreezeSource.Actions : ActionFreezeSource.Engage, now);
             request?.MarkStarted(now, _actionHitTick);
             EnterSegment(model, 0);
         }
@@ -800,7 +868,85 @@ namespace Gordian.Core.Animation
             AnimationClip? clip = null;
             if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
             else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
+            if (_actionAllowsLocomotion)
+            {
+                // A moving swing plays on the upper body; the walk or run already playing keeps the lower body, on its own
+                // clock (#511 rounds 2-4, LocomotionLayering).
+                if (_underlayClip == null && LocomotionUnder(model) is { } locomotion)
+                {
+                    _underlayClip = locomotion;
+                    _underlayElapsed = ReferenceEquals(CurrentClip, locomotion) ? ElapsedSeconds : 0f;
+                }
+            }
+            else
+            {
+                _underlayClip = null;
+            }
             SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond / _actionSpeed, previousLoops, restart: true);
+        }
+
+        private AnimationClip? _underlayClip;
+        private float _underlayElapsed;
+        private bool _blendingOutOfUnderlay;
+
+        /// <summary>
+        /// The locomotion clip playing on the lower body under a moving swing (#511 rounds 2-4), or null: the renderer
+        /// evaluates it at <see cref="LowerBodyElapsedSeconds"/> and joins the action's upper body onto it
+        /// (<see cref="LocomotionLayering.Combine"/>). It is the walk or run that was playing when the swing started, on its own
+        /// clock, and follows the entity's locomotion while the swing plays (a strafe, a back step, walk or run); stopping
+        /// gives the legs back to the swing. While the body blends back out of such a swing, it is the stance clip itself.
+        /// </summary>
+        public AnimationClip? LowerBodyClip => _underlayClip ?? (_blendingOutOfUnderlay && IsBlending ? CurrentClip : null);
+
+        /// <summary>
+        /// The pose the entity is drawn in this frame, in model space: the playing clip (cross-faded from the previous one) with
+        /// the hit flinch or guard flash over it, and under a moving swing the walk or run on the lower body
+        /// (<see cref="LocomotionLayering.Combine"/>). The renderer draws exactly this, so tests can check what is shown.
+        /// </summary>
+        public SkeletonPoseEvaluator.EvaluatedPose EvaluatePose(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            var overlay = Overlay;
+            var pose = IsBlending && PreviousClip != null
+                ? SkeletonPoseEvaluator.EvaluateBlendedPose(skeleton, PreviousClip, PreviousElapsedSeconds, PreviousClipLoops,
+                    CurrentClip, ElapsedSeconds, LoopsCurrentClip, BlendWeight, parentOverrides, overlay)
+                : SkeletonPoseEvaluator.EvaluatePose(skeleton, CurrentClip, ElapsedSeconds, LoopsCurrentClip, parentOverrides, overlay);
+            if (LowerBodyClip is { } lowerBody)
+            {
+                var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
+                pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
+            }
+            return pose;
+        }
+
+        /// <summary>The time in <see cref="LowerBodyClip"/>, in seconds.</summary>
+        public float LowerBodyElapsedSeconds => _underlayClip != null ? _underlayElapsed : ElapsedSeconds;
+
+        /// <summary>The clip the entity would show for its current category without the swing (null when not moving).</summary>
+        private AnimationClip? LocomotionUnder(EntityModel model) =>
+            IsLocomotion(Current) ? NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance) : null;
+
+        /// <summary>
+        /// Keeps the lower body under a moving swing on the locomotion the entity shows now and advances its clock (#511
+        /// rounds 3-4). A change of locomotion clip keeps the cycle's phase. Called every frame the action plays, after the
+        /// category is taken.
+        /// </summary>
+        private void AdvanceUnderlay(float dt, EntityModel model)
+        {
+            if (!_actionAllowsLocomotion) return;
+            var locomotion = LocomotionUnder(model);
+            if (locomotion == null)
+            {
+                _underlayClip = null; // stopped: the swing's own legs
+                return;
+            }
+            if (!ReferenceEquals(locomotion, _underlayClip))
+            {
+                float phase = _underlayClip is { DurationSeconds: > 0.0001f } previous ? _underlayElapsed / previous.DurationSeconds : 0f;
+                _underlayClip = locomotion;
+                _underlayElapsed = phase * locomotion.DurationSeconds;
+            }
+            _underlayElapsed += dt;
         }
 
         private void AdvanceAction(float dt, EntityModel model)
@@ -867,6 +1013,9 @@ namespace Gordian.Core.Animation
             bool actionClipLoops = LoopsCurrentClip;
             bool hitStillAhead = _isPresentation && _actionHitTick > _actionTicks;
             ActiveRoutine = null;
+            var underlay = _underlayClip;
+            float underlayElapsed = _underlayElapsed;
+            _underlayClip = null;
             _actionRequest = null;
             _actionBank = null;
             _isPresentation = false;
@@ -890,9 +1039,16 @@ namespace Gordian.Core.Animation
                 : BlendDuration;
             _actionSpeed = 1f;
             AnimationClip? stanceClip = NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance);
+            _blendingOutOfUnderlay = false;
             if (blend)
             {
                 SwitchToClip(stanceClip, blendOut, actionClipLoops, restart: true);
+                if (underlay != null && ReferenceEquals(stanceClip, underlay))
+                {
+                    // The legs carry on in the walk or run they were in under the swing: no restart, no blend.
+                    ElapsedSeconds = underlayElapsed;
+                    _blendingOutOfUnderlay = true;
+                }
             }
             else if (stanceClip != null)
             {

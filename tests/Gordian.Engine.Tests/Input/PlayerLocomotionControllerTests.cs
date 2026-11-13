@@ -54,6 +54,61 @@ namespace Gordian.Engine.Tests.Input
             return (controller, input, world, player, localEnt);
         }
 
+        /// <summary>The server's FreezeFlag (S2C 0x037 flags1 bit 13) holds the player, and lets go when it clears (#511).</summary>
+        [Fact]
+        public void ServerFreezeFlag_HoldsThePlayer()
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            byte[] payload = new byte[0x60];
+            payload[38] = 100;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), 1u << 13);
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+            Assert.True(player.IsServerFrozen);
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Speed);
+
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), 0u);
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.True(localEnt.Position.X > 2f);
+        }
+
+        /// <summary>
+        /// A control lock (routine op 0x2E) of a routine the player is playing holds it until the lock ends (#511); a player
+        /// controller with no action service ignores nothing.
+        /// </summary>
+        [Fact]
+        public void ActionControlLock_HoldsThePlayerUntilItEnds()
+        {
+            var (controller, input, _, _, localEnt) = CreateTestHarness();
+            var model = new Gordian.Core.Resources.Models.EntityModel { Name = "Test" };
+            foreach (var name in new[] { "idl", "btl", "wlk", "run", "cm0" })
+            {
+                model.Animations[name] = new Gordian.Core.Resources.Models.AnimationClip { Name = name, KeyFrameDuration = 1f, NumFrames = 31 };
+            }
+            model.RawMotionRoutines["cmd0"] = Gordian.Core.Resources.Graphics.MotionRoutineDecoder.Decode(Gordian.Tests.Shared.MotionRoutineBuilder.Routine(60,
+                Gordian.Tests.Shared.MotionRoutineBuilder.Command(0x2E, 2, 0, 30),
+                Gordian.Tests.Shared.MotionRoutineBuilder.PlayClip("cm0?", 0, 60, 4, 4, 1)), "cmd0")!;
+            model.RebuildMotionRoutines();
+            localEnt.Animation.Advance(0f, Gordian.Core.Animation.AnimationCategory.Idle, 0, model);
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            localEnt.Animation.EnqueueAction(new Gordian.Core.Animation.ActionRequest
+            {
+                Motion = Gordian.Core.Animation.ActionMotion.Routine, Routine = "cmd0", ReceivedTimestamp = start
+            });
+            localEnt.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Idle, 0, model);
+
+            Assert.True(controller.IsActionFrozen(localEnt, start + System.Diagnostics.Stopwatch.Frequency / 4));
+            Assert.False(controller.IsActionFrozen(localEnt, start + System.Diagnostics.Stopwatch.Frequency));
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(0.1));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+        }
+
         [Fact]
         public void Update_WhenHoldingMoveForward_MovesPlayerAlongHeadingAtRunSpeed()
         {

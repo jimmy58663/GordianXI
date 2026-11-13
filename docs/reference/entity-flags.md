@@ -127,6 +127,7 @@ The local player's own flags use other bit positions than 0x00D. GordianXI decod
 | | 24 / 25 / 26 | PlayOnelineFlag / LinkShellFlag / LinkDeadFlag | `NamePlate` |
 | | 29-31 | GmLevel | `GmLevel` |
 | Flags1 (40) | 0-11 | Speed | `Speed` (no longer copied into the local entity's current speed: [ui/stock-ui.md](../ui/stock-ui.md#live-hud-chunk-3)) |
+| | 12 / 13 | Hackmove / FreezeFlag | `HackMove`; `IsFrozen` holds the local player in place and hides the compass (`LocalPlayerState.IsServerFrozen`, [#511](https://github.com/jimmy58663/GordianXI/issues/511); LandSandBoat sets it while a treasure chest is being opened, `setFreezeFlag`) |
 | | 15 | InvisFlag | `IsInvisible` |
 | | 17-24 | SpeedBase | `SpeedBase` |
 | | 29 / 30 / 31 | BazaarFlag / CharmFlag / GmIconFlag | `HasBazaar`, `IsCharmed`, `NamePlate` |
@@ -289,4 +290,4 @@ Every opcode below changes only render-flag bits (or the blink switch) in retail
 | `NamePlateFlags` | GordianXI's own union of the name plate bits from 0x00D, 0x00E and 0x037 (bit positions are internal, not wire) | `World/NamePlateFlags.cs`, read by `NamePlateStyle` |
 | `CutsceneFlags` | the event mode word of S2C 0x032-0x034 and 0x00A | [enums.md](enums.md#cutscene-flags-event-mode) |
 | `CollisionLayers` | ground, walls, entities toggles | `CollisionSettings` ([world/collision-and-physics.md](../world/collision-and-physics.md)) |
-| `FeatureRestrictions` | the server kill-switch word (movement, wall / entity collision overrides, knockback override bit 8...) | `Config/SessionConfig.cs` (see `AGENTS.md`) |
+| `FeatureRestrictions` | the server kill-switch word (movement, wall / entity collision overrides, knockback override bit 8, action freeze override bit 9: `/actionfreeze` can't lift the freezes, [#511](https://github.com/jimmy58663/GordianXI/issues/511)...), set only through S2C 0x0EE | `Config/SessionConfig.cs` (see `AGENTS.md`) |

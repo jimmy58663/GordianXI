@@ -775,6 +775,19 @@ namespace Gordian.Engine.Input
         /// <summary>LandSandBoat's Sit animation status (<c>xi.animation.SIT</c>), sent in S2C 0x037.</summary>
         public const byte StatusSitting = Gordian.Core.Animation.RestPosture.StatusSitting;
 
+        /// <summary>
+        /// Whether a control lock (routine op 0x2E) of a routine the player's character is playing holds it at
+        /// <paramref name="now"/>, leaving out the sources the player chose to ignore (<c>/actionfreeze</c>, unless the server's
+        /// <see cref="Gordian.Core.Config.FeatureRestrictions.ActionFreezeOverride"/> bit forbids it). #511.
+        /// </summary>
+        internal bool IsActionFrozen(WorldEntity localEnt, long now)
+        {
+            var locks = localEnt.Animation.ControlLocksAt(now);
+            if (locks == Gordian.Core.Animation.ActionFreezeSource.None) return false;
+            var ignored = _actionService?.ActionFreeze.GetIgnored(_actionService.Profile) ?? Gordian.Core.Animation.ActionFreezeSource.None;
+            return (locks & ~ignored) != 0;
+        }
+
         private bool _healCancelSent;
         private readonly SeatedMovementHold _seatedHold = new();
 
@@ -905,6 +918,7 @@ namespace Gordian.Engine.Input
             {
                 _lastZoneId = zone;
                 _inputState.AutorunActive = false;
+                localEnt.Animation.ClearControlLocks(); // no action freeze crosses a zone line
             }
 
             // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops. The Mog House Layout
@@ -939,6 +953,15 @@ namespace Gordian.Engine.Input
 
             // A knockback slides the player on top of whatever it does itself.
             StepKnockback(localEnt, dt);
+
+            // An action freeze (a control lock of a routine the player is playing) or the server's 0x037 FreezeFlag holds the
+            // player's own movement and turning only (#511): falls, moving platforms and knockback still move it.
+            if (_localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
+            {
+                localEnt.Speed = 0;
+                LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+                return;
+            }
 
             // Check gamepad analog left stick
             var pad = _inputState.CurrentGamepad;

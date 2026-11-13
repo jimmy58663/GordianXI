@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using Gordian.Core.Animation;
 using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network;
@@ -125,6 +126,11 @@ namespace Gordian.Engine.Actions
         /// The session's knockback option (<c>/anchor</c>), read when a knockback lands on the player.
         /// </summary>
         public KnockbackSettings Knockback { get; } = new();
+
+        /// <summary>
+        /// The session's action freeze option (<c>/actionfreeze</c>, #511), read by the locomotion controller.
+        /// </summary>
+        public ActionFreezeSettings ActionFreeze { get; } = new();
 
         /// <summary>
         /// The character's stock UI layout, edited by <c>/uilayout</c> and read by the HUD.
@@ -2771,6 +2777,55 @@ namespace Gordian.Engine.Actions
             return PlayerActionResult.Ok(Knockback.AnchorRequested ? "Anchor: on (knockback ignored)." : "Anchor: off.", Kind);
         }
 
+        /// <summary>
+        /// Handles <c>/actionfreeze [actions|engage|all] [on|off]</c> (#511), parsed as <c>/collision</c> is: the sources first
+        /// (none named means both), then an optional state; without one the named sources toggle, and no arguments only reports.
+        /// <c>off</c> ignores the action freezes (the control locks of the player's own actions, and of the weapon draw /
+        /// sheathe on engage and disengage), <c>on</c> keeps them as retail does. The server's
+        /// <see cref="FeatureRestrictions.ActionFreezeOverride"/> bit keeps every freeze on whatever the player asks.
+        /// </summary>
+        public PlayerActionResult ApplyActionFreezeCommand(string args)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.ActionFreezeToggle;
+            var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            bool? keep = null;
+            var sources = ActionFreezeSource.None;
+            foreach (string part in parts)
+            {
+                switch (part.ToLowerInvariant())
+                {
+                    case "on" or "enable": keep = true; break;
+                    case "off" or "disable": keep = false; break;
+                    case "actions" or "action": sources |= ActionFreezeSource.Actions; break;
+                    case "engage" or "draw": sources |= ActionFreezeSource.Engage; break;
+                    case "all": sources |= ActionFreezeSource.All; break;
+                    default: return PlayerActionResult.Warn("Usage: /actionfreeze [actions|engage|all] [on|off]", Kind);
+                }
+            }
+
+            if (parts.Length > 0)
+            {
+                if (sources == ActionFreezeSource.None) sources = ActionFreezeSource.All;
+                // Toggle: when every named source is kept, ignore them; otherwise keep them all.
+                bool on = keep ?? (ActionFreeze.IgnoreRequested & sources) != ActionFreezeSource.None;
+                ActionFreeze.IgnoreRequested = on ? ActionFreeze.IgnoreRequested & ~sources : ActionFreeze.IgnoreRequested | sources;
+            }
+
+            var ignored = ActionFreeze.GetIgnored(_profile);
+            bool locked = ActionFreezeSettings.IsLocked(_profile);
+            string Describe(ActionFreezeSource source, string name)
+            {
+                string state = (ignored & source) != 0 ? "off" : "on";
+                return locked && (ActionFreeze.IgnoreRequested & source) != 0 ? $"{name} {state} (server-enforced)" : $"{name} {state}";
+            }
+
+            string summary = $"Action freezes: {Describe(ActionFreezeSource.Actions, "actions")}, {Describe(ActionFreezeSource.Engage, "engage")}.";
+            if (parts.Length == 0) return PlayerActionResult.Info(summary, Kind);
+            return locked && ActionFreeze.IgnoreRequested != ActionFreezeSource.None
+                ? PlayerActionResult.Warn(summary, Kind)
+                : PlayerActionResult.Ok(summary, Kind);
+        }
+
         private const string UiLayoutUsage =
             "Usage: /uilayout [unlock | lock | scale <n> | skin <1-8> | tp <on|off> | merits <on|off> | buffs <on|off|left|right> | names <n|default> | reset [positions]] or /uilayout <window> <hide | show | reset | scale <n|default> | move <x> <y> [topleft|topright|bottomleft|bottomright]>. " +
             "Windows: log, chat, party, alliance1, alliance2, target, status, menu, query, command, shop, dead, check. Positions are 512x448 layout pixels, measured from the side of the window's anchor corner. " +
@@ -3014,6 +3069,9 @@ namespace Gordian.Engine.Actions
 
                 case ChatCommandResultKind.AnchorToggle:
                     return ApplyAnchorCommand(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.ActionFreezeToggle:
+                    return ApplyActionFreezeCommand(cmd.Message ?? string.Empty);
 
                 case ChatCommandResultKind.UiLayout:
                     return ApplyUiLayoutCommand(cmd.Message ?? string.Empty);

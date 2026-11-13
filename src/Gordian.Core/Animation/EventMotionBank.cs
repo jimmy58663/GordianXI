@@ -88,7 +88,14 @@ namespace Gordian.Core.Animation
             int shift = built.FirstClipTick;
             var segments = new List<MotionSegment>(built.Segments.Count);
             foreach (var segment in built.Segments) segments.Add(segment with { StartTick = segment.StartTick - shift });
-            return new MotionRoutine { Name = built.Name, TotalTicks = Math.Max(0, built.TotalTicks - shift), Segments = segments };
+            var locks = new List<ControlLock>(built.ControlLocks.Count);
+            foreach (var controlLock in built.ControlLocks)
+            {
+                if (controlLock.EndTick <= shift) continue;
+                int start = Math.Max(0, controlLock.StartTick - shift);
+                locks.Add(new ControlLock(start, controlLock.EndTick - shift - start));
+            }
+            return new MotionRoutine { Name = built.Name, TotalTicks = Math.Max(0, built.TotalTicks - shift), Segments = segments, ControlLocks = locks };
         }
 
         private readonly System.Runtime.CompilerServices.ConditionalWeakTable<EntityModel, MotionRoutine?[]> _onModel = new();

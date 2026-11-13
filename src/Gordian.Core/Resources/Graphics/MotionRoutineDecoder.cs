@@ -25,6 +25,13 @@ namespace Gordian.Core.Resources.Graphics
     /// <item>0x21 / 0x25 procedural flinch: +0x18 f32 duration in ticks.</item>
     /// <item>0x5A procedural pose flash: +0x0E u16 pose index, +0x14 f32 duration in ticks.</item>
     /// <item>0x75 show / hide a weapon slot: +0x08 u32 hide, +0x0C u16 slot (0 main, 1 sub, 2 ranged).</item>
+    /// <item>0x2E control lock (+0x06 u16 duration in ticks, no other operand): while it runs the caster's player cannot
+    /// move. Weapon skill and job ability <c>main</c>s carry it from tick 0 to about the hit (Fast Blade 90, job abilities
+    /// 100 / 110), the weapon draw / sheathe <c>in 0</c> / <c>out0</c> for 72, an item use's start <c>cait</c> for 39, and the
+    /// shared releases <c>wash</c> / <c>waso</c> of <c>ROM/0/0</c> (every spell, item and ranged release waits on one) for 60
+    /// (<see cref="SharedControlLocks"/>). The swings and the cast chants carry none, so the player moves while attacking or
+    /// casting. Named <c>IdleLockCasterControl</c> in xi-tools docs/reference/ps2_beta_2001.md and read as "the player
+    /// cannot act" in docs/ability/mixer.md; the routines above were read from the retail DATs (2026-11-12, #511).</item>
     /// <item>0x76 / 0x77 ranged start / finish (no parameters): the PC <c>calg</c> and <c>shlg</c> run the actor's
     /// <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c>, NN the ranged weapon's RangeType (xi-tools docs/fx/effect_system.md op list,
     /// docs/ability/mixer.md "lc&lt;NN&gt; (RangedStart) then ls&lt;NN&gt; (RangedFinish)").</item>
@@ -54,6 +61,7 @@ namespace Gordian.Core.Resources.Graphics
         private const byte OpRangedStart = 0x76;
         private const byte OpRangedFinish = 0x77;
         private const byte OpSpellEffect = 0x19;
+        private const byte OpControlLock = 0x2E;
 
         /// <summary>
         /// The shared hit routines a link to which marks the moment the result shows: <c>dada</c> (melee), <c>mdam</c>
@@ -123,6 +131,10 @@ namespace Gordian.Core.Resources.Graphics
                         commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f, -1, 0,
                             WeaponSlot: BinaryPrimitives.ReadUInt16LittleEndian(command.Slice(0x0C)),
                             HideWeapon: BinaryPrimitives.ReadUInt32LittleEndian(command.Slice(0x08)) != 0));
+                        break;
+
+                    case OpControlLock:
+                        if (duration > 0) commands.Add(new MotionRoutineCommand(op, start, duration, string.Empty, 0, 0, 1, 1.0f, -1, 0));
                         break;
 
                     case OpRangedStart or OpRangedFinish:
@@ -210,6 +222,7 @@ namespace Gordian.Core.Resources.Graphics
             var segments = new List<MotionSegment>();
             var hits = new List<int>();
             var weaponChanges = new List<WeaponVisibilityChange>();
+            var controlLocks = new List<ControlLock>();
             int flinchTicks = 0, poseIndex = -1, poseTicks = 0;
             int end = Flatten(root, 0, 0);
 
@@ -239,6 +252,10 @@ namespace Gordian.Core.Resources.Graphics
                             poseTicks = command.ReactionTicks;
                             break;
 
+                        case OpControlLock:
+                            controlLocks.Add(new ControlLock(at, command.Duration));
+                            break;
+
                         case OpShowHideWeapon:
                             if (command.WeaponSlot >= 0) weaponChanges.Add(new WeaponVisibilityChange(at, command.WeaponSlot, command.HideWeapon));
                             break;
@@ -263,9 +280,16 @@ namespace Gordian.Core.Resources.Graphics
                                 routineEnd = Math.Max(routineEnd, childEnd);
                                 if (command.Op is OpLinkWait or OpLinkActorWait) shift += WaitTicks(child, routines);
                             }
-                            else if (SharedWeaponRoutines.ByName.TryGetValue(command.Reference, out var shared))
+                            else
                             {
-                                foreach (var (slot, hide) in shared) weaponChanges.Add(new WeaponVisibilityChange(at, slot, hide));
+                                if (SharedWeaponRoutines.ByName.TryGetValue(command.Reference, out var shared))
+                                {
+                                    foreach (var (slot, hide) in shared) weaponChanges.Add(new WeaponVisibilityChange(at, slot, hide));
+                                }
+                                if (SharedControlLocks.ByName.TryGetValue(command.Reference, out int lockTicks))
+                                {
+                                    controlLocks.Add(new ControlLock(at, lockTicks));
+                                }
                             }
                             break;
                     }
@@ -273,7 +297,7 @@ namespace Gordian.Core.Resources.Graphics
                 return Math.Max(routineEnd, baseTick + routine.TotalTicks + shift);
             }
 
-            if (segments.Count == 0 && hits.Count == 0 && flinchTicks == 0 && poseIndex < 0) return null;
+            if (segments.Count == 0 && hits.Count == 0 && flinchTicks == 0 && poseIndex < 0 && controlLocks.Count == 0) return null;
 
             segments.Sort((a, b) => a.StartTick.CompareTo(b.StartTick));
             hits.Sort();
@@ -287,7 +311,8 @@ namespace Gordian.Core.Resources.Graphics
                 PoseFlashIndex = poseIndex,
                 PoseFlashTicks = poseTicks,
                 // Stable by tick: changes at one tick apply in file order.
-                WeaponChanges = weaponChanges.Count == 0 ? Array.Empty<WeaponVisibilityChange>() : weaponChanges.OrderBy(c => c.Tick).ToArray()
+                WeaponChanges = weaponChanges.Count == 0 ? Array.Empty<WeaponVisibilityChange>() : weaponChanges.OrderBy(c => c.Tick).ToArray(),
+                ControlLocks = controlLocks.Count == 0 ? Array.Empty<ControlLock>() : controlLocks.OrderBy(c => c.StartTick).ToArray()
             };
         }
 

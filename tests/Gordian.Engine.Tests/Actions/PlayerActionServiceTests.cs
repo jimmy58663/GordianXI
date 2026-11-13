@@ -705,6 +705,39 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Contains("Usage", _actionService.ApplyAnchorCommand("sideways").Message);
         }
         [Fact]
+        public void ActionFreezeCommand_ParsesLikeCollision_TogglesBySource_AndReportsServerLock()
+        {
+            const Gordian.Core.Animation.ActionFreezeSource None = Gordian.Core.Animation.ActionFreezeSource.None,
+                Engage = Gordian.Core.Animation.ActionFreezeSource.Engage, All = Gordian.Core.Animation.ActionFreezeSource.All;
+            Assert.Equal(None, _actionService.ActionFreeze.IgnoreRequested); // retail by default
+
+            Assert.Contains("actions on, engage on", _actionService.ApplyActionFreezeCommand("").Message); // reports only
+            Assert.Equal(None, _actionService.ActionFreeze.IgnoreRequested);
+
+            Assert.Contains("engage off", _actionService.ApplyActionFreezeCommand("engage off").Message);
+            Assert.Equal(Engage, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand("engage"); // toggles back on
+            Assert.Equal(None, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand("engage");
+            Assert.Equal(Engage, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand(""); // reporting changes nothing
+            Assert.Equal(Engage, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand("off");
+            Assert.Equal(All, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand("actions on");
+            Assert.Equal(Engage, _actionService.ActionFreeze.IgnoreRequested);
+            _actionService.ApplyActionFreezeCommand("all"); // one source off: toggling all keeps them all
+            Assert.Equal(None, _actionService.ActionFreeze.IgnoreRequested);
+
+            _profile.Restrict(FeatureRestrictions.ActionFreezeOverride);
+            var locked = _actionService.ApplyActionFreezeCommand("off");
+            Assert.Equal(None, _actionService.ActionFreeze.GetIgnored(_profile));
+            Assert.Contains("actions on (server-enforced), engage on (server-enforced)", locked.Message);
+
+            Assert.Contains("Usage", _actionService.ApplyActionFreezeCommand("sideways").Message);
+        }
+
+        [Fact]
         public void SetTargetByPartySlot_CountsTheOtherMembersInPartyOrder()
         {
             _world.UpsertEntity(new WorldEntity(0x0A, 0x0A, EntityType.Player) { Name = "Second", IsSpawned = true });

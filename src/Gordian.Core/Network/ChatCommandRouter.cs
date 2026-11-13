@@ -65,6 +65,8 @@ namespace Gordian.Core.Network
         CollisionToggle,
         /// <summary><c>/anchor [on|off]</c>: ignore knockback, unless the server forbids it.</summary>
         AnchorToggle,
+        /// <summary><c>/actionfreeze [actions|engage|all] [on|off]</c>: keep, ignore or toggle the action freezes (#511), unless the server forbids ignoring them.</summary>
+        ActionFreezeToggle,
         UiLayout,
         /// <summary><c>/stockui [hide|show &lt;element&gt;...] | reset</c>: hides stock HUD elements at run time (#29); client only.</summary>
         StockUiVisibility,
@@ -284,6 +286,7 @@ namespace Gordian.Core.Network
                     "moveto" or "goto" => ParseMoveToCommand(args),
                     "collision" or "col" or "noclip" => new ChatCommandResult { Kind = ChatCommandResultKind.CollisionToggle, Message = args },
                     "anchor" => new ChatCommandResult { Kind = ChatCommandResultKind.AnchorToggle, Message = args },
+                    "actionfreeze" or "freeze" => new ChatCommandResult { Kind = ChatCommandResultKind.ActionFreezeToggle, Message = args },
 
                     // Resting, sitting, dice, votes and wide scan
                     "heal" => ParseRest(ChatCommandResultKind.Heal, "heal", args),

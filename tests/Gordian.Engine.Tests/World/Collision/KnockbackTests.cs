@@ -84,6 +84,37 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.Equal(Vector3.Zero, self.Position);
         }
 
+        /// <summary>
+        /// An action freeze (#511) holds only the player's own movement: a knockback landing during one still slides it,
+        /// as it does when a monster's move both stuns and knocks back.
+        /// </summary>
+        [Fact]
+        public void Knockback_StillSlidesDuringAnActionFreeze()
+        {
+            var (controller, self) = Harness();
+            var model = new Gordian.Core.Resources.Models.EntityModel { Name = "Test" };
+            foreach (var name in new[] { "idl", "btl", "wlk", "run", "cm0" })
+            {
+                model.Animations[name] = new Gordian.Core.Resources.Models.AnimationClip { Name = name, KeyFrameDuration = 1f, NumFrames = 31 };
+            }
+            model.RawMotionRoutines["cmd0"] = Gordian.Core.Resources.Graphics.MotionRoutineDecoder.Decode(Gordian.Tests.Shared.MotionRoutineBuilder.Routine(120,
+                Gordian.Tests.Shared.MotionRoutineBuilder.Command(0x2E, 2, 0, 120),
+                Gordian.Tests.Shared.MotionRoutineBuilder.PlayClip("cm0?", 0, 120, 4, 4, 1)), "cmd0")!;
+            model.RebuildMotionRoutines();
+            self.Animation.Advance(0f, Gordian.Core.Animation.AnimationCategory.Idle, 0, model);
+            self.Animation.EnqueueAction(new Gordian.Core.Animation.ActionRequest
+            {
+                Motion = Gordian.Core.Animation.ActionMotion.Routine, Routine = "cmd0", ReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp()
+            });
+            self.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Idle, 0, model);
+            Assert.True(controller.IsActionFrozen(self, System.Diagnostics.Stopwatch.GetTimestamp()));
+
+            controller.ApplyKnockback(new Vector2(1f, 0f), 4);
+            Run(controller, 30);
+
+            Assert.True(self.Position.X > 0.9f);
+        }
+
         [Fact]
         public void Anchor_IgnoresKnockbackUnlessTheServerForbidsIt()
         {
