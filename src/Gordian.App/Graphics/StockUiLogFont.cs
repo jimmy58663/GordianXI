@@ -40,9 +40,12 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Non-ASCII characters the log draws, with their <c>moji</c> cell: the arrow of an Auction House sale line
-        /// (CP932 0x81A8, cell 96 + 0xA8 - 0x40 = 199; round 2 N21, retail prints it between seller and buyer).
+        /// (CP932 0x81A8, cell 96 + 0xA8 - 0x40 = 199; round 2 N21, retail prints it between seller and buyer), and the eighth note
+        /// mount key item names start with (U+266A, CP932 0x81F4, cell 238: the sheet skips CP932's unassigned codes 0x81AD-0x81B7,
+        /// 0x81C0-0x81C7, 0x81CF-0x81D9 and 0x81E9-0x81EF, checked on a dump of the cells; #385, retail capture on local LSB
+        /// 2026-11-08, <c>385-key-items-mount-note-glyph.png</c>: one eighth note about 8 px wide in the log font, no gap after it).
         /// </summary>
-        private static readonly (char Char, int Cell)[] Symbols = { ('→', 199) };
+        private static readonly (char Char, int Cell)[] Symbols = { ('→', 199), ('♪', 238) };
 
         private readonly float[] _advances = new float[AsciiCount + Symbols.Length];
         private readonly int _columns;
