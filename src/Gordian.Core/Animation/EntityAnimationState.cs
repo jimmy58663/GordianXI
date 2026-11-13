@@ -866,6 +866,11 @@ namespace Gordian.Core.Animation
             AnimationClip? clip = null;
             if (_actionBank != null && _actionBank.Clips.TryGetValue(segment.ClipName, out var bankClip)) clip = bankClip;
             else if (!model.Animations.TryGetValue(segment.ClipName, out clip)) return;
+            // A moving swing animates the upper body only: the legs keep the walk or run under it (#511 round 2).
+            if (_actionAllowsLocomotion && IsLocomotion(Current))
+            {
+                clip = LocomotionLayering.Over(clip, NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance), _actionSpeed * segment.Speed);
+            }
             SwitchToClip(clip, segment.BlendInTicks / RoutineTicksPerSecond / _actionSpeed, previousLoops, restart: true);
         }
 
