@@ -382,25 +382,24 @@ namespace Gordian.Engine.Actions
             return _world.TryGetByServerId(others[slot - 1].ServerId, out var entity) ? entity : null;
         }
 
-        /// <summary>
-        /// Whether an action with these target bits may land on an entity: yourself (Self), members of your party
-        /// (Party; your trusts and pets count, PROVISIONAL) or alliance (Alliance), other players (Player), NPCs (Npc) and
-        /// monsters (Enemy).
-        /// </summary>
         /// <summary>The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none.</summary>
         public AreaOfEffectGuide? AreaOfEffect => AreaOfEffectGuide.For(SubTargeting, Catalog);
 
         /// <summary>
-        /// The characters inside the sub-target cursor's AoE circle that its action would affect (#356 round 1, the
-        /// maintainer's retail check: they flash like the sub-target and their name plates show at twice the size): for an
+        /// The entities inside the sub-target cursor's AoE circle that its action would affect (#356, the maintainer's retail
+        /// checks: their name plates show at twice the size, and the characters among them flash like the sub-target): for an
         /// action that may land on yourself or your party (Curaga, Protectra, Advancing March, Horde Lullaby on yourself...),
         /// yourself and your party's players and trusts whose horizontal distance to the circle's centre is within its
-        /// drawn radius. Enemy-only actions (Diaga) affect no character. Empty without a guide.
+        /// drawn radius. For an action that lands on enemies (Diaga, Firaga; round 2, TESTING-2026-11-12 D2), the living
+        /// monsters inside the circle instead. Empty without a guide.
         /// </summary>
         public IReadOnlyList<WorldEntity> AreaOfEffectTargets()
         {
             if (SubTargeting is not { } selection || AreaOfEffect is not { } guide) return Array.Empty<WorldEntity>();
-            if ((selection.Allowed & (ActionTargetFlags.Self | ActionTargetFlags.Party)) == 0) return Array.Empty<WorldEntity>();
+            if ((selection.Allowed & (ActionTargetFlags.Self | ActionTargetFlags.Party)) == 0)
+            {
+                return (selection.Allowed & ActionTargetFlags.Enemy) != 0 ? EnemiesInside(guide) : Array.Empty<WorldEntity>();
+            }
             var center = guide.Center.Position;
             float radiusSquared = guide.Radius * guide.Radius;
             var affected = new List<WorldEntity>();
@@ -417,6 +416,26 @@ namespace Gordian.Engine.Actions
             return affected;
         }
 
+        /// <summary>The living, spawned monsters whose horizontal distance to the guide's centre is within its drawn radius.</summary>
+        private List<WorldEntity> EnemiesInside(AreaOfEffectGuide guide)
+        {
+            var center = guide.Center.Position;
+            float radiusSquared = guide.Radius * guide.Radius;
+            var affected = new List<WorldEntity>();
+            foreach (var entity in _world.GetEntitiesInRadius(center, guide.Radius + 1f))
+            {
+                if (entity.Type != EntityType.Monster || !entity.IsSpawned || entity.Hpp == 0) continue;
+                float dx = entity.Position.X - center.X, dz = entity.Position.Z - center.Z;
+                if (dx * dx + dz * dz <= radiusSquared) affected.Add(entity);
+            }
+            return affected;
+        }
+
+        /// <summary>
+        /// Whether an action with these target bits may land on an entity: yourself (Self), members of your party
+        /// (Party; your trusts and pets count, PROVISIONAL) or alliance (Alliance), other players (Player), NPCs (Npc) and
+        /// monsters (Enemy).
+        /// </summary>
         public bool AcceptsTarget(ActionTargetFlags flags, WorldEntity entity)
         {
             if (entity.ServerId == _localPlayer.ServerId) return (flags & ActionTargetFlags.Self) != 0;

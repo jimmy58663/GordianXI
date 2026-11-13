@@ -135,6 +135,9 @@ namespace Gordian.Engine.Tests.Actions
             Add(0x0C, 13, EntityType.Player, "Far", new Vector3(20, 0, 0), true);        // outside 17.6
             Add(0x0D, 14, EntityType.Player, "Stranger", new Vector3(5, 0, 0), false);   // not in the party
             Add(0x0E, 15, EntityType.Monster, "Hare", new Vector3(3, 0, 3), false);
+            Add(0x0F, 16, EntityType.Monster, "Crab", new Vector3(3, 0, 12), false);       // 9 from the hare: inside
+            Add(0x10, 17, EntityType.Monster, "Far Crab", new Vector3(3, 0, 30), false);   // 27 from the hare: outside
+            world.UpsertEntity(new WorldEntity(0x11, 18, EntityType.Monster) { Name = "Dead Crab", Position = new Vector3(4, 0, 4), Hpp = 0 });
             return (service, world);
         }
 
@@ -149,10 +152,22 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
-        public void AffectedCharacters_NoneForEnemyActionsOrSingleTargets()
+        public void EnemyAoe_AffectsTheLivingMonstersInside_NoCharacters()
         {
             var (service, _) = Session();
             service.BeginSubTarget(ActionKind.Spell, Diaga, "Diaga", ActionTargetFlags.Enemy);
+            Assert.Equal("Hare", service.SubTargeting!.Current.Name); // the nearest enemy
+            // The hare and the crab 9 yalms from it; not the far crab, the dead one, or any character.
+            var affected = service.AreaOfEffectTargets().Select(e => e.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "Crab", "Hare" }, affected);
+            Assert.All(service.AreaOfEffectTargets(), e => Assert.Equal(EntityType.Monster, e.Type));
+        }
+
+        [Fact]
+        public void AffectedCharacters_NoneForSingleTargets()
+        {
+            var (service, _) = Session();
+            service.BeginSubTarget(ActionKind.Spell, Cure, "Cure", ActionTargetFlags.Self | ActionTargetFlags.Party);
             Assert.NotNull(service.SubTargeting);
             Assert.Empty(service.AreaOfEffectTargets());
 

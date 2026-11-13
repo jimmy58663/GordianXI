@@ -1039,7 +1039,9 @@ namespace Gordian.App.Graphics
                                 if (subTargeting != null)
                                 {
                                     entityRenderer.SubTargetFlashServerIds.Add(subTargeting.Current.ServerId);
-                                    foreach (var affected in actions!.AreaOfEffectTargets()) entityRenderer.SubTargetFlashServerIds.Add(affected.ServerId);
+                                    // Characters only: the monsters an enemy AoE would hit get the larger name plate, not the flash (round 2, D2).
+                                    foreach (var affected in actions!.AreaOfEffectTargets())
+                                        if (affected.Type != EntityType.Monster) entityRenderer.SubTargetFlashServerIds.Add(affected.ServerId);
                                 }
                                 entityRenderer.SubTargetFlashAmount = subTargeting != null
                                     ? TargetFlash.Continuous(Stopwatch.GetElapsedTime(_subTargetFlashStart).TotalSeconds)
