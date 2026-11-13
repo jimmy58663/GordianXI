@@ -262,6 +262,13 @@ namespace Gordian.App.Services
         /// <summary>Whether a lobby is on show.</summary>
         public bool IsLobbyOpen => _primaryViewModel.Lobby != null;
 
+        /// <summary>
+        /// The lobby the gamepad drives (#553): the one on show while its window (the primary viewport) is the one the player
+        /// is looking at (focused, or focused last while another program has the focus); null otherwise.
+        /// </summary>
+        public Gordian.Engine.Ui.Lobby.LobbyController? GamepadLobby =>
+            _primaryViewModel.Lobby is { } lobby && _primaryWindow != null && WindowFocus.IsFocusTarget(_primaryWindow) ? lobby : null;
+
         private int _lobbyReturns;
 
         /// <summary>Whether a Log Out is returning to the character select screen (between Begin and End).</summary>
