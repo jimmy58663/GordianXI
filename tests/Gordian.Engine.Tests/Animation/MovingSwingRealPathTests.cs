@@ -40,30 +40,20 @@ namespace Gordian.Engine.Tests.Animation
             return p0 + v.Weight0 * pose.Translations[v.Joint0] + p1 + v.Weight1 * pose.Translations[v.Joint1];
         }
 
-        [Theory]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatRun)]
-        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.D, AnimationCategory.CombatMoveRight)]
-        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.S, AnimationCategory.CombatMoveBackward)]
-        // Walking (round 5 correction): the same, at the walk's pace.
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatWalk, true)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight, true)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft, true)]
-        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward, true)]
-        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.W, AnimationCategory.CombatWalk, true)]
-        public void ASwingWhileMoving_KeepsTheLegs_AndTheWeaponsInTheHands(CharacterRace race, ushort main, ushort sub, GordianKey key, AnimationCategory expected,
-            bool walking = false)
+        /// <summary>
+        /// The retail model on the real path: the local player engaged, locked on and moving with <paramref name="key"/> held,
+        /// a frame stepping the controller, the classifier and the playback; null without the game install.
+        /// </summary>
+        private static (EntityModel Model, PlayerEntity Me, Func<AnimationCategory> Frame, AnimationClip? Locomotion)? Setup(
+            CharacterRace race, ushort main, ushort sub, GordianKey key, AnimationCategory expected, bool walking)
         {
-            if (!Directory.Exists(GameDirectory)) return;
+            if (!Directory.Exists(GameDirectory)) return null;
             var rm = new ResourceManager(GameDirectory);
             rm.InitializeFileTable();
             var grap = new ushort[9];
             grap[6] = main;
             grap[7] = sub;
             var model = EntityModelLoader.AssembleCharacter(race, 1, grap, rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
-            var skeleton = model.Skeleton!;
 
             var world = new WorldState();
             var player = new LocalPlayerState { ServerId = 0x12345678 };
@@ -103,6 +93,85 @@ namespace Gordian.Engine.Tests.Animation
             Assert.Equal(walking, me.Speed < 40); // the walk moves at half the run's speed
             var locomotion = NpcStanceResolver.ResolveTargetClip(model, expected);
             Assert.Same(locomotion, me.Animation.CurrentClip);
+            return (model, me, Frame, locomotion);
+        }
+
+        /// <summary>
+        /// Round 7: a hand-to-hand round while moving alternates the hands. The hand-to-hand packs have moving swings for the
+        /// main hand only (Elvaan male: atf0 / atb0 / atl0 / atr0), so an off-hand hit plays the standing off-hand punch
+        /// (bti0 / bti1: at3 / at4) on the upper body over the strafe, and the left hand punches.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
+        [InlineData(GordianKey.S, AnimationCategory.CombatMoveBackward, false)]
+        [InlineData(GordianKey.A, AnimationCategory.CombatMoveLeft, true)]
+        public void AMovingHandToHandRound_PunchesWithBothHands(GordianKey key, AnimationCategory expected, bool walking)
+        {
+            if (Setup(CharacterRace.ElvaanMale, 484, 484, key, expected, walking) is not var (model, me, Frame, locomotion)) return;
+            var skeleton = model.Skeleton!;
+            int leftHand = skeleton.References[126].Index, rightHand = skeleton.References[127].Index, chest = LocomotionLayering.Chest(skeleton);
+            for (int h = 0; h < 4; h++)
+            {
+                me.Animation.EnqueueAction(new ActionRequest
+                {
+                    ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = (ushort)(h % 2),
+                    ReceivedTimestamp = Stopwatch.GetTimestamp()
+                });
+            }
+
+            var routines = new HashSet<string>();
+            float leftReachOffHand = 0f, leftReachMainHand = 0f, rightReachOffHand = 0f;
+            var overrides = model.ParentOverrides;
+            for (int i = 0; i < 144 * 4; i++)
+            {
+                Frame();
+                if (me.Animation.ActiveRoutine is not { } routine) continue;
+                routines.Add(routine.Name);
+                Assert.Same(locomotion, me.Animation.LowerBodyClip); // the legs keep moving under either hand's punch
+                var pose = me.Animation.EvaluatePose(skeleton, overrides);
+                float left = Vector3.Distance(pose.Translations[leftHand], pose.Translations[chest]);
+                float right = Vector3.Distance(pose.Translations[rightHand], pose.Translations[chest]);
+                if (routine.Name.StartsWith("bti", StringComparison.Ordinal))
+                {
+                    leftReachOffHand = Math.Max(leftReachOffHand, left);
+                    rightReachOffHand = Math.Max(rightReachOffHand, right);
+                }
+                else
+                {
+                    leftReachMainHand = Math.Max(leftReachMainHand, left);
+                }
+            }
+
+            string moving = expected switch
+            {
+                AnimationCategory.CombatMoveRight => "atr0",
+                AnimationCategory.CombatMoveLeft => "atl0",
+                _ => "atb0"
+            };
+            Assert.Contains(moving, routines); // the main hand's moving swing
+            Assert.Contains(routines, r => r.StartsWith("bti", StringComparison.Ordinal)); // and the off hand's punch
+            Assert.True(leftReachOffHand > leftReachMainHand + 0.1f, $"left hand reach: off-hand punch {leftReachOffHand:F2}, main-hand swing {leftReachMainHand:F2}");
+            Assert.True(leftReachOffHand > rightReachOffHand, $"off-hand punch: left {leftReachOffHand:F2}, right {rightReachOffHand:F2}");
+        }
+
+        [Theory]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatRun)]
+        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.D, AnimationCategory.CombatMoveRight)]
+        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.S, AnimationCategory.CombatMoveBackward)]
+        // Walking (round 5 correction): the same, at the walk's pace.
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatWalk, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward, true)]
+        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.W, AnimationCategory.CombatWalk, true)]
+        public void ASwingWhileMoving_KeepsTheLegs_AndTheWeaponsInTheHands(CharacterRace race, ushort main, ushort sub, GordianKey key, AnimationCategory expected,
+            bool walking = false)
+        {
+            if (Setup(race, main, sub, key, expected, walking) is not var (model, me, Frame, locomotion)) return;
+            var skeleton = model.Skeleton!;
 
             // An auto-attack round: three hits, main and off hand.
             for (int h = 0; h < 3; h++)
