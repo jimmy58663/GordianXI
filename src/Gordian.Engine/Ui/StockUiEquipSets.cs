@@ -61,8 +61,12 @@ namespace Gordian.Engine.Ui
         /// <summary>The rows <c>mcres20</c> shows at once (its buttons 1-20).</summary>
         public const int VisibleRows = EquipmentSetBook.SetsPerPage;
 
-        /// <summary>The options window's place: right against the list's left edge (384 - 112, anchored top right as the list is), its top level with the chosen row (image-11).</summary>
-        public const int OptionsX = 272;
+        /// <summary>
+        /// The options window's left edge, anchored top right as the list is: 223 px from the screen's right (512 - 223), so its right
+        /// 17 px lie over the list's frame (#385, retail capture on local LSB 2026-11-08: the window from x 2337, the list from 2432, at
+        /// 2560 wide, UI 1:1). Round 1 had it right against the list's left edge (384 - 112).
+        /// </summary>
+        public const int OptionsX = 289;
 
         /// <summary>The storage's equipment right of the grid (16 + 182; image-12).</summary>
         public const int SlotListX = 198;

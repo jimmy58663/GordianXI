@@ -367,6 +367,7 @@ namespace Gordian.Engine.Actions
             _localPlayer.ServerStatusChanged += OnLocalServerStatusChanged;
             _world.EntityUpdated += OnEntityUpdated;
             _world.EntityDespawned += OnEntityDespawned;
+            _world.WorldCleared += OnWorldCleared;
             _combatModule.State.EngagementChanged += OnEngagementChanged;
             _combatModule.State.AssistTargetReceived += OnAssistTargetReceived;
         }
@@ -502,6 +503,17 @@ namespace Gordian.Engine.Actions
             {
                 ClearTarget();
             }
+        }
+
+        /// <summary>
+        /// The world was emptied (a zone change, including into the same zone, or the session ending): its entities are gone, so the
+        /// target and a sub-target being picked go with them, and with them the target window, cursor and name plate (#517: the
+        /// Adoulin Waypoint's tag stayed up after zoning). <see cref="WorldState.Clear"/> raises no despawn per entity.
+        /// </summary>
+        private void OnWorldCleared()
+        {
+            if (_subTarget != null) CancelSubTarget();
+            if (CurrentTarget != null) ClearTarget();
         }
 
         /// <summary>

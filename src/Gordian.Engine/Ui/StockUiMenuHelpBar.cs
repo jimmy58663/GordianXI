@@ -21,6 +21,15 @@ namespace Gordian.Engine.Ui
         /// <summary>The bar's title and help line over <paramref name="top"/>; both null when it names neither.</summary>
         public static (string? Title, string? Help) Of(StockUiOpenMenu top, Func<int, string?>? titleText, Func<int, string?>? helpText)
         {
+            // The Equipment Sets list and a set's options: the set's name in the bar's left box; over the list the help line is
+            // "Equipment Set (#N)", the only place the number shows (#385, retail capture on local LSB 2026-11-08,
+            // 385-equipset-list-page1.png / -page10.png: "Set181" and "Equipment Set (#181)").
+            if ((top.IsEquipSetList || top.IsEquipSetOptions) && top.EquipSet is { } set)
+            {
+                if (top.IsEquipSetList) return (set.Name, EquipSetHelp(top.SelectedEquipSet));
+                int buttonHelp = top.SelectedButton is { HelpTextId: >= 0 } b ? b.HelpTextId : -1;
+                return (set.Name, buttonHelp >= 0 ? helpText?.Invoke(buttonHelp) : null);
+            }
             string? title = null;
             for (var menu = top; menu != null && title == null; menu = menu.Parent)
             {
@@ -32,5 +41,8 @@ namespace Gordian.Engine.Ui
             string? help = helpId >= 0 ? helpText?.Invoke(helpId) : null;
             return (title, help);
         }
+
+        /// <summary>The help line over the Equipment Sets list for set <paramref name="number"/> (1-200).</summary>
+        public static string EquipSetHelp(int number) => $"Equipment Set (#{number})";
     }
 }
