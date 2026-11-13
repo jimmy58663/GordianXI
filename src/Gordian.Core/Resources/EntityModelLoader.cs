@@ -508,8 +508,35 @@ namespace Gordian.Core.Resources
             }
 
             // Last, as the motion packs above regroup the clips.
+            ApplyChairPack(model, race, datByFileId);
             if (faceId == CharacterEquipmentResolver.MannequinFace) ApplyMannequinPose(model, race, datByPath);
             return model;
+        }
+
+        /// <summary>
+        /// The <c>/sitchair</c> motions (#379): the race's chair pack (<see cref="CharacterEquipmentResolver.GetChairPackFileIds"/>)
+        /// adds the clips <c>ci0</c> (sit down), <c>ci1</c> (the seated loop) and <c>ci2</c> (stand up), joined from the pack's
+        /// legs and upper body and the waist file's parts, and the routines <c>chi0</c> (plays <c>ci0?</c>, then loops
+        /// <c>ci1?</c>), <c>chi1</c> (<c>ci1?</c> alone) and <c>chi2</c> (<c>ci2?</c>). Read from the retail DATs (2026-11-13):
+        /// the same three routines and clips in each race's pack, every track within that race's skeleton. No reference names
+        /// the files. <b>Beyond xi-tools / XiPackets.</b>
+        /// </summary>
+        internal static void ApplyChairPack(EntityModel model, CharacterRace race, Func<int, byte[]?> datByFileId)
+        {
+            var (packId, waistId) = CharacterEquipmentResolver.GetChairPackFileIds(race);
+            if (packId < 0 || datByFileId(packId) is not { Length: > 0 } packDat) return;
+            var pack = ParseDatContainer(packDat, "ChairPack");
+            var clips = new List<AnimationClip>(pack.Animations);
+            if (datByFileId(waistId) is { Length: > 0 } waistDat) clips.AddRange(ParseDatContainer(waistDat, "ChairPackWaist").Animations);
+            int count = model.Skeleton?.Count ?? 0;
+            foreach (var joined in JoinBodyRegionParts(clips))
+            {
+                // A pack meant for another skeleton would key joints this one lacks; never let it replace the race's own clips.
+                foreach (int joint in joined.Tracks.Keys) if (count > 0 && joint >= count) return;
+                model.Animations.TryAdd(joined.Name, joined);
+            }
+            AddRoutines(model, pack.Routines);
+            model.RebuildMotionRoutines();
         }
 
         /// <summary>

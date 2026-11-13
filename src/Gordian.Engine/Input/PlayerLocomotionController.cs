@@ -794,7 +794,8 @@ namespace Gordian.Engine.Input
         /// <summary>
         /// Moving while resting or sitting stands the character up (the maintainer's request, round 3; /sit in #343 round 1):
         /// any movement input (keys, stick, auto-run) while the server reports the Healing status sends /heal off (C2S 0x0E8),
-        /// or while it reports Sit, /sit off (C2S 0x0EA), once; it is sent again only after the status has changed. LandSandBoat
+        /// while it reports Sit, /sit off (C2S 0x0EA), or while it reports a chair status (63-73), /sitchair off (C2S 0x113,
+        /// #379), once; it is sent again only after the status has changed. LandSandBoat
         /// does not end a sit on movement by itself (<c>c2s/0x015_pos.cpp</c> leaves the animation alone, <c>0x0ea_sit.cpp</c>
         /// sets it), so without the /sit off the server would keep the character sitting. The character stays rooted until
         /// the stand-up has played (<see cref="SeatedMovementHold"/>).
@@ -802,7 +803,8 @@ namespace Gordian.Engine.Input
         private void UpdateHealCancel()
         {
             byte status = _localPlayer.ServerStatus;
-            if (_actionService == null || (status != StatusHealing && status != StatusSitting))
+            int chair = Gordian.Core.Animation.RestPosture.ChairFor(status);
+            if (_actionService == null || (status != StatusHealing && status != StatusSitting && chair < 0))
             {
                 _healCancelSent = false;
                 return;
@@ -813,10 +815,14 @@ namespace Gordian.Engine.Input
             bool sitting = status == StatusSitting;
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
-                var result = sitting
-                    ? await service.SitAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false)
-                    : await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
-                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while {(sitting ? "sitting" : "healing")}: {result.Message}");
+                // In a chair (#379), /sitchair off (C2S 0x113 mode Off); LandSandBoat ends it like /sit off.
+                var result = chair >= 0
+                    ? await service.SitChairAsync((uint)chair, Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false)
+                    : sitting
+                        ? await service.SitAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false)
+                        : await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
+                string what = chair >= 0 ? "in a chair" : sitting ? "sitting" : "healing";
+                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while {what}: {result.Message}");
             });
         }
 

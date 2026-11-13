@@ -537,7 +537,7 @@ namespace Gordian.App.Graphics
                 // The mount drawn this frame: the one ridden, or one leaving after a dismount (#437, MountTransitions).
                 var mountFrame = entity.Type == EntityType.Player
                     ? MountTransitions.Observe(entity, moving: entity.Animation.Current is not (AnimationCategory.Idle or AnimationCategory.Combat
-                        or AnimationCategory.Death or AnimationCategory.Healing or AnimationCategory.Sitting))
+                        or AnimationCategory.Death or AnimationCategory.Healing or AnimationCategory.Sitting or AnimationCategory.ChairSitting))
                     : MountFrame.None;
                 bool mounted = mountFrame.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
@@ -614,9 +614,15 @@ namespace Gordian.App.Graphics
                 // Once per frame in wall time, however many viewports draw this world (#307). The rider and its mount advance
                 // by the same claim, so a gait of the same length stays in phase (#499).
                 float frameSeconds = entity.Animation.ClaimFrameTime(deltaSeconds);
-                var ride = mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
-                    ? PrepareMount(cl, entity, mountFrame, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, frameSeconds)
-                    : null;
+                // A player in a /sitchair status sits on its chair (#379); a mounted one sits in none.
+                var chairFrame = entity.Type == EntityType.Player && !mounted && !mountFrame.Departing && !isFallback
+                    ? ChairTransitions.Observe(entity)
+                    : ChairFrame.None;
+                var ride = chairFrame.IsShown
+                    ? PrepareChair(cl, entity, chairFrame, resourceManager, frameSeconds)
+                    : mounted || _jointPaletteByEntity.ContainsKey(MountPaletteKey(entity.ServerId))
+                        ? PrepareMount(cl, entity, mountFrame, isFallback ? null : entityModel, resourceManager, engagedNow, isLocalEntity, frameSeconds)
+                        : null;
                 var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
                 if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
                 var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);

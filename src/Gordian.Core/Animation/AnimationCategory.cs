@@ -24,6 +24,9 @@ namespace Gordian.Core.Animation
         Healing,
 
         /// <summary>Sitting with /sit (server status 47): sat on the ground (<see cref="RestPosture"/>).</summary>
-        Sitting
+        Sitting,
+
+        /// <summary>Sitting in a chair with /sitchair (server status 63-73, #379): sat on the chair drawn under it (<see cref="RestPosture"/>).</summary>
+        ChairSitting
     }
 }

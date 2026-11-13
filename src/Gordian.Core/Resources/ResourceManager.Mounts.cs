@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
@@ -29,6 +30,24 @@ namespace Gordian.Core.Resources
             if (_entityModelCache.TryGetValue(key, out model)) return model != null;
             model = MountModels.LoadMount(mount, LoadDatBytes, LoadDatBytesByFileId);
             if (model == null) return false;
+            _entityModelCache[key] = model;
+            return true;
+        }
+
+        /// <summary>
+        /// The model of chair <paramref name="chair"/> (0-10) that <c>/sitchair</c> draws under the character (#379,
+        /// <see cref="Gordian.Core.Animation.RestPosture.ChairFileId"/>), cached with the entity models; false when the file
+        /// is missing.
+        /// </summary>
+        public bool TryLoadChairModel(int chair, out EntityModel? model)
+        {
+            model = null;
+            if (chair < 0) return false;
+            int fileId = Gordian.Core.Animation.RestPosture.ChairFileId(chair);
+            string key = $"Chair_{fileId}";
+            if (_entityModelCache.TryGetValue(key, out model)) return true;
+            if (LoadDatBytesByFileId(fileId) is not { Length: > 0 } dat) return false;
+            model = EntityModelLoader.AssembleModel(dat, null, key, gearOcclusion: new GearOcclusion(), primarySource: DecodedTexture.FileLabel(fileId));
             _entityModelCache[key] = model;
             return true;
         }

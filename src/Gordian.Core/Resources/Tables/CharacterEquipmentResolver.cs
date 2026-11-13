@@ -299,6 +299,35 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// The file ids of the race's <c>/sitchair</c> motion pack (#379) and of its waist parts: 38607 + 96 per race in the
+        /// retail race order with the Tarutaru sharing one (Hume male, Hume female, Elvaan male, Elvaan female, Tarutaru,
+        /// Mithra, Galka), the waist 32 files on. Found by scanning the retail file table for the routines <c>chi0</c>-<c>chi2</c>
+        /// and clips <c>ci0?</c>-<c>ci2?</c> (2026-11-13); each pack keys joints up to its race skeleton's last (Hume male 93,
+        /// Hume female 96, Elvaan 98, Tarutaru 92, Mithra 107, Galka 106). The file 64 on is a copy of the waist file. (-1, -1)
+        /// for a race without one. <b>Beyond xi-tools / XiPackets</b>, which do not name these files.
+        /// </summary>
+        public static (int Pack, int Waist) GetChairPackFileIds(CharacterRace race)
+        {
+            int index = race switch
+            {
+                CharacterRace.HumeMale => 0,
+                CharacterRace.HumeFemale => 1,
+                CharacterRace.ElvaanMale => 2,
+                CharacterRace.ElvaanFemale => 3,
+                CharacterRace.TaruMale or CharacterRace.TaruFemale => 4,
+                CharacterRace.Mithra => 5,
+                CharacterRace.Galka => 6,
+                _ => -1,
+            };
+            if (index < 0) return (-1, -1);
+            int pack = ChairPackBaseFileId + 96 * index;
+            return (pack, pack + 32);
+        }
+
+        /// <summary>The Hume male's <c>/sitchair</c> pack, the first of <see cref="GetChairPackFileIds"/>.</summary>
+        public const int ChairPackBaseFileId = 38607;
+
+        /// <summary>
         /// Returns the race's zero-indexed slot in the retail PC race ordering
         /// (HumeM, HumeF, ElvaanM, ElvaanF, Taru, TaruF, Mithra, Galka), used to index
         /// race-ordered motion tables such as <see cref="MotionBattleBaseFileId"/>.
