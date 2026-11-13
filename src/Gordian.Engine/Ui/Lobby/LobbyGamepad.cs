@@ -26,6 +26,12 @@ namespace Gordian.Engine.Ui.Lobby
         private LobbyController? _lobby;
 
         /// <summary>
+        /// Whether the last <see cref="Update"/> pressed Next Character (<see cref="InputAction.CycleCharacter"/>, L1 by
+        /// default): the launcher then moves on from the lobby to a character, as Ctrl+Tab does.
+        /// </summary>
+        public bool NextCharacterPressed { get; private set; }
+
+        /// <summary>
         /// One input tick: reads <paramref name="pad"/> against <paramref name="profile"/> and hands what it pressed to
         /// <paramref name="lobby"/> (null: no lobby takes the pad). Buttons already held when a lobby takes the pad (the A that
         /// chose Log Out) stay quiet until let go. Returns the inputs handed over, in order.
@@ -42,6 +48,7 @@ namespace Gordian.Engine.Ui.Lobby
             }
             _input.SetGamepadState(lobby != null ? pad : GamepadState.Disconnected);
             _input.Update(profile, elapsed);
+            NextCharacterPressed = lobby != null && _input.WasActionTriggered(InputAction.CycleCharacter);
             if (lobby == null) return _inputs;
 
             if (_input.WasActionTriggered(InputAction.Cancel)) _inputs.Add(LobbyInput.Cancel);

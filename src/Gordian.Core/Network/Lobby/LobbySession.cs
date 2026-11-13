@@ -25,6 +25,13 @@ namespace Gordian.Core.Network.Lobby
         /// <summary>Whether the connection is still usable (a server can close it on some refused requests).</summary>
         bool IsConnected { get; }
 
+        /// <summary>
+        /// The account's expansions as the server reported them (S2C 0x05 <c>excode_server</c>: bit 1 Rise of the Zilart
+        /// through bit 11 Seekers of Adoulin, LandSandBoat's <c>EXPANSION_DISPLAY</c>), or null when not known. The title
+        /// menu dims the banners of the ones the account lacks.
+        /// </summary>
+        uint? AccountExpansions => null;
+
         Task<IReadOnlyList<LobbyCharacter>> RefreshCharactersAsync(CancellationToken ct = default);
         Task<IReadOnlyList<LobbyWorld>> GetWorldsAsync(CancellationToken ct = default);
         Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default);
@@ -148,6 +155,10 @@ namespace Gordian.Core.Network.Lobby
         public uint ServerExpansions { get; private set; }
         public uint ServerFeatures { get; private set; }
 
+        /// <inheritdoc/>
+        public uint? AccountExpansions => _expansionsKnown ? ServerExpansions : null;
+        private bool _expansionsKnown;
+
         public bool IsConnected => !_broken && !_disposed && _client.Connected && _handoff.IsConnected;
 
         /// <summary>
@@ -209,6 +220,7 @@ namespace Gordian.Core.Network.Lobby
             (uint seed, uint expansions, uint features) = LobbyPackets.ReadKey(reply);
             _modifier.Seed(seed);
             ServerExpansions = expansions;
+            _expansionsKnown = true;
             ServerFeatures = features;
             GordianLog.Info("LOBBY", $"Lobby login accepted ({_handoff.Name}; account expansions 0x{expansions:X}, features 0x{features:X}).");
 

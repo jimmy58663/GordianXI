@@ -27,12 +27,15 @@ namespace Gordian.App.Graphics
         /// <summary>What the lobby's environment was last set from (zone, weather, hour, environment).</summary>
         private (int Zone, string Weather, float Hour, string? Environment) _titleLighting;
 
+        private readonly ViewportCamera _stageCamera = new();
+        private bool _stagePreloaded;
+
         /// <summary>
-        /// Whether the lobby screen shows the fly-through: every screen but the licence page (which keeps retail's own
-        /// backdrop). Character creation and deletion show it too until retail's scene for them is known.
+        /// Whether the lobby screen shows the fly-through: the title menu (the licence page keeps retail's own backdrop;
+        /// character select, deletion and creation show the stage, <see cref="LobbyStage"/>).
         /// </summary>
         internal static bool ShowsTitleScene(LobbyController lobby) =>
-            !lobby.IsLicencePending && lobby.Screen is LobbyScreen.MainMenu or LobbyScreen.CharacterList or LobbyScreen.Creation or LobbyScreen.Entering;
+            !lobby.IsLicencePending && lobby.Screen == LobbyScreen.MainMenu;
 
         /// <summary>The fly-through, made on first use (null when the title file or zones cannot be read).</summary>
         private TitleFlythrough? TitleScene()
@@ -83,14 +86,82 @@ namespace Gordian.App.Graphics
             // The licence page keeps its backdrop, but the opening zone loads behind it.
             bool shown = ShowsTitleScene(lobby);
             RequestTitleZones(title);
+            PreloadStage();
             bool zoneOnScreen = _loadedZoneId == title.ZoneId && _currentZoneGeom != null;
             if (!shown) return null;
 
             title.Update(deltaSeconds, zoneOnScreen);
             _titleSceneShown = true;
             drawn = zoneOnScreen && !title.IsWaitingForZone;
-            if (drawn) LightTitleScene(title, deltaSeconds);
+            if (drawn)
+            {
+                EnvironmentKeyframe? own = title.Environment is { } name && title.Scene.TryGetEnvironment(name, out var keyframe) ? keyframe : null;
+                LightLobbyScene(title.ZoneId, title.Weather, title.Hour, title.Environment, own, deltaSeconds);
+            }
             return title;
+        }
+
+        /// <summary>
+        /// Before a lobby frame on character select, deletion or creation: loads the stage (<see cref="LobbyStage"/>) and
+        /// lights it at the screen's hour. Returns whether it is on screen to draw.
+        /// </summary>
+        private bool UpdateStageScene(LobbyController lobby, float deltaSeconds)
+        {
+            _pendingZoneLoad = LobbyStage.ZoneId != _loadedZoneId ? LobbyStage.ZoneId : 0;
+            _ungatedZoneSwap = true;
+            CheckAndLoadPendingZone(lobby: true);
+            // The title's zone loads meanwhile, for the way back.
+            if (TitleScene() is { ZoneId: > 0 } title && title.ZoneId != _titlePreloadedZone && ResourceManager is { } rm && _renderer is { } renderer)
+            {
+                _titlePreloadedZone = title.ZoneId;
+                renderer.SharedResources.Zones.PreloadInBackground(rm, title.ZoneId);
+            }
+            if (_loadedZoneId != LobbyStage.ZoneId || _currentZoneGeom == null) return false;
+            _titleSceneShown = true;
+            LightLobbyScene(LobbyStage.ZoneId, LobbyStage.Weather, LobbyStage.HourOf(lobby), null, null, deltaSeconds);
+            return true;
+        }
+
+        /// <summary>Loads the stage in the background once, so the title menu's buttons open it without a wait.</summary>
+        private void PreloadStage()
+        {
+            if (_stagePreloaded || ResourceManager is not { } rm || _renderer is not { } renderer) return;
+            _stagePreloaded = true;
+            if (!rm.TryResolveFile(ZoneDataLoader.GetZoneModelFileId(LobbyStage.ZoneId), out _))
+            {
+                GordianLog.Warning("Graphics", $"Lobby stage: zone {LobbyStage.ZoneId} (ROM/1/5.DAT) is not installed; character select shows a black backdrop.");
+                return;
+            }
+            renderer.SharedResources.Zones.PreloadInBackground(rm, LobbyStage.ZoneId);
+        }
+
+        /// <summary>Draws the stage into the frame behind the preview character (render thread, under the render lock).</summary>
+        private void RenderStageZone(LobbyController lobby, NeoVeldrid.Framebuffer framebuffer, uint width, uint height, float deltaSeconds)
+        {
+            if (_renderer == null) return;
+            _renderer.World = null;
+            _renderer.EventPresentation = null;
+            _renderer.LocalPlayerRidingPlatformId = string.Empty;
+            _renderer.Furniture = null;
+            _renderer.HideSceneryAbove = null;
+            _renderer.AoeGuide = null;
+            PlaceStageCamera(_stageCamera, lobby, Environment, width, height);
+            _renderer.Render(_stageCamera, Environment, deltaSeconds, width, height, entities: null, ResourceManager,
+                present: false, targetFramebuffer: framebuffer);
+        }
+
+        /// <summary>
+        /// The stage camera: the lobby preview's camera (<see cref="StockUiLobby.PreviewCamera"/>, which frames the model in
+        /// its window) turned and moved onto <see cref="LobbyStage.Spot"/>, so the model drawn over the scene stands on it.
+        /// </summary>
+        internal static void PlaceStageCamera(ViewportCamera camera, LobbyController lobby, ZoneEnvironmentSettings environment, uint width, uint height)
+        {
+            var rect = StockUiLobby.Fit(width, height);
+            var (centerX, feetY, topY) = StockUiLobby.PreviewArea(rect, lobby.Screen == LobbyScreen.Creation && !lobby.IsRenaming);
+            var (eye, target, fov) = StockUiLobby.PreviewCamera(centerX, feetY, topY, width, height);
+            var (stageEye, stageTarget) = LobbyStage.Place(eye, target);
+            camera.FarClip = ZoneVisibility.GlobalDrawDistance(environment.DrawDistance, environment.DrawDistanceMultiplier);
+            camera.SetEventView(stageEye, stageTarget, fov, 0f, width / (float)Math.Max(1u, height));
         }
 
         /// <summary>Asks for the segment's zone and preloads the next segment's, once each.</summary>
@@ -113,24 +184,26 @@ namespace Gordian.App.Graphics
             }
         }
 
-        /// <summary>The segment's weather and hour on the zone's 0x2F environment, or the title file's own environment (op 0x7E).</summary>
-        private void LightTitleScene(TitleFlythrough title, float deltaSeconds)
+        /// <summary>
+        /// The lobby scene's weather and hour on the zone's 0x2F environment, or <paramref name="own"/> (the title file's own
+        /// environment, op 0x7E) when given.
+        /// </summary>
+        private void LightLobbyScene(int zoneId, string weather, float hour, string? environmentName, EnvironmentKeyframe? own, float deltaSeconds)
         {
             if (_renderer == null) return;
-            var key = (title.ZoneId, title.Weather, title.Hour, title.Environment);
-            bool zoneChanged = key.ZoneId != _titleLighting.Zone;
-            if (zoneChanged) _weatherFade.Reset(title.Weather);
-            bool fading = _weatherFade.Advance(title.Weather, deltaSeconds);
+            var key = (zoneId, weather, hour, environmentName);
+            bool zoneChanged = zoneId != _titleLighting.Zone;
+            if (zoneChanged) _weatherFade.Reset(weather);
+            bool fading = _weatherFade.Advance(weather, deltaSeconds);
             if (!zoneChanged && !fading && key == _titleLighting) return;
             _titleLighting = key;
 
-            EnvironmentKeyframe? keyframe = null;
-            if (title.Environment is { } own && title.Scene.TryGetEnvironment(own, out var ownKeyframe)) keyframe = ownKeyframe;
-            else if (_currentZoneGeom?.EnvironmentData is { } data) keyframe = _weatherFade.Resolve(data, title.Hour);
+            EnvironmentKeyframe? keyframe = own;
+            if (keyframe == null && _currentZoneGeom?.EnvironmentData is { } data) keyframe = _weatherFade.Resolve(data, hour);
             if (keyframe == null) return;
             Environment.ApplyKeyframe(keyframe);
-            Environment.SetTimeOfDay(title.Hour);
-            Environment.WeatherId = title.Weather;
+            Environment.SetTimeOfDay(hour);
+            Environment.WeatherId = weather;
             _weatherFade.ApplyTo(Environment);
             _renderer.SkyDomeRenderer?.UpdateDome(Environment);
             // The session's own lighting is set again when it takes the view.

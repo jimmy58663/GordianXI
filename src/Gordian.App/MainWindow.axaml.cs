@@ -169,6 +169,12 @@ namespace Gordian.App
             var lobby = viewports.GamepadLobby;
             _lobbyGamepad.Update(lobby, padState, Gordian.Engine.Input.InputProfileHub.Default.Profile, elapsed);
             if (lobby != null) gamepadTarget = null;
+            // Next Character from the lobby: on to the first character, the lobby parked behind it (as Ctrl+Tab).
+            if (lobby != null && _lobbyGamepad.NextCharacterPressed)
+            {
+                var chosen = viewports.PrimaryViewModel.CycleNextCharacter();
+                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
+            }
 
             // A character that takes the pad from another ignores the buttons still held from it until they are let go:
             // otherwise LB (Next Character) fired again on every character it landed on (round 1, B7).

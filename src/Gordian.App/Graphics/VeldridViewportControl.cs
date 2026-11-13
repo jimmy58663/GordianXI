@@ -1709,11 +1709,22 @@ namespace Gordian.App.Graphics
                     float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
                     BeginPerformancePasses();
                     uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
-                    // The title fly-through behind the windows (#552), drawn by the zone renderer first.
-                    var title = UpdateTitleScene(lobby, deltaSeconds, out bool sceneDrawn);
-                    if (title != null && sceneDrawn) RenderTitleZone(title, framebuffer, width, height, deltaSeconds);
-                    var scene = title == null ? default
-                        : new LobbySceneLayer(Flythrough: true, Drawn: sceneDrawn, Tint: sceneDrawn ? title.Presentation.SceneColor : Vector3.Zero);
+                    // Behind the windows (#552), drawn by the zone renderer first: the title fly-through on the title menu, the
+                    // stage (LobbyStage) under the character on select, delete and creation.
+                    LobbySceneLayer scene;
+                    if (Gordian.Engine.Ui.Lobby.LobbyStage.Shows(lobby))
+                    {
+                        bool stageDrawn = UpdateStageScene(lobby, deltaSeconds);
+                        if (stageDrawn) RenderStageZone(lobby, framebuffer, width, height, deltaSeconds);
+                        scene = new LobbySceneLayer(Flythrough: true, Drawn: stageDrawn, Tint: Vector3.One);
+                    }
+                    else
+                    {
+                        var title = UpdateTitleScene(lobby, deltaSeconds, out bool sceneDrawn);
+                        if (title != null && sceneDrawn) RenderTitleZone(title, framebuffer, width, height, deltaSeconds);
+                        scene = title == null ? default
+                            : new LobbySceneLayer(Flythrough: true, Drawn: sceneDrawn, Tint: sceneDrawn ? title.Presentation.SceneColor : Vector3.Zero);
+                    }
                     _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, framebuffer,
                         width, height, deltaSeconds, brightness, scene);
                     EndPerformancePass(ViewportPass.Scene);

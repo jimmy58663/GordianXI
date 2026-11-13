@@ -158,6 +158,22 @@ namespace Gordian.Engine.Tests.Ui.Lobby
         }
 
         [Fact]
+        public void NextCharacter_IsReportedForTheLauncher_AndMovesNothingInTheLobby()
+        {
+            var profile = InputProfile.CreateCompact();
+            var lobby = new LobbyController(Backend(Character(1, "Knot")), null, null, showLicence: false);
+            var pad = Ready(lobby, profile);
+
+            Assert.Empty(pad.Update(lobby, Pad(GamepadButton.LeftShoulder), profile, Tick)); // L1: Next Character by default
+            Assert.True(pad.NextCharacterPressed);
+            Assert.Equal(LobbyScreen.MainMenu, lobby.Screen);
+            pad.Update(lobby, Pad(GamepadButton.LeftShoulder), profile, Tick); // held: once
+            Assert.False(pad.NextCharacterPressed);
+            pad.Update(null, Pad(GamepadButton.LeftShoulder), profile, Tick);
+            Assert.False(pad.NextCharacterPressed);
+        }
+
+        [Fact]
         public void WithoutALobby_NothingIsHandedOver() =>
             Assert.Empty(new LobbyGamepad().Update(null, Pad(GamepadButton.A), InputProfile.CreateCompact(), Tick));
     }

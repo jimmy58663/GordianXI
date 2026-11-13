@@ -103,7 +103,7 @@ namespace Gordian.App.Tests.Graphics
         }
 
         /// <summary>The mean and standard deviation of the luminance in a rectangle of an RGBA image.</summary>
-        private static (double Mean, double Spread) Luminance(byte[] rgba, uint width, uint left, uint top, uint right, uint bottom)
+        internal static (double Mean, double Spread) Luminance(byte[] rgba, uint width, uint left, uint top, uint right, uint bottom)
         {
             double sum = 0, squares = 0;
             int count = 0;
