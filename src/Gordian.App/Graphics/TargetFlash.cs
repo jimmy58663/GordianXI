@@ -22,6 +22,17 @@ namespace Gordian.App.Graphics
         public static double DurationSeconds => PulseSeconds * Pulses;
 
         /// <summary>
+        /// The same pulse repeated for as long as it lasts (#356 round 1, the maintainer's retail check): the entity under
+        /// the sub-target cursor, and the characters its AoE circle would affect, flash continuously while the cursor is up.
+        /// </summary>
+        public static float Continuous(double seconds)
+        {
+            if (seconds < 0) return 0.0f;
+            double phase = seconds % PulseSeconds / PulseSeconds;
+            return PeakLight * (float)(1.0 - Math.Abs(2.0 * phase - 1.0));
+        }
+
+        /// <summary>
         /// The light added to the target <paramref name="secondsSinceSelected"/> after it was selected (0 once done).
         /// </summary>
         public static float Intensity(double secondsSinceSelected)

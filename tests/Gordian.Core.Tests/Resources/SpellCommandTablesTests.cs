@@ -103,6 +103,16 @@ namespace Gordian.Core.Tests.Resources
             // Every record's id equals its index.
             Assert.All(tables.Spells.Select((s, i) => (s, i)).Where(p => p.s != null), p => Assert.Equal(p.i, p.s!.Id));
             Assert.All(tables.Commands.Select((c, i) => (c, i)).Where(p => p.c != null), p => Assert.Equal(p.i, p.c!.Id));
+            // Area of effect (#356): spell +0x45-+0x47, command +0x10-+0x12.
+            Assert.Equal((12, 0, AreaOfEffectShape.None), (cure.Range, cure.AoeRadius, cure.AoeShape));
+            var curaga = tables.GetSpell(7)!;
+            Assert.Equal((12, 8, AreaOfEffectShape.AroundTarget), (curaga.Range, curaga.AoeRadius, curaga.AoeShape));
+            Assert.Equal((8, AreaOfEffectShape.AroundTarget), (tables.GetSpell(419)!.AoeRadius, tables.GetSpell(419)!.AoeShape)); // Advancing March
+            Assert.Equal((11, 3, AreaOfEffectShape.AroundTarget), (tables.GetSpell(376)!.Range, tables.GetSpell(376)!.AoeRadius, tables.GetSpell(376)!.AoeShape)); // Horde Lullaby
+            Assert.Equal(AreaOfEffectShape.Cone, tables.GetSpell(536)!.AoeShape);         // Poison Breath
+            Assert.Equal(AreaOfEffectShape.AroundCaster, tables.GetSpell(533)!.AoeShape); // Self-Destruct
+            Assert.Equal((7, AreaOfEffectShape.AroundTarget), (tables.GetCommand(512 + 98)!.AoeRadius, tables.GetCommand(512 + 98)!.AoeShape)); // Fighter's Roll
+            Assert.Equal((3, AreaOfEffectShape.AroundTarget), (tables.GetCommand(38)!.AoeRadius, tables.GetCommand(38)!.AoeShape)); // Circle Blade
             Assert.Equal(3, tables.GetCommand(1)!.Type);   // weapon skill Combo
             Assert.Equal(1, tables.GetCommand(528)!.Type); // job ability (512 + 16)
         }
