@@ -47,7 +47,14 @@ namespace Gordian.Engine.Tests.Animation
         [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatRun)]
         [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.D, AnimationCategory.CombatMoveRight)]
         [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.S, AnimationCategory.CombatMoveBackward)]
-        public void ASwingWhileMoving_KeepsTheLegs_AndTheWeaponsInTheHands(CharacterRace race, ushort main, ushort sub, GordianKey key, AnimationCategory expected)
+        // Walking (round 5 correction): the same, at the walk's pace.
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.W, AnimationCategory.CombatWalk, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft, true)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward, true)]
+        [InlineData(CharacterRace.HumeMale, (ushort)157, (ushort)157, GordianKey.W, AnimationCategory.CombatWalk, true)]
+        public void ASwingWhileMoving_KeepsTheLegs_AndTheWeaponsInTheHands(CharacterRace race, ushort main, ushort sub, GordianKey key, AnimationCategory expected,
+            bool walking = false)
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
@@ -89,9 +96,11 @@ namespace Gordian.Engine.Tests.Animation
                 return category;
             }
 
+            input.IsWalking = walking;
             input.SetKeyDown(key);
             for (int i = 0; i < 100; i++) Frame();
             Assert.Equal(expected, me.Animation.Current);
+            Assert.Equal(walking, me.Speed < 40); // the walk moves at half the run's speed
             var locomotion = NpcStanceResolver.ResolveTargetClip(model, expected);
             Assert.Same(locomotion, me.Animation.CurrentClip);
 
