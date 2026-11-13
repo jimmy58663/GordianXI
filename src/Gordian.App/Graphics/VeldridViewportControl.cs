@@ -644,6 +644,8 @@ namespace Gordian.App.Graphics
 
         private VeldridDeviceManager _deviceManager = new();
         private ZoneTerrainRenderer? _renderer;
+        private Gordian.Engine.Actions.SubTargetSelection? _flashingSubTarget;
+        private long _subTargetFlashStart;
         private StockUiRenderer? _stockUiRenderer;
         private IntPtr _childHwnd = IntPtr.Zero;
         private IntPtr _arrowCursor = IntPtr.Zero;
@@ -1024,9 +1026,24 @@ namespace Gordian.App.Graphics
                                 // The sub-target cursor (#240) has its own anchor; the target keeps its cursor (retail capture 2026-10-11).
                                 entityRenderer.SubTargetServerId = actions?.SubTargeting?.Current.ServerId ?? 0;
                                 // Retail's area-of-effect range guide around the entity under the cursor (#356).
-                                _renderer.AoeGuide = Gordian.Engine.Actions.AreaOfEffectGuide.For(actions?.SubTargeting, actions?.Catalog) is { } guide
-                                    ? (guide.Center.ServerId, guide.Radius)
-                                    : null;
+                                var subTargeting = actions?.SubTargeting;
+                                _renderer.AoeGuide = actions?.AreaOfEffect is { } guide ? (guide.Center.ServerId, guide.Radius) : null;
+                                // The sub-target and the characters its circle would affect flash continuously while the cursor is up
+                                // (#356 round 1), from when it opened.
+                                if (!ReferenceEquals(subTargeting, _flashingSubTarget))
+                                {
+                                    _flashingSubTarget = subTargeting;
+                                    _subTargetFlashStart = Stopwatch.GetTimestamp();
+                                }
+                                entityRenderer.SubTargetFlashServerIds.Clear();
+                                if (subTargeting != null)
+                                {
+                                    entityRenderer.SubTargetFlashServerIds.Add(subTargeting.Current.ServerId);
+                                    foreach (var affected in actions!.AreaOfEffectTargets()) entityRenderer.SubTargetFlashServerIds.Add(affected.ServerId);
+                                }
+                                entityRenderer.SubTargetFlashAmount = subTargeting != null
+                                    ? TargetFlash.Continuous(Stopwatch.GetElapsedTime(_subTargetFlashStart).TotalSeconds)
+                                    : 0.0f;
                                 entityRenderer.TargetServerId = target?.ServerId ?? 0;
                                 entityRenderer.TargetFlashAmount = target != null && actions!.TargetSelectedTimestamp != 0
                                     ? TargetFlash.Intensity(Stopwatch.GetElapsedTime(actions.TargetSelectedTimestamp).TotalSeconds)

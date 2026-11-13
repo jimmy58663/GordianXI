@@ -2,7 +2,9 @@
 using System;
 using System.Buffers.Binary;
 using System.Linq;
+using System.Numerics;
 using System.Threading.Tasks;
+using Gordian.Core.Config;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Resources.Containers;
 using Gordian.Core.Resources.Tables;
@@ -15,7 +17,7 @@ namespace Gordian.Engine.Tests.Actions
     /// <summary>The area-of-effect range guide's state (#356): which cursor gets one, where and how big.</summary>
     public class AreaOfEffectGuideTests
     {
-        private const ushort Cure = 1, Curaga = 7, HordeLullaby = 376, Breath = 536;
+        private const ushort Cure = 1, Curaga = 7, Diaga = 33, HordeLullaby = 376, Breath = 536;
         private const ushort CircleBlade = 38, FightersRoll = 98;
 
         private static ActionCatalog Catalog()
@@ -24,6 +26,7 @@ namespace Gordian.Engine.Tests.Actions
             Spell(spells, Cure, radius: 0, shape: 0);
             Spell(spells, Curaga, radius: 8, shape: 1);
             Spell(spells, HordeLullaby, radius: 3, shape: 1);
+            Spell(spells, Diaga, radius: 8, shape: 1);
             Spell(spells, Breath, radius: 4, shape: 2);
             var commands = new byte[SpellCommandTables.CommandRecordSize * 2816];
             Command(commands, CircleBlade, type: 3, radius: 3, shape: 1);
@@ -104,6 +107,59 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Null(AreaOfEffectGuide.For(Cursor(ActionKind.Item, Curaga, Self), catalog));
             Assert.Null(AreaOfEffectGuide.For(null, catalog));
             Assert.Null(AreaOfEffectGuide.For(Cursor(ActionKind.Spell, Curaga, Self), null));
+        }
+
+        private const uint SelfId = 0x01020304;
+
+        /// <summary>A session with yourself at the origin, a party of three around you and a stranger and a monster in range.</summary>
+        private static (PlayerActionService Service, WorldState World) Session()
+        {
+            var world = new WorldState();
+            var local = new LocalPlayerState { ServerId = SelfId };
+            var party = new PartyState();
+            var profile = new SessionProfile();
+            Task Capture(ReadOnlyMemory<byte> mem, bool urgent) => Task.CompletedTask;
+            var service = new PlayerActionService(profile, world, local,
+                new CombatPacketModule(new CombatState(), local, Capture), new ChatPacketModule(Capture),
+                new PartyPacketModule(party, Capture), new EntityPacketModule(world, local, Capture),
+                new LifecyclePacketModule(profile, Capture), Capture)
+            { Catalog = Catalog() };
+            void Add(uint id, ushort index, EntityType type, string name, Vector3 at, bool member)
+            {
+                world.UpsertEntity(new WorldEntity(id, index, type) { Name = name, Position = at, Hpp = 100 });
+                if (member) party.UpsertMember(new PartyMember { ServerId = id, Name = name, MemberNumber = (byte)(index - 10) });
+            }
+            Add(SelfId, 10, EntityType.Player, "Gemini", Vector3.Zero, true);
+            Add(0x0A, 11, EntityType.Player, "Near", new Vector3(10, 0, 0), true);
+            Add(0x0B, 12, EntityType.Player, "Upstairs", new Vector3(0, 6, 12), true);   // higher up, horizontally inside
+            Add(0x0C, 13, EntityType.Player, "Far", new Vector3(20, 0, 0), true);        // outside 17.6
+            Add(0x0D, 14, EntityType.Player, "Stranger", new Vector3(5, 0, 0), false);   // not in the party
+            Add(0x0E, 15, EntityType.Monster, "Hare", new Vector3(3, 0, 3), false);
+            return (service, world);
+        }
+
+        [Fact]
+        public void AffectedCharacters_AreYourPartyInsideTheCircle()
+        {
+            var (service, _) = Session();
+            service.BeginSubTarget(ActionKind.Spell, Curaga, "Curaga", ActionTargetFlags.Self | ActionTargetFlags.Party);
+            Assert.Equal(SelfId, service.SubTargeting!.Current.ServerId);
+            var affected = service.AreaOfEffectTargets().Select(e => e.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "Gemini", "Near", "Upstairs" }, affected);
+        }
+
+        [Fact]
+        public void AffectedCharacters_NoneForEnemyActionsOrSingleTargets()
+        {
+            var (service, _) = Session();
+            service.BeginSubTarget(ActionKind.Spell, Diaga, "Diaga", ActionTargetFlags.Enemy);
+            Assert.NotNull(service.SubTargeting);
+            Assert.Empty(service.AreaOfEffectTargets());
+
+            service.CancelSubTarget();
+            service.BeginSubTarget(ActionKind.Spell, Cure, "Cure", ActionTargetFlags.Self | ActionTargetFlags.Party);
+            Assert.Null(service.AreaOfEffect);
+            Assert.Empty(service.AreaOfEffectTargets());
         }
     }
 }

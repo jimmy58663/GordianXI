@@ -24,6 +24,17 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
+        public void ContinuousFlash_RepeatsThePulseWithoutStopping()
+        {
+            Assert.Equal(0.0f, TargetFlash.Continuous(0.0));
+            Assert.Equal(TargetFlash.PeakLight, TargetFlash.Continuous(TargetFlash.PulseSeconds / 2), 3);
+            Assert.Equal(TargetFlash.Intensity(TargetFlash.PulseSeconds * 1.25), TargetFlash.Continuous(TargetFlash.PulseSeconds * 1.25), 3);
+            // Past the three pulses of a new target it keeps going.
+            Assert.Equal(TargetFlash.PeakLight, TargetFlash.Continuous(TargetFlash.PulseSeconds * 10.5), 3);
+            Assert.Equal(0.0f, TargetFlash.Continuous(-1.0));
+        }
+
+        [Fact]
         public void ProjectToScreen_MapsClipSpaceToPixels()
         {
             // Identity view-projection: clip space is the display point itself.

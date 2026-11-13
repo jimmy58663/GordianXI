@@ -101,6 +101,9 @@ namespace Gordian.App.Graphics
             return FallbackColors[Math.Clamp(index, 0, FallbackColors.Length - 1)];
         }
 
+        /// <summary>How much larger the name plate of a character the sub-target's AoE circle would affect is drawn (#356 round 1).</summary>
+        public const float AoeAffectedScale = 2.0f;
+
         /// <summary>
         /// Draws every plate far to near and returns where the target's went (null when it has none on screen).
         /// </summary>
@@ -123,6 +126,9 @@ namespace Gordian.App.Graphics
             foreach (var member in session.Party.Members) claimGroup.Add(member.ServerId);
             uint targetId = session.ActionService.CurrentTarget?.ServerId ?? 0;
             uint subTargetId = session.ActionService.SubTargeting?.Current.ServerId ?? 0;
+            // The characters the sub-target cursor's AoE circle would affect show their names at twice the size (#356 round 1).
+            HashSet<uint>? magnified = null;
+            foreach (var affected in session.ActionService.AreaOfEffectTargets()) (magnified ??= new()).Add(affected.ServerId);
 
             NamePlateBounds? target = null;
             foreach (var anchor in ordered)
@@ -148,7 +154,8 @@ namespace Gordian.App.Graphics
                 }
 
                 var bounds = DrawPlate(renderer, font, entity.Name, anchor, color, icon, iconTint,
-                    (flags & NamePlateFlags.JobMaster) != 0, width, height, sizeMultiplier);
+                    (flags & NamePlateFlags.JobMaster) != 0, width, height,
+                    magnified != null && magnified.Contains(entity.ServerId) ? sizeMultiplier * AoeAffectedScale : sizeMultiplier);
                 if (bounds is { } drawn && entity.ServerId == targetId) target = drawn;
                 if (bounds is { } drawnSub && subTargetId != 0 && entity.ServerId == subTargetId) subTarget = drawnSub;
             }
