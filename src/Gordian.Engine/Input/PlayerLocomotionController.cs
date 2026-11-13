@@ -3,6 +3,7 @@
 // FFXI coordinate space specifications: 0=East (+X), 64=South (-Z), 128=West (-X), 192=North (+Z).
 
 using System;
+using Gordian.Core.Profiles;
 using System.Numerics;
 using Gordian.Engine.Actions;
 using Gordian.Core.Config;
@@ -30,8 +31,41 @@ namespace Gordian.Engine.Input
         public CameraMode CameraMode
         {
             get => _camera.Mode;
-            set => _camera.Mode = value;
+            set
+            {
+                // The free camera remembers the view it was entered from, for the zoom that is saved meanwhile (#550).
+                if (value == CameraMode.FreeCam && _camera.Mode != CameraMode.FreeCam) _modeBeforeFreeCam = _camera.Mode;
+                if (value != CameraMode.FreeCam) lock (_freeCamLock) _pendingFreeCamLook = null;
+                _camera.Mode = value;
+            }
         }
+
+        private readonly object _freeCamLock = new();
+        private (float Pitch, float Yaw)? _pendingFreeCamLook;
+
+        /// <summary>
+        /// Starts the free camera looking along <paramref name="pitch"/> / <paramref name="yaw"/> (degrees,
+        /// <see cref="ViewportCamera.FreeCamForward"/>): the viewport works out where the free camera opens
+        /// (<see cref="ViewportCamera.FreeCamEntryPose"/>, #551) and hands its look here, since the free camera's pitch tilts
+        /// the other way to first person's and a lock-on view looks off the orbit yaw. Thread-safe (the viewport renders on
+        /// its own thread); the next input tick takes it, and <see cref="FreeCamLook"/> reports it until then.
+        /// </summary>
+        public void BeginFreeCam(float pitch, float yaw)
+        {
+            if (_camera.Mode != CameraMode.FreeCam) return;
+            lock (_freeCamLock) _pendingFreeCamLook = (Math.Clamp(pitch, -80.0f, 80.0f), NormalizeDegrees(yaw));
+        }
+
+        /// <summary>The free camera's look (pitch, yaw in degrees): one <see cref="BeginFreeCam"/> asked for, else the controller's.</summary>
+        public (float Pitch, float Yaw) FreeCamLook
+        {
+            get
+            {
+                lock (_freeCamLock) return _pendingFreeCamLook ?? (CameraPitch, CameraYaw);
+            }
+        }
+
+        private CameraMode _modeBeforeFreeCam = CameraMode.ThirdPersonOrbital;
 
         public void ToggleCameraMode()
         {
@@ -71,6 +105,17 @@ namespace Gordian.Engine.Input
         /// tick-driven position and camera angles by when they were actually simulated.
         /// </summary>
         public long LastUpdateTimestamp { get; private set; }
+
+        /// <summary>
+        /// What the latest tick left, published in one piece once the tick has finished (#547): the player's position and
+        /// precise heading and the orbit angles, with the time the tick ran. A renderer on another thread reads this
+        /// instead of the live fields, which a running tick changes one by one: reading them mid-tick paired the new
+        /// tick's time with the old position or yaw, so the shown player and camera stepped back for a frame and on again.
+        /// Null until the first tick.
+        /// </summary>
+        public LocomotionTick? LastTick => System.Threading.Volatile.Read(ref _lastTick);
+
+        private LocomotionTick? _lastTick;
 
         /// <summary>See <see cref="EntityGrounding.StepUpHeight"/>.</summary>
         public const float StepUpHeight = EntityGrounding.StepUpHeight;
@@ -234,7 +279,97 @@ namespace Gordian.Engine.Input
         // Camera Spherical Angles (in degrees and yalms)
         public float CameraPitch { get; set; } = 15.0f; // degrees (-80 to +80)
         public float CameraYaw { get; set; } = 0.0f;    // degrees (0 to 360)
-        public float CameraDistance { get; set; } = 6.0f; // yalms (1.5 to 25.0)
+        public float CameraDistance { get; set; } = DefaultCameraDistance; // yalms (0.5 to 30.0)
+
+        /// <summary>
+        /// The third-person camera distance a profile starts at before it has saved a zoom of its own, in yalms (#550): two
+        /// mouse-wheel notches (<see cref="InputProfile.MouseWheelZoomStep"/>, 1 yalm) further out than the 6.0 the camera
+        /// used to start at, which the maintainer found too close (2026-11-13). Not derived from retail.
+        /// </summary>
+        public const float DefaultCameraDistance = 8.0f;
+
+        /// <summary>Nearest and furthest third-person camera distance the zoom allows, in yalms.</summary>
+        public const float MinCameraDistance = 0.5f, MaxCameraDistance = 30.0f;
+
+        /// <summary>The distance the first-person camera keeps, and the one zooming out of first person jumps to.</summary>
+        public const float FirstPersonCameraDistance = 0.5f, FirstPersonExitDistance = 2.0f;
+
+        /// <summary>Zooming in from this third-person distance or closer switches to first person, in yalms.</summary>
+        public const float FirstPersonZoomThreshold = 1.6f;
+
+        /// <summary>
+        /// How long the zoom must stay unchanged before <see cref="ZoomSettled"/> reports it for saving, in seconds, so a
+        /// run of wheel notches or a held zoom key writes the profile once, not on every step (#550).
+        /// </summary>
+        public const float ZoomSaveDelaySeconds = 1.0f;
+
+        /// <summary>
+        /// Raised (on the input thread) once the zoom has stayed at a new value for <see cref="ZoomSaveDelaySeconds"/>:
+        /// the shell saves it on the account profile (#550). Not raised for the zoom <see cref="RestoreZoom"/> put back.
+        /// </summary>
+        public event Action<CameraZoom>? ZoomSettled;
+
+        /// <summary>
+        /// The zoom to save: the base <see cref="CameraDistance"/> (never <see cref="EffectiveCameraDistance"/>, which
+        /// carries the lock-on zoom) and whether the view is first person. In the free camera it is the view the free
+        /// camera was entered from.
+        /// </summary>
+        public CameraZoom CurrentZoom => new()
+        {
+            Distance = CameraDistance,
+            FirstPerson = (_camera.Mode == CameraMode.FreeCam ? _modeBeforeFreeCam : _camera.Mode) == CameraMode.FirstPerson,
+        };
+
+        // The default zoom counts as saved: a profile that never zooms writes nothing.
+        private CameraZoom _settledZoom = new() { Distance = DefaultCameraDistance };
+        private CameraZoom _watchedZoom = new() { Distance = DefaultCameraDistance };
+        private float _zoomQuietSeconds;
+
+        /// <summary>
+        /// Puts back a saved zoom (#550): the distance (clamped to the zoom range) and first or third person. Call before
+        /// the first frame so the camera does not visibly jump; null keeps <see cref="DefaultCameraDistance"/>.
+        /// </summary>
+        public void RestoreZoom(CameraZoom? zoom)
+        {
+            if (zoom == null) return;
+            float distance = float.IsFinite(zoom.Distance) ? Math.Clamp(zoom.Distance, MinCameraDistance, MaxCameraDistance) : DefaultCameraDistance;
+            if (zoom.FirstPerson)
+            {
+                _camera.Mode = CameraMode.FirstPerson;
+                // Zoomed in to first person, the distance is the first-person one; switched by Change View, the third-person
+                // distance it keeps for the way back.
+                CameraDistance = distance;
+            }
+            else
+            {
+                if (_camera.Mode == CameraMode.FirstPerson) _camera.Mode = CameraMode.ThirdPersonOrbital;
+                // A third-person distance inside the first-person threshold would zoom straight into first person.
+                CameraDistance = distance <= FirstPersonZoomThreshold ? FirstPersonExitDistance : distance;
+            }
+            EffectiveCameraDistance = CameraDistance;
+            _settledZoom = _watchedZoom = CurrentZoom;
+            _zoomQuietSeconds = 0f;
+        }
+
+        /// <summary>
+        /// Raises <see cref="ZoomSettled"/> once the zoom has stayed at a value other than the last saved one for
+        /// <see cref="ZoomSaveDelaySeconds"/> of input ticks.
+        /// </summary>
+        private void TrackZoomForSave(float dt)
+        {
+            var zoom = CurrentZoom;
+            if (zoom != _watchedZoom)
+            {
+                _watchedZoom = zoom;
+                _zoomQuietSeconds = 0f;
+                return;
+            }
+            if (zoom == _settledZoom) return;
+            _zoomQuietSeconds += dt;
+            if (_zoomQuietSeconds < ZoomSaveDelaySeconds) return;
+            _settledZoom = zoom;
+            ZoomSettled?.Invoke(zoom);
+        }
 
         public InputProfile Profile
         {
@@ -335,7 +470,36 @@ namespace Gordian.Engine.Input
         public void Update(TimeSpan elapsed)
         {
             if (elapsed <= TimeSpan.Zero) return;
-            LastUpdateTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            long stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            LastUpdateTimestamp = stamp;
+            try
+            {
+                UpdateTick(elapsed);
+            }
+            finally
+            {
+                PublishTick(stamp);
+            }
+        }
+
+        /// <summary>Publishes <see cref="LastTick"/> for the tick that started at <paramref name="stamp"/>.</summary>
+        private void PublishTick(long stamp)
+        {
+            uint localId = GetOrResolveLocalServerId();
+            WorldEntity? me = localId != 0 && _world.TryGetByServerId(localId, out var found) ? found : null;
+            var tick = new LocomotionTick(
+                stamp,
+                me?.ServerId ?? 0,
+                me?.Position ?? Vector3.Zero,
+                me != null ? LocalHeadingDegrees(me) * (MathF.PI / 180.0f) : 0.0f,
+                CameraYaw,
+                CameraPitch,
+                EffectiveCameraDistance);
+            System.Threading.Volatile.Write(ref _lastTick, tick);
+        }
+
+        private void UpdateTick(TimeSpan elapsed)
+        {
             _updateSeconds = elapsed.TotalSeconds;
 
             // 1. Evaluate physical keys and mouse against active profile. While a stock menu is open the menu
@@ -442,6 +606,12 @@ namespace Gordian.Engine.Input
 
             // 4. Update Locomotion (movement, strafing, turning)
             UpdateLocomotion(elapsed);
+
+            // 4a. Hold the locked-on camera in its arc again for where this tick moved the player (#547 round 2). The hold in
+            //     UpdateCamera ran before the move, so riding the arc limit the yaw trailed the player by a tick: it was
+            //     stamped with this tick's time but took the previous tick's step, which after a long tick (31 ms) left
+            //     the view behind and then caught it up double, a visible jerk at the edge of the arc while strafing.
+            if (ClampLockOnCamera()) CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
 
             // 4b. Lock-on works with a stock menu open too (the command menu stays up while engaged in retail, 2026-10-03
             //     recording); before #137 it sat behind the menu gate below, so T / NumPad * did nothing while it was open.
@@ -594,6 +764,7 @@ namespace Gordian.Engine.Input
         {
             float dt = (float)elapsed.TotalSeconds;
             bool cameraChanged = false;
+            TrackZoomForSave(dt);
 
             // Keyboard Camera Controls
             float pitchDelta = 0;
@@ -686,6 +857,16 @@ namespace Gordian.Engine.Input
                     moveDelta.Z += leftStick.Y * flySpeed * dt;
                 }
 
+                lock (_freeCamLock)
+                {
+                    if (_pendingFreeCamLook is { } look)
+                    {
+                        _camera.SetFreeCamPose(_camera.Position, look.Pitch, look.Yaw, _camera.AspectRatio);
+                        CameraPitch = look.Pitch;
+                        CameraYaw = look.Yaw;
+                        _pendingFreeCamLook = null;
+                    }
+                }
                 _camera.MoveFreeCam(moveDelta, pitchDelta, yawDelta);
                 CameraPitch = _camera.Pitch;
                 CameraYaw = _camera.Yaw;
@@ -699,7 +880,7 @@ namespace Gordian.Engine.Input
                 uint localId = GetOrResolveLocalServerId();
                 if (localId != 0 && _world.TryGetByServerId(localId, out var localEnt) && localEnt != null)
                 {
-                    CameraYaw = (localEnt.Direction / 256.0f) * 360.0f;
+                    CameraYaw = LocalHeadingDegrees(localEnt);
                 }
                 CameraPitch = 15.0f;
                 cameraChanged = true;
@@ -715,16 +896,16 @@ namespace Gordian.Engine.Input
                 if (_camera.Mode == CameraMode.FirstPerson && zoomDelta > 0)
                 {
                     _camera.Mode = CameraMode.ThirdPersonOrbital;
-                    CameraDistance = 2.0f;
+                    CameraDistance = FirstPersonExitDistance;
                 }
-                else if (_camera.Mode == CameraMode.ThirdPersonOrbital && CameraDistance <= 1.6f && zoomDelta < 0)
+                else if (_camera.Mode == CameraMode.ThirdPersonOrbital && CameraDistance <= FirstPersonZoomThreshold && zoomDelta < 0)
                 {
                     _camera.Mode = CameraMode.FirstPerson;
-                    CameraDistance = 0.5f;
+                    CameraDistance = FirstPersonCameraDistance;
                 }
                 else
                 {
-                    CameraDistance = Math.Clamp(CameraDistance + zoomDelta, 0.5f, 30.0f);
+                    CameraDistance = Math.Clamp(CameraDistance + zoomDelta, MinCameraDistance, MaxCameraDistance);
                 }
 
                 cameraChanged = true;
@@ -742,10 +923,18 @@ namespace Gordian.Engine.Input
             float lockDistance = LockOnZoomedDistance(dt);
             // The view re-aims at the target on the same eased blend as the zoom (retail recording 2026-10-03).
             var aimTarget = _camera.Mode == CameraMode.ThirdPersonOrbital ? GetLockOnTarget() : null;
-            if (aimTarget is { IsSpawned: true }) _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+            if (aimTarget is { IsSpawned: true })
+            {
+                _lastAimPoint = aimTarget.Position; // kept while the aim eases back out
+                _lastAimEntity = aimTarget;
+            }
             _camera.AimPoint = _lastAimPoint;
             _camera.AimBlend = LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * _lockZoomBlend * _lockZoomBlend * (3f - (2f * _lockZoomBlend)) : 0f;
-            if (_lockZoomBlend <= 0f) _lastAimPoint = null;
+            if (_lockZoomBlend <= 0f)
+            {
+                _lastAimPoint = null;
+                _lastAimEntity = null;
+            }
             _camera.Update(targetPos, CameraPitch, CameraYaw, lockDistance, _camera.AspectRatio);
 
             if (cameraChanged)
@@ -1042,8 +1231,8 @@ namespace Gordian.Engine.Input
                     float speedYalmsPerSec = moveSpeed * 0.1f;
                     float distance = speedYalmsPerSec * dt;
 
-                    var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                    var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                    var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
+                    var right = WorldEntity.RightOf(LocalHeadingRadians(localEnt));
                     float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
                     float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
 
@@ -1076,8 +1265,7 @@ namespace Gordian.Engine.Input
                 float steer = Math.Clamp(leftStick.X, -1.0f, 1.0f);
                 if (steer != 0f)
                 {
-                    float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                    localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg + steer * _profile.TurnSpeedDegreesPerSec * dt));
+                    SetLocalHeading(localEnt, LocalHeadingDegrees(localEnt) + (steer * _profile.TurnSpeedDegreesPerSec * dt));
                 }
                 localEnt.LocomotionDirection = LocomotionDirection.Forward;
                 FollowHeadingWithCamera(localEnt, dt);
@@ -1085,7 +1273,7 @@ namespace Gordian.Engine.Input
                 byte autoSpeed = _inputState.IsWalking ? GetEffectiveWalkSpeed(localEnt) : GetEffectiveRunSpeed(localEnt);
                 localEnt.Speed = autoSpeed;
                 float autoDistance = autoSpeed * 0.1f * dt;
-                var autoFwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                var autoFwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
                 MoveHorizontally(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
@@ -1112,7 +1300,7 @@ namespace Gordian.Engine.Input
                 float speedYalmsPerSec = padSpeed * 0.1f;
                 float distance = speedYalmsPerSec * dt;
 
-                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
+                var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
                 MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
@@ -1142,9 +1330,7 @@ namespace Gordian.Engine.Input
             if (turnInput != 0)
             {
                 // Positive turn input (stick right) turns right, which is an increasing wire heading.
-                float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
-                headingDeg = NormalizeDegrees(headingDeg + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
-                localEnt.Direction = WorldEntity.DirectionFromDegrees(headingDeg);
+                SetLocalHeading(localEnt, LocalHeadingDegrees(localEnt) + (turnInput * _profile.TurnSpeedDegreesPerSec * dt));
             }
 
             // 4. Calculate displacement
@@ -1184,8 +1370,8 @@ namespace Gordian.Engine.Input
                     distance /= MathF.Sqrt(2.0f);
                 }
 
-                var fwd = WorldEntity.ForwardOf(localEnt.HeadingRadians);
-                var right = WorldEntity.RightOf(localEnt.HeadingRadians);
+                var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
+                var right = WorldEntity.RightOf(LocalHeadingRadians(localEnt));
                 float dx = (fwd.X * forwardInput + right.X * strafeInput) * distance;
                 float dz = (fwd.Y * forwardInput + right.Y * strafeInput) * distance;
 
@@ -1397,23 +1583,59 @@ namespace Gordian.Engine.Input
         {
             float toTargetDeg = WorldEntity.HeadingOf(toTgtX, toTgtZ) * (180.0f / MathF.PI);
             TurnTowards(localEnt, NormalizeDegrees(toTargetDeg), dt);
-            localEnt.RenderHeadingRadians = localEnt.HeadingRadians;
+            localEnt.RenderHeadingRadians = LocalHeadingRadians(localEnt);
         }
 
         private void TurnTowards(WorldEntity localEnt, float targetHeadingDeg, float dt)
         {
-            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float headingDeg = LocalHeadingDegrees(localEnt);
             float diff = WrapDegrees(targetHeadingDeg - headingDeg);
             float maxStep = FacingTurnSpeedDegreesPerSec * dt;
             headingDeg = MathF.Abs(diff) <= maxStep ? targetHeadingDeg : headingDeg + (MathF.Sign(diff) * maxStep);
-            localEnt.Direction = WorldEntity.DirectionFromDegrees(NormalizeDegrees(headingDeg));
+            SetLocalHeading(localEnt, headingDeg);
+        }
+
+        private float _localHeadingDeg;
+        private byte _localHeadingByte;
+        private uint _localHeadingEntity;
+        private bool _hasLocalHeading;
+
+        /// <summary>
+        /// The player's heading in wire degrees, kept to full precision (#547). The entity's <c>Direction</c> is the
+        /// wire byte (256 steps, 1.4 degrees each); turning from that byte and moving along it stepped the facing and
+        /// the strafe direction by whole steps, unevenly from tick to tick, so circling a mob ran a polygon and the
+        /// model turned in jerks. Anything else that sets <c>Direction</c> (a server placement, an event) is taken up
+        /// here as soon as the byte no longer matches.
+        /// </summary>
+        private float LocalHeadingDegrees(WorldEntity localEnt)
+        {
+            if (!_hasLocalHeading || _localHeadingEntity != localEnt.ServerId || _localHeadingByte != localEnt.Direction)
+            {
+                _localHeadingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+                _localHeadingByte = localEnt.Direction;
+                _localHeadingEntity = localEnt.ServerId;
+                _hasLocalHeading = true;
+            }
+            return _localHeadingDeg;
+        }
+
+        private float LocalHeadingRadians(WorldEntity localEnt) => LocalHeadingDegrees(localEnt) * (MathF.PI / 180.0f);
+
+        /// <summary>Turns the player to <paramref name="headingDeg"/>: kept precisely here, sent as the wire byte.</summary>
+        private void SetLocalHeading(WorldEntity localEnt, float headingDeg)
+        {
+            _localHeadingDeg = NormalizeDegrees(headingDeg);
+            _localHeadingByte = WorldEntity.DirectionFromDegrees(_localHeadingDeg);
+            localEnt.Direction = _localHeadingByte;
+            _localHeadingEntity = localEnt.ServerId;
+            _hasLocalHeading = true;
         }
 
         private void FollowHeadingWithCamera(WorldEntity localEnt, float dt)
         {
             if (_cameraYawInputThisFrame || _camera.Mode != CameraMode.ThirdPersonOrbital) return;
 
-            float headingDeg = (localEnt.Direction / 256.0f) * 360.0f;
+            float headingDeg = LocalHeadingDegrees(localEnt);
             float diff = WrapDegrees(headingDeg - CameraYaw);
             CameraYaw = NormalizeDegrees(CameraYaw + (diff * MathF.Min(1.0f, dt * CameraFollowRate)));
         }
@@ -1817,13 +2039,15 @@ namespace Gordian.Engine.Input
         /// The camera distance to draw with: <see cref="CameraDistance"/> with the lock-on zoom applied. The viewport
         /// draws with its own camera, so it must read this, not <see cref="CameraDistance"/> (#137).
         /// </summary>
-        public float EffectiveCameraDistance { get; private set; } = 6.0f;
+        public float EffectiveCameraDistance { get; private set; } = DefaultCameraDistance;
 
         /// <summary>How far the view is turned toward <see cref="LockOnAimPoint"/> (0 when not locked on).</summary>
         public float LockOnAimBlend { get; private set; }
 
         /// <summary>The locked-on target's position (internal space), kept while the aim eases back out; null when none.</summary>
         public Vector3? LockOnAimPoint => _lastAimPoint;
+
+        private WorldEntity? _lastAimEntity;
 
         /// <summary>
         /// Sets <paramref name="renderCamera"/>'s aim for this frame: the viewport's own camera works in display space
@@ -1832,7 +2056,10 @@ namespace Gordian.Engine.Input
         public void ApplyLockOnAim(ViewportCamera renderCamera)
         {
             ArgumentNullException.ThrowIfNull(renderCamera);
-            var aim = LockOnAimPoint;
+            // The target's live position (#547): a mob's position is played back every frame on the render thread, while
+            // LockOnAimPoint is sampled on the irregular input tick (16 / 31 ms). Aiming at that sample stepped the view
+            // yaw toward a target that moves on each tick, which shook the whole view while circling or strafing a mob.
+            var aim = _lastAimPoint is null ? null : _lastAimEntity is { IsSpawned: true } live ? live.Position : _lastAimPoint;
             renderCamera.AimPoint = aim is { } a ? new Vector3(-a.X, -a.Y, a.Z) : null;
             renderCamera.AimBlend = LockOnAimBlend;
         }

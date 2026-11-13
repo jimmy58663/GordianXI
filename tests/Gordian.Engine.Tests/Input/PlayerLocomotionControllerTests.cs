@@ -1058,5 +1058,358 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(50, localEnt.Speed);
             Assert.InRange(localEnt.Position.X, 4.99f, 5.01f);
         }
+
+        /// <summary>A profile with no saved zoom starts two wheel notches further out than the old 6.0 (#550).</summary>
+        [Fact]
+        public void CameraZoom_DefaultsToTwoNotchesOut()
+        {
+            var (controller, _, _, _, _) = CreateTestHarness();
+            Assert.Equal(8.0f, PlayerLocomotionController.DefaultCameraDistance);
+            Assert.Equal(6.0f + (2 * controller.Profile.MouseWheelZoomStep), controller.CameraDistance);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(8.0f, controller.EffectiveCameraDistance);
+            controller.RestoreZoom(null);
+            Assert.Equal(8.0f, controller.CameraDistance);
+        }
+
+        /// <summary>A run of wheel notches is reported once, after the zoom has stayed put for the save delay (#550).</summary>
+        [Fact]
+        public void CameraZoom_SettledZoomIsReportedOnce()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            var saved = new System.Collections.Generic.List<Gordian.Core.Profiles.CameraZoom>();
+            controller.ZoomSettled += saved.Add;
+            for (int notch = 0; notch < 3; notch++)
+            {
+                input.AddMouseWheel(-1f); // three notches out
+                controller.Update(TimeSpan.FromMilliseconds(100));
+            }
+            Assert.Equal(11.0f, controller.CameraDistance, 3);
+            Assert.Empty(saved);
+            for (int i = 0; i < 15; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            var only = Assert.Single(saved);
+            Assert.Equal(11.0f, only.Distance, 3);
+            Assert.False(only.FirstPerson);
+        }
+
+        /// <summary>Zooming into first person saves first person (#550).</summary>
+        [Fact]
+        public void CameraZoom_FirstPersonIsSaved()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            Gordian.Core.Profiles.CameraZoom? saved = null;
+            controller.ZoomSettled += z => saved = z;
+            controller.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = 2.0f });
+            input.AddMouseWheel(1f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.AddMouseWheel(1f);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(CameraMode.FirstPerson, controller.CameraMode);
+            for (int i = 0; i < 15; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.NotNull(saved);
+            Assert.True(saved!.FirstPerson);
+        }
+
+        /// <summary>The lock-on zoom only scales what is drawn: it is never the zoom that is saved (#550).</summary>
+        [Fact]
+        public void CameraZoom_LockOnZoomIsNotSaved()
+        {
+            var (controller, _, _, _, actionService, _) = EngagedHarness(lockOn: false);
+            int reports = 0;
+            controller.ZoomSettled += _ => reports++;
+            actionService.ToggleLockOn();
+            Assert.True(actionService.IsLockedOn);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.True(controller.EffectiveCameraDistance < PlayerLocomotionController.DefaultCameraDistance - 1f);
+            Assert.Equal(PlayerLocomotionController.DefaultCameraDistance, controller.CurrentZoom.Distance);
+            Assert.Equal(0, reports);
+        }
+
+        /// <summary>A saved zoom comes back as it was, third and first person, without being reported again (#550).</summary>
+        [Theory]
+        [InlineData(13.0f, false, 13.0f, CameraMode.ThirdPersonOrbital)]
+        [InlineData(0.5f, true, 0.5f, CameraMode.FirstPerson)]
+        [InlineData(9.0f, true, 9.0f, CameraMode.FirstPerson)] // switched by Change View: keeps the way-back distance
+        [InlineData(1.2f, false, 2.0f, CameraMode.ThirdPersonOrbital)] // inside the first-person threshold
+        [InlineData(99f, false, 30.0f, CameraMode.ThirdPersonOrbital)]
+        public void CameraZoom_RestoreRoundTrip(float distance, bool firstPerson, float expectedDistance, CameraMode expectedMode)
+        {
+            var (first, input, _, _, _) = CreateTestHarness();
+            first.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = distance, FirstPerson = firstPerson });
+            var saved = first.CurrentZoom;
+
+            var (second, _, _, _, _) = CreateTestHarness();
+            int reports = 0;
+            second.ZoomSettled += _ => reports++;
+            second.RestoreZoom(saved);
+            Assert.Equal(expectedDistance, second.CameraDistance);
+            Assert.Equal(expectedMode, second.CameraMode);
+            Assert.Equal(saved, second.CurrentZoom);
+            for (int i = 0; i < 15; i++) second.Update(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(0, reports);
+        }
+
+        /// <summary>The free camera saves the zoom of the view it was entered from (#550).</summary>
+        [Fact]
+        public void CameraZoom_FreeCameraKeepsTheViewItCameFrom()
+        {
+            var (controller, _, _, _, _) = CreateTestHarness();
+            controller.RestoreZoom(new Gordian.Core.Profiles.CameraZoom { Distance = 10f, FirstPerson = true });
+            controller.ToggleCameraMode(); // first person -> free camera
+            Assert.Equal(CameraMode.FreeCam, controller.CameraMode);
+            Assert.True(controller.CurrentZoom.FirstPerson);
+            Assert.Equal(10f, controller.CurrentZoom.Distance);
+        }
+    
+        /// <summary>
+        /// The view hands the free camera its entry look (#551); the controller reports it at once and flies along it from
+        /// the next tick. Outside the free camera it is ignored.
+        /// </summary>
+        [Fact]
+        public void BeginFreeCam_SetsTheFreeCameraLook()
+        {
+            var (controller, input, _, _, _) = CreateTestHarness();
+            controller.BeginFreeCam(30f, 100f);
+            Assert.Equal((controller.CameraPitch, controller.CameraYaw), controller.FreeCamLook);
+
+            controller.ToggleFreeCam();
+            controller.BeginFreeCam(30f, 100f);
+            Assert.Equal((30f, 100f), controller.FreeCamLook);
+            input.SetKeyDown(GordianKey.W);
+            var before = controller.Camera.Position;
+            controller.Update(TimeSpan.FromMilliseconds(100));
+            Assert.Equal(30f, controller.CameraPitch, 3);
+            Assert.Equal(100f, controller.CameraYaw, 3);
+            var moved = Vector3.Normalize(controller.Camera.Position - before);
+            Assert.True(Vector3.Dot(moved, ViewportCamera.FreeCamForward(30f, 100f)) > 0.999f);
+
+            controller.ToggleFreeCam(); // leaving drops a look not yet taken
+            controller.BeginFreeCam(-10f, 5f);
+            Assert.Equal((controller.CameraPitch, controller.CameraYaw), controller.FreeCamLook);
+        }
+        /// <summary>
+        /// The lock-on view aims at the target where it is drawn now, not where the last input tick saw it (#547): a mob's
+        /// position is played back every frame, between the ticks.
+        /// </summary>
+        [Fact]
+        public void LockOnAim_FollowsTheTargetsLivePosition()
+        {
+            var (controller, _, _, _, _, mob) = EngagedHarness(lockOn: true);
+            for (int i = 0; i < 20; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            mob.Position = new Vector3(3f, 0f, 11f); // moved by playback since the tick
+            var camera = new ViewportCamera();
+            controller.ApplyLockOnAim(camera);
+            Assert.Equal(new Vector3(-3f, 0f, 11f), camera.AimPoint);
+            Assert.True(camera.AimBlend > 0.99f);
+        }
+
+        /// <summary>
+        /// Locked on and strafing round a mob that moves (#547), with input ticks of 16 ms and an occasional 31 ms, drawn at
+        /// 144 fps through the viewport's path (tick smoothers, orbit camera, lock-on aim): the view turns at an even rate.
+        /// The aim at the tick's sample of the target and a render delay that jumped with the tick intervals made the view
+        /// yaw rate jump from frame to frame.
+        /// </summary>
+        [Fact]
+        public void LockOnCircling_ViewTurnsEvenly()
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            controller.CameraDistance = 8f;
+            input.SetKeyDown(GordianKey.D); // strafe right round the mob
+            var camera = new ViewportCamera();
+            var playerSmoother = new TickPositionSmoother();
+            var orbitSmoother = new TickPositionSmoother(snapDistance: 120.0f);
+            double tickTime = 0.0, nextTick = 0.0;
+            int tick = 0;
+            float unwrappedYaw = controller.CameraYaw, lastRawYaw = controller.CameraYaw;
+            float? lastHeading = null, lastRate = null;
+            float largestRateChange = 0f;
+            const double frame = 1.0 / 144.0;
+            for (int f = 0; f < 144 * 3; f++)
+            {
+                double now = f * frame;
+                mob.Position += new Vector3(1.5f * (float)frame, 0f, 0f); // the mob drifts, played back every frame
+                while (nextTick <= now)
+                {
+                    double interval = ++tick % 12 == 0 ? 0.031 : 0.016;
+                    controller.Update(TimeSpan.FromSeconds(nextTick - tickTime));
+                    tickTime = nextTick;
+                    nextTick += interval;
+                }
+
+                float yawStep = controller.CameraYaw - lastRawYaw;
+                yawStep -= 360f * MathF.Round(yawStep / 360f);
+                unwrappedYaw += yawStep;
+                lastRawYaw = controller.CameraYaw;
+                var orbit = orbitSmoother.Update(new Vector3(unwrappedYaw, controller.CameraPitch, controller.EffectiveCameraDistance), tickTime, now);
+                var player = playerSmoother.Update(me.Position, tickTime, now);
+                camera.Mode = controller.Camera.Mode;
+                controller.ApplyLockOnAim(camera);
+                camera.Update(new Vector3(-player.X, -player.Y, player.Z), orbit.Y, orbit.X, orbit.Z, 16f / 9f, (float)frame);
+
+                var view = camera.Forward;
+                float heading = MathF.Atan2(view.Z, view.X) * (180f / MathF.PI);
+                if (lastHeading is { } previous)
+                {
+                    float turned = heading - previous;
+                    turned -= 360f * MathF.Round(turned / 360f);
+                    float rate = turned / (float)frame;
+                    if (f > 144 && lastRate is { } lr) largestRateChange = MathF.Max(largestRateChange, MathF.Abs(rate - lr));
+                    lastRate = rate;
+                }
+                lastHeading = heading;
+            }
+
+            Assert.True(Vector3.Distance(me.Position, Vector3.Zero) > 5f, "the player moved round the mob");
+            // Degrees per second, frame to frame: 57.8 before #547 (a 0.4 degree jolt in a frame), 7.3 after (the turn of a
+            // path drawn straight between ticks).
+            Assert.True(largestRateChange < 12f, $"view yaw rate jumped by {largestRateChange:F1} degrees/s between frames");
+        }
+        /// <summary>
+        /// Locked on with the camera riding the arc limit (#547 round 2: "at the edge of the camera angle while strafing"):
+        /// pushed to the limit, then strafing so the target drags the camera along. Drawn at 144 fps through the viewport's
+        /// path (the published tick, tick smoothers, orbit camera, lock-on aim), the view turns evenly, the character moves
+        /// evenly across the screen and the model turns evenly. The heading kept only as the wire byte (1.4 degree steps)
+        /// made the strafe run a polygon and the facing step unevenly from tick to tick.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.A, GordianKey.L)]
+        [InlineData(GordianKey.D, GordianKey.J)]
+        [InlineData(GordianKey.S, GordianKey.L)]
+        public void LockOnAtTheArcLimit_StrafingStaysSmooth(GordianKey strafe, GordianKey pushCamera)
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            controller.CameraDistance = 8f;
+            controller.CameraYaw = NorthYaw;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(pushCamera);
+            for (int i = 0; i < 60; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyUp(pushCamera);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(strafe);
+
+            var camera = new ViewportCamera();
+            var playerSmoother = new TickPositionSmoother();
+            var orbitSmoother = new TickPositionSmoother(snapDistance: 120.0f);
+            var headingSmoother = new TickPositionSmoother(snapDistance: 1000.0f);
+            double tickTime = 0.0, nextTick = 0.0;
+            int tick = 0;
+            float unwrappedYaw = controller.CameraYaw, lastRawYaw = controller.CameraYaw;
+            float unwrappedHeading = controller.LastTick!.PlayerHeadingRadians, lastRawHeading = unwrappedHeading;
+            float? lastView = null, lastViewRate = null, lastScreenX = null, lastScreenStep = null, lastHeading = null, lastHeadingRate = null;
+            float viewRateJump = 0f, screenJump = 0f, headingRateJump = 0f;
+            const double frame = 1.0 / 144.0;
+            for (int f = 0; f < 144 * 3; f++)
+            {
+                double now = f * frame;
+                while (nextTick <= now)
+                {
+                    double interval = ++tick % 12 == 0 ? 0.031 : 0.016;
+                    controller.Update(TimeSpan.FromSeconds(Math.Max(nextTick - tickTime, 0.016)));
+                    tickTime = nextTick;
+                    nextTick += interval;
+                }
+
+                var last = controller.LastTick!;
+                float yawStep = last.CameraYaw - lastRawYaw;
+                yawStep -= 360f * MathF.Round(yawStep / 360f);
+                unwrappedYaw += yawStep;
+                lastRawYaw = last.CameraYaw;
+                float headingStep = last.PlayerHeadingRadians - lastRawHeading;
+                headingStep -= MathF.Tau * MathF.Round(headingStep / MathF.Tau);
+                unwrappedHeading += headingStep;
+                lastRawHeading = last.PlayerHeadingRadians;
+
+                var orbit = orbitSmoother.Update(new Vector3(unwrappedYaw, last.CameraPitch, last.CameraDistance), tickTime, now);
+                var player = playerSmoother.Update(last.PlayerPosition, tickTime, now);
+                float heading = headingSmoother.Update(new Vector3(unwrappedHeading, 0f, 0f), tickTime, now).X;
+                camera.Mode = controller.Camera.Mode;
+                controller.ApplyLockOnAim(camera);
+                var shown = new Vector3(-player.X, -player.Y, player.Z);
+                camera.Update(shown, orbit.Y, orbit.X, orbit.Z, 16f / 9f, (float)frame);
+
+                var view = camera.Forward;
+                float viewHeading = MathF.Atan2(view.Z, view.X) * (180f / MathF.PI);
+                var clip = Vector4.Transform(new Vector4(shown + new Vector3(0f, -1f, 0f), 1f), camera.ViewProjectionMatrix);
+                float screenX = clip.X / clip.W;
+                if (f > 144)
+                {
+                    if (lastView is { } lv)
+                    {
+                        float turned = viewHeading - lv;
+                        turned -= 360f * MathF.Round(turned / 360f);
+                        float rate = turned / (float)frame;
+                        if (lastViewRate is { } lr) viewRateJump = MathF.Max(viewRateJump, MathF.Abs(rate - lr));
+                        lastViewRate = rate;
+                    }
+                    if (lastScreenX is { } lx)
+                    {
+                        float step = screenX - lx;
+                        if (lastScreenStep is { } ls) screenJump = MathF.Max(screenJump, MathF.Abs(step - ls));
+                        lastScreenStep = step;
+                    }
+                    if (lastHeading is { } lh)
+                    {
+                        float rate = (heading - lh) * (180f / MathF.PI) / (float)frame;
+                        if (lastHeadingRate is { } lr) headingRateJump = MathF.Max(headingRateJump, MathF.Abs(rate - lr));
+                        lastHeadingRate = rate;
+                    }
+                }
+                lastView = viewHeading;
+                lastScreenX = screenX;
+                lastHeading = heading;
+            }
+
+            var toMob = mob.Position - me.Position;
+            float line = WorldEntity.HeadingOf(toMob.X, toMob.Z) * (180f / MathF.PI);
+            float diff = ((controller.CameraYaw - line + 540f) % 360f) - 180f;
+            float limit = diff > 0 ? PlayerLocomotionController.LockOnCameraArcRightDegrees : PlayerLocomotionController.LockOnCameraArcLeftDegrees;
+            Assert.True(Math.Abs(Math.Abs(diff) - limit) < 1f, $"the camera rides the arc limit ({diff:F1} off the line, limit {limit})");
+            Assert.True(viewRateJump < 6f, $"view yaw rate jumped by {viewRateJump:F2} degrees/s between frames");
+            Assert.True(screenJump < 0.0015f, $"the character's screen step jumped by {screenJump:F5} between frames");
+            Assert.True(headingRateJump < 20f, $"the model's turn rate jumped by {headingRateJump:F2} degrees/s between frames");
+        }
+
+        /// <summary>
+        /// The heading is kept to full precision (#547 round 2): turning in small steps turns the player by exactly the
+        /// steps taken, where reading the wire byte back each tick rounded every step to 1.4 degrees. The wire byte
+        /// still follows it, and a heading set from outside (a server placement) is taken up.
+        /// </summary>
+        [Fact]
+        public void LocalHeading_KeepsFullPrecisionAndFollowsTheWireByte()
+        {
+            var (controller, input, _, me, _, mob) = EngagedHarness(lockOn: true);
+            input.SetKeyDown(GordianKey.A); // strafing faces the target after every step
+            for (int i = 0; i < 120; i++)
+            {
+                controller.Update(TimeSpan.FromMilliseconds(16));
+                float expected = WorldEntity.HeadingOf(mob.Position.X - me.Position.X, mob.Position.Z - me.Position.Z);
+                if (i < 30) continue; // turning to face it first
+                float off = MathF.Abs(MathF.IEEERemainder(controller.LastTick!.PlayerHeadingRadians - expected, MathF.Tau));
+                Assert.True(off < 0.002f, $"tick {i}: heading {off} rad off the target line (a wire step is {MathF.Tau / 256f})");
+                Assert.Equal(WorldEntity.DirectionFromRadians(controller.LastTick!.PlayerHeadingRadians), me.Direction);
+            }
+            input.SetKeyUp(GordianKey.A);
+
+            me.Direction = 128; // set from outside
+            controller.Update(TimeSpan.FromMilliseconds(1));
+            Assert.InRange(controller.LastTick!.PlayerHeadingRadians, MathF.PI - 0.1f, MathF.PI + 0.1f);
+        }
+
+        /// <summary>The published tick carries the position, heading and orbit the tick left, with the tick's time (#547 round 2).</summary>
+        [Fact]
+        public void LastTick_IsPublishedWhenTheTickEnds()
+        {
+            var (controller, input, _, _, me) = CreateTestHarness();
+            Assert.Null(controller.LastTick);
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            var last = controller.LastTick!;
+            Assert.Equal(controller.LastUpdateTimestamp, last.Timestamp);
+            Assert.Equal(me.ServerId, last.PlayerServerId);
+            Assert.Equal(me.Position, last.PlayerPosition);
+            Assert.Equal(controller.CameraYaw, last.CameraYaw);
+            Assert.Equal(controller.CameraPitch, last.CameraPitch);
+            Assert.Equal(controller.EffectiveCameraDistance, last.CameraDistance);
+        }
     }
 }

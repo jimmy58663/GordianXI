@@ -331,6 +331,47 @@ namespace Gordian.Engine.Graphics
         }
 
         /// <summary>
+        /// The pitch and yaw (degrees) whose <see cref="FreeCamForward"/> is <paramref name="forward"/> (display space).
+        /// </summary>
+        public static (float Pitch, float Yaw) FreeCamAngles(Vector3 forward)
+        {
+            if (forward.LengthSquared() < 1e-8f) return (0f, 0f);
+            forward = Vector3.Normalize(forward);
+            float pitch = -MathF.Asin(Math.Clamp(forward.Y, -1f, 1f)) * (180.0f / MathF.PI);
+            float yaw = MathF.Atan2(-forward.Z, -forward.X) * (180.0f / MathF.PI);
+            return (pitch, NormalizeDegrees(yaw));
+        }
+
+        /// <summary>
+        /// Where the free camera starts (#551): outside the character, looking where the view did. From third person it
+        /// is the view <paramref name="current"/> showed (its eye, after wall pull-in, and its look direction, lock-on aim
+        /// included), so nothing jumps. From first person (Change View cycles third, first, free) the eye was inside the
+        /// head, so it starts at the third-person view of the same look direction at <paramref name="thirdPersonDistance"/>
+        /// around <paramref name="displayPlayerPosition"/>, kept in front of walls as the orbit camera is; the pitch is
+        /// held to the orbit range (-15 to 80 degrees) and the eye kept above the feet, as the orbit camera's are, and the
+        /// free camera looks along the orbit view from there.
+        /// </summary>
+        public static (Vector3 Position, float Pitch, float Yaw) FreeCamEntryPose(
+            ViewportCamera current, CameraMode fromMode, Vector3? displayPlayerPosition, float thirdPersonDistance)
+        {
+            ArgumentNullException.ThrowIfNull(current);
+            var (pitch, yaw) = FreeCamAngles(current.Forward);
+            if (fromMode != CameraMode.FirstPerson || displayPlayerPosition is not { } player) return (current.Position, pitch, yaw);
+
+            float orbitPitch = Math.Clamp(pitch, -15.0f, 80.0f);
+            var orbit = new ViewportCamera
+            {
+                Mode = CameraMode.ThirdPersonOrbital,
+                EyeOffset = current.EyeOffset,
+                Collision = current.Collision,
+            };
+            orbit.Update(player, orbitPitch, yaw, thirdPersonDistance, current.AspectRatio);
+            // The orbit's own look (the ground guard can lift the eye above its pitch line).
+            var (lookPitch, lookYaw) = FreeCamAngles(orbit.Forward);
+            return (orbit.Position, lookPitch, lookYaw);
+        }
+
+        /// <summary>
         /// Places the free camera (display space) at <paramref name="position"/>, looking along
         /// <see cref="FreeCamForward"/> of <paramref name="pitch"/> and <paramref name="yaw"/>. The viewport draws the
         /// free camera with this, moving its own camera by the locomotion controller's free camera movement.

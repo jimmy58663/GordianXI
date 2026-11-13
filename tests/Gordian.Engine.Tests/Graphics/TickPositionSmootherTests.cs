@@ -47,5 +47,40 @@ namespace Gordian.Engine.Tests.Graphics
 
             Assert.Equal(new Vector3(50, 0, 0), smoother.Update(new Vector3(50, 0, 0), 0.21, 0.21));
         }
+        /// <summary>
+        /// Mostly 16 ms ticks with an occasional 31 ms one (the UI thread busy for a frame): the longest recent interval
+        /// changes whenever the long tick enters or leaves the window. The render delay used to jump with it, stepping the
+        /// shown position back by a tick's motion and then forward again (#547); it now eases, so every frame moves forward
+        /// by close to the even step.
+        /// </summary>
+        [Fact]
+        public void OccasionalLongTick_NeverStepsBackOrJumps()
+        {
+            var smoother = new TickPositionSmoother();
+            double tickTime = 0.0, nextTick = 0.0;
+            int tick = 0;
+            float lastShown = 0.0f, largestStep = 0.0f, smallestStep = float.MaxValue;
+            for (int frame = 0; frame < 144 * 3; frame++)
+            {
+                double now = frame / 144.0;
+                while (nextTick <= now)
+                {
+                    tickTime = nextTick;
+                    nextTick += ++tick % 12 == 0 ? 0.031 : 0.016;
+                }
+                var shown = smoother.Update(new Vector3((float)(tickTime * 5.0), 0, 0), tickTime, now);
+                if (frame > 72)
+                {
+                    float step = shown.X - lastShown;
+                    largestStep = MathF.Max(largestStep, step);
+                    smallestStep = MathF.Min(smallestStep, step);
+                }
+                lastShown = shown.X;
+            }
+
+            // An even 5/144 = 0.0347 yalm a frame; the render clock may run 25% slow or 1% fast while the delay eases.
+            Assert.InRange(smallestStep, 0.025f, 0.036f);
+            Assert.InRange(largestStep, 0.034f, 0.037f);
+        }
     }
 }
