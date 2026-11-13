@@ -47,6 +47,8 @@ namespace Gordian.App.Tests.Graphics
             public List<LobbyCharacter> List { get; } = new();
             public IReadOnlyList<LobbyCharacter> Characters => List;
             public bool IsConnected => true;
+            public uint? Expansions { get; set; }
+            uint? ILobbyBackend.AccountExpansions => Expansions;
             public Task<IReadOnlyList<LobbyCharacter>> RefreshCharactersAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LobbyCharacter>>(List);
             public Task<IReadOnlyList<LobbyWorld>> GetWorldsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<LobbyWorld>>(new[] { new LobbyWorld(0x20, "Gordian") });
             public Task CheckNameAsync(LobbyCharacter freeSlot, string name, string worldName, CancellationToken ct = default) => Task.CompletedTask;

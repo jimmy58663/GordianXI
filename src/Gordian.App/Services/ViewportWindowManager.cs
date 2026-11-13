@@ -178,7 +178,7 @@ namespace Gordian.App.Services
         /// <summary>Reports a viewport window's focus and the character it shows to <see cref="WindowFocus"/> until it closes.</summary>
         private void TrackFocus(ViewportWindow window, ViewportViewModel viewModel)
         {
-            void Sync() => WindowFocus.SetWindowSession(window, viewModel.Lobby == null ? viewModel.ActiveTab?.Session : null);
+            void Sync() => WindowFocus.SetWindowSession(window, viewModel.ShownLobby == null ? viewModel.ActiveTab?.Session : null);
             void OnChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName is nameof(ViewportViewModel.ActiveTab) or nameof(ViewportViewModel.Lobby)) Sync();
@@ -261,6 +261,13 @@ namespace Gordian.App.Services
 
         /// <summary>Whether a lobby is on show.</summary>
         public bool IsLobbyOpen => _primaryViewModel.Lobby != null;
+
+        /// <summary>
+        /// The lobby the gamepad drives (#553): the one on show while its window (the primary viewport) is the one the player
+        /// is looking at (focused, or focused last while another program has the focus); null otherwise.
+        /// </summary>
+        public Gordian.Engine.Ui.Lobby.LobbyController? GamepadLobby =>
+            _primaryViewModel.ShownLobby is { } lobby && _primaryWindow != null && WindowFocus.IsFocusTarget(_primaryWindow) ? lobby : null;
 
         private int _lobbyReturns;
 
