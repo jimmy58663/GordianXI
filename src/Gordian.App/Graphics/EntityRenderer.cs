@@ -405,7 +405,8 @@ namespace Gordian.App.Graphics
             PlatformHeight[]? platforms = null,
             ZoneGeometry? zone = null,
             IReadOnlyDictionary<string, ActorLighting>? subEnvironments = null,
-            string localPlayerRidingPlatformId = "")
+            string localPlayerRidingPlatformId = "",
+            float? localPlayerDisplayHeading = null)
         {
             _shadowDraws.Clear(); // drawn later by DrawQueuedShadows; a frame that never drew them must not pile up
             if (_disposed || cl == null || entities == null) return;
@@ -505,7 +506,8 @@ namespace Gordian.App.Graphics
                 {
                     // The player keeps the event's placement as its own position (#338); the next event starts from there.
                     _eventPoses.Remove(entity.ServerId);
-                    entity.RenderHeadingRadians = entity.HeadingRadians;
+                    // Drawn with the tick-smoothed precise heading that goes with its smoothed position (#547).
+                    entity.RenderHeadingRadians = localPlayerDisplayHeading ?? entity.HeadingRadians;
                 }
                 if (!entity.IsDrawn) continue;
 

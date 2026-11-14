@@ -328,6 +328,51 @@ namespace Gordian.App.Tests.Graphics
             Assert.Same(c, vm.ActiveTab); // wraps back
         }
 
+        /// <summary>
+        /// #553 round 1: from the lobby Ctrl+Tab moves on to the characters, the lobby kept open behind them, and past the last
+        /// character (or before the first) it comes back.
+        /// </summary>
+        [Fact]
+        public void CycleCharacter_ThroughAnOpenLobby()
+        {
+            var vm = new ViewportViewModel(enableAutoSave: false);
+            var a = vm.AddSession(NewSession("Gordian", 3));
+            var b = vm.AddSession(NewSession("Knot", 1));
+            var lobby = new Gordian.Engine.Ui.Lobby.LobbyController(new LobbyRenderTests.FakeBackend(), null, null, showLicence: false);
+            vm.Lobby = lobby;
+            Assert.Same(lobby, vm.ShownLobby);
+            Assert.False(vm.ShowFloatingPill);
+
+            vm.CycleNextCharacter();
+            Assert.True(vm.IsLobbyParked);
+            Assert.Null(vm.ShownLobby);
+            Assert.Same(lobby, vm.Lobby); // still open
+            Assert.Same(a, vm.ActiveTab);
+            vm.CycleNextCharacter();
+            Assert.Same(b, vm.ActiveTab);
+            int activations = 0;
+            vm.WindowActivationRequested += (_, _) => activations++;
+            vm.CycleNextCharacter(); // past the last character: the lobby
+            Assert.Same(lobby, vm.ShownLobby);
+            Assert.Equal(1, activations);
+
+            vm.CyclePreviousCharacter(); // backwards from the lobby: the last character
+            Assert.Same(b, vm.ActiveTab);
+            Assert.Null(vm.ShownLobby);
+            vm.CyclePreviousCharacter();
+            Assert.Same(a, vm.ActiveTab);
+            vm.CyclePreviousCharacter(); // before the first: the lobby again
+            Assert.Same(lobby, vm.ShownLobby);
+
+            vm.CycleNextCharacter();
+            vm.Lobby = null; // the lobby closed (a character entered, or Back): plain cycling again
+            Assert.False(vm.IsLobbyParked);
+            vm.CycleNextCharacter();
+            vm.CycleNextCharacter();
+            Assert.Null(vm.ShownLobby);
+            Assert.Same(a, vm.ActiveTab);
+        }
+
         [Fact]
         public void CycleCharacter_IntoAPoppedOutCharacter_FocusesItsWindow()
         {

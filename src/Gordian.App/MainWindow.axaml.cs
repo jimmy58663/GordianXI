@@ -130,6 +130,7 @@ namespace Gordian.App
         }
 
         private CharacterSession? _lastGamepadTarget;
+        private readonly Gordian.Engine.Ui.Lobby.LobbyGamepad _lobbyGamepad = new();
 
         private void OnInputLoopTick(object? sender, EventArgs e)
         {
@@ -162,6 +163,18 @@ namespace Gordian.App
             // Polling only occurs if enabled AND (a GordianXI window is active OR AlwaysEnableGamepad is set)
             bool shouldPoll = isGamepadEnabled && (windowFocused || alwaysEnable);
             var padState = shouldPoll ? _gamepadDriver.Poll(0) : GamepadState.Disconnected;
+
+            // The character lobby takes the pad while its window is the one in use (#553): its menus, with the profile's
+            // menu buttons; no character gets it meanwhile.
+            var lobby = viewports.GamepadLobby;
+            _lobbyGamepad.Update(lobby, padState, Gordian.Engine.Input.InputProfileHub.Default.Profile, elapsed);
+            if (lobby != null) gamepadTarget = null;
+            // Next Character from the lobby: on to the first character, the lobby parked behind it (as Ctrl+Tab).
+            if (lobby != null && _lobbyGamepad.NextCharacterPressed)
+            {
+                var chosen = viewports.PrimaryViewModel.CycleNextCharacter();
+                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
+            }
 
             // A character that takes the pad from another ignores the buttons still held from it until they are let go:
             // otherwise LB (Next Character) fired again on every character it landed on (round 1, B7).

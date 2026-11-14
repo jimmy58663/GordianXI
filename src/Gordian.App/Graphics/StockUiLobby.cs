@@ -41,6 +41,29 @@ namespace Gordian.App.Graphics
             return new LobbyRect((width - w) * 0.5f, (height - h) * 0.5f, w, h);
         }
 
+        /// <summary>
+        /// The title screen's layout (<c>loby1win</c>, <c>loby2win</c> and the expansion banners, authored in 1024 x 768)
+        /// stretched over the whole window, as retail draws it: at 2558 x 1440 its buttons are 2.5x wide and 1.875x tall
+        /// (Select Character 355 x 45 px from x 885) and the banners span x 1920-2400 from y 150 (the maintainer's capture
+        /// <c>Lobby_Title_Select_Create_Delete_Retail.mp4</c>, 2026-11-13).
+        /// </summary>
+        public static Matrix3x2 TitleTransform(uint width, uint height) =>
+            Matrix3x2.CreateScale(width / TitleSpaceWidth, height / TitleSpaceHeight);
+
+        private const float TitleSpaceWidth = 1024f, TitleSpaceHeight = 768f;
+
+        /// <summary>
+        /// The expansion banners on the title screen, top to bottom (<c>lobbywin</c> images, each placed by its own corners
+        /// at x 768-960, 46 apart from y 80): Rise of the Zilart, Chains of Promathia, Treasures of Aht Urhgan, Wings of the
+        /// Goddess, A Crystalline Prophecy, A Moogle Kupo d'Etat, A Shantotto Ascension, Visions of Abyssea, Scars of Abyssea,
+        /// Heroes of Abyssea, Seekers of Adoulin. Banner n is bit n + 1 of the account's expansions (LandSandBoat's
+        /// <c>EXPANSION_DISPLAY</c>; bit 0 is the base game).
+        /// </summary>
+        public static readonly int[] ExpansionBanners = { 141, 157, 159, 172, 173, 174, 175, 177, 178, 179, 180 };
+
+        /// <summary>A banner of an expansion the account lacks (the maintainer, 2026-11-13: "dimmed/grey").</summary>
+        private static readonly UiColor MissingExpansionTint = new(0x38, 0x38, 0x38, 0x80);
+
         private static bool InTitleSpace(string name) =>
             name.Equals(LobbyController.TitleBackgroundMenu, StringComparison.OrdinalIgnoreCase) ||
             name.Equals(LobbyController.MainMenuName, StringComparison.OrdinalIgnoreCase);
@@ -75,17 +98,6 @@ namespace Gordian.App.Graphics
             return new StockUiPlacement(x, y, scale, false);
         }
 
-        /// <summary>
-        /// The help bar (lobyhelp: frame (256, 224), bottom-left anchored, its one image spanning x -256..384, y 155..181,
-        /// 640 wide): drawn in the 640 space across the 4:3 area and kept at its authored distance from the bottom in the
-        /// 448-high layout, below the title's copyright line.
-        /// </summary>
-        public static StockUiPlacement PlaceHelpBar(UiMenuDefinition menu, LobbyRect rect)
-        {
-            float s = rect.Height / 480f, s448 = rect.Height / UiResourceLibrary.LayoutHeight;
-            float barTop = rect.Y + rect.Height - (UiResourceLibrary.LayoutHeight - menu.Frame.Y - 155) * s448;
-            return new StockUiPlacement(rect.X + menu.Frame.X * s, barTop - 155 * s, s, false);
-        }
 
         /// <summary>The list screen's preview area (640-space x 0-296, feet at y 372 above the help bar): where the model stands, in screen pixels.</summary>
         public static (float CenterX, float FeetY, float TopY) PreviewArea(LobbyRect rect, bool creation = false)
@@ -95,8 +107,12 @@ namespace Gordian.App.Graphics
             return (rect.X + (creation ? 290 : 150) * s, rect.Y + 372 * s, rect.Y + 160 * s);
         }
 
-        /// <summary>The backgrounds: the title art on the main menu, the list screen's backdrop elsewhere.</summary>
-        public static void DrawBackground(StockUiRenderer renderer, LobbyController lobby, uint width, uint height)
+        /// <summary>
+        /// The backgrounds: the title art on the main menu, the list screen's backdrop elsewhere. <paramref name="overScene"/>:
+        /// the title fly-through is behind (#552), so the backdrops' plain <c>newtex</c> fill is left out and only their art
+        /// (the logos, the copyright line) is drawn; the licence page keeps its own backdrop either way.
+        /// </summary>
+        public static void DrawBackground(StockUiRenderer renderer, LobbyController lobby, uint width, uint height, bool overScene = false)
         {
             var library = lobby.Library;
             if (library == null) return;
@@ -131,16 +147,20 @@ namespace Gordian.App.Graphics
                     }
                     foreach (var shape in menu.Frame.Shapes)
                     {
-                        if (shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
+                        if (overScene || shape.Kind != 0 || !library.TryGetImage(shape, out var image)) continue;
                         var fills = new UiImage { Parts = image.Parts.Where(IsFill).ToList() };
                         if (fills.Parts.Count > 0) renderer.DrawImage(fills, stretch);
                     }
+                    bool title = InTitleSpace(menu.Name);
+                    var titleTransform = TitleTransform(width, height);
                     foreach (var shape in menu.Frame.Shapes)
                     {
                         if (shape.Kind != 0 || !library.TryGetImage(shape, out var art)) continue;
                         foreach (var part in art.Parts)
                         {
-                            if (!IsFill(part) && !(creating && IsLogo(part))) renderer.DrawPart(part, placement.X, placement.Y, placement.Scale);
+                            if (IsFill(part) || (creating && IsLogo(part))) continue;
+                            if (title) renderer.DrawPart(part, titleTransform);
+                            else renderer.DrawPart(part, placement.X, placement.Y, placement.Scale);
                         }
                     }
                 }
@@ -213,7 +233,11 @@ namespace Gordian.App.Graphics
                 {
                     case LobbyScreen.MainMenu:
                         // Behind the licence page only the title art shows.
-                        if (lobby.MainMenu != null && !lobby.IsLicencePending) DrawButtonMenu(renderer, library, lobby.MainMenu, rect, timestamp, cursor: !promptOpen);
+                        if (lobby.MainMenu != null && !lobby.IsLicencePending)
+                        {
+                            DrawTitleMenu(renderer, library, lobby.MainMenu, width, height, timestamp, cursor: !promptOpen);
+                            DrawExpansionBanners(renderer, library, lobby.AccountExpansions, width, height);
+                        }
                         break;
                     case LobbyScreen.CharacterList:
                         if (lobby.CharacterList != null) DrawCharacterList(renderer, library, font, lobby, lobby.CharacterList, rect, timestamp, cursor: !promptOpen);
@@ -223,34 +247,33 @@ namespace Gordian.App.Graphics
                         break;
                 }
 
-                if (lobby.IsLicencePending && library.TryGetMenu(LobbyController.HelpBarMenu, out var licenceBar))
-                {
-                    // Retail's licence page: the empty help bar at one screen pixel per layout pixel, its authored 69 px
-                    // above the window's bottom, across the full width. Its image is a backdrop-coloured band, so the
-                    // client's border lines mark it (image-8: 3 px lines at its top and bottom, 26 px apart, fading at
-                    // the window's ends).
-                    var bar = new StockUiPlacement(256, height - (UiResourceLibrary.LayoutHeight - licenceBar.Frame.Y), 1f, false);
-                    renderer.DrawMenu(licenceBar, bar, includeButtons: false, border: false, frameWidth: width);
-                    renderer.DrawWindowBorder(0, bar.Y + LicenceBarTop, width, LicenceBarHeight, 1f, fadeLength: LicenceBorderFade, sourceRow: LicenceBorderRow);
-                }
-                else if (font != null && lobby.HelpText.Length > 0 && library.TryGetMenu(LobbyController.HelpBarMenu, out var help))
-                {
-                    var placement = PlaceHelpBar(help, rect);
-                    // The bar runs the window's full width; its text starts at the 4:3 area's left edge.
-                    var bar = placement with { X = 256 * placement.Scale };
-                    renderer.DrawMenu(help, bar, includeButtons: false, border: false, frameWidth: width / placement.Scale);
-                    // The bar (lobbywin #2) spans x -256..384, y 155..181 from the frame origin; text inset 16, centred on the bar.
-                    float textScale = placement.Scale * 0.875f;
-                    // A line longer than the bar is drawn smaller to fit (retail's handling of long help lines is not captured).
-                    float room = (640 - 32) * placement.Scale, wide = font.MeasureWidth(lobby.HelpText) * textScale;
-                    if (wide > room) textScale *= room / wide;
-                    renderer.DrawText(font, lobby.HelpText, placement.X + (-256 + 16) * placement.Scale,
-                        placement.Y + 168 * placement.Scale - font.LineHeight * textScale * 0.5f, textScale);
-                }
+                if (library.TryGetMenu(LobbyController.HelpBarMenu, out var helpBar)) DrawHelpBar(renderer, helpBar, font, lobby.IsLicencePending ? string.Empty : lobby.HelpText, width, height);
 
                 if (lobby.Prompt is { } prompt) DrawPrompt(renderer, library, font, logFont, lobby, prompt, rect, width, height, timestamp);
             }
         }
+
+        /// <summary>
+        /// The help bar, on every screen as retail draws it (image-8 for the licence page; the title, list and creation
+        /// screens in the maintainer's capture <c>Lobby_Title_Select_Create_Delete_Retail.mp4</c>, 2026-11-13, at 2558 x
+        /// 1440: the same band on rows 1371-1396): the <c>lobyhelp</c> bar at one screen pixel per layout pixel, its authored
+        /// 69 px above the window's bottom, across the full width, marked by the client's border lines at its top and bottom,
+        /// with the line centred on the window in the menus' font at 1:1 (the licence page's bar is empty).
+        /// </summary>
+        private static void DrawHelpBar(StockUiRenderer renderer, UiMenuDefinition bar, UiFont? font, string text, uint width, uint height)
+        {
+            var placement = new StockUiPlacement(256, height - (UiResourceLibrary.LayoutHeight - bar.Frame.Y), 1f, false);
+            renderer.DrawMenu(bar, placement, includeButtons: false, border: false, frameWidth: width);
+            renderer.DrawWindowBorder(0, placement.Y + LicenceBarTop, width, LicenceBarHeight, 1f, fadeLength: LicenceBorderFade, sourceRow: LicenceBorderRow);
+            if (font == null || text.Length == 0) return;
+            float scale = HelpTextScale, wide = font.MeasureWidth(text) * scale, room = width - 32f;
+            if (wide > room) { scale *= room / wide; wide = room; }
+            renderer.DrawText(font, text, MathF.Round((width - wide) * 0.5f),
+                MathF.Round(placement.Y + LicenceBarTop + (LicenceBarHeight - font.LineHeight * scale) * 0.5f), scale);
+        }
+
+        /// <summary>The help line's scale: the capture's "Select a character to log on with." is 270 px wide at 2558 x 1440.</summary>
+        private const float HelpTextScale = 1f;
 
         /// <summary>
         /// The button of the window taking input under a screen point (rendering-surface pixels), using the same
@@ -260,6 +283,16 @@ namespace Gordian.App.Graphics
         {
             var menu = lobby.ActiveMenu;
             if (menu == null) return null;
+            if (InTitleSpace(menu.Definition.Name))
+            {
+                float sx = width / TitleSpaceWidth, sy = height / TitleSpaceHeight;
+                foreach (var button in menu.Definition.Buttons)
+                {
+                    float bx = button.X * sx, by = button.Y * sy;
+                    if (x >= bx && x < bx + button.Width * sx && y >= by && y < by + button.Height * sy) return (menu, button.ButtonId);
+                }
+                return null;
+            }
             var placement = PlaceWindow(lobby, menu.Definition, Fit(width, height), width, height);
             float s = placement.Scale;
             foreach (var button in menu.Definition.Buttons)
@@ -270,28 +303,60 @@ namespace Gordian.App.Graphics
             return null;
         }
 
-        /// <summary>A window whose buttons are DAT label sprites; the selected one shows its kind-4 (highlighted) image when it has one.</summary>
-        private static void DrawButtonMenu(StockUiRenderer renderer, UiResourceLibrary library, LobbyMenu menu, LobbyRect rect, long timestamp, bool cursor)
+        /// <summary>
+        /// The title menu (<c>loby2win</c>), stretched over the window (<see cref="TitleTransform"/>). The selected button is
+        /// its label in the menus' orange (<see cref="StockUiMenuWindow.DrawSelectedImage"/>), as retail's capture shows and as
+        /// Config and Back always were; the kind-4 images Select / Create / Delete Character carry (a blue caption) are not
+        /// what retail shows for the selection (the maintainer, 2026-11-13). The cursor keeps its shape (scaled by the height).
+        /// </summary>
+        private static void DrawTitleMenu(StockUiRenderer renderer, UiResourceLibrary library, LobbyMenu menu, uint width, uint height, long timestamp, bool cursor)
         {
             var definition = menu.Definition;
-            var placement = Place(definition, rect);
-            renderer.DrawMenu(definition, placement, includeButtons: false, border: false);
-            float s = placement.Scale;
+            float sx = width / TitleSpaceWidth, sy = height / TitleSpaceHeight;
+            foreach (var shape in definition.Frame.Shapes)
+            {
+                if (shape.Kind == 0 && library.TryGetImage(shape, out var frame)) renderer.DrawImage(frame, TitleTransform(width, height));
+            }
             foreach (var button in definition.Buttons)
             {
+                if (!TryGetShape(library, button, 0, out var label)) continue;
+                var transform = Matrix3x2.CreateTranslation(button.X, button.Y) * TitleTransform(width, height);
                 bool selected = button.ButtonId == menu.SelectedButtonId;
-                float bx = placement.X + button.X * s, by = placement.Y + button.Y * s;
-                if (selected && TryGetShape(library, button, 4, out var highlighted))
+                foreach (var part in label.Parts)
                 {
-                    renderer.DrawImage(highlighted, bx, by, s);
-                }
-                else if (TryGetShape(library, button, 0, out var label))
-                {
-                    if (selected) StockUiMenuWindow.DrawSelectedImage(renderer, label, bx, by, s);
-                    else renderer.DrawImage(label, bx, by, s);
+                    UiColor? tint = !selected || part.BlendMode != UiBlendMode.Alpha ? null
+                        : StockUiMenuWindow.IsGlyph(part) ? StockUiMenuWindow.SelectedGlyphTint : StockUiMenuWindow.SelectedCapsuleTint;
+                    renderer.DrawPart(part, transform, tint);
                 }
             }
-            if (cursor && menu.SelectedButton is { } current) StockUiMenuWindow.DrawMenuCursor(renderer, library, definition.Frame, current, placement, timestamp);
+            if (cursor && menu.SelectedButton is { } current)
+            {
+                // The cursor is placed from the button's left edge in screen pixels and drawn at the height's scale.
+                var placement = new StockUiPlacement(current.X * (sx - sy), definition.Frame.Y * sy, sy, false);
+                StockUiMenuWindow.DrawMenuCursor(renderer, library, definition.Frame, current, placement, timestamp);
+            }
+        }
+
+        /// <summary>
+        /// The expansion banners down the title screen's right side (<see cref="ExpansionBanners"/>), stretched with the
+        /// title; those the account lacks are dimmed. With the account's expansions unknown every banner is lit.
+        /// </summary>
+        private static void DrawExpansionBanners(StockUiRenderer renderer, UiResourceLibrary library, uint? expansions, uint width, uint height)
+        {
+            if (!library.TryGetMenu(LobbyController.TitleBackgroundMenu, out var title)) return;
+            string group = string.Empty;
+            foreach (var shape in title.Frame.Shapes)
+            {
+                if (shape.Kind == 0) { group = shape.GroupId; break; }
+            }
+            if (group.Length == 0) return;
+            var transform = TitleTransform(width, height);
+            for (int i = 0; i < ExpansionBanners.Length; i++)
+            {
+                if (!library.TryGetImage(new UiShapeReference(0, (ushort)ExpansionBanners[i], group), out var banner)) continue;
+                bool owned = expansions is not { } mask || (mask & (1u << (i + 1))) != 0;
+                renderer.DrawImage(banner, transform, owned ? null : MissingExpansionTint);
+            }
         }
 
         private static bool TryGetShape(UiResourceLibrary library, UiMenuButton button, int kind, out UiImage image)

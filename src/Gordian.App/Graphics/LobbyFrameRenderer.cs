@@ -11,7 +11,14 @@ using NeoVeldrid;
 namespace Gordian.App.Graphics
 {
     /// <summary>
-    /// One frame of the character lobby: a black clear, the lobby backgrounds (<see cref="StockUiLobby.DrawBackground"/>),
+    /// What lies behind the lobby's windows (#552): with <see cref="Flythrough"/> the title fly-through replaces the backdrops'
+    /// plain fill; <see cref="Drawn"/> says its zone is already in the frame (else the screen behind is black), and
+    /// <see cref="Tint"/> is the segment's scene fade (1 = as drawn). The default is the plain backdrop.
+    /// </summary>
+    public readonly record struct LobbySceneLayer(bool Flythrough, bool Drawn, Vector3 Tint);
+
+    /// <summary>
+    /// One frame of the character lobby: a black clear (or the title fly-through already drawn, <see cref="LobbySceneLayer"/>), the lobby backgrounds (<see cref="StockUiLobby.DrawBackground"/>),
     /// the preview character through the entity renderer with a fixed camera (<see cref="StockUiLobby.PreviewCamera"/>),
     /// then the lobby windows (<see cref="StockUiLobby.DrawForeground"/>). The two UI passes use separate renderers so the
     /// second does not overwrite the first's vertex buffer while it is in flight.
@@ -46,7 +53,7 @@ namespace Gordian.App.Graphics
         /// the fade in when the lobby appears.
         /// </summary>
         public void Render(LobbyController lobby, LobbyPreview preview, EntityRenderer? entities, ResourceManager? resources,
-            Framebuffer framebuffer, uint width, uint height, float deltaSeconds, float brightness = 1f)
+            Framebuffer framebuffer, uint width, uint height, float deltaSeconds, float brightness = 1f, LobbySceneLayer scene = default)
         {
             if (_disposed || width == 0 || height == 0) return;
             var library = lobby.Library;
@@ -63,7 +70,8 @@ namespace Gordian.App.Graphics
 
             _commands.Begin();
             _commands.SetFramebuffer(framebuffer);
-            _commands.ClearColorTarget(0, RgbaFloat.Black);
+            // Over the fly-through only the depth is cleared, for the preview model.
+            if (!scene.Drawn) _commands.ClearColorTarget(0, RgbaFloat.Black);
             _commands.ClearDepthStencil(1f);
             _commands.End();
             _gd.SubmitCommands(_commands);
@@ -71,7 +79,9 @@ namespace Gordian.App.Graphics
             if (library != null)
             {
                 _background.Begin(library);
-                StockUiLobby.DrawBackground(_background, lobby, width, height);
+                // The segment's fades darken the scene, not the lobby's art and windows.
+                if (scene.Drawn) _background.DrawScreenTint(width, height, scene.Tint);
+                StockUiLobby.DrawBackground(_background, lobby, width, height, overScene: scene.Flythrough);
                 _background.End(framebuffer, width, height);
             }
 

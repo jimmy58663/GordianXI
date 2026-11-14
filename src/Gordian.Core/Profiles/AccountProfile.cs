@@ -189,6 +189,12 @@ namespace Gordian.Core.Profiles
         public bool IsSelectedForLaunch { get; set; }
 
         /// <summary>
+        /// The camera zoom this profile's character last settled on (#550), or null before it has zoomed: the camera then
+        /// starts at the default distance. Written by the shell when the zoom settles and at logout.
+        /// </summary>
+        public CameraZoom? CameraZoom { get; set; }
+
+        /// <summary>
         /// Natively compiles the dynamic, live 6-digit login token.
         /// </summary>
         [JsonIgnore]
@@ -257,7 +263,8 @@ namespace Gordian.Core.Profiles
                 Password = Password,
                 OtpSeed = OtpSeed,
                 TwoFactor = TwoFactor,
-                IsSelectedForLaunch = IsSelectedForLaunch
+                IsSelectedForLaunch = IsSelectedForLaunch,
+                CameraZoom = CameraZoom
             };
         }
 

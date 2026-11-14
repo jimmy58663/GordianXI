@@ -290,7 +290,7 @@ namespace Gordian.App.ViewModels
         public bool IsHotkeysOnly => SelectedTabStyle == ViewportTabStyle.HotkeysOnly;
 
         /// <summary>True while the window shows characters (not a lobby, not black on the way back to one).</summary>
-        private bool ShowsCharacters => CharacterTabs.Count > 0 && _lobby == null && !_isReturningToLobby;
+        private bool ShowsCharacters => CharacterTabs.Count > 0 && ShownLobby == null && !_isReturningToLobby;
 
         /// <summary>Whether the floating pill is on screen: the style is chosen and a character is shown.</summary>
         public bool ShowFloatingPill => IsFloatingPill && ShowsCharacters;
@@ -548,13 +548,43 @@ namespace Gordian.App.ViewModels
             {
                 if (SetProperty(ref _lobby, value))
                 {
+                    _lobbyParked = false;
+                    OnPropertyChanged(nameof(ShownLobby));
                     OnPropertyChanged(nameof(IsLobbyOpen));
                     RaiseSwitcherVisibility();
                 }
             }
         }
 
-        public bool IsLobbyOpen => _lobby != null;
+        private bool _lobbyParked;
+
+        /// <summary>
+        /// The lobby the window draws and sends its input to: <see cref="Lobby"/>, unless Ctrl+Tab moved on from it to a
+        /// character (#553 round 1: "we should be able to swap from lobby to other chars and back to that lobby"). A
+        /// parked lobby stays open (its connection and screen as they were) and is one more stop in the Ctrl+Tab order,
+        /// after the last character.
+        /// </summary>
+        public Gordian.Engine.Ui.Lobby.LobbyController? ShownLobby => _lobbyParked ? null : _lobby;
+
+        /// <summary>Whether a lobby is open but parked behind a character (see <see cref="ShownLobby"/>).</summary>
+        public bool IsLobbyParked
+        {
+            get => _lobbyParked;
+            private set
+            {
+                if (_lobbyParked == value || (value && _lobby == null)) return;
+                _lobbyParked = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ShownLobby));
+                OnPropertyChanged(nameof(IsLobbyOpen));
+                // Everything that follows the lobby (the viewport's lobby, the focus session) follows the shown one.
+                OnPropertyChanged(nameof(Lobby));
+                RaiseSwitcherVisibility();
+            }
+        }
+
+        /// <summary>Whether the window shows a lobby (not a parked one).</summary>
+        public bool IsLobbyOpen => ShownLobby != null;
 
         private bool _isReturningToLobby;
 
@@ -739,10 +769,37 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>Ctrl+Tab: the next character in tab order, popped-out ones included (their window is focused).</summary>
-        public ViewportCharacterTabViewModel? CycleNextCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, +1);
+        public ViewportCharacterTabViewModel? CycleNextCharacter() => Cycle(+1);
 
         /// <summary>Ctrl+Shift+Tab: the previous character in tab order, popped-out ones included.</summary>
-        public ViewportCharacterTabViewModel? CyclePreviousCharacter() => (SwitchTarget ?? this).CycleFrom(ActiveTab?.Session, -1);
+        public ViewportCharacterTabViewModel? CyclePreviousCharacter() => Cycle(-1);
+
+        private ViewportCharacterTabViewModel? Cycle(int step)
+        {
+            var target = SwitchTarget ?? this;
+            // From a lobby on show (only ever the primary window's), on to the first (or, backwards, the last) character.
+            if (SwitchTarget == null && ShownLobby != null) return CycleFromLobby(step);
+            return target.CycleFrom(ActiveTab?.Session, step);
+        }
+
+        /// <summary>Parks the lobby on show and chooses the first character (<paramref name="step"/> &gt; 0) or the last.</summary>
+        private ViewportCharacterTabViewModel? CycleFromLobby(int step)
+        {
+            int count = CharacterTabs.Count;
+            if (count == 0) return null;
+            IsLobbyParked = true;
+            var next = CharacterTabs[step > 0 ? 0 : count - 1];
+            SelectTab(next);
+            return next;
+        }
+
+        /// <summary>Shows the parked lobby again and brings its window to the front (Ctrl+Tab past the last character).</summary>
+        private void ShowParkedLobby()
+        {
+            IsLobbyParked = false;
+            WindowActivationRequested?.Invoke(this, EventArgs.Empty);
+            ViewportWindowRequested?.Invoke(this, EventArgs.Empty);
+        }
 
         /// <summary>
         /// Chooses the character <paramref name="step"/> tabs on from <paramref name="from"/> (the active tab when it is
@@ -758,6 +815,12 @@ namespace Gordian.App.ViewModels
                 if (ReferenceEquals(CharacterTabs[i].Session, from)) start = i;
             }
             if (start < 0) start = ActiveTab != null ? CharacterTabs.IndexOf(ActiveTab) : 0;
+            // An open lobby is the stop after the last character (and before the first, going back).
+            if (_lobby != null && (start + step >= count || start + step < 0))
+            {
+                ShowParkedLobby();
+                return null;
+            }
             if (count == 1 && ReferenceEquals(CharacterTabs[0].Session, from)) return null;
 
             var next = CharacterTabs[((start + step) % count + count) % count];

@@ -483,7 +483,8 @@ namespace Gordian.App.Graphics
             return _presentationHeld;
         }
 
-        private void CheckAndLoadPendingZone()
+        /// <param name="lobby">The lobby's title fly-through asks (#552): no session's event scene zone applies.</param>
+        private void CheckAndLoadPendingZone(bool lobby = false)
         {
             ShowDeferredZone();
             var rm = ResourceManager;
@@ -492,7 +493,7 @@ namespace Gordian.App.Graphics
 
             int generation = rm.CacheGeneration;
             // An event may show another zone for a scene (0x34 / 0x35) and then the session's own again.
-            if (Volatile.Read(ref _isZoneLoading) == 0 && (_activeSession?.World ?? WorldState) is { } sceneWorld)
+            if (!lobby && Volatile.Read(ref _isZoneLoading) == 0 && (_activeSession?.World ?? WorldState) is { } sceneWorld)
             {
                 ushort sceneZone = sceneWorld.SceneZoneId;
                 if (sceneZone != 0 && sceneZone != _loadedZoneId) _pendingZoneLoad = sceneZone;
@@ -919,6 +920,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 _lobbyShown = null;
+                LeaveTitleScene();
 
                 // Between a Log Out and the lobby's title menu (the launcher logging in again): a black screen in the
                 // same window, which the lobby then fades in over.
@@ -981,6 +983,7 @@ namespace Gordian.App.Graphics
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
+                        _renderer.LocalPlayerDisplayHeading = cameraFrame.DisplayPlayerHeading;
                         _renderer.Furniture = _activeSession is { } roomSession ? MogHouseFurnitureScene.Build(roomSession, ResourceManager, _furnitureInstances) : null;
                         _renderer.HideSceneryAbove = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true ? MogHouseFurnitureScene.CeilingHeight : null;
                         _renderer.SoftTerrainHighlights = ViewportRenderSettings.SoftTerrainHighlights;
@@ -1172,6 +1175,12 @@ namespace Gordian.App.Graphics
             public TickPositionSmoother PlayerSmoother { get; } = new();
             public TickPositionSmoother OrbitSmoother { get; } = new(snapDistance: 120.0f);
 
+            /// <summary>The local player's heading (unwrapped radians, in X), on the same tick timeline as its position (#547).</summary>
+            public TickPositionSmoother HeadingSmoother { get; } = new(snapDistance: 1000.0f);
+            public float LastRawHeading { get; set; }
+            public float UnwrappedHeading { get; set; }
+            public bool HasHeading { get; set; }
+
             /// <summary>The session's <c>ArrivalSettleCount</c> this view last snapped to (#350).</summary>
             public int ArrivalSettleCount { get; set; }
             public uint SmoothedPlayerServerId { get; set; }
@@ -1179,6 +1188,9 @@ namespace Gordian.App.Graphics
             public float UnwrappedCameraYaw { get; set; }
             public bool HasYaw { get; set; }
             public bool FreeCamActive { get; set; }
+
+            /// <summary>The camera mode of the last frame drawn outside the free camera (where a free camera is entered from).</summary>
+            public CameraMode ViewModeBeforeFreeCam { get; set; } = CameraMode.ThirdPersonOrbital;
             public Vector3 FreeCamStart { get; set; }
             public Vector3 FreeCamControllerStart { get; set; }
 
@@ -1211,7 +1223,7 @@ namespace Gordian.App.Graphics
         /// <summary>How often the cameras of characters not on screen are updated.</summary>
         private static readonly TimeSpan HiddenCameraInterval = TimeSpan.FromMilliseconds(33);
 
-        private readonly record struct CameraFrame(Vector3 PlayerPosition, bool HasPlayerPosition, Vector3? DisplayPlayerPosition);
+        private readonly record struct CameraFrame(Vector3 PlayerPosition, bool HasPlayerPosition, Vector3? DisplayPlayerPosition, float? DisplayPlayerHeading = null);
 
         private static uint LocalPlayerServerId(CharacterSession session) =>
             session.LocalPlayer.ServerId != 0 ? session.LocalPlayer.ServerId : session.CharacterId;
@@ -1242,13 +1254,24 @@ namespace Gordian.App.Graphics
                 view.ArrivalSettleCount = arrivalLocomotion.ArrivalSettleCount;
                 camera.ResetFollowHeight();
                 view.PlayerSmoother.Reset();
+                view.HeadingSmoother.Reset();
+                view.HasHeading = false;
             }
             if (snap)
             {
                 view.PlayerSmoother.Reset();
                 view.OrbitSmoother.Reset();
+                view.HeadingSmoother.Reset();
                 view.HasYaw = false;
+                view.HasHeading = false;
             }
+
+            // The latest finished locomotion tick, read once (#547): its position, heading and orbit angles are all from
+            // that tick, never a tick still running on the UI thread. One older than a few ticks (no ticks running) is not
+            // used, so a server placement still shows.
+            long frameNow = Stopwatch.GetTimestamp();
+            var lastTick = session?.Locomotion?.LastTick;
+            if (lastTick != null && Stopwatch.GetElapsedTime(lastTick.Timestamp, frameNow) > TimeSpan.FromSeconds(0.25)) lastTick = null;
 
             Vector3 playerPos = Vector3.Zero;
             bool hasPlayerPos = false;
@@ -1281,7 +1304,7 @@ namespace Gordian.App.Graphics
             {
                 // The orbit angles also advance on the locomotion tick (turning, swinging in behind a runner), so
                 // interpolate them too; yaw is unwrapped first so 359 -> 1 degrees never spins the long way round.
-                float rawYaw = locomotion.CameraYaw;
+                float rawYaw = lastTick?.CameraYaw ?? locomotion.CameraYaw;
                 if (!view.HasYaw)
                 {
                     view.UnwrappedCameraYaw = rawYaw;
@@ -1294,9 +1317,11 @@ namespace Gordian.App.Graphics
                     view.UnwrappedCameraYaw += yawStep;
                 }
                 view.LastRawCameraYaw = rawYaw;
-                var orbit = view.OrbitSmoother.Update(
-                    new Vector3(view.UnwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
-                    TickSeconds(locomotion.LastUpdateTimestamp), TickSeconds(Stopwatch.GetTimestamp()));
+                var orbit = lastTick != null
+                    ? view.OrbitSmoother.Update(new Vector3(view.UnwrappedCameraYaw, lastTick.CameraPitch, lastTick.CameraDistance),
+                        TickSeconds(lastTick.Timestamp), TickSeconds(frameNow))
+                    : view.OrbitSmoother.Update(new Vector3(view.UnwrappedCameraYaw, locomotion.CameraPitch, locomotion.EffectiveCameraDistance),
+                        TickSeconds(locomotion.LastUpdateTimestamp != 0 ? locomotion.LastUpdateTimestamp : frameNow), TickSeconds(frameNow));
                 camera.Yaw = orbit.X;
                 camera.Pitch = orbit.Y;
                 camera.Distance = orbit.Z;
@@ -1310,8 +1335,11 @@ namespace Gordian.App.Graphics
             if (localPlayerServerId != view.SmoothedPlayerServerId)
             {
                 view.PlayerSmoother.Reset();
+                view.HeadingSmoother.Reset();
+                view.HasHeading = false;
                 view.SmoothedPlayerServerId = localPlayerServerId;
             }
+            float? displayHeading = null;
             if (hasPlayerPos)
             {
                 // Riding a moving platform: stand on its live height this frame. The tick-smoothed height trails a
@@ -1327,9 +1355,36 @@ namespace Gordian.App.Graphics
                     }
                 }
 
-                long tick = session?.Locomotion?.LastUpdateTimestamp ?? 0;
-                long frameTimestamp = Stopwatch.GetTimestamp();
-                playerPos = view.PlayerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                long frameTimestamp = frameNow;
+                if (lastTick != null && lastTick.PlayerServerId == localPlayerServerId && localPlayerServerId != 0)
+                {
+                    playerPos = view.PlayerSmoother.Update(lastTick.PlayerPosition, TickSeconds(lastTick.Timestamp), TickSeconds(frameTimestamp));
+
+                    // The heading on the same timeline (#547): it turns on the tick, so drawn as it was the model turned in
+                    // steps, ahead of its smoothed position, while the camera turned evenly.
+                    float rawHeading = lastTick.PlayerHeadingRadians;
+                    if (!view.HasHeading)
+                    {
+                        view.UnwrappedHeading = rawHeading;
+                        view.HasHeading = true;
+                    }
+                    else
+                    {
+                        float headingStep = rawHeading - view.LastRawHeading;
+                        headingStep -= MathF.Tau * MathF.Round(headingStep / MathF.Tau);
+                        view.UnwrappedHeading += headingStep;
+                    }
+                    view.LastRawHeading = rawHeading;
+                    displayHeading = view.HeadingSmoother.Update(new Vector3(view.UnwrappedHeading, 0f, 0f), TickSeconds(lastTick.Timestamp), TickSeconds(frameTimestamp)).X;
+                    displayHeading -= MathF.Tau * MathF.Floor(displayHeading.Value / MathF.Tau);
+                }
+                else
+                {
+                    long tick = session?.Locomotion?.LastUpdateTimestamp ?? 0;
+                    playerPos = view.PlayerSmoother.Update(playerPos, TickSeconds(tick != 0 ? tick : frameTimestamp), TickSeconds(frameTimestamp));
+                    view.HeadingSmoother.Reset();
+                    view.HasHeading = false;
+                }
                 if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
             }
 
@@ -1350,22 +1405,28 @@ namespace Gordian.App.Graphics
             }
             else if (camera.Mode == CameraMode.FreeCam && session?.Locomotion is { } freeLocomotion)
             {
-                // The free camera starts where the view was and moves by what the controller's free camera has moved
-                // since (WASD / left stick, display space); it looks along the controller's yaw and pitch. Before,
-                // this branch only kept the aspect ratio, so the view froze in free camera mode.
+                // The free camera starts outside the character on the view the player had (#551: from first person, the
+                // third-person view of the same look; ViewportCamera.FreeCamEntryPose) and moves by what the controller's
+                // free camera has moved since (WASD / left stick, display space), looking along the controller's free
+                // camera look, which the view on screen sets on entry.
                 var controllerEye = freeLocomotion.Camera.Position;
                 if (!view.FreeCamActive)
                 {
                     view.FreeCamActive = true;
-                    view.FreeCamStart = camera.Position;
+                    float thirdPersonDistance = MathF.Max(freeLocomotion.CameraDistance, Gordian.Engine.Input.PlayerLocomotionController.FirstPersonExitDistance);
+                    var entry = ViewportCamera.FreeCamEntryPose(camera, view.ViewModeBeforeFreeCam, displayPlayerPos, thirdPersonDistance);
+                    view.FreeCamStart = entry.Position;
                     view.FreeCamControllerStart = controllerEye;
+                    // Only the view on screen steers the controller (a thumbnail or a hidden character's view must not).
+                    if (view == _view && !IsThumbnail) freeLocomotion.BeginFreeCam(entry.Pitch, entry.Yaw);
                 }
-                camera.SetFreeCamPose(view.FreeCamStart + (controllerEye - view.FreeCamControllerStart), freeLocomotion.CameraPitch,
-                    freeLocomotion.CameraYaw, aspect);
+                var look = freeLocomotion.FreeCamLook;
+                camera.SetFreeCamPose(view.FreeCamStart + (controllerEye - view.FreeCamControllerStart), look.Pitch, look.Yaw, aspect);
             }
             else if (camera.Mode != CameraMode.FreeCam)
             {
                 view.FreeCamActive = false;
+                view.ViewModeBeforeFreeCam = camera.Mode;
                 camera.FirstPersonEyeHeight = camera.Mode == CameraMode.FirstPerson ? FirstPersonEyeHeight(cameraEntity) : null;
                 if (displayPlayerPos.HasValue)
                 {
@@ -1392,7 +1453,7 @@ namespace Gordian.App.Graphics
             }
 
             view.LastUpdate = Stopwatch.GetTimestamp();
-            return new CameraFrame(playerPos, hasPlayerPos, displayPlayerPos);
+            return new CameraFrame(playerPos, hasPlayerPos, displayPlayerPos, displayHeading);
         }
 
         /// <summary>
@@ -1706,8 +1767,25 @@ namespace Gordian.App.Graphics
                     }
                     float brightness = Math.Min(1f, (float)Stopwatch.GetElapsedTime(_lobbyShownAt, now).TotalSeconds / LobbyFadeInSeconds);
                     BeginPerformancePasses();
+                    uint width = _deviceManager.CurrentWidth, height = _deviceManager.CurrentHeight;
+                    // Behind the windows (#552), drawn by the zone renderer first: the title fly-through on the title menu, the
+                    // stage (LobbyStage) under the character on select, delete and creation.
+                    LobbySceneLayer scene;
+                    if (Gordian.Engine.Ui.Lobby.LobbyStage.Shows(lobby))
+                    {
+                        bool stageDrawn = UpdateStageScene(lobby, deltaSeconds);
+                        if (stageDrawn) RenderStageZone(lobby, framebuffer, width, height, deltaSeconds);
+                        scene = new LobbySceneLayer(Flythrough: true, Drawn: stageDrawn, Tint: Vector3.One);
+                    }
+                    else
+                    {
+                        var title = UpdateTitleScene(lobby, deltaSeconds, out bool sceneDrawn);
+                        if (title != null && sceneDrawn) RenderTitleZone(title, framebuffer, width, height, deltaSeconds);
+                        scene = title == null ? default
+                            : new LobbySceneLayer(Flythrough: true, Drawn: sceneDrawn, Tint: sceneDrawn ? title.Presentation.SceneColor : Vector3.Zero);
+                    }
                     _lobbyRenderer.Render(lobby, _lobbyPreview, _renderer?.EntityRenderer, ResourceManager, framebuffer,
-                        _deviceManager.CurrentWidth, _deviceManager.CurrentHeight, deltaSeconds, brightness);
+                        width, height, deltaSeconds, brightness, scene);
                     EndPerformancePass(ViewportPass.Scene);
                     RenderTier3_ImGuiOverlays();
                     EndPerformancePass(ViewportPass.Overlay);

@@ -259,14 +259,48 @@ namespace Gordian.Core.Resources.Events
         /// (fishing's sweat, S2C 0x038) is two of them: <c>eflg</c> and <c>selg</c>.
         /// </summary>
         LinkActorRoutine,
+
+        /// <summary>
+        /// Op 0x7B: the zone <see cref="SceneCommand.Number"/> the routine flies through (u32 at +8, then 12 zero bytes). Only
+        /// the title fly-through's segments use it (<see cref="TitleSceneResource"/>).
+        /// </summary>
+        TitleZone,
+
+        /// <summary>Op 0x7C: the weather <see cref="SceneCommand.Reference"/> (<c>fine</c>, <c>suny</c>, <c>clod</c>, <c>mist</c>, <c>rain</c>) from now on (title fly-through).</summary>
+        TitleWeather,
+
+        /// <summary>
+        /// Op 0x7D: sets the Vana'diel clock to <see cref="SceneCommand.Number"/>, in 1/60 s of a game day's 86,400 seconds
+        /// (<see cref="TitleSceneResource.HourOf"/>; title fly-through).
+        /// </summary>
+        TitleClock,
+
+        /// <summary>Op 0x7E: lights the scene with the file's own 0x2F environment <see cref="SceneCommand.Reference"/> (title fly-through).</summary>
+        TitleEnvironment,
+
+        /// <summary>Op 0x3B: plays the routine <see cref="SceneCommand.Reference"/> of the same file and waits for it to end.</summary>
+        LinkWait,
+
+        /// <summary>Op 0x3D: opens a random choice: one of the commands up to the next 0x3E runs.</summary>
+        RandomOpen,
+
+        /// <summary>Op 0x3E: closes a random choice.</summary>
+        RandomClose,
+
+        /// <summary>
+        /// Op 0xAF: opens a random choice like 0x3D, read as taken only with expansion <see cref="SceneCommand.Number"/>
+        /// (1 Rise of the Zilart, 2 Chains of Promathia, 3 Treasures of Aht Urhgan) installed (title fly-through).
+        /// </summary>
+        ExpansionChoice,
     }
 
     /// <summary>
     /// One command of a scene routine, starting <see cref="StartFrame"/> 60 Hz frames into it and lasting
     /// <see cref="Duration"/> frames. <see cref="Color"/> is B, G, R, A from the low byte, 0x80 = unchanged.
-    /// <see cref="Reference2"/> is the second FourCC of op 0x3F, <see cref="Factor"/> the float of op 0x0E.
+    /// <see cref="Reference2"/> is the second FourCC of op 0x3F, <see cref="Factor"/> the float of op 0x0E,
+    /// <see cref="Number"/> the u32 operand of ops 0x7B, 0x7D and 0xAF.
     /// </summary>
-    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "", float Factor = 1f)
+    public readonly record struct SceneCommand(byte Opcode, SceneCommandKind Kind, int StartFrame, int Duration, string Reference, uint Color, string Reference2 = "", float Factor = 1f, uint Number = 0)
     {
         /// <summary>Whether the command runs a particle generator or a routine (what <c>SceneEffectPlayer</c> plays).</summary>
         public bool IsEffect => Kind is SceneCommandKind.SpawnGenerator or SceneCommandKind.KillGenerator or SceneCommandKind.ReplaceGenerator
@@ -335,7 +369,22 @@ namespace Gordian.Core.Resources.Events
                 string reference2 = string.Empty;
                 uint color = 0;
                 float factor = 1f;
-                if (op == 0x04 && size >= 12 && p + 12 <= payload.Length)
+                uint number = 0;
+                if (op is 0x7B or 0x7D or 0xAF && size >= 12 && p + 12 <= payload.Length)
+                {
+                    number = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
+                    kind = op switch { 0x7B => SceneCommandKind.TitleZone, 0x7D => SceneCommandKind.TitleClock, _ => SceneCommandKind.ExpansionChoice };
+                }
+                else if (op is 0x7C or 0x7E or 0x3B && size >= 12 && p + 12 <= payload.Length)
+                {
+                    reference = ReadFourCc(payload.Slice(p + 8, 4));
+                    if (reference.Length > 0) kind = op switch { 0x7C => SceneCommandKind.TitleWeather, 0x7E => SceneCommandKind.TitleEnvironment, _ => SceneCommandKind.LinkWait };
+                }
+                else if (op is 0x3D or 0x3E)
+                {
+                    kind = op == 0x3D ? SceneCommandKind.RandomOpen : SceneCommandKind.RandomClose;
+                }
+                else if (op == 0x04 && size >= 12 && p + 12 <= payload.Length)
                 {
                     reference = ReadFourCc(payload.Slice(p + 8, 4));
                     if (reference.Length > 0) kind = SceneCommandKind.Camera;
@@ -380,7 +429,7 @@ namespace Gordian.Core.Resources.Events
                     if (op == 0x3F && size >= 20 && p + 20 <= payload.Length) reference2 = ReadFourCc(payload.Slice(p + 16, 4));
                     if (reference.Length > 0) kind = effect;
                 }
-                commands.Add(new SceneCommand(op, kind, start, duration, reference, color, reference2, factor));
+                commands.Add(new SceneCommand(op, kind, start, duration, reference, color, reference2, factor, number));
                 p += size;
             }
             return new SceneRoutine { Name = name, TotalFrames = total > 0 ? total : clock, Commands = commands };

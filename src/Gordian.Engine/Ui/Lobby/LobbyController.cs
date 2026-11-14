@@ -189,6 +189,9 @@ namespace Gordian.Engine.Ui.Lobby
         /// <summary>Every content id of the account in slot order.</summary>
         public IReadOnlyList<LobbyCharacter> Characters => _backend.Characters;
 
+        /// <summary>The account's expansions as the server reported them (<see cref="ILobbyBackend.AccountExpansions"/>), or null when not known.</summary>
+        public uint? AccountExpansions => _backend.AccountExpansions;
+
         /// <summary>The character shown in the 3D preview (the list's selection); null when none.</summary>
         public LobbyCharacter? PreviewCharacter
         {

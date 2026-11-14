@@ -494,13 +494,13 @@ namespace Gordian.App
             {
                 viewportControl.ResourceManager = AppResourceManager.Instance;
                 viewportControl.ActiveSession = _viewModel?.ActiveTab?.Session;
-                viewportControl.Lobby = _viewModel?.Lobby;
+                viewportControl.Lobby = _viewModel?.ShownLobby;
                 viewportControl.HoldBlack = _viewModel?.IsReturningToLobby == true;
             }
         }
 
         /// <summary>The character lobby on show in this window, if any (it takes the keyboard and mouse).</summary>
-        private Gordian.Engine.Ui.Lobby.LobbyController? ActiveLobby => _viewModel?.Lobby;
+        private Gordian.Engine.Ui.Lobby.LobbyController? ActiveLobby => _viewModel?.ShownLobby;
 
         /// <summary>
         /// The lobby's keys: the arrows and numeric keypad 8/2/4/6 move the cursor, Enter / keypad 5 confirm, Escape
@@ -1107,7 +1107,7 @@ namespace Gordian.App
                 {
                     viewportControl.ActiveSession = _viewModel.ActiveTab?.Session;
                 }
-                if (!ReferenceEquals(viewportControl.Lobby, _viewModel.Lobby)) viewportControl.Lobby = _viewModel.Lobby;
+                if (!ReferenceEquals(viewportControl.Lobby, _viewModel.ShownLobby)) viewportControl.Lobby = _viewModel.ShownLobby;
                 viewportControl.HoldBlack = _viewModel.IsReturningToLobby;
                 if (viewportControl.ResourceManager == null)
                 {
