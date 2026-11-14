@@ -594,5 +594,21 @@ namespace Gordian.Core.Tests.Animation
             Assert.InRange(EntityAnimationState.OverlayEnvelope(0.6f), 0.2f, 0.8f);
             Assert.Equal(0f, EntityAnimationState.OverlayEnvelope(1f));
         }
+
+        [Fact]
+        public void IncomingQueues_OfAnActorNeverAdvanced_StayBounded()
+        {
+            // #572: an actor that is never drawn (off screen, or in a character not on screen) is never advanced, so
+            // nothing takes its queues; they keep only the newest entries.
+            var state = new EntityAnimationState();
+            for (int i = 0; i < 1000; i++)
+            {
+                state.EnqueueAction(new ActionRequest { Motion = ActionMotion.Swing, ReceivedTimestamp = Stopwatch.GetTimestamp() });
+                state.EnqueueReaction(new HitReaction(ActionResolution.Hit, 0.5f, 0, false, ActionReactKind.None, 1, 0f, 0f, Stopwatch.GetTimestamp()));
+            }
+
+            Assert.Equal(EntityAnimationState.MaxIncoming, state.IncomingActionCount);
+            Assert.Equal(EntityAnimationState.MaxIncoming, state.IncomingReactionCount);
+        }
     }
 }

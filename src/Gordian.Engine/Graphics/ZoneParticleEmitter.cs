@@ -1006,6 +1006,9 @@ namespace Gordian.Engine.Graphics
         private void ApplyUpdater(ZoneParticle p, ParticleOpcode op, float frames, in ZoneParticleFrame frame)
         {
             ushort slot = op.Allocation;
+            // Curve-driven updaters write through this value rather than a lambda: a lambda capturing the particle made
+            // the compiler allocate a closure on every call, used or not, about 19 MB/s at 200 fps (#572).
+            float v;
             switch (op.OpCode)
             {
                 case 0x34: // PointListPositionUpdater: along the slot's path (0x54) by its curve, else the particle's progress
@@ -1064,33 +1067,33 @@ namespace Gordian.Engine.Graphics
                     if (Template.SpriteFrameCount > 0) p.SpriteIndex = Math.Min(Template.SpriteFrameCount - 1, frame.MoonPhase);
                     break;
 
-                case 0x0F: Progress(p, slot, null, x => p.Position = p.Position with { X = x }); break;
-                case 0x10: Progress(p, slot, null, y => p.Position = p.Position with { Y = y }); break;
-                case 0x11: Progress(p, slot, null, z => p.Position = p.Position with { Z = z }); break;
+                case 0x0F: if (Progress(p, slot, null, out v)) p.Position = p.Position with { X = v }; break;
+                case 0x10: if (Progress(p, slot, null, out v)) p.Position = p.Position with { Y = v }; break;
+                case 0x11: if (Progress(p, slot, null, out v)) p.Position = p.Position with { Z = v }; break;
 
                 // Rotation curves are authored in half-turns.
-                case 0x12: Progress(p, slot, p.Rotation.X / MathF.PI, x => p.Rotation = p.Rotation with { X = x * MathF.PI }); break;
-                case 0x13: Progress(p, slot, p.Rotation.Y / MathF.PI, y => p.Rotation = p.Rotation with { Y = y * MathF.PI }); break;
-                case 0x14: Progress(p, slot, p.Rotation.Z / MathF.PI, z => p.Rotation = p.Rotation with { Z = z * MathF.PI }); break;
+                case 0x12: if (Progress(p, slot, p.Rotation.X / MathF.PI, out v)) p.Rotation = p.Rotation with { X = v * MathF.PI }; break;
+                case 0x13: if (Progress(p, slot, p.Rotation.Y / MathF.PI, out v)) p.Rotation = p.Rotation with { Y = v * MathF.PI }; break;
+                case 0x14: if (Progress(p, slot, p.Rotation.Z / MathF.PI, out v)) p.Rotation = p.Rotation with { Z = v * MathF.PI }; break;
 
-                case 0x15: Progress(p, slot, p.Scale.X, x => p.Scale = p.Scale with { X = x }); break;
-                case 0x16: Progress(p, slot, p.Scale.Y, y => p.Scale = p.Scale with { Y = y }); break;
-                case 0x17: Progress(p, slot, p.Scale.Z, z => p.Scale = p.Scale with { Z = z }); break;
+                case 0x15: if (Progress(p, slot, p.Scale.X, out v)) p.Scale = p.Scale with { X = v }; break;
+                case 0x16: if (Progress(p, slot, p.Scale.Y, out v)) p.Scale = p.Scale with { Y = v }; break;
+                case 0x17: if (Progress(p, slot, p.Scale.Z, out v)) p.Scale = p.Scale with { Z = v }; break;
 
-                case 0x18: Progress(p, slot, p.Color.X, r => p.Color = p.Color with { X = r }); break;
-                case 0x19: Progress(p, slot, p.Color.Y, g => p.Color = p.Color with { Y = g }); break;
-                case 0x1A: Progress(p, slot, p.Color.Z, b => p.Color = p.Color with { Z = b }); break;
-                case 0x1B: Progress(p, slot, p.Color.W, a => p.Color = p.Color with { W = a }); break;
+                case 0x18: if (Progress(p, slot, p.Color.X, out v)) p.Color = p.Color with { X = v }; break;
+                case 0x19: if (Progress(p, slot, p.Color.Y, out v)) p.Color = p.Color with { Y = v }; break;
+                case 0x1A: if (Progress(p, slot, p.Color.Z, out v)) p.Color = p.Color with { Z = v }; break;
+                case 0x1B: if (Progress(p, slot, p.Color.W, out v)) p.Color = p.Color with { W = v }; break;
 
-                case 0x1C: Progress(p, slot, null, u => p.TexCoordTranslate = p.TexCoordTranslate with { X = u }); break;
-                case 0x1D: Progress(p, slot, null, w => p.TexCoordTranslate = p.TexCoordTranslate with { Y = w }); break;
+                case 0x1C: if (Progress(p, slot, null, out v)) p.TexCoordTranslate = p.TexCoordTranslate with { X = v }; break;
+                case 0x1D: if (Progress(p, slot, null, out v)) p.TexCoordTranslate = p.TexCoordTranslate with { Y = v }; break;
 
                 // Weighted-mesh morph weights 0-4 (Port Jeuno 324's blink opens the eye with 0x1E / 0x1F, #204).
-                case 0x1E: Progress(p, slot, null, w => p.SetMeshWeight(0, w)); break;
-                case 0x1F: Progress(p, slot, null, w => p.SetMeshWeight(1, w)); break;
-                case 0x20: Progress(p, slot, null, w => p.SetMeshWeight(2, w)); break;
-                case 0x21: Progress(p, slot, null, w => p.SetMeshWeight(3, w)); break;
-                case 0x22: Progress(p, slot, null, w => p.SetMeshWeight(4, w)); break;
+                case 0x1E: if (Progress(p, slot, null, out v)) p.SetMeshWeight(0, v); break;
+                case 0x1F: if (Progress(p, slot, null, out v)) p.SetMeshWeight(1, v); break;
+                case 0x20: if (Progress(p, slot, null, out v)) p.SetMeshWeight(2, v); break;
+                case 0x21: if (Progress(p, slot, null, out v)) p.SetMeshWeight(3, v); break;
+                case 0x22: if (Progress(p, slot, null, out v)) p.SetMeshWeight(4, v); break;
 
                 case 0x25: // ChildGeneratorBasicUpdater: the child emits from its own base (or the parent via 0x45)
                     if (p.ChildStreams.TryGetValue(slot, out var basicStream)) AdvanceChildStream(p, basicStream, frames, ChildFollow.None);
@@ -1152,22 +1155,22 @@ namespace Gordian.Engine.Graphics
                 case 0x31: ProgressVelocity(p, slot, 1); break;
                 case 0x32: ProgressVelocity(p, slot, 2); break;
 
-                case 0x3C: Clock(slot, frame.DayFraction, r => p.Color = p.Color with { X = r }); break;
-                case 0x3D: Clock(slot, frame.DayFraction, g => p.Color = p.Color with { Y = g }); break;
-                case 0x3E: Clock(slot, frame.DayFraction, b => p.Color = p.Color with { Z = b }); break;
-                case 0x3F: Clock(slot, frame.DayFraction, a => MultiplyAlpha(p, a)); break;
-                case 0x40: Clock(slot, frame.DayFraction, x => p.Scale = p.Scale with { X = x }); break;
-                case 0x41: Clock(slot, frame.DayFraction, y => p.Scale = p.Scale with { Y = y }); break;
-                case 0x42: Clock(slot, frame.DayFraction, z => p.Scale = p.Scale with { Z = z }); break;
+                case 0x3C: if (Clock(slot, frame.DayFraction, out v)) p.Color = p.Color with { X = v }; break;
+                case 0x3D: if (Clock(slot, frame.DayFraction, out v)) p.Color = p.Color with { Y = v }; break;
+                case 0x3E: if (Clock(slot, frame.DayFraction, out v)) p.Color = p.Color with { Z = v }; break;
+                case 0x3F: if (Clock(slot, frame.DayFraction, out v)) MultiplyAlpha(p, v); break;
+                case 0x40: if (Clock(slot, frame.DayFraction, out v)) p.Scale = p.Scale with { X = v }; break;
+                case 0x41: if (Clock(slot, frame.DayFraction, out v)) p.Scale = p.Scale with { Y = v }; break;
+                case 0x42: if (Clock(slot, frame.DayFraction, out v)) p.Scale = p.Scale with { Z = v }; break;
 
                 case 0x44: // progress-driven dampening factor
-                    Progress(p, slot, null, d =>
+                    if (Progress(p, slot, null, out v))
                     {
                         foreach (var t in p.Transforms.Values)
                         {
-                            if (t.Kind == ParticleTransformKind.Position) { t.State.DampeningFactor = d; break; }
+                            if (t.Kind == ParticleTransformKind.Position) { t.State.DampeningFactor = v; break; }
                         }
-                    });
+                    }
                     break;
 
                 case 0x48: // DoubleRangeDrawDistanceUpdater: visible only inside a near..far band
@@ -1186,7 +1189,7 @@ namespace Gordian.Engine.Graphics
                     break;
                 }
 
-                case 0x49: Clock(slot, frame.DayFraction, t => p.LightTheta = t); break; // point-light theta by time of day
+                case 0x49: if (Clock(slot, frame.DayFraction, out v)) p.LightTheta = v; break; // point-light theta by time of day
                 case 0x5A: // Unnamed by the references. A particle born at scale 0 grows with its distance to the camera, up to the first three floats (see particles.md)
                     if (p.Scale == Vector3.Zero) p.SizedByDistance = true;
                     if (p.SizedByDistance)
@@ -1197,10 +1200,10 @@ namespace Gordian.Engine.Graphics
                             : op.Vector(0);
                     }
                     break;
-                case 0x5B: Progress(p, slot, p.LightTheta, t => p.LightTheta = t); break;
-                case 0x5C: Progress(p, slot, p.LightRange, r => p.LightRange = r); break;
-                case 0x5D: Progress(p, slot, p.LightThetaMultiplier, m => p.LightThetaMultiplier = m); break;
-                case 0x5E: Progress(p, slot, p.LightRangeMultiplier, m => p.LightRangeMultiplier = m); break;
+                case 0x5B: if (Progress(p, slot, p.LightTheta, out v)) p.LightTheta = v; break;
+                case 0x5C: if (Progress(p, slot, p.LightRange, out v)) p.LightRange = v; break;
+                case 0x5D: if (Progress(p, slot, p.LightThetaMultiplier, out v)) p.LightThetaMultiplier = v; break;
+                case 0x5E: if (Progress(p, slot, p.LightRangeMultiplier, out v)) p.LightRangeMultiplier = v; break;
 
                 case 0x4E: // DayOfWeekColorUpdater
                     p.DayOfWeekTint = TintAt(op, 8, frame.DayOfWeek);
@@ -1213,11 +1216,11 @@ namespace Gordian.Engine.Graphics
                     p.IsOcclusionProbe = true;
                     break;
 
-                case 0x54: Progress(p, slot, null, u => p.TexCoordTranslate += new Vector2(u * frames, 0f)); break;
-                case 0x55: Progress(p, slot, null, v => p.TexCoordTranslate += new Vector2(0f, v * frames)); break;
-                case 0x56: Progress(p, slot, null, x => p.Rotation += new Vector3(x * frames * MathF.PI, 0f, 0f)); break;
-                case 0x57: Progress(p, slot, null, y => p.Rotation += new Vector3(0f, y * frames * MathF.PI, 0f)); break;
-                case 0x58: Progress(p, slot, null, z => p.Rotation += new Vector3(0f, 0f, z * frames * MathF.PI)); break;
+                case 0x54: if (Progress(p, slot, null, out v)) p.TexCoordTranslate += new Vector2(v * frames, 0f); break;
+                case 0x55: if (Progress(p, slot, null, out v)) p.TexCoordTranslate += new Vector2(0f, v * frames); break;
+                case 0x56: if (Progress(p, slot, null, out v)) p.Rotation += new Vector3(v * frames * MathF.PI, 0f, 0f); break;
+                case 0x57: if (Progress(p, slot, null, out v)) p.Rotation += new Vector3(0f, v * frames * MathF.PI, 0f); break;
+                case 0x58: if (Progress(p, slot, null, out v)) p.Rotation += new Vector3(0f, 0f, v * frames * MathF.PI); break;
 
                 case 0x59: // AngularDistanceRotationUpdater: spin relative to the camera
                 {
@@ -1233,12 +1236,12 @@ namespace Gordian.Engine.Graphics
                     break;
                 }
 
-                case 0x61: Clock(slot, frame.DayFraction, x => p.Rotation += new Vector3(x * MathF.PI, 0f, 0f)); break;
-                case 0x62: Clock(slot, frame.DayFraction, y => p.Rotation += new Vector3(0f, y * MathF.PI, 0f)); break;
-                case 0x63: Clock(slot, frame.DayFraction, z => p.Rotation += new Vector3(0f, 0f, z * MathF.PI)); break;
-                case 0x66: Clock(slot, frame.DayFraction, x => p.Rotation = p.Rotation with { X = x * MathF.PI }); break;
-                case 0x67: Clock(slot, frame.DayFraction, y => p.Rotation = p.Rotation with { Y = y * MathF.PI }); break;
-                case 0x68: Clock(slot, frame.DayFraction, z => p.Rotation = p.Rotation with { Z = z * MathF.PI }); break;
+                case 0x61: if (Clock(slot, frame.DayFraction, out v)) p.Rotation += new Vector3(v * MathF.PI, 0f, 0f); break;
+                case 0x62: if (Clock(slot, frame.DayFraction, out v)) p.Rotation += new Vector3(0f, v * MathF.PI, 0f); break;
+                case 0x63: if (Clock(slot, frame.DayFraction, out v)) p.Rotation += new Vector3(0f, 0f, v * MathF.PI); break;
+                case 0x66: if (Clock(slot, frame.DayFraction, out v)) p.Rotation = p.Rotation with { X = v * MathF.PI }; break;
+                case 0x67: if (Clock(slot, frame.DayFraction, out v)) p.Rotation = p.Rotation with { Y = v * MathF.PI }; break;
+                case 0x68: if (Clock(slot, frame.DayFraction, out v)) p.Rotation = p.Rotation with { Z = v * MathF.PI }; break;
 
                 case 0x69: // DaylightBasedColorApplier
                     if (p.DaylightColored)
@@ -1248,9 +1251,9 @@ namespace Gordian.Engine.Graphics
                     }
                     break;
 
-                case 0x6B: Clock(slot, frame.DayFraction, x => p.Position = p.Position with { X = x }); break;
-                case 0x6C: Clock(slot, frame.DayFraction, y => p.Position = p.Position with { Y = y }); break;
-                case 0x6D: Clock(slot, frame.DayFraction, z => p.Position = p.Position with { Z = z }); break;
+                case 0x6B: if (Clock(slot, frame.DayFraction, out v)) p.Position = p.Position with { X = v }; break;
+                case 0x6C: if (Clock(slot, frame.DayFraction, out v)) p.Position = p.Position with { Y = v }; break;
+                case 0x6D: if (Clock(slot, frame.DayFraction, out v)) p.Position = p.Position with { Z = v }; break;
             }
         }
 
@@ -1308,24 +1311,24 @@ namespace Gordian.Engine.Graphics
 
         private void ProgressVelocity(ZoneParticle p, ushort slot, int axis)
         {
-            Progress(p, slot, null, value =>
+            if (!Progress(p, slot, null, out float value)) return;
+            foreach (var t in p.Transforms.Values)
             {
-                foreach (var t in p.Transforms.Values)
-                {
-                    if (t.Kind != ParticleTransformKind.Position) continue;
-                    t.State.Velocity = WithAxis(t.State.Velocity, axis, value);
-                    break;
-                }
-            });
+                if (t.Kind != ParticleTransformKind.Position) continue;
+                t.State.Velocity = WithAxis(t.State.Velocity, axis, value);
+                break;
+            }
         }
 
         /// <summary>
         /// Samples the slot's curve at the particle's progress, looped by the link's cycle count. With an initial value,
-        /// the curve's first keyframe is replaced by the particle's value when the updater first runs.
+        /// the curve's first keyframe is replaced by the particle's value when the updater first runs. False when the
+        /// slot has no curve, in which case the updater changes nothing.
         /// </summary>
-        private void Progress(ZoneParticle p, ushort slot, float? initial, Action<float> set)
+        private bool Progress(ZoneParticle p, ushort slot, float? initial, out float value)
         {
-            if (!Template.Curves.TryGetValue(slot, out var curve)) return;
+            value = 0f;
+            if (!Template.Curves.TryGetValue(slot, out var curve)) return false;
             int cycles = Def.KeyFrameLinks.TryGetValue(slot, out var link) ? link.Cycles : 1;
 
             float? seed = null;
@@ -1341,12 +1344,16 @@ namespace Gordian.Engine.Graphics
 
             float progress = cycles * p.Progress;
             progress -= MathF.Floor(progress);
-            set(curve.Evaluate(progress, seed));
+            value = curve.Evaluate(progress, seed);
+            return true;
         }
 
-        private void Clock(ushort slot, float dayFraction, Action<float> set)
+        /// <summary>Samples the slot's curve at the time of day. False when the slot has no curve.</summary>
+        private bool Clock(ushort slot, float dayFraction, out float value)
         {
-            if (Template.Curves.TryGetValue(slot, out var curve)) set(curve.Evaluate(Math.Clamp(dayFraction, 0f, 1f)));
+            if (!Template.Curves.TryGetValue(slot, out var curve)) { value = 0f; return false; }
+            value = curve.Evaluate(Math.Clamp(dayFraction, 0f, 1f));
+            return true;
         }
 
         private static void MultiplyAlpha(ZoneParticle p, float factor) =>

@@ -39,6 +39,11 @@ namespace Gordian.App.Graphics
         private DeviceBuffer? _vertexBuffer;
         private uint _vertexCount;
         private bool _disposed;
+        private readonly List<(float Elevation, Vector4 Color)> _slices = new();
+        private readonly List<SkyDomeVertex> _vertices = new();
+
+        /// <summary>Elevations of the procedural gradient used when the zone has no sky slices: skirt, horizon, mid-sky, zenith.</summary>
+        private static readonly float[] ProceduralElevations = { -0.15f, 0.0f, 0.20f, 0.45f, 0.70f, 1.0f };
 
         public uint VertexCount => _vertexCount;
         public bool HasGeometry => _vertexBuffer != null && _vertexCount > 0;
@@ -98,8 +103,9 @@ namespace Gordian.App.Graphics
         {
             if (_disposed || environment == null) return;
 
-            var vertices = GenerateDomeVertices(environment);
-            if (vertices.Length == 0) return;
+            GenerateDomeVertices(environment, _slices, _vertices);
+            if (_vertices.Count == 0) return;
+            ReadOnlySpan<SkyDomeVertex> vertices = CollectionsMarshal.AsSpan(_vertices);
 
             var factory = _gd.ResourceFactory;
             uint bufferSize = (uint)(vertices.Length * Marshal.SizeOf<SkyDomeVertex>());
@@ -121,11 +127,24 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static SkyDomeVertex[] GenerateDomeVertices(ZoneEnvironmentSettings environment)
         {
+            var vertices = new List<SkyDomeVertex>();
+            GenerateDomeVertices(environment, new List<(float Elevation, Vector4 Color)>(), vertices);
+            return vertices.ToArray();
+        }
+
+        /// <summary>
+        /// Fills <paramref name="vertexList"/> with the dome from environment settings, reusing both lists. The dome is
+        /// rebuilt every frame (its colours follow the interpolated environment), so allocating it each time cost about
+        /// 23 MB/s at 200 fps (#572).
+        /// </summary>
+        internal static void GenerateDomeVertices(ZoneEnvironmentSettings environment,
+            List<(float Elevation, Vector4 Color)> slices, List<SkyDomeVertex> vertexList)
+        {
+            slices.Clear();
+            vertexList.Clear();
             float radius = 950f;
             int spokes = Math.Clamp((int)environment.Spokes, 12, 64);
             if (spokes == 0) spokes = 24;
-
-            var slices = new List<(float Elevation, Vector4 Color)>();
 
             if (environment.SkySlices.Count >= 2)
             {
@@ -173,10 +192,9 @@ namespace Gordian.App.Graphics
                     zenith = new Vector4(0.02f, 0.03f, 0.08f, 1.0f);
                 }
 
-                float[] elevs = { -0.15f, 0.0f, 0.20f, 0.45f, 0.70f, 1.0f };
-                for (int i = 0; i < elevs.Length; i++)
+                for (int i = 0; i < ProceduralElevations.Length; i++)
                 {
-                    float e = elevs[i];
+                    float e = ProceduralElevations[i];
                     Vector4 color;
                     if (e <= 0.0f)
                     {
@@ -190,8 +208,6 @@ namespace Gordian.App.Graphics
                     slices.Add((e, color));
                 }
             }
-
-            var vertexList = new List<SkyDomeVertex>();
 
             for (int i = 0; i < slices.Count - 1; i++)
             {
@@ -229,8 +245,6 @@ namespace Gordian.App.Graphics
                     vertexList.Add(vHi0);
                 }
             }
-
-            return vertexList.ToArray();
         }
 
         /// <summary>
