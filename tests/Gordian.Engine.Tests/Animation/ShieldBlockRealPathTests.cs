@@ -174,8 +174,8 @@ namespace Gordian.Engine.Tests.Animation
         }
 
         /// <summary>
-        /// Not engaged (the weapon sheathed) or moving (in-game round 7), a block, and a parry with the weapon sheathed, leave
-        /// the weapon where it was: every weapon vertex within 0.005 yalm of the pose without the reaction (sheathed on the
+        /// Moving (in-game round 7), a block, and a parry with the weapon sheathed, leave the weapon where it was (not engaged
+        /// and standing, a block is the whole-body lunge without the weapon arm, checked by <see cref="IdleBlock"/>): every weapon vertex within 0.005 yalm of the pose without the reaction (sheathed on the
         /// hip, or in the hand running). A block moves the shield arm alone: the weapon hand stays put and the shield comes forward of the chest
         /// at about chest height (measured 2026-11-13: 0.1-0.9 yalm in front, from 0.5 above the chest to 0.25 below).
         /// </summary>
@@ -202,6 +202,11 @@ namespace Gordian.Engine.Tests.Animation
             Assert.Single(state.OverlayLayers.ToArray());
             var held = state.EvaluatePose(skeleton, overrides);
             var still = plain.EvaluatePose(skeleton, overrides);
+            if (resolution == ActionResolution.Block && stance == AnimationCategory.Idle)
+            {
+                IdleBlock(model, held, still);
+                return;
+            }
             float sword = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 0).SelectMany(g => g.Vertices)
                 .Max(v => Vector3.Distance(Skin(v, held), Skin(v, still)));
             // An engaged parry on the run raises the sword in the hand (passed in game, round 7).
@@ -215,6 +220,43 @@ namespace Gordian.Engine.Tests.Animation
             var (centre, _) = Shield(model, held, chest);
             Assert.True(centre.X > chest.X + 0.08f, $"shield at {centre - chest:F2} from the chest: not in front");
             Assert.True(centre.Y < chest.Y + 0.3f, $"shield at {centre - chest:F2} from the chest: below it (Y down)");
+        }
+
+        /// <summary>
+        /// Not engaged and standing (in-game round 8), a block is the engaged block's whole-body lunge on every joint but the
+        /// weapon arm and the sheathed weapon: those keep the idle stance under their parents (within 0.5 degrees, so the
+        /// sheath stays on the hip as the hip moves), the feet stand on the ground, and the shield comes up in front.
+        /// </summary>
+        private static void IdleBlock(EntityModel model, SkeletonPoseEvaluator.EvaluatedPose held, SkeletonPoseEvaluator.EvaluatedPose still)
+        {
+            var skeleton = model.Skeleton!;
+            var overrides = model.ParentOverrides!;
+            int n = skeleton.Count, rightHand = skeleton.References[127].Index, leftHand = skeleton.References[126].Index;
+            int Parent(int j) => skeleton.Joints[j].Parent is int p && p >= 0 && p < n && p != j ? p : -1;
+            var aboveLeft = new System.Collections.Generic.HashSet<int>();
+            for (int j = leftHand; j >= 0; j = Parent(j)) aboveLeft.Add(j);
+            int pivot = rightHand;
+            while (Parent(pivot) >= 0 && !aboveLeft.Contains(Parent(pivot))) pivot = Parent(pivot);
+            bool Below(int j, int a) { for (int k = j; k >= 0; k = Parent(k)) if (k == a) return true; return false; }
+            int checkedJoints = 0;
+            for (int j = 0; j < n; j++)
+            {
+                bool weaponArm = Below(j, pivot) || overrides.Keys.Any(g => Below(j, g));
+                if (!weaponArm || Parent(j) < 0) continue;
+                checkedJoints++;
+                var under = Quaternion.Conjugate(held.Rotations[Parent(j)]) * held.Rotations[j];
+                var underStill = Quaternion.Conjugate(still.Rotations[Parent(j)]) * still.Rotations[j];
+                float off = Angle(under, underStill);
+                Assert.True(off < 0.5f, $"weapon-side joint {j} turned {off:F1} degrees under its parent");
+            }
+            Assert.True(checkedJoints > 5);
+            var body = model.AnimatedMeshGroups.Where(g => g.WeaponSlot < 0).SelectMany(g => g.Vertices).ToArray();
+            float lowest = body.Max(v => Skin(v, held).Y);
+            Assert.True(MathF.Abs(lowest) < 0.03f, $"feet {lowest:F3} yalm off the ground (Y down)");
+            var chest = held.Translations[LocomotionLayering.Chest(skeleton)];
+            var (centre, outward) = Shield(model, held, chest);
+            Assert.True(centre.X > chest.X + 0.15f, $"shield at {centre - chest:F2} from the chest: not in front");
+            Assert.True(outward.X > 0.4f, $"shield face {outward:F2}: not toward the attacker (+X)");
         }
 
         /// <summary>

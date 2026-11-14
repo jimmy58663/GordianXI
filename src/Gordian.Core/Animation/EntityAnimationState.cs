@@ -1322,7 +1322,9 @@ namespace Gordian.Core.Animation
         /// up where retail's points down toward the attacker; the katana pack's points down). The upper-body <c>gdm</c> drawn
         /// over <c>gdi6</c> lifts the sword over the head, which the still does not show, so the pose is the whole-body one alone,
         /// absolute over the whole body, weapon arm and legs included, joint translations too (the lunge's crouch), when the
-        /// actor is engaged and standing. Moving or not engaged (the weapon sheathed), a block moves the shield arm alone to
+        /// actor is engaged and standing. Not engaged and standing, a block is the same pose on every joint but the weapon arm
+        /// and the sheathed weapon, which stay on the idle stance (in-game round 8: the shield arm alone looked odd). Moving,
+        /// or sitting, a block moves the shield arm alone to
         /// <c>gdi6</c>'s over whatever is playing (in-game round 7: <c>gdm</c> on the move brought both hands together, and the
         /// whole body over the idle stance moved the sheathed sword; the race's only block routine is the base pack's
         /// <c>gur1</c>, so there is no idle block of its own), and a parry plays the upper-body <c>pym</c> (upper-body clips
@@ -1349,7 +1351,17 @@ namespace Gordian.Core.Animation
                     ClearLayers();
                     AddLayer(body!, null, null, 1f, total, held: true, translations: true);
                 }
-                else if (hasBody && !parry && model.Skeleton is { } skeleton && ShieldArmMask(skeleton, model.ParentOverrides) is { } arm)
+                else if (hasBody && !parry && Current == AnimationCategory.Idle && model.Skeleton is { } idleSkeleton
+                    && ArmMask(idleSkeleton, model.ParentOverrides, RightHandReference, LeftHandReference) is { } weaponArm)
+                {
+                    // Not engaged and standing (in-game round 8): the engaged block's whole body, the weapon arm and the
+                    // sheathed weapon left on the idle stance.
+                    var mask = new bool[idleSkeleton.Count];
+                    for (int j = 0; j < mask.Length; j++) mask[j] = !weaponArm[j];
+                    ClearLayers();
+                    AddLayer(body!, null, WithoutGrips(model, mask), 1f, total, held: true, translations: true);
+                }
+                else if (hasBody && !parry && model.Skeleton is { } skeleton && ArmMask(skeleton, model.ParentOverrides, LeftHandReference, RightHandReference) is { } arm)
                 {
                     // Moving, or not engaged (the weapon sheathed): the block pose's shield arm alone over what is playing.
                     ClearLayers();
@@ -1382,24 +1394,26 @@ namespace Gordian.Core.Animation
             AddLayer(clip, ReferencePose(model, clipName), OverlayMask(model, clip), peak, ticks, held: false);
         }
 
+        private const int LeftHandReference = 126, RightHandReference = 127;
+
         /// <summary>
-        /// The shield arm: the first joint above the left hand (reference 126) that is not above the right hand (127), and
-        /// every joint below it in the skeleton, the weapon grips the loader re-parents into a hand left out. Null for a
-        /// skeleton without the hand references.
+        /// An arm: the first joint above the hand reference <paramref name="hand"/> that is not above the other hand's
+        /// <paramref name="otherHand"/>, and every joint below it in the skeleton, the weapon grips the loader re-parents into a
+        /// hand left out (the shield arm: 126 against 127; the weapon arm: 127 against 126). Null for a skeleton without the
+        /// hand references.
         /// </summary>
-        private static bool[]? ShieldArmMask(Skeleton skeleton, IReadOnlyDictionary<int, int>? overrides)
+        private static bool[]? ArmMask(Skeleton skeleton, IReadOnlyDictionary<int, int>? overrides, int hand, int otherHand)
         {
-            const int leftHand = 126, rightHand = 127;
-            if (skeleton.References.Count <= rightHand) return null;
-            int left = skeleton.References[leftHand].Index, right = skeleton.References[rightHand].Index, n = skeleton.Count;
-            if (left >= n || right >= n) return null;
+            if (skeleton.References.Count <= Math.Max(hand, otherHand)) return null;
+            int own = skeleton.References[hand].Index, other = skeleton.References[otherHand].Index, n = skeleton.Count;
+            if (own >= n || other >= n) return null;
             int Parent(int j) => skeleton.Joints[j].Parent is int p && p >= 0 && p < n && p != j ? p : -1;
-            var aboveRight = new HashSet<int>();
-            for (int j = right, g = 0; j >= 0 && g <= n; j = Parent(j), g++) aboveRight.Add(j);
+            var aboveOther = new HashSet<int>();
+            for (int j = other, g = 0; j >= 0 && g <= n; j = Parent(j), g++) aboveOther.Add(j);
             int pivot = -1;
-            for (int j = left, g = 0; j >= 0 && g <= n; j = Parent(j), g++)
+            for (int j = own, g = 0; j >= 0 && g <= n; j = Parent(j), g++)
             {
-                if (aboveRight.Contains(j)) break;
+                if (aboveOther.Contains(j)) break;
                 pivot = j;
             }
             if (pivot < 0) return null;
