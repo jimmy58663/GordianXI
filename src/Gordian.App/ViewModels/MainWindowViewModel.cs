@@ -386,6 +386,13 @@ namespace Gordian.App.ViewModels
         };
 
         /// <summary>
+        /// Whether reaching <paramref name="state"/> means the session is connecting again, so its next disconnect is new and
+        /// gets reported. Disconnecting and Disconnected do not: a single disconnect passes through both twice.
+        /// </summary>
+        internal static bool DisconnectReportRearms(SessionState state) =>
+            state is not (SessionState.Disconnecting or SessionState.Disconnected);
+
+        /// <summary>
         /// Adds a message to <see cref="RecentStatusLines"/> as the status file shows it (<c>[HH:mm:ss] message</c>),
         /// dropping the oldest past <see cref="RecentStatusCapacity"/>.
         /// </summary>
@@ -2071,9 +2078,10 @@ namespace Gordian.App.ViewModels
                         catch (Exception ex) { GordianLog.Warn(LogCategories.Session, $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
                     });
                 }
-                // A disconnect passes through Disconnected more than once (Disconnect, then the read loop's cleanup): say it once.
+                // A disconnect passes through Disconnecting -> Disconnected twice (Disconnect, then the read loop's cleanup):
+                // say it once, and only again after the session has connected anew.
                 bool firstDisconnect = state == SessionState.Disconnected && Interlocked.Exchange(ref disconnectReported, 1) == 0;
-                if (state != SessionState.Disconnected) Interlocked.Exchange(ref disconnectReported, 0);
+                if (DisconnectReportRearms(state)) Interlocked.Exchange(ref disconnectReported, 0);
                 string? message = SessionStateStatus(session.CharacterName, state, ticket, Volatile.Read(ref timedOut), firstDisconnect);
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {

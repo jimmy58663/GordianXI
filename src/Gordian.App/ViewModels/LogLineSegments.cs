@@ -16,7 +16,8 @@ namespace Gordian.App.ViewModels
     /// </summary>
     public static class LogLineSegments
     {
-        public const string TimestampColor = "#808080";
+        /// <summary>Muted sage green: apart from debug grey, info white and the level, category and tag colours.</summary>
+        public const string TimestampColor = "#6A9955";
         public const string CategoryColor = "#C586C0";
         public const string TagColor = "#4EC9B0";
         public const string MessageColor = "#D4D4D4";

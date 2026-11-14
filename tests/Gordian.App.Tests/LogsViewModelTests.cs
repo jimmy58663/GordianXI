@@ -263,6 +263,34 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void SessionStatus_ADisconnectThroughBothPathsIsReportedOnce_AndAgainAfterReconnecting()
+        {
+            var ticket = new Gordian.Core.Network.Lobby.MapSessionTicket { ZoneIp = "127.0.0.1", ZonePort = 54230 };
+            // Disconnect(), then the read loop's cleanup, then a later login and logout of the same session.
+            var states = new[]
+            {
+                Gordian.Core.Network.SessionState.ActiveInWorld,
+                Gordian.Core.Network.SessionState.Disconnecting, Gordian.Core.Network.SessionState.Disconnected,
+                Gordian.Core.Network.SessionState.Disconnecting, Gordian.Core.Network.SessionState.Disconnected,
+                Gordian.Core.Network.SessionState.ConnectingToGameServer,
+                Gordian.Core.Network.SessionState.Disconnecting, Gordian.Core.Network.SessionState.Disconnected,
+            };
+            int reported = 0;
+            var messages = new System.Collections.Generic.List<string>();
+            foreach (var state in states)
+            {
+                // The same steps as the session's StateChanged handler in MainWindowViewModel.
+                bool first = state == Gordian.Core.Network.SessionState.Disconnected && System.Threading.Interlocked.Exchange(ref reported, 1) == 0;
+                if (MainWindowViewModel.DisconnectReportRearms(state)) reported = 0;
+                if (MainWindowViewModel.SessionStateStatus("Gemini", state, ticket, false, first) is { } message) messages.Add(message);
+            }
+
+            Assert.Equal(2, messages.Count(m => m == "[Gemini] Session disconnected."));
+            Assert.Equal("[Gemini] Session disconnected.", messages[1]);
+            Assert.Equal("[Gemini] Session disconnected.", messages[^1]);
+        }
+
+        [Fact]
         public async Task SwitchingFiles_ReplacesTheLines()
         {
             string longFile = Write(Path.Combine("system", "gordian_2026-11-14.log"), Enumerable.Range(0, 200).Select(i => $"[10:00:00.000] [INFO] [APP] line {i}").ToArray());
