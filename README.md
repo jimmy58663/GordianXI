@@ -51,7 +51,7 @@ Every scene below is rendered by GordianXI itself from the retail `.dat` files o
 
 ## 🏗️ Repository Architecture
 
-GordianXI is organized as a monorepo of five layered .NET 10 assemblies plus the small native handoff proxy. Each layer references only the ones below it, and tests enforce the boundaries (see [docs/architecture.md](docs/architecture.md)):
+GordianXI is organized as a monorepo of five layered .NET 10 assemblies. Each layer references only the ones below it, and tests enforce the boundaries (see [docs/architecture.md](docs/architecture.md)):
 
 ```text
 Gordian.App ──► Gordian.Engine ──► Gordian.Core
