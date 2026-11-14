@@ -46,7 +46,8 @@
             </StackPanel>
         </Grid>
 
-        <TabControl Grid.Row="1" Margin="8,0,8,8" Background="#1E1E1E">
+        <TabControl Grid.Row="1" Margin="8,0,8,8" Background="#1E1E1E"
+                    SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
 
         <!-- TAB 1: Profiles & Multi-Box Launch -->
         <TabItem Header="Profiles and Launch" FontSize="14" FontWeight="SemiBold">
@@ -397,12 +398,186 @@
                     </Grid>
                 </Border>
 
-                <!-- Status line under both views. -->
-                <Border Grid.Row="1" Background="#1A1A1C" CornerRadius="4" Padding="10,8" Margin="0,8,0,0" MinHeight="40" MaxHeight="90" BorderBrush="#333337" BorderThickness="1">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <TextBlock Text="{Binding StatusMessage}" Foreground="#E5C07B" FontSize="11" FontFamily="Consolas, Courier New, monospace" TextWrapping="Wrap"/>
-                    </ScrollViewer>
+                <!-- Status box under both views: this launch's latest status messages, newest at the bottom (#566). -->
+                <Border Grid.Row="1" Background="#1A1A1C" CornerRadius="4" Padding="10,6" Margin="0,8,0,0" BorderBrush="#333337" BorderThickness="1">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <!-- A fixed five lines (13 px monospace), so the box does not grow as messages arrive. -->
+                        <ScrollViewer x:Name="StatusHistoryScroll" Grid.Column="0" Height="88" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding RecentStatusLines}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <SelectableTextBlock Text="{Binding}" Foreground="#E5C07B" FontSize="13" FontWeight="Normal"
+                                                             FontFamily="Consolas, Courier New, monospace" TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Button Grid.Column="1" Content="View full log" Command="{Binding ShowLogsTabCommand}"
+                                VerticalAlignment="Top" Margin="8,0,0,0" Padding="8,3" FontSize="12" FontWeight="Normal"
+                                Background="#2D2D30" Foreground="#9CDCFE" CornerRadius="3"
+                                ToolTip.Tip="Open the Logs tab on this launch's status messages"/>
+                    </Grid>
                 </Border>
+            </Grid>
+        </TabItem>
+
+        <!-- TAB: Logs (#566). Left: the logs folder's tree; right: a terminal-style viewer. -->
+        <TabItem Header="Logs" FontSize="14" FontWeight="SemiBold">
+            <Grid ColumnDefinitions="300, 6, *" Margin="0,10,0,0">
+
+                <!-- LEFT: pinned status entry, folder tree, actions -->
+                <Border Grid.Column="0" Background="#252526" CornerRadius="6" Padding="8">
+                    <Grid RowDefinitions="Auto, Auto, *, Auto">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+                            <Button Content="Open logs folder" Command="{Binding Logs.OpenFolderCommand}"
+                                    Background="#512BD4" Foreground="White" FontSize="12" FontWeight="SemiBold" Padding="10,5" CornerRadius="4"
+                                    ToolTip.Tip="{Binding Logs.LogsDirectory}"/>
+                            <Button Content="Refresh" Command="{Binding Logs.RefreshCommand}"
+                                    Background="#3E3E42" Foreground="#DCDCDC" FontSize="12" FontWeight="Normal" Padding="10,5" CornerRadius="4"/>
+                        </StackPanel>
+
+                        <Button Grid.Row="1" Command="{Binding Logs.ShowStatusCommand}" HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left" Padding="8,5" Margin="0,0,0,6" CornerRadius="4"
+                                Classes.selected="{Binding Logs.IsStatusSelected}"
+                                ToolTip.Tip="This launch's status messages (logs/status)">
+                            <Button.Styles>
+                                <Style Selector="Button">
+                                    <Setter Property="Background" Value="#2D2D30"/>
+                                </Style>
+                                <Style Selector="Button.selected">
+                                    <Setter Property="Background" Value="#094771"/>
+                                </Style>
+                            </Button.Styles>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="★" Foreground="#E5C07B" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="Status (this session)" Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Border Grid.Row="2" Background="#1E1E1E" CornerRadius="4" BorderBrush="#333337" BorderThickness="1">
+                            <TreeView ItemsSource="{Binding Logs.Nodes}"
+                                      SelectedItem="{Binding Logs.SelectedNode, Mode=TwoWay}"
+                                      Background="Transparent" BorderThickness="0">
+                                <TreeView.Styles>
+                                    <Style Selector="TreeViewItem" x:DataType="vm:LogTreeNode">
+                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                        <Setter Property="MinHeight" Value="24"/>
+                                    </Style>
+                                </TreeView.Styles>
+                                <TreeView.DataTemplates>
+                                    <TreeDataTemplate DataType="vm:LogTreeNode" ItemsSource="{Binding Children}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding Icon}" FontSize="12" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Normal" Foreground="#DCDCDC" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </TreeDataTemplate>
+                                </TreeView.DataTemplates>
+                            </TreeView>
+                        </Border>
+
+                        <TextBlock Grid.Row="3" Text="{Binding Logs.LogsDirectory}" Foreground="#666666" FontSize="11" FontWeight="Normal"
+                                   TextWrapping="Wrap" Margin="2,6,0,0"/>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Column="1" Background="Transparent" ResizeDirection="Columns"/>
+
+                <!-- RIGHT: toolbar, terminal pane, settings -->
+                <Grid Grid.Column="2" RowDefinitions="Auto, Auto, *, Auto">
+                    <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="8,6" Margin="0,0,0,6">
+                        <Grid ColumnDefinitions="*, Auto, Auto, Auto">
+                            <TextBox Grid.Column="0" Text="{Binding Logs.SearchText, Mode=TwoWay}" PlaceholderText="Search this log..."
+                                     FontSize="13" FontWeight="Normal" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Logs.LevelFilters}" SelectedIndex="{Binding Logs.LevelFilterIndex, Mode=TwoWay}"
+                                      IsEnabled="{Binding Logs.IsLevelFilterAvailable}" Width="180" FontSize="12" FontWeight="Normal" Margin="0,0,8,0"
+                                      ToolTip.Tip="Applies to system and network logs"/>
+                            <CheckBox Grid.Column="2" Content="Follow" IsChecked="{Binding Logs.Follow, Mode=TwoWay}"
+                                      FontSize="12" FontWeight="Normal" Foreground="#DCDCDC" Margin="0,0,8,0" VerticalAlignment="Center"
+                                      ToolTip.Tip="Keep the newest line in view while the file grows"/>
+                            <Button Grid.Column="3" Content="Copy" Click="OnCopyLogLinesClick"
+                                    Background="#3E3E42" Foreground="#DCDCDC" FontSize="12" FontWeight="Normal" Padding="10,4" CornerRadius="4"
+                                    ToolTip.Tip="Copy the selected lines (all shown lines when none is selected)"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Row="1" Text="{Binding Logs.Header}" Foreground="#888888" FontSize="11" FontWeight="Normal"
+                               FontFamily="Consolas, Courier New, monospace" TextTrimming="CharacterEllipsis" Margin="4,0,0,4"/>
+
+                    <Border Grid.Row="2" Background="#0C0C0C" CornerRadius="4" BorderBrush="#333337" BorderThickness="1" Padding="4">
+                        <ListBox x:Name="LogLinesListBox"
+                                 ItemsSource="{Binding Logs.Lines}"
+                                 SelectionMode="Multiple"
+                                 Background="Transparent"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="4,0"/>
+                                    <Setter Property="MinHeight" Value="0"/>
+                                </Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LogLineItem">
+                                    <common:LogLineTextBlock Line="{Binding}"
+                                                             Highlight="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).Logs.SearchText}"
+                                                             FontSize="13" FontWeight="Normal" FontFamily="Consolas, Courier New, monospace"
+                                                             TextWrapping="Wrap"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <!-- Logging settings (logging.json) -->
+                    <Expander Grid.Row="3" Header="Logging settings" Margin="0,6,0,0" HorizontalAlignment="Stretch"
+                              FontSize="13" FontWeight="Normal">
+                        <Grid RowDefinitions="Auto, Auto, Auto, Auto, Auto">
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="16" Margin="0,0,0,8">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Default level:" Foreground="#A0A0A0" FontSize="12" VerticalAlignment="Center"/>
+                                    <ComboBox ItemsSource="{Binding LoggingSettings.DefaultLevelOptions}"
+                                              SelectedIndex="{Binding LoggingSettings.DefaultLevelIndex, Mode=TwoWay}" Width="150" FontSize="12"/>
+                                </StackPanel>
+                                <CheckBox Content="Network packet log (logs/network)" IsChecked="{Binding LoggingSettings.NetworkFile, Mode=TwoWay}"
+                                          FontSize="12" Foreground="#DCDCDC"/>
+                                <CheckBox Content="Chat logs (logs/chat)" IsChecked="{Binding LoggingSettings.ChatLog, Mode=TwoWay}"
+                                          FontSize="12" Foreground="#DCDCDC"/>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="1" Text="Category levels" Foreground="#A0A0A0" FontSize="12" Margin="0,0,0,4"/>
+                            <Border Grid.Row="2" Background="#1E1E1E" CornerRadius="4" BorderBrush="#333337" BorderThickness="1" Padding="6">
+                                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding LoggingSettings.Categories}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CategoryLevelRow">
+                                                <Grid ColumnDefinitions="140, 130" Margin="0,2,16,2">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Category}" Foreground="#DCDCDC" FontSize="12"
+                                                               FontFamily="Consolas, Courier New, monospace" VerticalAlignment="Center"/>
+                                                    <ComboBox Grid.Column="1" ItemsSource="{Binding Options}" SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                                                              FontSize="11" HorizontalAlignment="Stretch"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Border>
+
+                            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                <Button Content="Save and apply" Command="{Binding LoggingSettings.SaveCommand}"
+                                        Background="#512BD4" Foreground="White" FontSize="12" FontWeight="SemiBold" Padding="10,5" CornerRadius="4"/>
+                                <Button Content="Reset to defaults" Command="{Binding LoggingSettings.ResetCommand}"
+                                        Background="#3E3E42" Foreground="#DCDCDC" FontSize="12" Padding="10,5" CornerRadius="4"/>
+                                <TextBlock Text="{Binding LoggingSettings.StatusText}" Foreground="#888888" FontSize="12" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="4" Foreground="#666666" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Text="{Binding LoggingSettings.SettingsPath, StringFormat='Saved to {0}. Levels, the network log and chat logs apply at once; retention and file size at the next launch.'}"/>
+                        </Grid>
+                    </Expander>
+                </Grid>
             </Grid>
         </TabItem>
 

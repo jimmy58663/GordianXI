@@ -1,5 +1,9 @@
 using System;
+using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -18,6 +22,82 @@ namespace Gordian.App
         private readonly DispatcherTimer _inputLoopTimer;
         private readonly IGamepadDriver _gamepadDriver;
         private long _lastInputLoopTimestamp;
+
+        private DispatcherTimer? _logsPollTimer;
+
+        /// <summary>
+        /// Wires the Logs tab (#566): the tree and status file load now, a half-second timer follows the shown file and
+        /// the folder, and the status box keeps its newest line in view.
+        /// </summary>
+        private void InitializeLogsTab()
+        {
+            var logs = _viewModel.Logs;
+            logs.OpenFolderRequested += path => _ = OpenLogsFolderAsync(path);
+            logs.LinesAppended += () =>
+            {
+                if (!logs.Follow) return;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var listBox = this.FindControl<ListBox>("LogLinesListBox");
+                    if (listBox != null && listBox.ItemCount > 0) listBox.ScrollIntoView(listBox.ItemCount - 1);
+                });
+            };
+            logs.LinesReplaced += () => Dispatcher.UIThread.Post(() =>
+            {
+                // Start every newly shown file or filter from the top, so a short file never keeps the long one's offset
+                // (and sits at the bottom); then follow to the newest line, which leaves a short file at the top.
+                var listBox = this.FindControl<ListBox>("LogLinesListBox");
+                if (listBox == null) return;
+                if (listBox.FindDescendantOfType<ScrollViewer>() is { } scroll) scroll.Offset = default;
+                if (logs.Follow && listBox.ItemCount > 0) listBox.ScrollIntoView(listBox.ItemCount - 1);
+            }, DispatcherPriority.Background);
+            _viewModel.RecentStatusLines.CollectionChanged += (_, _) =>
+                Dispatcher.UIThread.Post(() => this.FindControl<ScrollViewer>("StatusHistoryScroll")?.ScrollToEnd());
+
+            logs.Start();
+            _logsPollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => logs.Poll());
+            _logsPollTimer.Start();
+            Closed += (_, _) => _logsPollTimer?.Stop();
+        }
+
+        /// <summary>
+        /// Opens the folder the logs are written to in the OS file manager. It is <c>GordianLog.LogsDirectory</c> (next to
+        /// the exe, or the user's application data folder when the exe is in Program Files), never a path built here.
+        /// </summary>
+        private async System.Threading.Tasks.Task OpenLogsFolderAsync(string path)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(path);
+                var launcher = TopLevel.GetTopLevel(this)?.Launcher;
+                bool opened = launcher != null && await launcher.LaunchDirectoryInfoAsync(new System.IO.DirectoryInfo(path));
+                if (!opened) Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.App, $"The OS did not open the logs folder {path}.");
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Error(Gordian.Core.Diagnostics.LogCategories.App, $"Could not open the logs folder {path}", ex);
+            }
+        }
+
+        /// <summary>Copies the selected log lines, or every shown line when none is selected.</summary>
+        private async void OnCopyLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            var listBox = this.FindControl<ListBox>("LogLinesListBox");
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (listBox == null || clipboard == null) return;
+            var selected = listBox.SelectedItems?.OfType<LogLineItem>().ToList();
+            var lines = selected is { Count: > 0 }
+                ? _viewModel.Logs.Lines.Where(selected.Contains)
+                : _viewModel.Logs.Lines;
+            try
+            {
+                await clipboard.SetTextAsync(LogsViewModel.JoinLines(lines));
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Clipboard, $"Could not copy log lines: {ex.Message}");
+            }
+        }
 
         public MainWindow()
         {
@@ -54,6 +134,8 @@ namespace Gordian.App
                     }
                 });
             };
+
+            InitializeLogsTab();
 
             _viewModel.Chat.RequestOpenPopOutWindow += (s, e) =>
             {
@@ -173,7 +255,7 @@ namespace Gordian.App
             if (lobby != null && _lobbyGamepad.NextCharacterPressed)
             {
                 var chosen = viewports.PrimaryViewModel.CycleNextCharacter();
-                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Viewport, $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
             }
 
             // A character that takes the pad from another ignores the buttons still held from it until they are let go:
@@ -197,12 +279,18 @@ namespace Gordian.App
                     session.InputState.SetGamepadState(GamepadState.Disconnected);
                 }
 
-                session.Locomotion.Update(elapsed);
+                using (Gordian.Core.Diagnostics.GordianLog.BeginScope(session.LogScope))
+                {
+                    session.Locomotion.Update(elapsed);
+                }
             }
             if (activeSessions.Count == 0 && gamepadTarget != null)
             {
                 gamepadTarget.InputState.SetGamepadState(padState);
-                gamepadTarget.Locomotion.Update(elapsed);
+                using (Gordian.Core.Diagnostics.GordianLog.BeginScope(gamepadTarget.LogScope))
+                {
+                    gamepadTarget.Locomotion.Update(elapsed);
+                }
             }
 
             // Next Character (the gamepad's L1 by default, #326): the next character in tab order, as Ctrl+Tab does (#151);
@@ -210,7 +298,7 @@ namespace Gordian.App
             if (gamepadTarget != null && gamepadTarget.InputState.WasActionTriggered(Gordian.Engine.Input.InputAction.CycleCharacter))
             {
                 var chosen = viewports.PrimaryViewModel.CycleFrom(gamepadTarget, +1);
-                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Viewport, $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");
             }
 
             _viewModel.Controls.UpdateTelemetry();
@@ -368,6 +456,7 @@ namespace Gordian.App
             }
             catch (Exception ex)
             {
+                Gordian.Core.Diagnostics.GordianLog.Error(Gordian.Core.Diagnostics.LogCategories.App, "Could not open the folder picker", ex);
                 _viewModel.StatusMessage = $"Could not open the folder picker: {ex.Message}";
             }
         }

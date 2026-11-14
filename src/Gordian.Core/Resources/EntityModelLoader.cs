@@ -122,7 +122,7 @@ namespace Gordian.Core.Resources
                 }
                 catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or InvalidOperationException or OverflowException)
                 {
-                    GordianLog.Warning("RES", $"{sourceName}: skipped malformed section '{h.DatId}' (type 0x{(int)h.TypeCode:X2}) at 0x{h.Offset:X}: {ex.GetType().Name}");
+                    GordianLog.Warn(LogCategories.Res, $"{sourceName}: skipped malformed section '{h.DatId}' (type 0x{(int)h.TypeCode:X2}) at 0x{h.Offset:X}: {ex.GetType().Name}");
                 }
             }
 
@@ -173,7 +173,7 @@ namespace Gordian.Core.Resources
             if (hiddenSlots.Count > 0)
             {
                 int removed = allMeshes.RemoveAll(m => WeaponSlotOf(m.SectionName) is int slot && hiddenSlots.Contains(slot));
-                if (removed > 0) GordianLog.Debug("RES", $"{name}: init hides weapon slot(s) {string.Join(",", hiddenSlots)} ({removed} mesh(es)).");
+                if (removed > 0) GordianLog.Debug(LogCategories.Res, $"{name}: init hides weapon slot(s) {string.Join(",", hiddenSlots)} ({removed} mesh(es)).");
             }
             // The weapon slot of each mesh: its wepN section, or the slot the caller gives its whole DAT.
             var meshSlots = new List<int>(allMeshes.Count);
@@ -220,7 +220,7 @@ namespace Gordian.Core.Resources
                 foreach (var mesh in allMeshes) gearOcclusion.Add(mesh.OccludeType);
                 int hidden = 0;
                 foreach (var mesh in allMeshes) hidden += gearOcclusion.RemoveHiddenPieces(mesh);
-                if (hidden > 0) GordianLog.Debug("RES", $"{name}: gear occlusion hid {hidden} piece(s).");
+                if (hidden > 0) GordianLog.Debug(LogCategories.Res, $"{name}: gear occlusion hid {hidden} piece(s).");
             }
 
             if (model.Skeleton != null && allMeshes.Count > 0)
@@ -348,7 +348,7 @@ namespace Gordian.Core.Resources
             byte[]? baseDat = datByPath(baseSkelPath);
             if (baseDat == null || baseDat.Length == 0)
             {
-                GordianLog.Warning("RES", $"Could not load base skeleton DAT for {race} at '{baseSkelPath}'");
+                GordianLog.Warn(LogCategories.Res, $"Could not load base skeleton DAT for {race} at '{baseSkelPath}'");
                 return null;
             }
 

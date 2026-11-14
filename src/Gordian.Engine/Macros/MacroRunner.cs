@@ -119,7 +119,7 @@ namespace Gordian.Engine.Macros
             }
             catch (Exception ex)
             {
-                GordianLog.Error("MACRO", $"Macro \"{macro.Title}\" failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Macro, $"Macro \"{macro.Title}\" failed: {ex.Message}", ex);
             }
             finally
             {

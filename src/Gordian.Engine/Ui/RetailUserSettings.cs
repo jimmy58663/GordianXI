@@ -123,7 +123,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                GordianLog.Warning("UI", $"Could not list the retail USER folders in '{user}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Could not list the retail USER folders in '{user}': {ex.Message}");
             }
             folders.Sort((a, b) => b.LastModifiedUtc.CompareTo(a.LastModifiedUtc));
             return folders;
@@ -140,7 +140,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                GordianLog.Warning("UI", $"Could not read '{path}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Could not read '{path}': {ex.Message}");
                 return null;
             }
         }

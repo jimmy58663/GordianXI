@@ -126,7 +126,7 @@ namespace Gordian.Engine.Ui
             if (!_auctionOpen || _auctionAnchor is not { } anchor) return;
             float dx = position.X - anchor.X, dz = position.Z - anchor.Z;
             if (dx * dx + dz * dz <= AuctionReach * AuctionReach) return;
-            GordianLog.Info("AUCTION", "Moved away from the Auction Counter; closing the Auction House.");
+            GordianLog.Info(LogCategories.Auction, "Moved away from the Auction Counter; closing the Auction House.");
             CloseAuctionHouse();
             Changed?.Invoke();
         }
@@ -327,7 +327,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("AUCTION", $"Category {list.AuctionCategory} list failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Auction, $"Category {list.AuctionCategory} list failed: {ex.Message}");
             }
             var character = Character();
             var worn = WornItemIds();
@@ -441,7 +441,7 @@ namespace Gordian.Engine.Ui
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("AUCTION", $"Price history of item {history.AuctionItem.ItemId} failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Auction, $"Price history of item {history.AuctionItem.ItemId} failed: {ex.Message}");
                 }
             }
             lock (_sync)
@@ -671,7 +671,7 @@ namespace Gordian.Engine.Ui
                 return;
             }
             _pendingSale = (item, price, item.Stack);
-            GordianLog.Info("AUCTION", $"Asking the fee of selling {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (slot {item.InventorySlot}) for {price} gil.");
+            GordianLog.Info(LogCategories.Auction, $"Asking the fee of selling {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (slot {item.InventorySlot}) for {price} gil.");
             _ = SendAsync(() => ask(item.InventorySlot, item.ItemId, price, item.Stack), "Auction fee");
         }
 
@@ -705,7 +705,7 @@ namespace Gordian.Engine.Ui
                     return;
                 }
                 if (AuctionListForSale is not { } list) return;
-                GordianLog.Info("AUCTION", $"Placing {sale.Item.Name} (slot {sale.Item.InventorySlot}) on auction in sale slot {slot} for {sale.Price} gil.");
+                GordianLog.Info(LogCategories.Auction, $"Placing {sale.Item.Name} (slot {sale.Item.InventorySlot}) on auction in sale slot {slot} for {sale.Price} gil.");
                 _ = SendAsync(() => list(slot, sale.Item.InventorySlot, sale.Price, sale.Stack), "Auction listing");
             });
         }
@@ -756,7 +756,7 @@ namespace Gordian.Engine.Ui
                 if (answer != true) return;
                 CloseMenu(saleMenu);
                 if (AuctionCancelSale is not { } cancel || sale.SaleSlot < 0) return;
-                GordianLog.Info("AUCTION", $"Removing {sale.Name} from auction (sale slot {sale.SaleSlot}).");
+                GordianLog.Info(LogCategories.Auction, $"Removing {sale.Name} from auction (sale slot {sale.SaleSlot}).");
                 _ = SendAsync(() => cancel(sale.SaleSlot), "Auction cancel");
             });
         }
@@ -790,7 +790,7 @@ namespace Gordian.Engine.Ui
                     return;
                 }
                 sbyte slot = Math.Max((sbyte)0, AuctionHouse?.Invoke()?.NextFreeSlot ?? 0);
-                GordianLog.Info("AUCTION", $"Bidding {price} gil on {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (item {item.ItemId}).");
+                GordianLog.Info(LogCategories.Auction, $"Bidding {price} gil on {(item.Stack ? "a stack of " : string.Empty)}{item.Name} (item {item.ItemId}).");
                 _ = SendAsync(() => bid(item.ItemId, price, item.Stack, slot), "Auction bid");
             });
             if (prompt == null && list != null) list.AuctionBidConfirm = false;

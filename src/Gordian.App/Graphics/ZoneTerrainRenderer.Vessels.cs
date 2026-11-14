@@ -128,7 +128,7 @@ namespace Gordian.App.Graphics
                 {
                     if (!resourceManager.TryLoadZone(zoneId, out var zone, out var textures) || zone.Vessel == null)
                     {
-                        GordianLog.Warning("Graphics", $"Ship model: zone {zoneId} has no vessel.");
+                        GordianLog.Warn(LogCategories.Graphics, $"Ship model: zone {zoneId} has no vessel.");
                         return ((Gordian.Core.Resources.Models.ZoneVessel?)null, (IReadOnlyDictionary<string, DecodedTexture>?)null);
                     }
                     return (zone.Vessel, (IReadOnlyDictionary<string, DecodedTexture>?)textures);
@@ -147,7 +147,7 @@ namespace Gordian.App.Graphics
                     if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
                     vessel.Submeshes.Add(UploadSubmesh(_shared, group));
                 }
-                GordianLog.Info("Graphics", $"Ship model: the vessel of zone {zoneId} ({vessel.Submeshes.Count} submeshes) is ready.");
+                GordianLog.Info(LogCategories.Graphics, $"Ship model: the vessel of zone {zoneId} ({vessel.Submeshes.Count} submeshes) is ready.");
             }
             _transportVessels[zoneId] = vessel;
             return vessel;

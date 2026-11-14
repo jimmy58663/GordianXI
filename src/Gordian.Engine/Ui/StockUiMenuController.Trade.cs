@@ -137,7 +137,7 @@ namespace Gordian.Engine.Ui
             if (inventory != null && inventory.TradeRequesterServerId == target.ServerId)
             {
                 CloseAll();
-                GordianLog.Info("TRADE", $"Accepting the trade request of {target.Name} ({target.ServerId}).");
+                GordianLog.Info(LogCategories.Trade, $"Accepting the trade request of {target.Name} ({target.ServerId}).");
                 await SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Start, 0)).ConfigureAwait(false);
                 return;
             }
@@ -152,13 +152,13 @@ namespace Gordian.Engine.Ui
                 if (!await PromptYesNoAsync(StockUiTrade.CancelQuestion, defaultYes: false).ConfigureAwait(false)) return;
                 _tradeRequestedTo = 0;
                 inventory?.ClearTradeRequest();
-                GordianLog.Info("TRADE", "Withdrawing the pending trade request (C2S 0x033 Cancel).");
+                GordianLog.Info(LogCategories.Trade, "Withdrawing the pending trade request (C2S 0x033 Cancel).");
                 await SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0)).ConfigureAwait(false);
             }
             CloseAll();
             _tradeRequestedTo = target.ServerId;
             _tradeRequestedAt = TradeClock();
-            GordianLog.Info("TRADE", $"Asking {target.Name} ({target.ServerId}, index {target.Index}) to trade.");
+            GordianLog.Info(LogCategories.Trade, $"Asking {target.Name} ({target.ServerId}, index {target.Index}) to trade.");
             await SendTradeAsync(() => TradeRequest?.Invoke(target.ServerId, target.Index)).ConfigureAwait(false);
         }
 
@@ -223,7 +223,7 @@ namespace Gordian.Engine.Ui
             // Our movement and the partner's updates arrive on different threads: one cancel per window.
             if (System.Threading.Interlocked.Exchange(ref _rangeCancelled, window) == window) return;
             CloseMenu(window);
-            GordianLog.Info("TRADE", $"{window.TradePartner.Name} is out of range; cancelling the trade (C2S 0x033 Cancel).");
+            GordianLog.Info(LogCategories.Trade, $"{window.TradePartner.Name} is out of range; cancelling the trade (C2S 0x033 Cancel).");
             ErrorPosted?.Invoke(TradeText(StockUiTrade.OutOfRange));
             _ = SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0));
         }
@@ -258,7 +258,7 @@ namespace Gordian.Engine.Ui
                 RefreshTrade(window);
                 PushOpen(window);
             }
-            GordianLog.Info("TRADE", $"Trade window opened with {partner.Name} ({partner.ServerId}){(npc ? " (NPC)" : string.Empty)}.");
+            GordianLog.Info(LogCategories.Trade, $"Trade window opened with {partner.Name} ({partner.ServerId}){(npc ? " (NPC)" : string.Empty)}.");
             Changed?.Invoke();
             return window;
         }
@@ -364,7 +364,7 @@ namespace Gordian.Engine.Ui
                 }
                 window.SelectedButtonId = index + 2 <= StockUiTrade.SlotCount ? index + 2 : StockUiTrade.OkButton;
             }
-            GordianLog.Debug("TRADE", $"Trade slot {index + 1}: {count} x {row.Name} (item {row.ItemId}, inventory slot {row.Slot}).");
+            GordianLog.Debug(LogCategories.Trade, $"Trade slot {index + 1}: {count} x {row.Name} (item {row.ItemId}, inventory slot {row.Slot}).");
             if (!window.IsNpcTrade) _ = SendTradeAsync(() => TradeOffer?.Invoke(count, row.ItemId, row.Slot, (byte)(index + 1)));
             Changed?.Invoke();
         }
@@ -394,7 +394,7 @@ namespace Gordian.Engine.Ui
                 var entries = StockUiTrade.NpcEntries(window.TradeSlots, window.TradeGil);
                 if (entries.Length == 0) return;
                 var npc = window.TradePartner;
-                GordianLog.Info("TRADE", $"Trading {entries.Length} entries to {npc.Name} ({npc.ServerId}).");
+                GordianLog.Info(LogCategories.Trade, $"Trading {entries.Length} entries to {npc.Name} ({npc.ServerId}).");
                 CloseAll(); // the main menu too, so the next Confirm goes to the NPC's event (round 3, B3)
                 _ = SendTradeAsync(() => NpcTrade?.Invoke(npc.ServerId, npc.Index, entries));
                 return;
@@ -420,7 +420,7 @@ namespace Gordian.Engine.Ui
             if (!await PromptYesNoAsync(StockUiTrade.CancelQuestion, defaultYes: false).ConfigureAwait(false)) return;
             if (Array.IndexOf(_open, window) < 0) return;
             CloseMenu(window);
-            GordianLog.Info("TRADE", $"Cancelling the trade with {window.TradePartner.Name} (C2S 0x033 Cancel).");
+            GordianLog.Info(LogCategories.Trade, $"Cancelling the trade with {window.TradePartner.Name} (C2S 0x033 Cancel).");
             await SendTradeAsync(() => TradeRespond?.Invoke(TradeClientKind.Cancel, 0)).ConfigureAwait(false);
         }
 
@@ -446,7 +446,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("TRADE", $"Trade packet failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Trade, $"Trade packet failed: {ex.Message}");
                 NoticePosted?.Invoke($"Trade failed: {ex.Message}");
             }
         }

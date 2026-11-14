@@ -266,7 +266,7 @@ namespace Gordian.Core.World
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
                 {
-                    GordianLog.Warning("EQUIPSET", $"Failed to load equipment sets '{path}': {ex.Message}. Starting with empty sets.");
+                    GordianLog.Warn(LogCategories.Equipset, $"Failed to load equipment sets '{path}': {ex.Message}. Starting with empty sets.");
                 }
             }
             return new EquipmentSetBook();
@@ -304,7 +304,7 @@ namespace Gordian.Core.World
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        GordianLog.Warning("EQUIPSET", $"Could not save the equipment sets '{path}': {ex.Message}");
+                        GordianLog.Warn(LogCategories.Equipset, $"Could not save the equipment sets '{path}': {ex.Message}");
                     }
                 };
                 return book;

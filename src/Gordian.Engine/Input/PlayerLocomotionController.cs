@@ -1011,7 +1011,7 @@ namespace Gordian.Engine.Input
                         ? await service.SitAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false)
                         : await service.HealAsync(Gordian.Core.Network.Packets.RestMode.Off).ConfigureAwait(false);
                 string what = chair >= 0 ? "in a chair" : sitting ? "sitting" : "healing";
-                Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Moved while {what}: {result.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Input, $"Moved while {what}: {result.Message}");
             });
         }
 
@@ -1544,7 +1544,7 @@ namespace Gordian.Engine.Input
                 {
                     if (candidate.Platform.Contains(feet.X, feet.Z)) nearby = $" (over {candidate.Platform.Id} at {candidate.Height:F3})";
                 }
-                Gordian.Core.Diagnostics.GordianLog.Info("Elevator", riding.Length > 0
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Elevator, riding.Length > 0
                     ? $"Riding {riding}: feet {feet.Y:F3} -> {platform.Height:F3}"
                     : $"Stopped riding {_ridingPlatformId}: feet ({feet.X:F2},{feet.Y:F3},{feet.Z:F2}){nearby}");
                 _ridingPlatformId = riding;
@@ -1576,7 +1576,7 @@ namespace Gordian.Engine.Input
                     if (!ReferenceEquals(MovingPlatforms.PlatformOf(_world.Collision!.MovingPlatforms, entity), _platforms[i].Platform)) continue;
                     detail = $"elevator 0x{entity.ServerId:X8} anim={entity.AnimationState} stamp={entity.TransportStartSeconds} observed={entity.TransportObservedSeconds:F3} legStart={MovingPlatforms.LegStart(entity, _world.TransportClockSkewSeconds):F3}";
                 }
-                Gordian.Core.Diagnostics.GordianLog.Info("Elevator", $"Platform {_platforms[i].Platform.Id} jumped {previous[i].Height:F3} -> {_platforms[i].Height:F3} at clock {clock:F3}; {detail}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Elevator, $"Platform {_platforms[i].Platform.Id} jumped {previous[i].Height:F3} -> {_platforms[i].Height:F3} at clock {clock:F3}; {detail}");
             }
         }
 
@@ -1777,7 +1777,7 @@ namespace Gordian.Engine.Input
             {
                 // Diagnosis of a key that does nothing: it reached InputState; is it bound, and did the action fire?
                 _lockKeyLogged = true;
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Lock-on key held (action bound and held={_inputState.IsActionHeld(InputAction.ToggleLockOn)}, triggered={_inputState.WasActionTriggered(InputAction.ToggleLockOn)}, menuOpen={_menuOpen})");
             }
             else if (!keyHeld) _lockKeyLogged = false;
             if (_inputState.WasActionTriggered(InputAction.LockOnOrHeal))
@@ -1788,7 +1788,7 @@ namespace Gordian.Engine.Input
                 if (hasTarget)
                 {
                     _actionService.ToggleLockOn();
-                    Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by L3: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Lock-on toggled by L3: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
                 }
                 else
                 {
@@ -1796,7 +1796,7 @@ namespace Gordian.Engine.Input
                     _ = System.Threading.Tasks.Task.Run(async () =>
                     {
                         var result = await service.HealAsync().ConfigureAwait(false);
-                        Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"L3 with no target: {result.Message}");
+                        Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Input, $"L3 with no target: {result.Message}");
                     });
                 }
             }
@@ -1807,12 +1807,12 @@ namespace Gordian.Engine.Input
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
                     var result = await service.HealAsync().ConfigureAwait(false);
-                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Heal key: {result.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Input, $"Heal key: {result.Message}");
                 });
             }
             if (!_inputState.WasActionTriggered(InputAction.ToggleLockOn)) return;
             _actionService.ToggleLockOn();
-            Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
+            Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
         }
 
         private void UpdateActionTriggers()
@@ -1826,7 +1826,7 @@ namespace Gordian.Engine.Input
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
                     var result = await service.RequestLogoutAsync(shutdown: false).ConfigureAwait(false);
-                    Gordian.Core.Diagnostics.GordianLog.Info("INPUT", $"Log Out button: {result.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Input, $"Log Out button: {result.Message}");
                 });
             }
 
@@ -2028,13 +2028,13 @@ namespace Gordian.Engine.Input
             // Trace the zoom (the real renderer draws from EffectiveCameraDistance, not from the controller's own camera).
             float zoomedDistance = CameraDistance * LockOnZoomFactor;
             if (previousBlend == 0f && _lockZoomBlend > 0f)
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in starts: distance {CameraDistance:F2} -> {zoomedDistance:F2} over {LockOnZoomSeconds:F2} s");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Zoom in starts: distance {CameraDistance:F2} -> {zoomedDistance:F2} over {LockOnZoomSeconds:F2} s");
             else if (previousBlend == 1f && _lockZoomBlend < 1f)
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out starts: distance {zoomedDistance:F2} -> {CameraDistance:F2} over {LockOnZoomSeconds:F2} s");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Zoom out starts: distance {zoomedDistance:F2} -> {CameraDistance:F2} over {LockOnZoomSeconds:F2} s");
             else if (previousBlend < 1f && _lockZoomBlend == 1f)
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom in done: distance {distance:F2}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Zoom in done: distance {distance:F2}");
             else if (previousBlend > 0f && _lockZoomBlend == 0f)
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"Zoom out done: distance {distance:F2}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Zoom out done: distance {distance:F2}");
 
             EffectiveCameraDistance = distance;
             LockOnAimBlend = _lastAimPoint != null ? LockOnAimWeight * eased : 0f;

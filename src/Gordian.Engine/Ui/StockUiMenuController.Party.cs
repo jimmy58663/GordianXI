@@ -95,7 +95,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Party disband failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Party disband failed: {ex.Message}");
                 NoticePosted?.Invoke($"Disband failed: {ex.Message}");
             }
         }
@@ -233,7 +233,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"{command} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"{command} failed: {ex.Message}");
                 NoticePosted?.Invoke($"That could not be done: {ex.Message}");
             }
         }

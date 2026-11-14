@@ -58,7 +58,7 @@ namespace Gordian.App.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[GameDirectoryDetector] Registry query failed: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.App, $"Game directory registry query failed: {ex.Message}");
             }
 
             return null;
@@ -83,7 +83,7 @@ namespace Gordian.App.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[GameDirectoryDetector] Viewer registry query failed: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.App, $"PlayOnline Viewer registry query failed: {ex.Message}");
             }
             return null;
         }

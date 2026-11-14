@@ -51,7 +51,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"{StockUiPeople.TitleOf(purpose)} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"{StockUiPeople.TitleOf(purpose)} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{StockUiPeople.TitleOf(purpose)}: {ex.Message}");
                 return;
             }
@@ -172,7 +172,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Search comment of {person.Name} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Search comment of {person.Name} failed: {ex.Message}");
             }
         }
 

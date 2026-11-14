@@ -283,11 +283,11 @@ namespace Gordian.App.Graphics
                     if (IsResident(geometry)) return;
                     var resident = Acquire(geometry, textures, generation);
                     Release(resident);
-                    GordianLog.Info("Graphics", $"Preloaded Zone {zoneId} for a character in it: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms, {resident.Bytes >> 20} MB ({Count} zones, {ResidentBytes >> 20} MB resident).");
+                    GordianLog.Info(LogCategories.Graphics, $"Preloaded Zone {zoneId} for a character in it: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms, {resident.Bytes >> 20} MB ({Count} zones, {ResidentBytes >> 20} MB resident).");
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Graphics", $"Background preload of Zone {zoneId} failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Graphics, $"Background preload of Zone {zoneId} failed: {ex.Message}");
                 }
                 finally
                 {
@@ -371,7 +371,7 @@ namespace Gordian.App.Graphics
                 {
                     int textures = zone.Textures != null ? _shared.ZoneTextures.Evict(zone.Textures.Values, keepTextures) : 0;
                     zone.Dispose();
-                    GordianLog.Info("Graphics", $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; zone cache budget {BudgetBytes >> 20} MB).");
+                    GordianLog.Info(LogCategories.Graphics, $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; zone cache budget {BudgetBytes >> 20} MB).");
                 }
             }
         }

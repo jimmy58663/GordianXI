@@ -172,7 +172,7 @@ namespace Gordian.App.Graphics
 
         private static void LogDoorEffects(int doors, int attached, ushort zoneId)
         {
-            if (doors > 0 || attached > 0) GordianLog.Debug("Graphics", $"Zone {zoneId}: {doors} doors with effect routines, {attached} actor-attached emitters.");
+            if (doors > 0 || attached > 0) GordianLog.Debug(LogCategories.Graphics, $"Zone {zoneId}: {doors} doors with effect routines, {attached} actor-attached emitters.");
         }
     }
 }

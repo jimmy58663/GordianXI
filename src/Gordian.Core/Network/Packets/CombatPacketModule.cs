@@ -77,7 +77,7 @@ namespace Gordian.Core.Network.Packets
             var action = new S2C_0x028_CombatAction(payload);
             if (!action.IsValid) return;
 
-            GordianLog.Debug("COMBAT", $"Action 0x028: Actor={action.ActorId:X8}, Category={action.Category}, ActionId={action.ActionId}, Targets={action.TargetCount}");
+            GordianLog.Debug(LogCategories.Combat, $"Action 0x028: Actor={action.ActorId:X8}, Category={action.Category}, ActionId={action.ActionId}, Targets={action.TargetCount}");
 
             // Update casting state if local player finishes or starts a spell
             if (_localPlayerState.ServerId != 0 && action.ActorId == _localPlayerState.ServerId)
@@ -103,7 +103,7 @@ namespace Gordian.Core.Network.Packets
                     {
                         if (result.HasProc)
                         {
-                            GordianLog.Info("COMBAT", $"Skillchain {result.Skillchain} by 0x{record.ActorId:X8} on 0x{target.TargetId:X8}: {result.ProcParam} points (message {result.ProcMessageId})");
+                            GordianLog.Info(LogCategories.Combat, $"Skillchain {result.Skillchain} by 0x{record.ActorId:X8} on 0x{target.TargetId:X8}: {result.ProcParam} points (message {result.ProcMessageId})");
                         }
                     }
                 }
@@ -121,10 +121,10 @@ namespace Gordian.Core.Network.Packets
             if (!assist.IsValid) return;
             if (_localPlayerState.ServerId != 0 && assist.PlayerId != 0 && assist.PlayerId != _localPlayerState.ServerId)
             {
-                GordianLog.Debug("COMBAT", $"Assist 0x058 for another character 0x{assist.PlayerId:X8} ignored.");
+                GordianLog.Debug(LogCategories.Combat, $"Assist 0x058 for another character 0x{assist.PlayerId:X8} ignored.");
                 return;
             }
-            GordianLog.Debug("COMBAT", $"Assist 0x058: target 0x{assist.TargetId:X8}.");
+            GordianLog.Debug(LogCategories.Combat, $"Assist 0x058: target 0x{assist.TargetId:X8}.");
             _combatState.ApplyAssistTarget(assist.TargetId);
         }
 
@@ -133,7 +133,7 @@ namespace Gordian.Core.Network.Packets
             var msg = new S2C_0x029_BattleMessage(payload);
             if (!msg.IsValid) return;
 
-            GordianLog.Debug("COMBAT", $"BattleMessage 0x029: Caster={msg.UniqueNoCas:X8}, Target={msg.UniqueNoTar:X8}, MsgId={msg.MessageNum}, Data={msg.Data}");
+            GordianLog.Debug(LogCategories.Combat, $"BattleMessage 0x029: Caster={msg.UniqueNoCas:X8}, Target={msg.UniqueNoTar:X8}, MsgId={msg.MessageNum}, Data={msg.Data}");
 
             var record = new CombatMessageRecord
             {
@@ -156,7 +156,7 @@ namespace Gordian.Core.Network.Packets
             var msg = new S2C_0x02D_BattleMessage2(payload);
             if (!msg.IsValid) return;
 
-            GordianLog.Debug("COMBAT", $"BattleMessage2 0x02D: Caster={msg.UniqueNoCas:X8}, Target={msg.UniqueNoTar:X8}, MsgId={msg.MessageNum}, Data={msg.Data}");
+            GordianLog.Debug(LogCategories.Combat, $"BattleMessage2 0x02D: Caster={msg.UniqueNoCas:X8}, Target={msg.UniqueNoTar:X8}, MsgId={msg.MessageNum}, Data={msg.Data}");
 
             var record = new CombatMessageRecord
             {
@@ -184,7 +184,7 @@ namespace Gordian.Core.Network.Packets
             var dig = new S2C_0x02F_Dig(payload);
             if (!dig.IsValid) return;
 
-            GordianLog.Debug("COMBAT", $"Dig 0x02F: Target={dig.TargetId:X8}, Index={dig.TargetIndex}, Flags=0x{dig.Flags:X2}");
+            GordianLog.Debug(LogCategories.Combat, $"Dig 0x02F: Target={dig.TargetId:X8}, Index={dig.TargetIndex}, Flags=0x{dig.Flags:X2}");
             _combatState.RecordDig(dig.TargetId, dig.TargetIndex);
             if (_localPlayerState.ServerId == 0 || dig.TargetId != _localPlayerState.ServerId) return;
 
@@ -206,7 +206,7 @@ namespace Gordian.Core.Network.Packets
             }
             catch (Exception ex)
             {
-                GordianLog.Error("COMBAT", $"Dig finished (0x063) send failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Combat, $"Dig finished (0x063) send failed: {ex.Message}", ex);
             }
         }
 
@@ -215,7 +215,7 @@ namespace Gordian.Core.Network.Packets
             var effect = new S2C_0x030_Effect(payload);
             if (!effect.IsValid) return;
 
-            GordianLog.Debug("EFFECT", $"Effect 0x030: Target={effect.UniqueNo:X8}, EffectNum={effect.EffectNum}, Type={effect.Type}");
+            GordianLog.Debug(LogCategories.Effect, $"Effect 0x030: Target={effect.UniqueNo:X8}, EffectNum={effect.EffectNum}, Type={effect.Type}");
             _combatState.SetCraftEffect(new CraftEffectInfo(effect.UniqueNo, effect.ActIndex, effect.EffectNum, effect.Type, effect.Status, effect.Timer));
         }
 
@@ -224,7 +224,7 @@ namespace Gordian.Core.Network.Packets
             var magic = new S2C_0x0AA_MagicData(payload);
             if (!magic.IsValid) return;
 
-            GordianLog.Info("COMBAT", "Received 0x0AA Learned Magic Spell List update.");
+            GordianLog.Info(LogCategories.Combat, "Received 0x0AA Learned Magic Spell List update.");
             _localPlayerState.UpdateFromMagicData(magic);
         }
 
@@ -233,7 +233,7 @@ namespace Gordian.Core.Network.Packets
             var cmd = new S2C_0x0AC_CommandData(payload);
             if (!cmd.IsValid) return;
 
-            GordianLog.Info("COMBAT", "Received 0x0AC Command Data (Weaponskills, Abilities, Traits) update.");
+            GordianLog.Info(LogCategories.Combat, "Received 0x0AC Command Data (Weaponskills, Abilities, Traits) update.");
             _localPlayerState.UpdateFromCommandData(cmd);
         }
 
@@ -242,7 +242,7 @@ namespace Gordian.Core.Network.Packets
             var recast = new S2C_0x119_AbilRecast(payload);
             if (!recast.IsValid) return;
 
-            GordianLog.Debug("COMBAT", $"Received 0x119 Ability Recasts update (MountRecast={recast.MountRecast}s).");
+            GordianLog.Debug(LogCategories.Combat, $"Received 0x119 Ability Recasts update (MountRecast={recast.MountRecast}s).");
             _localPlayerState.UpdateFromAbilRecast(recast);
             _combatState.UpdateRecasts(recast);
         }
@@ -256,7 +256,7 @@ namespace Gordian.Core.Network.Packets
             var res = new S2C_0x0F9_Res(payload);
             if (!res.IsValid) return;
 
-            GordianLog.Info("COMBAT", $"Death menu 0x0F9: type {res.RawType} ({res.Type}) for 0x{res.UniqueNo:X8}.");
+            GordianLog.Info(LogCategories.Combat, $"Death menu 0x0F9: type {res.RawType} ({res.Type}) for 0x{res.UniqueNo:X8}.");
             _localPlayerState.ApplyDeathMenu(res.Type);
         }
 
@@ -348,7 +348,7 @@ namespace Gordian.Core.Network.Packets
             _combatState.StartCasting(spellId);
             LogOutbound(0x01A, seq, buffer.AsSpan(4, length - 4));
             // Times the press-to-chant delay against the 0x028 start in the session log (#132 round 2).
-            GordianLog.Debug("COMBAT", $"Sending 0x01A cast: spell {spellId} on {targetId:X8}.");
+            GordianLog.Debug(LogCategories.Combat, $"Sending 0x01A cast: spell {spellId} on {targetId:X8}.");
             await _sendChunkCallback(buffer.AsMemory(0, length), SendActionsAtOnce).ConfigureAwait(false);
         }
 

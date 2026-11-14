@@ -209,7 +209,7 @@ namespace Gordian.Core.Network.Retail
             PolPresencePackets.WriteAuthPayload(payload, mode, squareEnixId, password, oneTimeCode, _core.Clock.Now);
 
             string sent = mode == SquareEnixAuthMode.Password ? "without a one-time code" : "with a one-time code";
-            GordianLog.Info("RETAIL_LOGIN", $"Square Enix login: mode {(byte)mode}, {sent}, server minute {_core.Clock.Now / 60 * 60}.");
+            GordianLog.Info(LogCategories.RetailLogin, $"Square Enix login: mode {(byte)mode}, {sent}, server minute {_core.Clock.Now / 60 * 60}.");
 
             // The redirect header announces 8 payload bytes the server never sends: read only the header (section 4.3.6).
             (PolPresenceResponse header, byte[] _) result;
@@ -230,7 +230,7 @@ namespace Gordian.Core.Network.Retail
             }
             var header = result.header;
             _assigned = header.RedirectAddress;
-            GordianLog.Info("RETAIL_LOGIN", $"Square Enix account accepted; assigned presence server {_assigned}.");
+            GordianLog.Info(LogCategories.RetailLogin, $"Square Enix account accepted; assigned presence server {_assigned}.");
         }
 
         /// <summary>Stages 6 and 10: a 16-byte session key from the assigned server: the FFXI lobby key, or the Viewer's key.</summary>
@@ -240,7 +240,7 @@ namespace Gordian.Core.Network.Retail
             byte[] payload = new byte[PolPresencePackets.KeyRequestPayloadSize];
             byte[]? wireZero = service == PolSessionKeyService.Lobby ? PolPresencePackets.KeystreamWordFor(_core.Cipher) : null;
             PolPresencePackets.WriteKeyRequestPayload(payload, service, wireZero);
-            GordianLog.Debug("RETAIL_LOGIN", $"{service} key request to {_assigned}: +0x10 {Convert.ToHexString(payload.AsSpan(0x10, 10))}" +
+            GordianLog.Debug(LogCategories.RetailLogin, $"{service} key request to {_assigned}: +0x10 {Convert.ToHexString(payload.AsSpan(0x10, 10))}" +
                 (wireZero == null ? "." : ", +0x20 set to the keystream so it is zero on the wire."));
 
             var (_, response) = await ExchangeAsync(_assigned.ToString(), port, PolPresencePackets.CommandSessionKey, payload,

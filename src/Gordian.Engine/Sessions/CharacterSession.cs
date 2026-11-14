@@ -27,7 +27,23 @@ namespace Gordian.Engine.Sessions
         /// profiles of an account do not show Online when one of its characters is.
         /// </summary>
         public string ProfileName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
+        /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
+        /// </summary>
+        public string ServerName { get; set; } = string.Empty;
+
+        private readonly Ui.ChatLogFileWriter _chatLogFile;
+
         public SessionNetworkManager NetworkManager { get; }
+
+        /// <summary>
+        /// The character's log tag. The network loops log under it; per-frame work for this character outside them wraps
+        /// itself in <c>using (GordianLog.BeginScope(session.LogScope))</c>.
+        /// </summary>
+        public LogScope LogScope => NetworkManager.LogScope;
+
         public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 
         /// <summary>
@@ -284,6 +300,8 @@ namespace Gordian.Engine.Sessions
             // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...". Named monsters (NamedFlag, #334) take none.
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
                 id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
+            // Every log line also goes to the character's chat log file (#565).
+            _chatLogFile = new Ui.ChatLogFileWriter(Chat.Log, () => ServerName, () => CharacterName);
             // The server message (S2C 0x04D, #117): asked for once, when the first zone-in after login completes; /servmes
             // asks again.
             NetworkManager.Parser.HandshakeCompleted += () =>
@@ -711,6 +729,7 @@ namespace Gordian.Engine.Sessions
         public void Dispose()
         {
             _inputProfiles.Changed -= OnSharedInputProfileChanged;
+            _chatLogFile.Dispose();
             NetworkManager.Dispose();
         }
 

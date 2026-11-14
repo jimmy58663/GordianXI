@@ -506,7 +506,7 @@ namespace Gordian.App.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("CHAT_UI", $"Failed to send tell: {ex.Message}", ex);
+                    GordianLog.Error(LogCategories.ChatUi, $"Failed to send tell: {ex.Message}", ex);
                     DispatchToUi(() => StatusText = $"Send error: {ex.Message}");
                 }
                 return;
@@ -720,7 +720,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("CHAT_UI", $"Failed to execute command: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.ChatUi, $"Failed to execute command: {ex.Message}", ex);
                 DispatchToUi(() =>
                 {
                     StatusText = $"Execution error: {ex.Message}";
@@ -738,7 +738,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("CHAT_UI", "Failed requesting LS MOTD", ex);
+                GordianLog.Error(LogCategories.ChatUi, "Failed requesting LS MOTD", ex);
                 DispatchToUi(() => StatusText = $"LS MOTD request error: {ex.Message}");
             }
         }

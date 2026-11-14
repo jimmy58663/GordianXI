@@ -42,7 +42,7 @@ namespace Gordian.App.Audio
             Mixer = new AudioMixer(IsAvailable ? _output.SampleRate : requestedRate);
             if (!IsAvailable)
             {
-                GordianLog.Info("AUDIO", "No audio output device; falling back to silent output.");
+                GordianLog.Info(LogCategories.Audio, "No audio output device; falling back to silent output.");
                 return;
             }
 
@@ -74,7 +74,7 @@ namespace Gordian.App.Audio
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("AUDIO", $"Mixing failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Audio, $"Mixing failed: {ex.Message}");
                 }
 
                 Thread.Sleep(3);

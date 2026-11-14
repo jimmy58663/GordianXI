@@ -106,7 +106,7 @@ namespace Gordian.Core.Resources.Vfs
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("VFS", $"Could not create resources directory scaffolding: {ex.Message}");
+                GordianLog.Warn(LogCategories.Vfs, $"Could not create resources directory scaffolding: {ex.Message}");
             }
         }
 
@@ -120,7 +120,7 @@ namespace Gordian.Core.Resources.Vfs
 
                 if (string.IsNullOrWhiteSpace(_resourcesDirectory) || !Directory.Exists(_resourcesDirectory))
                 {
-                    GordianLog.Info("VFS", "No resources directory mounted. Running in base game passthrough mode.");
+                    GordianLog.Info(LogCategories.Vfs, "No resources directory mounted. Running in base game passthrough mode.");
                     OnReloaded?.Invoke();
                     return;
                 }
@@ -170,7 +170,7 @@ namespace Gordian.Core.Resources.Vfs
                     }
                 }
 
-                GordianLog.Info("VFS", $"VFS Reloaded: {_activeDatPacks.Count} active DAT packs, {_activeAssetPacks.Count} active Asset packs.");
+                GordianLog.Info(LogCategories.Vfs, $"VFS Reloaded: {_activeDatPacks.Count} active DAT packs, {_activeAssetPacks.Count} active Asset packs.");
             }
 
             OnReloaded?.Invoke();
@@ -219,7 +219,7 @@ namespace Gordian.Core.Resources.Vfs
                 {
                     return;
                 }
-                GordianLog.Info("VFS", $"Hot-reload triggered by {paths.Count} change(s): re-mounting packs.");
+                GordianLog.Info(LogCategories.Vfs, $"Hot-reload triggered by {paths.Count} change(s): re-mounting packs.");
                 Reload();
             };
         }

@@ -345,7 +345,7 @@ namespace Gordian.Engine.Events
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("EVENT", $"Failed to load the Unity messages (file {UnityMessageFileId}): {ex.Message}");
+                    GordianLog.Error(LogCategories.Event, $"Failed to load the Unity messages (file {UnityMessageFileId}): {ex.Message}");
                 }
                 return _unityMessages;
             }
@@ -407,7 +407,7 @@ namespace Gordian.Engine.Events
                 _waitingStart = null;
                 if (_scene != null)
                 {
-                    GordianLog.Info("EVENT", $"Event {_info?.EventPara} cancelled by the server.");
+                    GordianLog.Info(LogCategories.Event, $"Event {_info?.EventPara} cancelled by the server.");
                     DropEvent();
                 }
             }
@@ -469,7 +469,7 @@ namespace Gordian.Engine.Events
         {
             var scene = _scene;
             if (scene == null || !scene.CancelMessage()) return;
-            GordianLog.Info("EVENT", "The player cancelled the event's message.");
+            GordianLog.Info(LogCategories.Event, "The player cancelled the event's message.");
             Changed?.Invoke();
         }
 
@@ -496,7 +496,7 @@ namespace Gordian.Engine.Events
                 StartEvent(info);
                 return;
             }
-            GordianLog.Info("EVENT", $"Event {info.EventPara} waits for {missing} entities it names{(info.FromZoneIn ? " (zone-in)" : string.Empty)}.");
+            GordianLog.Info(LogCategories.Event, $"Event {info.EventPara} waits for {missing} entities it names{(info.FromZoneIn ? " (zone-in)" : string.Empty)}.");
             _waitingStart = info;
             _waitingSeconds = 0;
             _waitingIdleSeconds = 0;
@@ -528,7 +528,7 @@ namespace Gordian.Engine.Events
         {
             if (_scene != null)
             {
-                GordianLog.Warning("EVENT", $"Event {info.EventPara} started while event {_info?.EventPara} runs; the running one is dropped.");
+                GordianLog.Warn(LogCategories.Event, $"Event {info.EventPara} started while event {_info?.EventPara} runs; the running one is dropped.");
                 DropEvent();
             }
             int zoneId = _world?.CurrentZoneId ?? 0;
@@ -543,13 +543,13 @@ namespace Gordian.Engine.Events
             var scene = CreateScene(info);
             if (scene == null)
             {
-                GordianLog.Warning("EVENT", $"No script for event {info.EventPara} of actor 0x{info.UniqueNo:X8} in zone {zoneId}; ending it.");
+                GordianLog.Warn(LogCategories.Event, $"No script for event {info.EventPara} of actor 0x{info.UniqueNo:X8} in zone {zoneId}; ending it.");
                 SendEnd(info, 0);
                 return;
             }
             var blocks = new List<string>(scene.Actors.Count);
             foreach (var v in scene.Actors) blocks.Add(v.CarriesEvent ? $"0x{v.EntityServerId:X8}" : $"0x{v.EntityServerId:X8} (catch-all)");
-            GordianLog.Info("EVENT", $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} on {scene.Actors.Count} entities: {string.Join(", ", blocks)}.");
+            GordianLog.Info(LogCategories.Event, $"Running event {info.EventPara} of actor 0x{info.UniqueNo:X8} on {scene.Actors.Count} entities: {string.Join(", ", blocks)}.");
             _receivePending = false;
             _recipePending = false;
             _scene = scene;
@@ -567,7 +567,7 @@ namespace Gordian.Engine.Events
         {
             _flags = flags;
             int hidden = SortArrivals(scene);
-            GordianLog.Info("EVENT", $"Cutscene flags 0x{(uint)flags:X}: {hidden} entities outside the event hidden.");
+            GordianLog.Info(LogCategories.Event, $"Cutscene flags 0x{(uint)flags:X}: {hidden} entities outside the event hidden.");
         }
 
         /// <summary>
@@ -719,7 +719,7 @@ namespace Gordian.Engine.Events
                 _ = new EventVm(zone, info.EventPara, scene, this, info.UniqueNo, info.ActIndex);
                 carried = zone.IndexOf(info.EventPara) >= 0;
             }
-            if (!carried) GordianLog.Warning("EVENT", $"No block carries event {info.EventPara}; only catch-all events run.");
+            if (!carried) GordianLog.Warn(LogCategories.Event, $"No block carries event {info.EventPara}; only catch-all events run.");
             return scene.Actors.Count > 0 ? scene : null;
         }
 
@@ -764,7 +764,7 @@ namespace Gordian.Engine.Events
                 var loader = Loader;
                 if (loader == null)
                 {
-                    GordianLog.Warning("EVENT", "No DAT loader is set; events cannot run.");
+                    GordianLog.Warn(LogCategories.Event, "No DAT loader is set; events cannot run.");
                     return;
                 }
                 try
@@ -773,11 +773,11 @@ namespace Gordian.Engine.Events
                     if (scriptBytes != null) _script = ZoneEventScript.Parse(scriptBytes);
                     var dialogBytes = loader(ZoneDialogTable.GetFileId(zoneId));
                     if (dialogBytes != null) _dialog = ZoneDialogTable.Parse(dialogBytes);
-                    GordianLog.Info("EVENT", $"Zone {zoneId}: {_script?.Blocks.Count ?? 0} event blocks, {_dialog?.Count ?? 0} dialog messages.");
+                    GordianLog.Info(LogCategories.Event, $"Zone {zoneId}: {_script?.Blocks.Count ?? 0} event blocks, {_dialog?.Count ?? 0} dialog messages.");
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("EVENT", $"Failed to load the event data of zone {zoneId}: {ex.Message}");
+                    GordianLog.Error(LogCategories.Event, $"Failed to load the event data of zone {zoneId}: {ex.Message}");
                 }
             }
         }
@@ -845,7 +845,7 @@ namespace Gordian.Engine.Events
             if (!moved && direction == self.Direction) return;
             player.RequestPositionCorrection(moved ? pose.Position : null, direction);
             if (moved) player.RequestGroundSettle();
-            GordianLog.Info("EVENT", $"Player kept at the event's placement ({pose.Position.X:F2}, {pose.Position.Y:F2}, {pose.Position.Z:F2}), direction {direction}.");
+            GordianLog.Info(LogCategories.Event, $"Player kept at the event's placement ({pose.Position.X:F2}, {pose.Position.Y:F2}, {pose.Position.Z:F2}), direction {direction}.");
         }
 
         /// <summary>The wire direction (256 steps, 0 = East) of a heading in radians.</summary>
@@ -899,7 +899,7 @@ namespace Gordian.Engine.Events
             {
                 entity.IsEventHidden = true;
                 _staged.Add(entity.ServerId);
-                GordianLog.Debug("EVENT", $"Event actor 0x{entity.ServerId:X8} ({entity.Name}) is hidden by the server: hidden until the event shows it.");
+                GordianLog.Debug(LogCategories.Event, $"Event actor 0x{entity.ServerId:X8} ({entity.Name}) is hidden by the server: hidden until the event shows it.");
             }
         }
 
@@ -915,7 +915,7 @@ namespace Gordian.Engine.Events
 
         private void SendEnd(CutsceneEventInfo info, uint endParameter)
         {
-            GordianLog.Info("EVENT", $"Event {info.EventPara} ended with 0x{endParameter:X}.");
+            GordianLog.Info(LogCategories.Event, $"Event {info.EventPara} ended with 0x{endParameter:X}.");
             _ = _module?.SendEventEndAsync(info.UniqueNo, endParameter, info.ActIndex, 0, info.EventNum, info.EventPara);
         }
 
@@ -1025,7 +1025,7 @@ namespace Gordian.Engine.Events
             var decoded = dialog?.GetMessage(message.MessageId);
             if (decoded == null)
             {
-                GordianLog.Warning("DIALOG", $"Zone message {message.MessageId} is not in the dialog table.");
+                GordianLog.Warn(LogCategories.Dialog, $"Zone message {message.MessageId} is not in the dialog table.");
                 return;
             }
             string speaker = message.HideName ? string.Empty
@@ -1055,7 +1055,7 @@ namespace Gordian.Engine.Events
             var decoded = _dialog?.GetMessage(messageId);
             if (decoded == null)
             {
-                GordianLog.Warning("DIALOG", $"Event message {messageId} is not in the dialog table.");
+                GordianLog.Warn(LogCategories.Dialog, $"Event message {messageId} is not in the dialog table.");
                 return 0;
             }
             string name = speaker == EventSpeaker.Entity ? EntityName(speakerServerId, speakerIndex) : string.Empty;
@@ -1084,7 +1084,7 @@ namespace Gordian.Engine.Events
             }
             int length = 0;
             foreach (string line in lines) length += line.Length;
-            GordianLog.Debug("DIALOG", $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}, closes after {decoded.AutoCloseSeconds?.ToString() ?? "-"} s): {(lines.Count > 0 ? lines[0] : string.Empty)}");
+            GordianLog.Debug(LogCategories.Dialog, $"Event message {messageId} ({length} chars, prompt={decoded.HasPrompt}, closes after {decoded.AutoCloseSeconds?.ToString() ?? "-"} s): {(lines.Count > 0 ? lines[0] : string.Empty)}");
             // A timed message (0x7F 0x34 n) closes by itself; a prompt waits for Confirm.
             if (decoded.AutoCloseSeconds is int seconds) return seconds;
             return decoded.HasPrompt ? PromptOpenSeconds : 0;
@@ -1097,7 +1097,7 @@ namespace Gordian.Engine.Events
             var menus = _menus;
             if (decoded == null || menus == null)
             {
-                GordianLog.Warning("DIALOG", $"Query message {messageId} is not available; the query is cancelled.");
+                GordianLog.Warn(LogCategories.Dialog, $"Query message {messageId} is not available; the query is cancelled.");
                 _queryResult = 255;
                 return;
             }
@@ -1137,7 +1137,7 @@ namespace Gordian.Engine.Events
             var info = _info;
             if (info == null || _module == null) return;
             _receivePending = true;
-            GordianLog.Info("EVENT", $"Event {info.EventPara} update 0x{endParameter:X}.");
+            GordianLog.Info(LogCategories.Event, $"Event {info.EventPara} update 0x{endParameter:X}.");
             _ = _module.SendEventUpdateAsync(info.UniqueNo, endParameter, info.ActIndex, info.EventNum, info.EventPara);
         }
 
@@ -1148,7 +1148,7 @@ namespace Gordian.Engine.Events
             _receivePending = true;
             // The wire heading is a byte of 256 steps per turn.
             sbyte dir = unchecked((sbyte)(byte)Math.Round(heading / (2 * Math.PI) * 256) );
-            GordianLog.Info("EVENT", $"Event {info.EventPara} position update 0x{endParameter:X} to ({x:F2}, {y:F2}, {z:F2}).");
+            GordianLog.Info(LogCategories.Event, $"Event {info.EventPara} position update 0x{endParameter:X} to ({x:F2}, {y:F2}, {z:F2}).");
             _ = _module.SendEventUpdateXzyAsync(new System.Numerics.Vector3(x, y, z), info.UniqueNo, endParameter, info.EventNum, info.EventPara, info.ActIndex, dir);
         }
 
@@ -1261,7 +1261,7 @@ namespace Gordian.Engine.Events
                 if (_savedWeather < 0) _savedWeather = _world.WeatherNumber;
                 _world.UpdateWeather((ushort)weather);
             }
-            GordianLog.Info("EVENT", $"Event environment: hour {hour}, weather {weather}.");
+            GordianLog.Info(LogCategories.Event, $"Event environment: hour {hour}, weather {weather}.");
         }
 
         void IEventVmHost.UnlockEnvironment() => UnlockEnvironment();
@@ -1274,7 +1274,7 @@ namespace Gordian.Engine.Events
 
         void IEventVmHost.OpenIndoorRoom(int room)
         {
-            GordianLog.Info("EVENT", $"Event opens indoor room {room}.");
+            GordianLog.Info(LogCategories.Event, $"Event opens indoor room {room}.");
             _world?.SubMap.OpenIndoorRoom(room);
         }
 
@@ -1360,7 +1360,7 @@ namespace Gordian.Engine.Events
             if (answer == null && _recipePending
                 && System.Diagnostics.Stopwatch.GetElapsedTime(_recipeRequestedAt) > RecipeAnswerTimeout)
             {
-                GordianLog.Warning("EVENT", $"No recipe answer (S2C 0x031) to the mode {_recipeMode} request; the event goes on with none.");
+                GordianLog.Warn(LogCategories.Event, $"No recipe answer (S2C 0x031) to the mode {_recipeMode} request; the event goes on with none.");
                 answer = _recipeMode == (ushort)RecipeRequestMode.RecipeList ? new RecipeListPage([], 0) : (object)new RecipeDetail(RecipeKind.Detail2, 0, [], 0, 0, [], []);
             }
             switch (answer)
@@ -1388,7 +1388,7 @@ namespace Gordian.Engine.Events
                 _recipeRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _recipePending = true;
             }
-            GordianLog.Info("EVENT", $"Event recipe request: mode {mode}, skill {skill}, level {level}, params {param0}/{param1}/{param2}/{param3}/{param4}.");
+            GordianLog.Info(LogCategories.Event, $"Event recipe request: mode {mode}, skill {skill}, level {level}, params {param0}/{param1}/{param2}/{param3}/{param4}.");
             _ = crafting.RequestRecipeAsync(skill, level, (RecipeRequestMode)mode, param0, param1, param2, param3, param4);
             return true;
         }
@@ -1403,7 +1403,7 @@ namespace Gordian.Engine.Events
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("EVENT", $"Event DAT {fileId} could not be read: {ex.Message}");
+                GordianLog.Warn(LogCategories.Event, $"Event DAT {fileId} could not be read: {ex.Message}");
                 return null;
             }
         }
@@ -1411,7 +1411,7 @@ namespace Gordian.Engine.Events
         void IEventVmHost.OpenEventMap(int mapId, int mapNumber)
         {
             _eventMap = _eventMap.Open(mapId, mapNumber);
-            GordianLog.Info("EVENT", $"Event map: zone {mapId} map {mapNumber} opened.");
+            GordianLog.Info(LogCategories.Event, $"Event map: zone {mapId} map {mapNumber} opened.");
             Changed?.Invoke();
         }
 
@@ -1420,11 +1420,11 @@ namespace Gordian.Engine.Events
             // Retail only registers the marker when no event map is open (OpenMap2 mode 4, no ShowMark); nothing shows.
             if (!_eventMap.IsOpen)
             {
-                GordianLog.Debug("EVENT", $"Event map marker {index} '{name}' on zone {mapId} with no map open: not shown.");
+                GordianLog.Debug(LogCategories.Event, $"Event map marker {index} '{name}' on zone {mapId} with no map open: not shown.");
                 return;
             }
             _eventMap = _eventMap.Mark(new EventMapMarker(index, x, z, name));
-            GordianLog.Info("EVENT", $"Event map marker {index} '{name}' at ({x:F2}, {z:F2}) on zone {mapId}.");
+            GordianLog.Info(LogCategories.Event, $"Event map marker {index} '{name}' at ({x:F2}, {z:F2}) on zone {mapId}.");
             Changed?.Invoke();
         }
 
@@ -1437,7 +1437,7 @@ namespace Gordian.Engine.Events
         void IEventVmHost.OpenQueryMap()
         {
             _eventMap = _eventMap.WithQueryMap();
-            GordianLog.Info("EVENT", $"Query map: {string.Join(", ", _eventMap.QueryEntries.OrderBy(e => e.Key).Select(e => $"option {e.Key} = {e.Value}"))}.");
+            GordianLog.Info(LogCategories.Event, $"Query map: {string.Join(", ", _eventMap.QueryEntries.OrderBy(e => e.Key).Select(e => $"option {e.Key} = {e.Value}"))}.");
         }
 
         void IEventVmHost.SetQueryMapEntry(int option, EventQueryMapEntry entry) => _eventMap = _eventMap.WithQueryEntry(option, entry);
@@ -1447,7 +1447,7 @@ namespace Gordian.Engine.Events
             var world = _world;
             if (world == null) return;
             world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
-            GordianLog.Info("EVENT", world.EventZoneId == 0 ? $"Event zone: back to zone {world.CurrentZoneId}." : $"Event zone: zone {zoneId} opened for the scene.");
+            GordianLog.Info(LogCategories.Event, world.EventZoneId == 0 ? $"Event zone: back to zone {world.CurrentZoneId}." : $"Event zone: zone {zoneId} opened for the scene.");
         }
 
         // No viewport has drawn this session yet (0): nothing to wait for.
@@ -1479,7 +1479,7 @@ namespace Gordian.Engine.Events
             if (entity.EventLook != null)
             {
                 var at = _world.TryGetByServerId(targetServerId, out var target) ? (target.EventPose?.Position ?? target.Position).ToString() : "not in the zone";
-                GordianLog.Debug("EVENT", $"Look: 0x{serverId:X8} at 0x{targetServerId:X8} {at}.");
+                GordianLog.Debug(LogCategories.Event, $"Look: 0x{serverId:X8} at 0x{targetServerId:X8} {at}.");
             }
         }
 
@@ -1489,7 +1489,7 @@ namespace Gordian.Engine.Events
             if (_world == null || !_world.TryGetByServerId(serverId, out var entity)) return;
             entity.EventLook = EventLook.Fixed(axisX, axisY);
             _staged.Add(serverId);
-            GordianLog.Debug("EVENT", $"Look axis: 0x{serverId:X8} ({axisX}, {axisY}).");
+            GordianLog.Debug(LogCategories.Event, $"Look axis: 0x{serverId:X8} ({axisX}, {axisY}).");
         }
 
         void IEventVmHost.SetEntityHeadTurnSpeed(uint serverId, int speed)
@@ -1596,7 +1596,7 @@ namespace Gordian.Engine.Events
             }
             entity.IsEventHidden = hidden;
             _staged.Add(serverId);
-            GordianLog.Debug("EVENT", $"Event {(hidden ? "hides" : "shows")} 0x{serverId:X8} ({entity.Name}).");
+            GordianLog.Debug(LogCategories.Event, $"Event {(hidden ? "hides" : "shows")} 0x{serverId:X8} ({entity.Name}).");
         }
 
         /// <summary>
@@ -1638,7 +1638,7 @@ namespace Gordian.Engine.Events
             var resource = LoadSceneResource(fileId);
             if (resource == null || !resource.TryGetRoutine(routine, out var scene))
             {
-                GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId}: {(resource == null ? "no such file" : "no such routine")}; it ends at once.");
+                GordianLog.Debug(LogCategories.Event, $"Scene task {routine} of file {fileId}: {(resource == null ? "no such file" : "no such routine")}; it ends at once.");
                 return 0;
             }
             // Actor-relative camera routes are placed at the first actor, where the event shows it.
@@ -1686,7 +1686,7 @@ namespace Gordian.Engine.Events
             entity.Animation.AddEventMotionBank(bank);
             if (!_banked.Contains(entity)) _banked.Add(entity);
             _sceneMotions.Add((first / 60.0, entity, routine));
-            GordianLog.Debug("EVENT", $"Scene task {routine} of file {fileId} plays its motion on {casterServerId:X8} at tick {first}.");
+            GordianLog.Debug(LogCategories.Event, $"Scene task {routine} of file {fileId} plays its motion on {casterServerId:X8} at tick {first}.");
         }
 
         /// <summary>Starts the scene routines' motions whose first clip is due (the gesture's clips start at its tick 0).</summary>
@@ -1748,7 +1748,7 @@ namespace Gordian.Engine.Events
                          door.Type == EntityType.Door && door.TransportId.Length > 0
                 ? DoorRoutineFrames?.Invoke(_world.SceneZoneId, door.TransportId, routine) ?? 0
                 : ZoneRoutineFrames?.Invoke(_world.SceneZoneId, routine) ?? 0;
-            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} in zone {_world.SceneZoneId}: {frames} frames.");
+            GordianLog.Debug(LogCategories.Event, $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} in zone {_world.SceneZoneId}: {frames} frames.");
             return frames;
         }
 
@@ -1756,7 +1756,7 @@ namespace Gordian.Engine.Events
         {
             if (_world == null) return;
             _world.PostMapScheduler(routine, casterServerId, targetServerId, stop: true, sceneZone: true);
-            GordianLog.Debug("EVENT", $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
+            GordianLog.Debug(LogCategories.Event, $"Zone scheduler '{routine}' on {casterServerId:X8} / {targetServerId:X8} ended by the event.");
         }
 
         void IEventVmHost.SetEventCamera(bool held) => Presentation.SetCameraHeld(held);
@@ -1799,10 +1799,10 @@ namespace Gordian.Engine.Events
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("EVENT", $"Emote {emote} of {race} could not be read: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Event, $"Emote {emote} of {race} could not be read: {ex.Message}");
                 }
                 _emoteBanks[(race, emote, variant)] = bank;
-                if (bank == null) GordianLog.Debug("EVENT", $"Emote {emote} (variant {variant}) has no motion for {race}.");
+                if (bank == null) GordianLog.Debug(LogCategories.Event, $"Emote {emote} (variant {variant}) has no motion for {race}.");
             }
             if (bank == null) return 0;
             entity.Animation.AddEventMotionBank(bank);
@@ -1841,7 +1841,7 @@ namespace Gordian.Engine.Events
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("EVENT", $"Scene resource {fileId} could not be read: {ex.Message}");
+                GordianLog.Warn(LogCategories.Event, $"Scene resource {fileId} could not be read: {ex.Message}");
             }
             _sceneResources[fileId] = resource;
             return resource;
@@ -1857,7 +1857,7 @@ namespace Gordian.Engine.Events
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("EVENT", $"Event motion DAT {fileId} could not be read: {ex.Message}");
+                GordianLog.Warn(LogCategories.Event, $"Event motion DAT {fileId} could not be read: {ex.Message}");
             }
             _motionBanks[fileId] = bank;
             return bank;
@@ -1874,7 +1874,7 @@ namespace Gordian.Engine.Events
             {
                 if (LoadMotionBank(fileId) is { } bank) return bank;
             }
-            GordianLog.Debug("EVENT", files.Length == 0
+            GordianLog.Debug(LogCategories.Event, files.Length == 0
                 ? $"Motion package {package} is not located."
                 : $"Motion package {package} has no routines in files {string.Join(" / ", files)}.");
             return null;
@@ -1882,8 +1882,8 @@ namespace Gordian.Engine.Events
 
         void IEventVmHost.OnSkippedOpcode(byte opcode, int pc)
         {
-            if (opcode == 0xFF) GordianLog.Warning("EVENT", $"Event step limit hit at {pc}; the event is ended.");
-            else GordianLog.Debug("EVENT", $"Skipped opcode 0x{opcode:X2} at {pc}.");
+            if (opcode == 0xFF) GordianLog.Warn(LogCategories.Event, $"Event step limit hit at {pc}; the event is ended.");
+            else GordianLog.Debug(LogCategories.Event, $"Skipped opcode 0x{opcode:X2} at {pc}.");
         }
 
         #endregion

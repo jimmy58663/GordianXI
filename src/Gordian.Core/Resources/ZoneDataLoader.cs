@@ -506,7 +506,7 @@ namespace Gordian.Core.Resources
                 if (platform != null) platforms.Add(platform);
                 if (platform != null && !platform.FromRecord)
                 {
-                    GordianLog.Debug("RES", $"Moving platform {id} has no Section 0x36 lift record; its travel {platform.UpperHeight:F2} / {platform.LowerHeight:F2} is the landing heuristic's.");
+                    GordianLog.Debug(LogCategories.Res, $"Moving platform {id} has no Section 0x36 lift record; its travel {platform.UpperHeight:F2} / {platform.LowerHeight:F2} is the landing heuristic's.");
                 }
             }
             return platforms;
@@ -1827,7 +1827,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            GordianLog.Debug("RES", $"ParseZoneContainer(zone={zoneId}): {headers.Count} sections, {texCount} textures, {meshSectionCount} ZoneMesh(0x2E) sections, {zone.Placements.Count} placements → {zone.MeshGroups.Count} submeshes (placed={placedCount}). keysProvided={!table1.IsEmpty && !table2.IsEmpty}");
+            GordianLog.Debug(LogCategories.Res, $"ParseZoneContainer(zone={zoneId}): {headers.Count} sections, {texCount} textures, {meshSectionCount} ZoneMesh(0x2E) sections, {zone.Placements.Count} placements → {zone.MeshGroups.Count} submeshes (placed={placedCount}). keysProvided={!table1.IsEmpty && !table2.IsEmpty}");
 
             return zone;
         }
@@ -1863,13 +1863,13 @@ namespace Gordian.Core.Resources
                     byte[] dllBytes = File.ReadAllBytes(dllPath);
                     if (TryExtractFromDllBytes(dllBytes, out table1, out table2))
                     {
-                        GordianLog.Info("RES", $"Extracted zone decryption key tables from {Path.GetFileName(dllPath)}");
+                        GordianLog.Info(LogCategories.Res, $"Extracted zone decryption key tables from {Path.GetFileName(dllPath)}");
                         return true;
                     }
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("RES", $"Could not read {dllPath} for key table extraction: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Res, $"Could not read {dllPath} for key table extraction: {ex.Message}");
                 }
             }
 

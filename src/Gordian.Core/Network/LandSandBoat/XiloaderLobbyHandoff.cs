@@ -139,7 +139,7 @@ namespace Gordian.Core.Network.LandSandBoat
             byte[]? prompt = await ReadDataCoreAsync("character list", ct, PromptRetryWait, expect: LobbyDataCommand.RequestAccount, breakOnTimeout: false).ConfigureAwait(false);
             if (prompt == null)
             {
-                GordianLog.Warning("LSB_LOGIN", $"No account prompt {PromptRetryWait.TotalSeconds:0.#} s after 0x1F; sending the character list request again.");
+                GordianLog.Warn(LogCategories.LsbLogin, $"No account prompt {PromptRetryWait.TotalSeconds:0.#} s after 0x1F; sending the character list request again.");
                 await resend(ct).ConfigureAwait(false);
                 prompt = await ReadDataCoreAsync("character list", ct, expect: LobbyDataCommand.RequestAccount).ConfigureAwait(false);
             }
@@ -201,11 +201,11 @@ namespace Gordian.Core.Network.LandSandBoat
 
             var key = LsbSessionKeys.DeriveLegacyKey(_baseKey, KeyIncrement);
             if (KeyIncrement != 0)
-                GordianLog.Info("LSB_LOGIN", $"Legacy session key byte 16 raised by {KeyIncrement} for this lobby session's creations/deletions/renames (old LandSandBoat key accounting).");
+                GordianLog.Info(LogCategories.LsbLogin, $"Legacy session key byte 16 raised by {KeyIncrement} for this lobby session's creations/deletions/renames (old LandSandBoat key accounting).");
             var candidates = LsbSessionKeys.BuildCandidates(_sessionHash, _counterAtKey, _baseKey, KeyIncrement);
             if (_counterAtKey == 0)
-                GordianLog.Warning("LSB_LOGIN", "No lobby key counter (no 0x05 reply seen); the counter-style key keeps the loader's bytes 16-19, as LandSandBoat does.");
-            GordianLog.Info("LSB_LOGIN", $"Map session key candidates (lobby key counter {_counterAtKey:X8}, legacy increment {KeyIncrement}): " +
+                GordianLog.Warn(LogCategories.LsbLogin, "No lobby key counter (no 0x05 reply seen); the counter-style key keeps the loader's bytes 16-19, as LandSandBoat does.");
+            GordianLog.Info(LogCategories.LsbLogin, $"Map session key candidates (lobby key counter {_counterAtKey:X8}, legacy increment {KeyIncrement}): " +
                 string.Join("; ", candidates.Select(c => c.Describe())) + ". Compare with the connect server's \"key value\" / \"key counter\" line.");
             var ticket = new MapSessionTicket
             {
@@ -270,7 +270,7 @@ namespace Gordian.Core.Network.LandSandBoat
                         throw Broken(LobbyRequestException.FromServer(request, LobbyPackets.ReadErrorCode(message)));
                     if (message[0] == LobbyDataCommand.RequestAccount && expect != LobbyDataCommand.RequestAccount)
                     {
-                        GordianLog.Debug("LSB_LOGIN", "Skipping a duplicate account prompt (0x01) on the data channel.");
+                        GordianLog.Debug(LogCategories.LsbLogin, "Skipping a duplicate account prompt (0x01) on the data channel.");
                         continue;
                     }
                     return message;

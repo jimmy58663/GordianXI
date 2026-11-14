@@ -71,14 +71,14 @@ namespace Gordian.Core.Network.Packets
                 Timestamp: DateTime.UtcNow
             );
 
-            GordianLog.Info("PARTY", $"Received party invite from '{inviterName}' (ID: 0x{req.UniqueNo:X8}, TargIdx: {req.ActIndex}, Kind: {req.Kind})");
+            GordianLog.Info(LogCategories.Party, $"Received party invite from '{inviterName}' (ID: 0x{req.UniqueNo:X8}, TargIdx: {req.ActIndex}, Kind: {req.Kind})");
             _partyState.SetPendingInvite(invite);
         }
 
         private void HandleGroupSolicitNo(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var no = new S2C_0x0DE_GroupSolicitNo(payload);
-            GordianLog.Info("PARTY", $"Party invite cleared/reset (Reason: {no.Reason})");
+            GordianLog.Info(LogCategories.Party, $"Party invite cleared/reset (Reason: {no.Reason})");
             _partyState.ClearPendingInvite();
         }
 
@@ -87,7 +87,7 @@ namespace Gordian.Core.Network.Packets
             var tbl = new S2C_0x0C8_GroupTbl(payload);
             if (!tbl.IsValid) return;
 
-            GordianLog.Debug("PARTY", $"Group table received with {tbl.EntryCount} members (Kind: {tbl.Kind})");
+            GordianLog.Debug(LogCategories.Party, $"Group table received with {tbl.EntryCount} members (Kind: {tbl.Kind})");
             if (tbl.EntryCount == 0)
             {
                 _partyState.ClearParty();
@@ -138,7 +138,7 @@ namespace Gordian.Core.Network.Packets
 
             if (IsSoloNotice(list.GAttr))
             {
-                GordianLog.Debug("PARTY", "Group member update with no flags and no roster: not in a party.");
+                GordianLog.Debug(LogCategories.Party, "Group member update with no flags and no roster: not in a party.");
                 return;
             }
 
@@ -169,7 +169,7 @@ namespace Gordian.Core.Network.Packets
                 MemberNumber = list.MemberNumber
             };
 
-            GordianLog.Debug("PARTY", $"Group member update: '{name}' (HP: {list.Hp}, MP: {list.Mp}, TP: {list.Tp}, Job: {list.MainJob}{list.MainJobLevel})");
+            GordianLog.Debug(LogCategories.Party, $"Group member update: '{name}' (HP: {list.Hp}, MP: {list.Mp}, TP: {list.Tp}, Job: {list.MainJob}{list.MainJobLevel})");
             _partyState.UpsertMember(member);
         }
 
@@ -185,7 +185,7 @@ namespace Gordian.Core.Network.Packets
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x06E, seq, packet);
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
-            GordianLog.Info("PARTY", $"Sent party invite to ServerId: 0x{targetServerId:X8}, Index: {targetIndex}");
+            GordianLog.Info(LogCategories.Party, $"Sent party invite to ServerId: 0x{targetServerId:X8}, Index: {targetIndex}");
         }
 
         /// <summary>
@@ -201,7 +201,7 @@ namespace Gordian.Core.Network.Packets
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.ClearPendingInvite();
-            GordianLog.Info("PARTY", "Accepted party invitation.");
+            GordianLog.Info(LogCategories.Party, "Accepted party invitation.");
         }
 
         /// <summary>
@@ -217,7 +217,7 @@ namespace Gordian.Core.Network.Packets
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.ClearPendingInvite();
-            GordianLog.Info("PARTY", "Declined party invitation.");
+            GordianLog.Info(LogCategories.Party, "Declined party invitation.");
         }
 
         /// <summary>
@@ -233,7 +233,7 @@ namespace Gordian.Core.Network.Packets
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.ClearParty();
-            GordianLog.Info("PARTY", "Left party.");
+            GordianLog.Info(LogCategories.Party, "Left party.");
         }
 
         /// <summary>
@@ -249,7 +249,7 @@ namespace Gordian.Core.Network.Packets
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.ClearParty();
-            GordianLog.Info("PARTY", "Disbanded party.");
+            GordianLog.Info(LogCategories.Party, "Disbanded party.");
         }
 
         /// <summary>
@@ -265,7 +265,7 @@ namespace Gordian.Core.Network.Packets
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
             _partyState.RemoveMember(targetServerId);
-            GordianLog.Info("PARTY", $"Kicked member '{name}' (ID: 0x{targetServerId:X8}) from party.");
+            GordianLog.Info(LogCategories.Party, $"Kicked member '{name}' (ID: 0x{targetServerId:X8}) from party.");
         }
 
         /// <summary>
@@ -280,7 +280,7 @@ namespace Gordian.Core.Network.Packets
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x076, seq, packet);
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
-            GordianLog.Debug("PARTY", $"Sent GroupListReq (Kind={kind})");
+            GordianLog.Debug(LogCategories.Party, $"Sent GroupListReq (Kind={kind})");
         }
 
         /// <summary>
@@ -295,7 +295,7 @@ namespace Gordian.Core.Network.Packets
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x077, seq, packet);
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
-            GordianLog.Info("PARTY", $"Sent GroupChange2: Name='{name}', Kind={kind}, ChangeKind={changeKind}");
+            GordianLog.Info(LogCategories.Party, $"Sent GroupChange2: Name='{name}', Kind={kind}, ChangeKind={changeKind}");
         }
 
         /// <summary>
@@ -310,7 +310,7 @@ namespace Gordian.Core.Network.Packets
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x11C, seq, packet);
             }
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
-            GordianLog.Info("PARTY", $"Sent PartyRequest: TargetServerId=0x{targetServerId:X8}, Kind={kind}");
+            GordianLog.Info(LogCategories.Party, $"Sent PartyRequest: TargetServerId=0x{targetServerId:X8}, Kind={kind}");
         }
 
         private void HandleGroupComlink(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -318,7 +318,7 @@ namespace Gordian.Core.Network.Packets
             var comlink = new S2C_0x0E0_GroupComlink(payload);
             if (!comlink.IsValid) return;
 
-            GordianLog.Debug("PARTY", $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}, Category={comlink.Category}");
+            GordianLog.Debug(LogCategories.Party, $"Group Comlink update: LinkshellNum={comlink.LinkshellNum}, ItemIndex={comlink.ItemIndex}, Category={comlink.Category}");
             // LinkshellNum is the slot (1 or 2); ItemIndex/Category locate the equipped linkshell item, ItemIndex 0 when unequipped.
             _partyState.SetLinkshellItem(comlink.LinkshellNum, comlink.ItemIndex, (ContainerId)comlink.Category);
         }
@@ -357,7 +357,7 @@ namespace Gordian.Core.Network.Packets
                 MemberNumber = list2.MemberNumber
             };
 
-            GordianLog.Debug("PARTY", $"Group member (List2) update: '{name}' (Job: {list2.MainJob}{list2.MainJobLevel})");
+            GordianLog.Debug(LogCategories.Party, $"Group member (List2) update: '{name}' (Job: {list2.MainJob}{list2.MainJobLevel})");
             _partyState.UpsertMember(member);
         }
 
@@ -366,7 +366,7 @@ namespace Gordian.Core.Network.Packets
             var req = new S2C_0x11D_PartyReq(payload);
             if (!req.IsValid) return;
 
-            GordianLog.Info("PARTY", $"Party join request from '{req.Name}' (ServerId=0x{req.UniqueNo:X8}, Status={req.Status})");
+            GordianLog.Info(LogCategories.Party, $"Party join request from '{req.Name}' (ServerId=0x{req.UniqueNo:X8}, Status={req.Status})");
             _partyState.SetJoinRequest(new PartyJoinRequest(req.UniqueNo, req.ActIndex, req.Name, req.Race, DateTime.UtcNow), req.Status == 0);
         }
     }

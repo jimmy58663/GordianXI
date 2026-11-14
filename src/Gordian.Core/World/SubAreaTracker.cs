@@ -94,7 +94,7 @@ namespace Gordian.Core.World
             }
             if (Interlocked.Exchange(ref _active, active) != active)
             {
-                GordianLog.Debug("SubArea", $"Zone {_world.CurrentZoneId}: interior {active} (near {string.Join(",", _nearSnapshot)}).");
+                GordianLog.Debug(LogCategories.SubArea, $"Zone {_world.CurrentZoneId}: interior {active} (near {string.Join(",", _nearSnapshot)}).");
                 ActiveChanged?.Invoke(active);
             }
         }
@@ -129,7 +129,7 @@ namespace Gordian.Core.World
                 {
                     ZoneCollisionMesh? mesh = null;
                     try { mesh = loader(id); }
-                    catch (Exception ex) { GordianLog.Warning("SubArea", $"Interior {id} collision failed: {ex.Message}"); }
+                    catch (Exception ex) { GordianLog.Warn(LogCategories.SubArea, $"Interior {id} collision failed: {ex.Message}"); }
                     lock (_lock)
                     {
                         if (generation != _generation) return;

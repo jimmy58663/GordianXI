@@ -248,7 +248,7 @@ namespace Gordian.Core.Network.Retail
             public void Enter(string step)
             {
                 Step = step;
-                GordianLog.Info("RETAIL_LOGIN", $"Core session: {step}.");
+                GordianLog.Info(LogCategories.RetailLogin, $"Core session: {step}.");
             }
         }
 
@@ -271,7 +271,7 @@ namespace Gordian.Core.Network.Retail
                 redirect = PolCoreToken.Parse(redirectToken);
             }
             var clock = new PolServerClock(redirect.ServerTimestamp);
-            GordianLog.Info("RETAIL_LOGIN", $"Gatekeeper redirect to {redirectIp}:{redirect.RedirectPort} (server time {redirect.ServerTimestamp}).");
+            GordianLog.Info(LogCategories.RetailLogin, $"Gatekeeper redirect to {redirectIp}:{redirect.RedirectPort} (server time {redirect.ServerTimestamp}).");
 
             // Stage 3: the greeting, the RSA exchange, then the encrypted NICK.
             var client = new TcpClient();
@@ -289,17 +289,17 @@ namespace Gordian.Core.Network.Retail
                 var greetingFields = PolCoreToken.Parse(greetingToken);
 
                 progress.Received = reader;
-                GordianLog.Info("RETAIL_LOGIN", $"Core session: greeting of {greeting.Length} characters (server time 0x{greetingFields.ServerTimestamp:X8}; the redirect's was 0x{redirect.ServerTimestamp:X8}).");
+                GordianLog.Info(LogCategories.RetailLogin, $"Core session: greeting of {greeting.Length} characters (server time 0x{greetingFields.ServerTimestamp:X8}; the redirect's was 0x{redirect.ServerTimestamp:X8}).");
 
                 var rsa = new PolRsaKeyExchange();
                 // The USER line carries only this connection's throwaway public key, so it is logged in full.
                 string userLine = PolCoreProtocol.BuildUserLine(rsa.Modulus);
-                GordianLog.Debug("RETAIL_LOGIN", $"Core session: sending {userLine.TrimEnd()}");
+                GordianLog.Debug(LogCategories.RetailLogin, $"Core session: sending {userLine.TrimEnd()}");
                 await WriteAsync(stream, Encoding.ASCII.GetBytes(userLine), token).ConfigureAwait(false);
                 progress.Enter("waiting for the key exchange reply to USER");
 
                 string keyLine = await reader.ReadLineAsync(token).ConfigureAwait(false) ?? throw Fail("The session host closed during the key exchange.");
-                GordianLog.Info("RETAIL_LOGIN", "Core session: key exchange reply received.");
+                GordianLog.Info(LogCategories.RetailLogin, "Core session: key exchange reply received.");
                 CheckSuffix("key exchange reply", keyLine);
                 string keyToken = PolCoreProtocol.ReadGreetingToken(keyLine, out _) ?? throw Fail($"Unexpected key exchange reply: {keyLine}");
                 byte[] sessionKey;
@@ -328,7 +328,7 @@ namespace Gordian.Core.Network.Retail
                     string line = Encoding.ASCII.GetString(raw);
                     string kind = PolCoreProtocol.DescribeLine(line);
                     progress.Replies.Add(kind);
-                    GordianLog.Info("RETAIL_LOGIN", $"Core session: received {kind} after NICK.");
+                    GordianLog.Info(LogCategories.RetailLogin, $"Core session: received {kind} after NICK.");
                     if (PolCoreProtocol.TryParseNumeric(line, out _, out int numeric, out _))
                     {
                         if (numeric == 1) welcomed = true;
@@ -338,7 +338,7 @@ namespace Gordian.Core.Network.Retail
                     else if (welcomed && line.Contains(" MODE ", StringComparison.Ordinal)) break;
                 }
 
-                GordianLog.Info("RETAIL_LOGIN", "Core session up.");
+                GordianLog.Info(LogCategories.RetailLogin, "Core session up.");
                 return new PolCoreSession(client, reader, cipher, clock, greetingFields, sessionKey, polId, polPassword);
             }
             catch
@@ -358,7 +358,7 @@ namespace Gordian.Core.Network.Retail
                     byte[]? raw = await reader.ReadRawLineAsync(ct).ConfigureAwait(false);
                     if (raw == null)
                     {
-                        GordianLog.Warn("RETAIL_LOGIN", "The Core session host closed the connection.");
+                        GordianLog.Warn(LogCategories.RetailLogin, "The Core session host closed the connection.");
                         return;
                     }
                     cipher.TransformFrame(raw);
@@ -381,7 +381,7 @@ namespace Gordian.Core.Network.Retail
         private static void CheckSuffix(string what, string line)
         {
             if (!PolHashes.HasValidLineSuffix(line))
-                GordianLog.Warning("RETAIL_LOGIN", $"Core session: the {what} line's checksum suffix does not match.");
+                GordianLog.Warn(LogCategories.RetailLogin, $"Core session: the {what} line's checksum suffix does not match.");
         }
 
         private static async Task WriteAsync(NetworkStream stream, byte[] bytes, CancellationToken ct)

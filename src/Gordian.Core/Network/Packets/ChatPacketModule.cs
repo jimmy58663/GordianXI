@@ -132,14 +132,14 @@ namespace Gordian.Core.Network.Packets
             if (fragment.Kind != FragmentsKind.ServerMessage)
             {
                 // Ranking boards (event opcode 0xB3) are not run by the event VM yet: decoded and logged only.
-                GordianLog.Debug("CHAT", $"[FRAGMENTS] Kind={fragment.Kind}, Command=0x{fragment.Command:X2}, Result={fragment.Result}, Board={fragment.Value2}, Offset={fragment.Offset}, Size={fragment.DataSize}/{fragment.SizeTotal}");
+                GordianLog.Debug(LogCategories.Chat, $"[FRAGMENTS] Kind={fragment.Kind}, Command=0x{fragment.Command:X2}, Result={fragment.Result}, Board={fragment.Value2}, Offset={fragment.Offset}, Size={fragment.DataSize}/{fragment.SizeTotal}");
                 return;
             }
 
             switch (_serverMessage.Add(in fragment, out string? message))
             {
                 case ServerMessageFragmentResult.Complete:
-                    GordianLog.Info("CHAT", $"[SERVMES] Server message ({message?.Length ?? 0} characters).");
+                    GordianLog.Info(LogCategories.Chat, $"[SERVMES] Server message ({message?.Length ?? 0} characters).");
                     if (!string.IsNullOrEmpty(message)) ServerMessageReceived?.Invoke(message);
                     break;
                 case ServerMessageFragmentResult.NeedMore:
@@ -179,7 +179,7 @@ namespace Gordian.Core.Network.Packets
             if (chat.IsFormatted)
             {
                 if (chat.TryGetFormattedMessage(out var reference)) formatted = reference;
-                else GordianLog.Warning("CHAT", $"[{chat.Kind}] Attr 0x08 message with an unreadable body: '{chat.GetMessage()}'");
+                else GordianLog.Warn(LogCategories.Chat, $"[{chat.Kind}] Attr 0x08 message with an unreadable body: '{chat.GetMessage()}'");
             }
 
             var model = new ChatMessage(
@@ -196,7 +196,7 @@ namespace Gordian.Core.Network.Packets
                 Formatted: formatted
             );
 
-            GordianLog.Debug("CHAT", formatted is { } f
+            GordianLog.Debug(LogCategories.Chat, formatted is { } f
                 ? $"[{model.Type}] {model.Sender}: DAT message {f.Table} #{f.MessageId} ({f.Param0}, {f.Param1}, {f.Param2}, {f.Param3}, {f.Param4})"
                 : $"[{model.Type}] {model.Sender}: {model.Message}");
             ChatMessageReceived?.Invoke(model);
@@ -209,7 +209,7 @@ namespace Gordian.Core.Network.Packets
 
             if (msg.IsBlacklistable && IsBlacklisted?.Invoke(msg.UniqueNo) == true)
             {
-                GordianLog.Debug("CHAT", $"[SYS_MSG] Dropped message {msg.MessageId} from blacklisted 0x{msg.UniqueNo:X8}");
+                GordianLog.Debug(LogCategories.Chat, $"[SYS_MSG] Dropped message {msg.MessageId} from blacklisted 0x{msg.UniqueNo:X8}");
                 return;
             }
 
@@ -222,7 +222,7 @@ namespace Gordian.Core.Network.Packets
                 Timestamp: DateTime.UtcNow
             );
 
-            GordianLog.Debug("CHAT", $"[SYS_MSG] Id={model.MessageId}, Target=0x{model.UniqueNo:X8}, Params='{model.Parameters}'");
+            GordianLog.Debug(LogCategories.Chat, $"[SYS_MSG] Id={model.MessageId}, Target=0x{model.UniqueNo:X8}, Params='{model.Parameters}'");
             SystemMessageReceived?.Invoke(model);
         }
 
@@ -240,7 +240,7 @@ namespace Gordian.Core.Network.Packets
                 Timestamp: DateTime.UtcNow
             );
 
-            GordianLog.Debug("CHAT", $"[TRANSLATE] {model.SourcePhrase} -> {model.TranslatedPhrase} (Item={model.ItemNo})");
+            GordianLog.Debug(LogCategories.Chat, $"[TRANSLATE] {model.SourcePhrase} -> {model.TranslatedPhrase} (Item={model.ItemNo})");
             TranslateReceived?.Invoke(model);
         }
 
@@ -262,7 +262,7 @@ namespace Gordian.Core.Network.Packets
                 Timestamp: DateTime.UtcNow
             );
 
-            GordianLog.Debug("CHAT", $"[LS_MSG] Slot={model.Slot}, Name={model.LinkshellName}, Modifier={model.Modifier}: {model.Message}");
+            GordianLog.Debug(LogCategories.Chat, $"[LS_MSG] Slot={model.Slot}, Name={model.LinkshellName}, Modifier={model.Modifier}: {model.Message}");
             LinkshellMessageReceived?.Invoke(model);
         }
 

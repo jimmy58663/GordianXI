@@ -70,7 +70,7 @@ namespace Gordian.App.Audio
                 _library = new SoundLibrary(new FfxiSoundLocator(_resources.GameDirectory, resolver.Resolve));
                 if (!_library.Locator.HasRoots)
                 {
-                    GordianLog.Warn("AUDIO", $"No sound folders under '{_resources.GameDirectory}'.");
+                    GordianLog.Warn(LogCategories.Audio, $"No sound folders under '{_resources.GameDirectory}'.");
                 }
             }
 
@@ -285,7 +285,7 @@ namespace Gordian.App.Audio
             {
                 _titleTrack = TitleMusic.Track(TitleMusicChoice, _titleRandom);
                 _musicPool.Acquire(_titleOwner, _titleTrack);
-                GordianLog.Info("AUDIO", $"Title music: track {_titleTrack} ({TitleMusicChoice}).");
+                GordianLog.Info(LogCategories.Audio, $"Title music: track {_titleTrack} ({TitleMusicChoice}).");
             }
             else if (!wanted && _titleTrack != 0)
             {
@@ -761,7 +761,7 @@ namespace Gordian.App.Audio
             if (summary != _loggedMuted)
             {
                 _loggedMuted = summary;
-                GordianLog.Info("AUDIO", $"Sound controls: muted buses: {summary}{(active ? string.Empty : " (GordianXI inactive)")}.");
+                GordianLog.Info(LogCategories.Audio, $"Sound controls: muted buses: {summary}{(active ? string.Empty : " (GordianXI inactive)")}.");
             }
         }
 
@@ -970,12 +970,12 @@ namespace Gordian.App.Audio
                     {
                         _zoneSounds = table;
                         _pendingEmitters = emitters;
-                        GordianLog.Info("AUDIO", $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.DrySteps.Count} footsteps ({table.WetSteps.Count} in the rain), {table.Doors.Count} doors, {emitters.Count} sound generators.");
+                        GordianLog.Info(LogCategories.Audio, $"Zone {zone} sounds: {table.AmbientWeathers.Count} ambient weathers, {table.DrySteps.Count} footsteps ({table.WetSteps.Count} in the rain), {table.Doors.Count} doors, {emitters.Count} sound generators.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("AUDIO", $"Zone {zone} sound pointers failed to load: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Audio, $"Zone {zone} sound pointers failed to load: {ex.Message}");
                 }
             });
         }

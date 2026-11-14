@@ -8,6 +8,7 @@ All formats described here were researched clean-room from public sources (LandS
 |---|---|---|
 | Architecture | [architecture.md](architecture.md) | Assembly layers (Core, Engine, Addons, Automation, App), where new code goes, how the split is enforced |
 | App | [app/desktop-shell.md](app/desktop-shell.md) | Avalonia shell, account profiles, packet inspector |
+| App | [app/logging.md](app/logging.md) | Log folders (system, network, status, chat), levels and categories, `logging.json`, character scope, retention |
 | Network | [network/session-and-packets.md](network/session-and-packets.md) | LSB login, Blowfish, UDP framing, packet registry, 0x015 timing, packet audit gaps |
 | Network | [network/retail-login-research.md](network/retail-login-research.md) | Clean-room policy for a direct, POL-bypassing retail login: repo split, off-limits research repo, spec handoff, ToS/legal caveats, guardrails |
 | Network | [network/retail-login-spec-format.md](network/retail-login-spec-format.md) | Required shape of a derived retail-login spec before GordianXI implements from it |

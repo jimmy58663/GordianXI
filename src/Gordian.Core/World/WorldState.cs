@@ -441,7 +441,7 @@ namespace Gordian.Core.World
             }
             // The Mog House room to draw (#354); a model number this client cannot draw leaves the city's terrain.
             int room = info.InMogHouse && MogHouseRooms.IsKnownRoom(info.MyroomMapNumber) ? info.MyroomMapNumber : 0;
-            if (info.InMogHouse && room == 0) GordianLog.Warning("WORLD", $"Mog House room 0x{info.MyroomMapNumber:X3} has no known room DAT; drawing the zone instead.");
+            if (info.InMogHouse && room == 0) GordianLog.Warn(LogCategories.World, $"Mog House room 0x{info.MyroomMapNumber:X3} has no known room DAT; drawing the zone instead.");
             Volatile.Write(ref _mogHouseRoom, room);
         }
 
@@ -460,7 +460,7 @@ namespace Gordian.Core.World
             }
             if (changed)
             {
-                GordianLog.Info("WORLD", $"Weather updated to #{weatherNumber} ('{weatherId}')");
+                GordianLog.Info(LogCategories.World, $"Weather updated to #{weatherNumber} ('{weatherId}')");
                 WeatherChanged?.Invoke(weatherId);
             }
         }

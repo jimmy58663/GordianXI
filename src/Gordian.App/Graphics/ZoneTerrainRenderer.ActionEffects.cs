@@ -147,7 +147,7 @@ namespace Gordian.App.Graphics
                     }
                     else
                     {
-                        GordianLog.Debug("Graphics", $"Spell effect {effect.SpellAnimation} on {effect.ActorId:X8}: no presentation file.");
+                        GordianLog.Debug(LogCategories.Graphics, $"Spell effect {effect.SpellAnimation} on {effect.ActorId:X8}: no presentation file.");
                     }
                     break;
 
@@ -163,7 +163,7 @@ namespace Gordian.App.Graphics
                     shared.Player.TargetId = effect.TargetId;
                     if (!shared.Player.Start(effect.Routine))
                     {
-                        GordianLog.Debug("Graphics", $"Shared effect routine '{effect.Routine}' on {effect.ActorId:X8}: not in ROM/0/0.");
+                        GordianLog.Debug(LogCategories.Graphics, $"Shared effect routine '{effect.Routine}' on {effect.ActorId:X8}: not in ROM/0/0.");
                     }
                     break;
 
@@ -206,7 +206,7 @@ namespace Gordian.App.Graphics
                     if (shared.HasEffects) StartActionEffect(effect with { Kind = ActionEffectEventKind.SharedRoutine, Routine = request.Routine }, resourceManager);
                     sharedPlayed = true;
                 }
-                GordianLog.Debug("Graphics", $"Actor scheduler '{request.Routine}' on {request.ActorServerId:X8}: model effects {(modelPlayed ? "played" : "none")}, ROM/0/0 {(sharedPlayed ? "played" : "none")}.");
+                GordianLog.Debug(LogCategories.Graphics, $"Actor scheduler '{request.Routine}' on {request.ActorServerId:X8}: model effects {(modelPlayed ? "played" : "none")}, ROM/0/0 {(sharedPlayed ? "played" : "none")}.");
             }
         }
 
@@ -215,7 +215,7 @@ namespace Gordian.App.Graphics
             var effects = resourceManager.GetSceneEffects(asset.FileId);
             if (effects == null)
             {
-                GordianLog.Debug("Graphics", $"{asset} on {effect.ActorId:X8}: no generator this client draws.");
+                GordianLog.Debug(LogCategories.Graphics, $"{asset} on {effect.ActorId:X8}: no generator this client draws.");
                 return;
             }
             var player = new ActionEffectPlayer(asset, effects, effect.ActorId, effect.TargetId,
@@ -226,7 +226,7 @@ namespace Gordian.App.Graphics
             var slot = new ActionEffectSlot { Player = player };
             PlaceActionEffect(slot);
             _actionEffects.Add(slot);
-            GordianLog.Debug("Graphics", $"Effects of {asset} on {effect.ActorId:X8} (target {player.TargetId:X8}, {(_entityRenderer?.ActorAnchors.ContainsKey(player.TargetId) == true ? "drawn" : "not drawn")}).");
+            GordianLog.Debug(LogCategories.Graphics, $"Effects of {asset} on {effect.ActorId:X8} (target {player.TargetId:X8}, {(_entityRenderer?.ActorAnchors.ContainsKey(player.TargetId) == true ? "drawn" : "not drawn")}).");
         }
 
         /// <summary>Takes the actor's and target's current placement when they are drawn; otherwise keeps the last one.</summary>

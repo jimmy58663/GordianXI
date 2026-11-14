@@ -94,6 +94,33 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public SoundSettingsViewModel Sound { get; } = new();
 
+        /// <summary>The Logs tab: the logs folder's tree and a terminal-style viewer (#566).</summary>
+        public LogsViewModel Logs { get; } = new();
+
+        /// <summary>The Logs tab's settings expander: levels, network file, chat logs (#566).</summary>
+        public LoggingSettingsViewModel LoggingSettings { get; } = new();
+
+        /// <summary>The main window's tab index of the Logs tab.</summary>
+        public const int LogsTabIndex = 1;
+
+        private int _selectedTabIndex;
+
+        /// <summary>The main window's selected tab.</summary>
+        public int SelectedTabIndex
+        {
+            get => _selectedTabIndex;
+            set => SetProperty(ref _selectedTabIndex, value);
+        }
+
+        /// <summary>The status box's history: this launch's latest status messages, oldest first (#566).</summary>
+        public ObservableCollection<string> RecentStatusLines { get; } = new();
+
+        /// <summary>How many status messages the Profiles and Launch box keeps; the Logs tab shows them all.</summary>
+        public const int RecentStatusCapacity = 50;
+
+        /// <summary>Opens the Logs tab on this launch's status file.</summary>
+        public ICommand ShowLogsTabCommand { get; }
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -329,10 +356,50 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _newFolderName, value);
         }
 
+        /// <summary>
+        /// The message in the Profiles and Launch status box. Every non-empty message is also written to this launch's
+        /// status log (<see cref="GordianLog.Status"/>), even when it repeats the previous one.
+        /// </summary>
         public string StatusMessage
         {
             get => _statusMessage;
-            set => SetProperty(ref _statusMessage, value);
+            set
+            {
+                GordianLog.Status(value);
+                SetProperty(ref _statusMessage, value);
+                if (!string.IsNullOrWhiteSpace(value)) AddRecentStatus(value, DateTime.Now);
+            }
+        }
+
+        /// <summary>
+        /// The status box message for a session reaching <paramref name="state"/>, or null when that state has none of its
+        /// own (Disconnecting) or is a repeat of a disconnect already reported (<paramref name="firstDisconnect"/> false).
+        /// </summary>
+        internal static string? SessionStateStatus(string character, SessionState state, MapSessionTicket ticket, bool timedOut, bool firstDisconnect) => state switch
+        {
+            SessionState.ConnectingToGameServer => $"[{character}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
+            SessionState.ExchangingCryptoKeys => $"[{character}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
+            SessionState.LoadingWorldData => $"[{character}] Loading zone world data...",
+            SessionState.ActiveInWorld => $"[{character}] Connected! In-game session active in world.",
+            SessionState.Disconnected when firstDisconnect => timedOut ? $"[{character}] Lost connection to the server." : $"[{character}] Session disconnected.",
+            _ => null,
+        };
+
+        /// <summary>
+        /// Whether reaching <paramref name="state"/> means the session is connecting again, so its next disconnect is new and
+        /// gets reported. Disconnecting and Disconnected do not: a single disconnect passes through both twice.
+        /// </summary>
+        internal static bool DisconnectReportRearms(SessionState state) =>
+            state is not (SessionState.Disconnecting or SessionState.Disconnected);
+
+        /// <summary>
+        /// Adds a message to <see cref="RecentStatusLines"/> as the status file shows it (<c>[HH:mm:ss] message</c>),
+        /// dropping the oldest past <see cref="RecentStatusCapacity"/>.
+        /// </summary>
+        internal void AddRecentStatus(string message, DateTime time)
+        {
+            RecentStatusLines.Add($"[{time:HH:mm:ss}] {message}");
+            while (RecentStatusLines.Count > RecentStatusCapacity) RecentStatusLines.RemoveAt(0);
         }
 
         private bool _isConfirmDeleteModalVisible;
@@ -435,6 +502,11 @@ namespace Gordian.App.ViewModels
             TrustCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(true));
             RejectCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(false));
             OpenProfilesDirectoryCommand = new RelayCommand(OpenProfilesDirectory);
+            ShowLogsTabCommand = new RelayCommand(() =>
+            {
+                Logs.ShowStatusCommand.Execute(null);
+                SelectedTabIndex = LogsTabIndex;
+            });
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
             ClearFormCommand = new RelayCommand(ClearForm);
@@ -1105,6 +1177,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
+                GordianLog.Error(LogCategories.App, "Failed to open the profiles directory", ex);
                 StatusMessage = $"Failed to open profiles directory: {ex.Message}";
             }
         }
@@ -1196,7 +1269,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("SESSION", $"Saving '{launched.ProfileName}''s camera zoom failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Session, $"Saving '{launched.ProfileName}''s camera zoom failed: {ex.Message}");
             }
         }
 
@@ -1566,7 +1639,7 @@ namespace Gordian.App.ViewModels
 
             if (problems.Count > 0)
             {
-                foreach (string problem in problems) GordianLog.Warning("SESSION", problem);
+                foreach (string problem in problems) GordianLog.Warn(LogCategories.Session, problem);
                 StatusMessage = string.Join(Environment.NewLine, problems);
             }
 
@@ -1647,7 +1720,7 @@ namespace Gordian.App.ViewModels
                         }
                         catch (Exception ex)
                         {
-                            GordianLog.Error("SESSION", $"Connection error for profile '{profile.ProfileName}'", ex);
+                            GordianLog.Error(LogCategories.Session, $"Connection error for profile '{profile.ProfileName}'", ex);
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
                                 StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}";
@@ -1677,7 +1750,7 @@ namespace Gordian.App.ViewModels
                         }
                         catch (Exception ex)
                         {
-                            GordianLog.Error("SESSION", $"Retail login failed for profile '{profile.ProfileName}'", ex);
+                            GordianLog.Error(LogCategories.Session, $"Retail login failed for profile '{profile.ProfileName}'", ex);
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
                                 StatusMessage = $"[{profile.ProfileName}] {ex.Message}";
@@ -1785,7 +1858,7 @@ namespace Gordian.App.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("SESSION", $"Connection error for profile '{profile.ProfileName}' after character select", ex);
+                    GordianLog.Error(LogCategories.Session, $"Connection error for profile '{profile.ProfileName}' after character select", ex);
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}");
                 }
                 finally
@@ -1802,7 +1875,7 @@ namespace Gordian.App.ViewModels
                     StatusMessage = reason == null ? $"[{profile.ProfileName}] Left the character select screen." : $"[{profile.ProfileName}] Character select closed: {reason}");
             };
 
-            GordianLog.Info("LSB_LOGIN", $"Profile '{profile.ProfileName}' has no character set: opening the character select screen ({lobbySession.Characters.Count} content ids).");
+            GordianLog.Info(LogCategories.LsbLogin, $"Profile '{profile.ProfileName}' has no character set: opening the character select screen ({lobbySession.Characters.Count} content ids).");
             ViewportWindowManager.Default.ShowLobby(lobby);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
         }
@@ -1894,7 +1967,7 @@ namespace Gordian.App.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("SESSION", $"Connection error for retail profile '{profile.ProfileName}' after character select", ex);
+                    GordianLog.Error(LogCategories.Session, $"Connection error for retail profile '{profile.ProfileName}' after character select", ex);
                     Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}");
                     await account.DisposeAsync().ConfigureAwait(false);
                 }
@@ -1913,7 +1986,7 @@ namespace Gordian.App.ViewModels
                     StatusMessage = reason == null ? $"[{profile.ProfileName}] Left the character select screen." : $"[{profile.ProfileName}] Character select closed: {reason}");
             };
 
-            GordianLog.Info("RETAIL_LOGIN", $"Profile '{profile.ProfileName}': opening the character select screen ({lobbySession.Characters.Count} content ids).");
+            GordianLog.Info(LogCategories.RetailLogin, $"Profile '{profile.ProfileName}': opening the character select screen ({lobbySession.Characters.Count} content ids).");
             ViewportWindowManager.Default.ShowLobby(lobby);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] Character select: choose a character in the viewport.");
         }
@@ -1926,7 +1999,7 @@ namespace Gordian.App.ViewModels
         private async Task StartLsbSessionAsync(AccountProfile profile, MapSessionTicket ticket, Action? registered = null, Func<Task>? afterLogout = null,
             Func<ValueTask>? ended = null)
         {
-            GordianLog.Info("SESSION", $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
+            GordianLog.Info(LogCategories.Session, $"Profile '{profile.ProfileName}' (name='{profile.CharacterName}', slot={profile.CharacterSlot}) logged in as '{ticket.CharacterName}' (ID {ticket.CharacterId}).");
 
             // The profile resolves to a character only now (by slot, or a name that was not found), so
             // make sure that exact character is not already in the game from another profile.
@@ -1976,7 +2049,8 @@ namespace Gordian.App.ViewModels
                 netManager
             )
             {
-                ProfileName = profile.ProfileName
+                ProfileName = profile.ProfileName,
+                ServerName = profile.ChatLogServerName,
             };
 
             // The profile's saved camera zoom comes back before the first frame; a settled zoom is saved on it (#550).
@@ -1986,6 +2060,7 @@ namespace Gordian.App.ViewModels
             bool timedOut = false;
             bool returningToLobby = false;
             int endedOnce = 0;
+            int disconnectReported = 0;
             netManager.StateChanged += (s, state) =>
             {
                 if (state == SessionState.Disconnected)
@@ -2000,21 +2075,20 @@ namespace Gordian.App.ViewModels
                     _ = Task.Run(async () =>
                     {
                         try { await ended().ConfigureAwait(false); }
-                        catch (Exception ex) { GordianLog.Warning("SESSION", $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
+                        catch (Exception ex) { GordianLog.Warn(LogCategories.Session, $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
                     });
                 }
+                // A disconnect passes through Disconnecting -> Disconnected twice (Disconnect, then the read loop's cleanup):
+                // say it once, and only again after the session has connected anew.
+                bool firstDisconnect = state == SessionState.Disconnected && Interlocked.Exchange(ref disconnectReported, 1) == 0;
+                if (DisconnectReportRearms(state)) Interlocked.Exchange(ref disconnectReported, 0);
+                string? message = SessionStateStatus(session.CharacterName, state, ticket, Volatile.Read(ref timedOut), firstDisconnect);
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     RefreshAllStatuses();
-                    StatusMessage = state switch
-                    {
-                        SessionState.ConnectingToGameServer => $"[{session.CharacterName}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
-                        SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
-                        SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
-                        SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
-                        SessionState.Disconnected => timedOut ? $"[{session.CharacterName}] Lost connection to the server." : $"[{session.CharacterName}] Session disconnected.",
-                        _ => StatusMessage
-                    };
+                    // States without a message of their own (Disconnecting) leave the status box as it is, rather than
+                    // writing its last message to the status log again.
+                    if (message != null) StatusMessage = message;
                 });
             };
 
@@ -2037,14 +2111,14 @@ namespace Gordian.App.ViewModels
                 bool timeout = logout.State == Gordian.Core.Network.Packets.LogoutState.Timeout;
                 if (timeout)
                 {
-                    GordianLog.Warning("SESSION", $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
+                    GordianLog.Warn(LogCategories.Session, $"'{session.CharacterName}': the map server stopped answering; the session has ended.");
                     timedOut = true;
                 }
                 Func<Task>? toLobby = afterLogout;
                 if (toLobby == null) return;
                 if (!logout.ReturnsToLobby)
                 {
-                    GordianLog.Info("SESSION", $"'{session.CharacterName}' {(logout.IsShutdown ? "shut down" : $"logged out ({logout.State})")}: ending the session.");
+                    GordianLog.Info(LogCategories.Session, $"'{session.CharacterName}' {(logout.IsShutdown ? "shut down" : $"logged out ({logout.State})")}: ending the session.");
                     return;
                 }
                 // Raised before the session disconnects: the viewport window stays open (black) when the tab goes, and
@@ -2055,12 +2129,12 @@ namespace Gordian.App.ViewModels
                 {
                     try
                     {
-                        GordianLog.Info("SESSION", $"'{session.CharacterName}' {(timeout ? "lost the connection" : "logged out")}: back to the character select screen.");
+                        GordianLog.Info(LogCategories.Session, $"'{session.CharacterName}' {(timeout ? "lost the connection" : "logged out")}: back to the character select screen.");
                         await toLobby().ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Error("SESSION", $"Could not reopen the character select screen for '{profile.ProfileName}'", ex);
+                        GordianLog.Error(LogCategories.Session, $"Could not reopen the character select screen for '{profile.ProfileName}'", ex);
                         string prefix = timeout ? "Lost connection to the server; could not" : "Could not";
                         Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = $"[{profile.ProfileName}] {prefix} return to character select: {ex.Message}");
                     }
@@ -2258,6 +2332,7 @@ namespace Gordian.App.ViewModels
             Chat.Dispose();
             Inventory.Dispose();
             Console.Dispose();
+            Logs.Dispose();
         }
     }
 }

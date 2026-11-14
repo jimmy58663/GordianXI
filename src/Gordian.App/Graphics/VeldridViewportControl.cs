@@ -168,7 +168,7 @@ namespace Gordian.App.Graphics
                     {
                         _deferredSince = Stopwatch.GetTimestamp();
                         PrepareZone(value!.World.MapZoneId);
-                        GordianLog.Info("Graphics", $"Switching the view to {value.CharacterName}: Zone {value.World.MapZoneId} is not on the GPU yet; showing the current view while it loads.");
+                        GordianLog.Info(LogCategories.Graphics, $"Switching the view to {value.CharacterName}: Zone {value.World.MapZoneId} is not on the GPU yet; showing the current view while it loads.");
                         return;
                     }
                     ShowSession(value);
@@ -282,11 +282,11 @@ namespace Gordian.App.Graphics
                     double readMs = watch.Elapsed.TotalMilliseconds;
                     var resident = zones.Acquire(geometry, textures, generation);
                     zones.Release(Interlocked.Exchange(ref _preparedZone, resident));
-                    GordianLog.Info("Graphics", $"Zone {zoneId} ready for the switch: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms.");
+                    GordianLog.Info(LogCategories.Graphics, $"Zone {zoneId} ready for the switch: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms.");
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Graphics", $"Could not prepare Zone {zoneId} for the switch: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Graphics, $"Could not prepare Zone {zoneId} for the switch: {ex.Message}");
                 }
                 finally
                 {
@@ -320,7 +320,7 @@ namespace Gordian.App.Graphics
             lock (_sessionGate)
             {
                 if (!ReferenceEquals(requested, _requestedSession)) return;
-                if (requested != null) GordianLog.Info("Graphics", $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.MapZoneId}).");
+                if (requested != null) GordianLog.Info(LogCategories.Graphics, $"Showing {requested.CharacterName} after {Stopwatch.GetElapsedTime(_deferredSince).TotalMilliseconds:F0} ms (Zone {requested.World.MapZoneId}).");
                 ShowSession(requested);
             }
         }
@@ -402,7 +402,7 @@ namespace Gordian.App.Graphics
         {
             if (zoneId != _loadedZoneId) return false;
             _loadedZoneGeneration = generation;
-            GordianLog.Warning("Graphics", $"Could not reload Zone {zoneId} after a resource reload; keeping the loaded zone.");
+            GordianLog.Warn(LogCategories.Graphics, $"Could not reload Zone {zoneId} after a resource reload; keeping the loaded zone.");
             return true;
         }
 
@@ -525,7 +525,7 @@ namespace Gordian.App.Graphics
             {
                 try
                 {
-                    GordianLog.Info("Graphics", $"Starting background load for Zone {zoneToLoad}...");
+                    GordianLog.Info(LogCategories.Graphics, $"Starting background load for Zone {zoneToLoad}...");
                     var watch = Stopwatch.StartNew();
                     if (zones.TryReadZone(rm, zoneToLoad, out var zoneGeom, out var zoneTextures))
                     {
@@ -555,23 +555,23 @@ namespace Gordian.App.Graphics
                         {
                             // A newer choice won meanwhile; the zone stays resident for later.
                             zones.Release(resident);
-                            GordianLog.Info("Graphics", $"Loaded Zone {zoneToLoad} after the view moved on; kept resident.");
+                            GordianLog.Info(LogCategories.Graphics, $"Loaded Zone {zoneToLoad} after the view moved on; kept resident.");
                         }
                         else
                         {
-                            GordianLog.Info("Graphics", $"Successfully loaded and streamed Zone {zoneToLoad} to GPU (DATs {readMs:F0} ms, GPU upload {uploadMs:F0} ms).");
+                            GordianLog.Info(LogCategories.Graphics, $"Successfully loaded and streamed Zone {zoneToLoad} to GPU (DATs {readMs:F0} ms, GPU upload {uploadMs:F0} ms).");
                         }
                     }
                     else if (!KeepLoadedZoneAfterFailedReload(zoneToLoad, generation))
                     {
                         // Re-queue so the render loop retries on the next frame
                         _pendingZoneLoad = zoneToLoad;
-                        GordianLog.Warning("Graphics", $"ResourceManager could not find or load Zone {zoneToLoad}. Will retry.");
+                        GordianLog.Warn(LogCategories.Graphics, $"ResourceManager could not find or load Zone {zoneToLoad}. Will retry.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("Graphics", $"Failed to load Zone {zoneToLoad}: {ex.Message}");
+                    GordianLog.Error(LogCategories.Graphics, $"Failed to load Zone {zoneToLoad}: {ex.Message}");
                     if (!KeepLoadedZoneAfterFailedReload(zoneToLoad, generation)) _pendingZoneLoad = zoneToLoad;
                 }
                 finally
@@ -601,7 +601,7 @@ namespace Gordian.App.Graphics
                 }
                 ShowZone(zoneId, geometry, resident, generation);
             }
-            GordianLog.Info("Graphics", $"Showing Zone {zoneId} from the GPU zone cache in {watch.Elapsed.TotalMilliseconds:F1} ms ({zones.Count} zones resident, {zones.ResidentBytes >> 20} MB).");
+            GordianLog.Info(LogCategories.Graphics, $"Showing Zone {zoneId} from the GPU zone cache in {watch.Elapsed.TotalMilliseconds:F1} ms ({zones.Count} zones resident, {zones.ResidentBytes >> 20} MB).");
             return true;
         }
 
@@ -638,7 +638,7 @@ namespace Gordian.App.Graphics
                     Environment.SetTimeOfDay(vanaHour);
                     _weatherFade.ApplyTo(Environment);
                     _renderer.SkyDomeRenderer?.UpdateDome(Environment);
-                    GordianLog.Info("Graphics", $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
+                    GordianLog.Info(LogCategories.Graphics, $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
                 }
             }
         }
@@ -733,7 +733,7 @@ namespace Gordian.App.Graphics
                 return new PlatformHandle(_childHwnd, "HWND");
             }
 
-            GordianLog.Warning("Graphics", "Non-Windows native viewport creation currently defaults to base host.");
+            GordianLog.Warn(LogCategories.Graphics, "Non-Windows native viewport creation currently defaults to base host.");
             return base.CreateNativeControlCore(parent);
         }
 
@@ -972,7 +972,7 @@ namespace Gordian.App.Graphics
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                        GordianLog.Warn(LogCategories.Audio, $"Audio update failed: {ex.Message}");
                     }
                 }
 
@@ -1124,7 +1124,7 @@ namespace Gordian.App.Graphics
                         }
                         catch (Exception ex)
                         {
-                            GordianLog.Warning("Graphics", $"Frame render error: {ex.Message}");
+                            GordianLog.Warn(LogCategories.Graphics, $"Frame render error: {ex.Message}");
                         }
                     }
                 }
@@ -1143,7 +1143,7 @@ namespace Gordian.App.Graphics
                     int vis = _renderer?.VisibleMeshes ?? 0;
                     int culled = _renderer?.CulledMeshes ?? 0;
 
-                    GordianLog.Debug("Graphics", $"RenderStats: DrawCalls={dc}, VisibleMeshes={vis}, CulledMeshes={culled}, " +
+                    GordianLog.Debug(LogCategories.Graphics, $"RenderStats: DrawCalls={dc}, VisibleMeshes={vis}, CulledMeshes={culled}, " +
                         $"OceanWaterActive={_renderer?.IsOceanWaterPlaneActive ?? false}, " +
                         $"CameraPos={Camera.Position:F1}, CameraTarget={Camera.Target:F1}, PlayerPos={playerPos:F1}, hasPlayerPos={hasPlayerPos}, " +
                         $"ZoneSubmeshCount={_renderer?.LoadedZoneSubmeshCount ?? -1}, " +
@@ -1480,7 +1480,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Debug("Graphics", $"Background camera update for {session.CharacterName} failed: {ex.Message}");
+                    GordianLog.Debug(LogCategories.Graphics, $"Background camera update for {session.CharacterName} failed: {ex.Message}");
                 }
             }
         }
@@ -1520,7 +1520,7 @@ namespace Gordian.App.Graphics
             {
                 if (_renderMode == value) return;
                 _renderMode = value;
-                GordianLog.Debug("Graphics", $"Viewport render mode: {value}.");
+                GordianLog.Debug(LogCategories.Graphics, $"Viewport render mode: {value}.");
             }
         }
 
@@ -1542,7 +1542,7 @@ namespace Gordian.App.Graphics
             {
                 _lastOcclusionCheck = Stopwatch.GetTimestamp();
                 bool covered = Win32OcclusionProbe.IsFullyCovered(_childHwnd);
-                if (covered != _surfaceCovered) GordianLog.Debug("Graphics", covered ? "Viewport fully covered: paused." : "Viewport visible again.");
+                if (covered != _surfaceCovered) GordianLog.Debug(LogCategories.Graphics, covered ? "Viewport fully covered: paused." : "Viewport visible again.");
                 _surfaceCovered = covered;
             }
             return _surfaceCovered ? ViewportRenderMode.Paused : mode;
@@ -1565,7 +1565,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Graphics", $"Could not change VSync: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Graphics, $"Could not change VSync: {ex.Message}");
                 }
             }
         }
@@ -1586,7 +1586,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Debug("Graphics", $"Paused camera update failed: {ex.Message}");
+                GordianLog.Debug(LogCategories.Graphics, $"Paused camera update failed: {ex.Message}");
             }
             if (Lobby != null || HoldBlack)
             {
@@ -1599,7 +1599,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Audio, $"Audio update failed: {ex.Message}");
             }
         }
 
@@ -1616,7 +1616,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("Graphics", $"Zone preload check failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Graphics, $"Zone preload check failed: {ex.Message}");
             }
         }
 
@@ -1717,7 +1717,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("AUDIO", $"Audio update failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Audio, $"Audio update failed: {ex.Message}");
             }
         }
 
@@ -1740,7 +1740,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Graphics", $"Black frame render error: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Graphics, $"Black frame render error: {ex.Message}");
                 }
             }
         }
@@ -1794,7 +1794,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Graphics", $"Lobby frame render error: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Graphics, $"Lobby frame render error: {ex.Message}");
                 }
             }
         }
@@ -1939,7 +1939,7 @@ namespace Gordian.App.Graphics
                         _lastVanaHour = vanaHour;
                         _lastWeatherId = currentWeather;
                         _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-                        GordianLog.Info("Graphics", $"Returned to live Vana'diel time ({vanaHour:F1}, weather={currentWeather}).");
+                        GordianLog.Info(LogCategories.Graphics, $"Returned to live Vana'diel time ({vanaHour:F1}, weather={currentWeather}).");
                         return;
                     }
                 }
@@ -1971,7 +1971,7 @@ namespace Gordian.App.Graphics
                     _lastVanaHour = targetHour;
                     _lastWeatherId = targetWeather;
                     _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-                    GordianLog.Info("Graphics", $"Applied 0x2F environment for preset '{p}' (hour={targetHour:F1}, weather={targetWeather}).");
+                    GordianLog.Info(LogCategories.Graphics, $"Applied 0x2F environment for preset '{p}' (hour={targetHour:F1}, weather={targetWeather}).");
                     return;
                 }
             }
@@ -1988,7 +1988,7 @@ namespace Gordian.App.Graphics
             Environment.WeatherId = targetWeather;
             _lastWeatherId = targetWeather;
             _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
-            GordianLog.Info("Graphics", $"Switched fallback time of day to {preset} (weather={targetWeather}).");
+            GordianLog.Info(LogCategories.Graphics, $"Switched fallback time of day to {preset} (weather={targetWeather}).");
         }
 
         /// <summary>
@@ -2058,7 +2058,7 @@ namespace Gordian.App.Graphics
                     _renderer?.SkyDomeRenderer?.UpdateDome(Environment);
                 }
             }
-            GordianLog.Info("Graphics", $"Switched weather to {weatherId}.");
+            GordianLog.Info(LogCategories.Graphics, $"Switched weather to {weatherId}.");
         }
 
         /// <summary>
@@ -2067,7 +2067,7 @@ namespace Gordian.App.Graphics
         public void ToggleFog()
         {
             Environment.FogEnabled = !Environment.FogEnabled;
-            GordianLog.Info("Graphics", $"Distance fog {(Environment.FogEnabled ? "enabled" : "disabled")}.");
+            GordianLog.Info(LogCategories.Graphics, $"Distance fog {(Environment.FogEnabled ? "enabled" : "disabled")}.");
         }
 
         /// <summary>
@@ -2078,7 +2078,7 @@ namespace Gordian.App.Graphics
             if (_renderer != null)
             {
                 _renderer.EnableOceanWaterPlane = !_renderer.EnableOceanWaterPlane;
-                GordianLog.Info("Graphics", $"Ocean water plane {(_renderer.EnableOceanWaterPlane ? "enabled" : "disabled")}.");
+                GordianLog.Info(LogCategories.Graphics, $"Ocean water plane {(_renderer.EnableOceanWaterPlane ? "enabled" : "disabled")}.");
             }
         }
 
@@ -2090,7 +2090,7 @@ namespace Gordian.App.Graphics
             if (_renderer != null)
             {
                 _renderer.EnablePostProcess = !_renderer.EnablePostProcess;
-                GordianLog.Info("Graphics", $"Cutscene post-process (blur, cross-dissolve) {(_renderer.EnablePostProcess ? "enabled" : "disabled")}.");
+                GordianLog.Info(LogCategories.Graphics, $"Cutscene post-process (blur, cross-dissolve) {(_renderer.EnablePostProcess ? "enabled" : "disabled")}.");
             }
         }
 

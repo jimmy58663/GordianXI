@@ -350,7 +350,7 @@ namespace Gordian.Engine.Ui
                 lines = FormattedMessageResolver?.Invoke(msg);
                 if (lines == null || lines.Count == 0)
                 {
-                    GordianLog.Debug("CHAT_UI", $"[{msg.Type}] DAT message {reference.Table} #{reference.MessageId} not shown: its table is not read.");
+                    GordianLog.Debug(LogCategories.ChatUi, $"[{msg.Type}] DAT message {reference.Table} #{reference.MessageId} not shown: its table is not read.");
                     return;
                 }
             }
@@ -413,7 +413,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Error("CHAT_UI", $"Chat line failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.ChatUi, $"Chat line failed: {ex.Message}", ex);
                 Log.Add(ChatLogChannel.Error, $"Could not send: {ex.Message}");
                 return;
             }

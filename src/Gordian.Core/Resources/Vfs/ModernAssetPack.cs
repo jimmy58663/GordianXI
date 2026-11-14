@@ -44,7 +44,7 @@ namespace Gordian.Core.Resources.Vfs
 
             if (string.IsNullOrWhiteSpace(RootPath) || !Directory.Exists(RootPath))
             {
-                GordianLog.Warn("VFS", $"Cannot mount asset pack '{Id}': directory does not exist ({RootPath}).");
+                GordianLog.Warn(LogCategories.Vfs, $"Cannot mount asset pack '{Id}': directory does not exist ({RootPath}).");
                 return false;
             }
 
@@ -58,11 +58,11 @@ namespace Gordian.Core.Resources.Vfs
                     {
                         string json = File.ReadAllText(manifestPath);
                         Manifest = PackManifest.FromJson(json);
-                        GordianLog.Info("VFS", $"Loaded manifest for asset pack '{Id}' (v{Manifest?.Version})");
+                        GordianLog.Info(LogCategories.Vfs, $"Loaded manifest for asset pack '{Id}' (v{Manifest?.Version})");
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Error("VFS", $"Failed to parse manifest.json in pack '{Id}': {ex.Message}");
+                        GordianLog.Error(LogCategories.Vfs, $"Failed to parse manifest.json in pack '{Id}': {ex.Message}");
                     }
                 }
 
@@ -109,18 +109,18 @@ namespace Gordian.Core.Resources.Vfs
                             }
                             else
                             {
-                                GordianLog.Warn("VFS", $"Pack '{Id}' DAT alias '{datPath}' target not found: {targetAssetRelPath}");
+                                GordianLog.Warn(LogCategories.Vfs, $"Pack '{Id}' DAT alias '{datPath}' target not found: {targetAssetRelPath}");
                             }
                         }
                     }
                 }
 
-                GordianLog.Info("VFS", $"Mounted modern asset pack '{Id}' with {_fileIndex.Count} files and {_datAliases.Count} DAT aliases (Priority: {Priority}).");
+                GordianLog.Info(LogCategories.Vfs, $"Mounted modern asset pack '{Id}' with {_fileIndex.Count} files and {_datAliases.Count} DAT aliases (Priority: {Priority}).");
                 return true;
             }
             catch (Exception ex)
             {
-                GordianLog.Error("VFS", $"Error mounting modern asset pack '{Id}': {ex.Message}");
+                GordianLog.Error(LogCategories.Vfs, $"Error mounting modern asset pack '{Id}': {ex.Message}");
                 return false;
             }
         }

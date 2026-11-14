@@ -79,7 +79,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(menuName, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{menuName}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{menuName}' is not available.");
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, listKind: StockUiListKind.KeyAssign);
@@ -150,7 +150,7 @@ namespace Gordian.Engine.Ui
             if (Interlocked.Exchange(ref _pendingKeyReset, 0) == 1 && GamepadProfileEdited is { } reset)
             {
                 reset(KeyboardAssignments.ResetDefaults);
-                GordianLog.Info("INPUT", "Keyboard: every key back on its default function.");
+                GordianLog.Info(LogCategories.Input, "Keyboard: every key back on its default function.");
                 Changed?.Invoke();
             }
 
@@ -176,7 +176,7 @@ namespace Gordian.Engine.Ui
                 var function = KeyFunctionsOf(list)[_keyCaptureEntry];
                 var chord = new InputChord(key, input.CurrentModifiers & ~InputModifiers.Super);
                 GamepadProfileEdited?.Invoke(profile => KeyboardAssignments.Assign(profile, function, chord));
-                GordianLog.Info("INPUT", $"Keyboard: {KeyboardAssignments.KeyName(chord)} assigned to {function.Label}.");
+                GordianLog.Info(LogCategories.Input, $"Keyboard: {KeyboardAssignments.KeyName(chord)} assigned to {function.Label}.");
                 SoundCue?.Invoke(StockUiSoundCue.Select);
                 EndKeyCapture(list, release: true);
                 return true;

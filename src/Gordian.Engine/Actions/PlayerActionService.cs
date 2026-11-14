@@ -277,7 +277,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Style lock {mode} could not be sent: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Style lock {mode} could not be sent: {ex.Message}");
             }
         }
 
@@ -293,7 +293,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Config flag {flag} could not be sent: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Config flag {flag} could not be sent: {ex.Message}");
             }
         }
 
@@ -307,7 +307,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"System message filter level could not be sent: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"System message filter level could not be sent: {ex.Message}");
             }
         }
 
@@ -321,7 +321,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Chat filters could not be sent: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Chat filters could not be sent: {ex.Message}");
             }
         }
 
@@ -711,7 +711,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Attack failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Attack failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Attack failed: {ex.Message}", ChatCommandResultKind.CombatAttack);
             }
         }
@@ -759,7 +759,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Talk failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Talk failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Talk failed: {ex.Message}", ChatCommandResultKind.Talk);
             }
         }
@@ -881,7 +881,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Check failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Check failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Check failed: {ex.Message}", ChatCommandResultKind.Check);
             }
         }
@@ -899,7 +899,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Disengage failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Disengage failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Disengage failed: {ex.Message}", ChatCommandResultKind.CombatAttackOff);
             }
         }
@@ -921,7 +921,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"CastMagic failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"CastMagic failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"CastMagic failed: {ex.Message}", ChatCommandResultKind.CombatCast);
             }
         }
@@ -941,7 +941,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Weaponskill failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Weaponskill failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Weaponskill failed: {ex.Message}", ChatCommandResultKind.CombatWeaponskill);
             }
         }
@@ -962,7 +962,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"JobAbility failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"JobAbility failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"JobAbility failed: {ex.Message}", ChatCommandResultKind.CombatJobAbility);
             }
         }
@@ -986,7 +986,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Shoot failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Shoot failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Shoot failed: {ex.Message}", ChatCommandResultKind.CombatRanged);
             }
         }
@@ -1007,7 +1007,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Assist failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Assist failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Assist failed: {ex.Message}", ChatCommandResultKind.CombatAssist);
             }
         }
@@ -1027,7 +1027,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"{action} failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"{action} failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"{action} failed: {ex.Message}", kind);
             }
         }
@@ -1053,7 +1053,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Home point failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Home point failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Home point failed: {ex.Message}", Kind);
             }
         }
@@ -1082,7 +1082,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"{name} answer failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"{name} answer failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"{name} answer failed: {ex.Message}", kind);
             }
         }
@@ -1185,7 +1185,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Call for help failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Call for help failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Call for help failed: {ex.Message}", ChatCommandResultKind.CallForHelp);
             }
         }
@@ -1211,7 +1211,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"MonsterSkill failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"MonsterSkill failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"MonsterSkill failed: {ex.Message}", ChatCommandResultKind.MonsterSkill);
             }
         }
@@ -1272,7 +1272,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Release Trust failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Release Trust failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Release Trust failed: {ex.Message}", kind);
             }
         }
@@ -1286,7 +1286,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"CancelBuff failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"CancelBuff failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"CancelBuff failed: {ex.Message}", ChatCommandResultKind.CombatBuffCancel);
             }
         }
@@ -1302,7 +1302,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Emote failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Emote failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Emote failed: {ex.Message}", ChatCommandResultKind.Emote);
             }
         }
@@ -1318,7 +1318,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Jump failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Jump failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Jump failed: {ex.Message}", ChatCommandResultKind.CombatJump);
             }
         }
@@ -1408,7 +1408,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"MoveTo failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"MoveTo failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"MoveTo failed: {ex.Message}", ChatCommandResultKind.SyntheticMoveTo);
             }
         }
@@ -1807,7 +1807,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/item failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/item failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/item failed: {ex.Message}", ChatCommandResultKind.ItemUse);
             }
         }
@@ -1854,7 +1854,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/equip failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/equip failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/equip failed: {ex.Message}", ChatCommandResultKind.Equip);
             }
         }
@@ -1946,7 +1946,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/{name} failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/{name} failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/{name} failed: {ex.Message}", kind);
             }
         }
@@ -1982,7 +1982,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/{name} failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/{name} failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/{name} failed: {ex.Message}", kindResult);
             }
         }
@@ -2067,7 +2067,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/jobmasterdisp failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/jobmasterdisp failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/jobmasterdisp failed: {ex.Message}", Kind);
             }
         }
@@ -2104,7 +2104,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/itemsearch failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/itemsearch failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/itemsearch failed: {ex.Message}", Kind);
             }
             finally
@@ -2140,7 +2140,7 @@ namespace Gordian.Engine.Actions
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
+                    GordianLog.Error(LogCategories.Action, $"/sea failed: {ex.Message}", ex);
                     return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
                 }
             }
@@ -2163,7 +2163,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/sea failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/sea failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/sea failed: {ex.Message}", Kind);
             }
         }
@@ -2405,7 +2405,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/blacklist failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/blacklist failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/blacklist failed: {ex.Message}", Kind);
             }
         }
@@ -2436,7 +2436,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"/conquest failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"/conquest failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/conquest failed: {ex.Message}", Kind);
             }
             finally
@@ -2519,7 +2519,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Synthesis failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Synthesis failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Synthesis failed: {ex.Message}", kind);
             }
         }
@@ -2593,7 +2593,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Guild shop request failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Guild shop request failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Guild shop request failed: {ex.Message}", kind);
             }
         }
@@ -2649,7 +2649,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Treasure {verb} failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Treasure {verb} failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Treasure {verb} failed: {ex.Message}", kind);
             }
         }

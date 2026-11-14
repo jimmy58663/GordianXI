@@ -153,7 +153,7 @@ namespace Gordian.Engine.Ui
                 _offerPrompt = null;
                 reopenOffer = !_offerDismissed;
             }
-            GordianLog.Info("UI", "Dead: home point window opened.");
+            GordianLog.Info(LogCategories.Ui, "Dead: home point window opened.");
             if (reopenOffer && _player.DeathMenu != DeathMenuType.HomePoint) OpenOfferPrompt(_player.DeathMenu);
         }
 
@@ -223,7 +223,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Death menu answer failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Death menu answer failed: {ex.Message}");
                 _menus.PostNotice($"Death menu answer failed: {ex.Message}");
             }
         }
@@ -245,7 +245,7 @@ namespace Gordian.Engine.Ui
             if (window != null)
             {
                 _menus.CloseMenu(window);
-                GordianLog.Info("UI", "Alive again: home point window closed.");
+                GordianLog.Info(LogCategories.Ui, "Alive again: home point window closed.");
             }
         }
 

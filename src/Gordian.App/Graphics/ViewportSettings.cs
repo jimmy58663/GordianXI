@@ -83,7 +83,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("VIEWPORT", $"Failed to load viewport settings from '{filePath}': {ex.Message}. Falling back to defaults.");
+                    GordianLog.Warn(LogCategories.Viewport, $"Failed to load viewport settings from '{filePath}': {ex.Message}. Falling back to defaults.");
                 }
             }
 
@@ -106,7 +106,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("VIEWPORT", $"Could not save default viewport settings to '{filePath}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Viewport, $"Could not save default viewport settings to '{filePath}': {ex.Message}");
             }
             return defaultSettings;
         }

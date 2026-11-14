@@ -231,7 +231,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                GordianLog.Warning("PARTY", $"Out-of-zone invite of {name} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Party, $"Out-of-zone invite of {name} failed: {ex.Message}");
                 return PlayerActionResult.Fail($"Could not invite {name}: {ex.Message}", kind);
             }
         }

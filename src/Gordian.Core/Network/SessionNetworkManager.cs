@@ -130,8 +130,13 @@ namespace Gordian.Core.Network
                     // A session coming up starts its server-silence clock now (TimeSinceLastServerPacket).
                     if (_currentState == SessionState.Disconnected) Volatile.Write(ref _lastServerTrafficTimestamp, _time.GetTimestamp());
                     _currentState = value;
-                    GordianLog.Debug("NET", $"Session state changed to: {_currentState}");
-                    StateChanged?.Invoke(this, _currentState);
+                    // A state change is this session's work whichever thread makes it (Disconnect from the UI, another
+                    // session's cleanup): tag it and its handlers with this character, not the caller's.
+                    using (GordianLog.BeginScope(LogScope))
+                    {
+                        GordianLog.Debug(LogCategories.Net, $"Session state changed to: {_currentState}");
+                        StateChanged?.Invoke(this, _currentState);
+                    }
                 }
             }
         }
@@ -261,9 +266,25 @@ namespace Gordian.Core.Network
         public uint CharacterId { get; set; }
 
         /// <summary>
-        /// Display name of the active character.
+        /// Display name of the active character. Setting it also names <see cref="LogScope"/>.
         /// </summary>
-        public string CharacterName { get; set; } = string.Empty;
+        public string CharacterName
+        {
+            get => _characterName;
+            set
+            {
+                _characterName = value ?? string.Empty;
+                LogScope.Name = _characterName;
+            }
+        }
+
+        private string _characterName = string.Empty;
+
+        /// <summary>
+        /// Tags this session's log lines with its character name (<c>[Charname]</c>). The network loops set it as their
+        /// flow scope, so packet handlers, including the engine's, log under it.
+        /// </summary>
+        public LogScope LogScope { get; } = new();
 
         /// <summary>
         /// Account login username.
@@ -450,10 +471,10 @@ namespace Gordian.Core.Network
         {
             if (_connectionLost == lost) return;
             _connectionLost = lost;
-            if (lost) GordianLog.Warning("NET", $"No datagram from the map server for {TimeSinceLastServerPacket.TotalSeconds:F1} s: connection lost.");
-            else GordianLog.Info("NET", "Map server traffic resumed: connection restored.");
+            if (lost) GordianLog.Warn(LogCategories.Net, $"No datagram from the map server for {TimeSinceLastServerPacket.TotalSeconds:F1} s: connection lost.");
+            else GordianLog.Info(LogCategories.Net, "Map server traffic resumed: connection restored.");
             try { ConnectionLostChanged?.Invoke(lost); }
-            catch (Exception ex) { GordianLog.Error("NET", "ConnectionLostChanged handler failed", ex); }
+            catch (Exception ex) { GordianLog.Error(LogCategories.Net, "ConnectionLostChanged handler failed", ex); }
         }
 
         /// <summary>Notes a datagram from the server that verified and parsed.</summary>
@@ -539,8 +560,8 @@ namespace Gordian.Core.Network
                 if (_parser.World.MogHouseRoom != 0)
                 {
                     _ = _parser.CombatModule.RequestActionAsync(CliActionId.SendResRdy, CharacterId, TargetIndex).ContinueWith(
-                        t => GordianLog.Warning("NET", $"SendResRdy failed: {t.Exception?.GetBaseException().Message}"), TaskContinuationOptions.OnlyOnFaulted);
-                    GordianLog.Debug("NET", "Mog House zone-in: sent C2S 0x01A SendResRdy.");
+                        t => GordianLog.Warn(LogCategories.Net, $"SendResRdy failed: {t.Exception?.GetBaseException().Message}"), TaskContinuationOptions.OnlyOnFaulted);
+                    GordianLog.Debug(LogCategories.Net, "Mog House zone-in: sent C2S 0x01A SendResRdy.");
                 }
             };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
@@ -549,14 +570,14 @@ namespace Gordian.Core.Network
                 if (_positionUpdatesSuspended)
                 {
                     _positionUpdatesSuspended = false;
-                    GordianLog.Debug("NET", "S2C 0x00A login received: resuming C2S 0x015 position updates.");
+                    GordianLog.Debug(LogCategories.Net, "S2C 0x00A login received: resuming C2S 0x015 position updates.");
                 }
                 // A zone-in answers the zone-line request whatever the zone: into or out of the Mog House the zone id stays the
                 // city's, so the monitor never saw a zone change, kept the request pending and held every 0x015 until its
                 // 15 s timeout; LandSandBoat sent 0x008 only then, and the connection icon went red meanwhile (#354 round 2).
                 if (_zoneLines.PendingId != null)
                 {
-                    GordianLog.Debug("NET", $"S2C 0x00A login answers zone line '{_zoneLines.PendingId}'.");
+                    GordianLog.Debug(LogCategories.Net, $"S2C 0x00A login answers zone line '{_zoneLines.PendingId}'.");
                     _zoneLines.Reset();
                 }
                 PositionX = x;
@@ -565,7 +586,7 @@ namespace Gordian.Core.Network
                 Direction = dir;
                 TargetIndex = actIndex;
                 EnsureLocalPlayerEntity(x, y, z, dir, actIndex);
-                GordianLog.Debug("NET", $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
+                GordianLog.Debug(LogCategories.Net, $"Initial position captured: X={x:F2}, Y={y:F2}, Z={z:F2}, Dir={dir}, TargetIndex={actIndex}");
             };
             _parser.WorldPositionReceived += OnWorldPositionReceived;
             _parser.World.ZoneChanged += _ => _parser.LocalPlayer.IsMovementLocked = false;
@@ -590,7 +611,7 @@ namespace Gordian.Core.Network
                     pe.Appearance.CopyFrom(grap);
                     if (!string.IsNullOrEmpty(name)) pe.Name = name;
                 }
-                GordianLog.Info("NET", $"Captured local player login appearance (Face/Race: 0x{grap[0]:X4}, Name: {name})");
+                GordianLog.Info(LogCategories.Net, $"Captured local player login appearance (Face/Race: 0x{grap[0]:X4}, Name: {name})");
             };
             _parser.LocalAppearanceReceived += grap =>
             {
@@ -605,12 +626,12 @@ namespace Gordian.Core.Network
             _parser.LifecycleModule.PositionProvider = () => (PositionX, PositionY, PositionZ, Direction, TargetIndex, _moveFrame, _isWalking);
             _parser.ZoneTransitionReceived += (state, targetIp, targetPort, errCode) =>
             {
-                GordianLog.Info("NET", $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}, PendingLogout={PendingLogoutKind?.ToString() ?? "none"}");
+                GordianLog.Info(LogCategories.Net, $"ZoneTransitionReceived: State={state}, Target={targetIp}:{targetPort}, Err={errCode}, PendingLogout={PendingLogoutKind?.ToString() ?? "none"}");
                 if (LeavesMapServer(state)) SuspendPositionUpdates(state);
                 if ((state == LogoutState.ZoneChange || state == LogoutState.MyRoom) && ZoneTransitionPending)
                 {
                     // The server resends 0x00B until the client reappears on the new map server; act on it once.
-                    GordianLog.Debug("NET", "Ignoring repeated zone change while a transition is already in progress.");
+                    GordianLog.Debug(LogCategories.Net, "Ignoring repeated zone change while a transition is already in progress.");
                     return;
                 }
                 if (state == LogoutState.ZoneChange || state == LogoutState.MyRoom)
@@ -641,12 +662,12 @@ namespace Gordian.Core.Network
         private void EndSession(SessionLogout logout, string reason, bool retailGoodbye = false)
         {
             if (Interlocked.Exchange(ref _sessionEndingFlag, 1) != 0) return;
-            GordianLog.Info("NET", reason);
+            GordianLog.Info(LogCategories.Net, reason);
             if (retailGoodbye) SendRetailLogoutGoodbye();
             SetConnectionLost(false);
             World.Clear();
             try { LoggedOut?.Invoke(logout); }
-            catch (Exception ex) { GordianLog.Error("NET", "LoggedOut handler failed", ex); }
+            catch (Exception ex) { GordianLog.Error(LogCategories.Net, "LoggedOut handler failed", ex); }
             Disconnect();
         }
 
@@ -686,11 +707,11 @@ namespace Gordian.Core.Network
                         _writeLock.Release();
                     }
                 }
-                GordianLog.Debug("NET", $"Answered the logout with 0x00D (acking the server's Seq={Volatile.Read(ref _serverPacketIdSequence)}).");
+                GordianLog.Debug(LogCategories.Net, $"Answered the logout with 0x00D (acking the server's Seq={Volatile.Read(ref _serverPacketIdSequence)}).");
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("NET", $"Could not send 0x00D after the logout: {ex.Message}");
+                GordianLog.Warn(LogCategories.Net, $"Could not send 0x00D after the logout: {ex.Message}");
             }
         }
 
@@ -698,7 +719,7 @@ namespace Gordian.Core.Network
         {
             if (_positionUpdatesSuspended) return;
             _positionUpdatesSuspended = true;
-            GordianLog.Info("NET", $"S2C 0x00B {state}: suspending C2S 0x015 position updates until the next map server login.");
+            GordianLog.Info(LogCategories.Net, $"S2C 0x00B {state}: suspending C2S 0x015 position updates until the next map server login.");
         }
 
         /// <summary>
@@ -829,7 +850,7 @@ namespace Gordian.Core.Network
             TargetIndex = update.ActorIndex;
             EnsureLocalPlayerEntity(position.X, position.Y, position.Z, update.Direction, update.ActorIndex);
             _parser.LocalPlayer.RequestPositionCorrection(position, update.Direction);
-            GordianLog.Info("NET", $"Server placed local player at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) dir={update.Direction} mode={update.Mode}");
+            GordianLog.Info(LogCategories.Net, $"Server placed local player at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) dir={update.Direction} mode={update.Mode}");
         }
 
         private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)
@@ -940,7 +961,7 @@ namespace Gordian.Core.Network
             // screen comes back and the player must walk out and back in.
             if (_zoneLines.PendingId != null && !ZoneTransitionPending && _parser.LocalPlayer.PositionCorrectionCount != _zoneLineCorrectionMark)
             {
-                GordianLog.Info("ZONE", $"Zone line '{_zoneLines.PendingId}' refused by the server.");
+                GordianLog.Info(LogCategories.Zone, $"Zone line '{_zoneLines.PendingId}' refused by the server.");
                 _zoneLines.CancelPending();
             }
             bool canSend = CurrentState == SessionState.ActiveInWorld && !ZoneTransitionPending
@@ -950,11 +971,11 @@ namespace Gordian.Core.Network
             if (line is not { } crossing) return;
             _zoneLineCorrectionMark = _parser.LocalPlayer.PositionCorrectionCount;
 
-            GordianLog.Info("ZONE", $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
+            GordianLog.Info(LogCategories.Zone, $"Entered zone line '{crossing.Id}' in zone {world.CurrentZoneId} at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}); requesting the zone change.");
             Task request = crossing.Id == Gordian.Core.World.Collision.ZoneLines.MogHouseExitId
                 ? RequestMogHouseExitAsync(MogHouseExitBit.Default, MogHouseExitMode.AreaEnteredFrom)
                 : RequestZoneTransitionByZonelineAsync(crossing.Id);
-            _ = request.ContinueWith(t => GordianLog.Warning("ZONE", $"Zone line request failed: {t.Exception?.GetBaseException().Message}"),
+            _ = request.ContinueWith(t => GordianLog.Warn(LogCategories.Zone, $"Zone line request failed: {t.Exception?.GetBaseException().Message}"),
                 TaskContinuationOptions.OnlyOnFaulted);
         }
 
@@ -980,7 +1001,7 @@ namespace Gordian.Core.Network
             }
             catch (Exception ex)
             {
-                GordianLog.Error("NET", "Immediate position update flush failed", ex);
+                GordianLog.Error(LogCategories.Net, "Immediate position update flush failed", ex);
             }
         }
 
@@ -1039,7 +1060,7 @@ namespace Gordian.Core.Network
                 EndPoint localBind = new IPEndPoint(_serverEndpoint.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any, 0);
                 _udpSocket.Bind(localBind);
 
-                GordianLog.Info("NET", $"UDP socket bound to {_udpSocket.LocalEndPoint}. Target map server: {_serverEndpoint}");
+                GordianLog.Info(LogCategories.Net, $"UDP socket bound to {_udpSocket.LocalEndPoint}. Target map server: {_serverEndpoint}");
 
                 // Launch parallel background workers before transmitting initial datagram
                 _readTask = Task.Run(() => InboundNetworkReadLoopAsync(_udpSocket, _cts.Token), _cts.Token);
@@ -1063,11 +1084,12 @@ namespace Gordian.Core.Network
                     // Periodically retransmit 0x00A until server responds or session moves to ActiveInWorld
                     _ = Task.Run(async () =>
                     {
+                        GordianLog.SetFlowScope(LogScope);
                         int attempt = 0;
                         while (!_cts.IsCancellationRequested && CurrentState == SessionState.ExchangingCryptoKeys && attempt < 25)
                         {
                             attempt++;
-                            GordianLog.Debug("NET", $"Transmitting 0x00A login handshake attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
+                            GordianLog.Debug(LogCategories.Net, $"Transmitting 0x00A login handshake attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
                             try
                             {
                                 await _udpSocket.SendToAsync(loginDatagram, SocketFlags.None, _serverEndpoint, _cts.Token).ConfigureAwait(false);
@@ -1075,7 +1097,7 @@ namespace Gordian.Core.Network
                             }
                             catch (Exception ex)
                             {
-                                GordianLog.Warning("NET", $"Failed to send 0x00A attempt #{attempt}: {ex.Message}");
+                                GordianLog.Warn(LogCategories.Net, $"Failed to send 0x00A attempt #{attempt}: {ex.Message}");
                                 break;
                             }
 
@@ -1112,7 +1134,7 @@ namespace Gordian.Core.Network
                 ushort packetId = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(chunkData.Span) & 0x1FF);
                 if (!MaySend(packetId))
                 {
-                    GordianLog.Debug("NET", $"Dropped outbound 0x{packetId:X3}: {(SessionEnding ? "the session is logging out" : "position updates are suspended")}.");
+                    GordianLog.Debug(LogCategories.Net, $"Dropped outbound 0x{packetId:X3}: {(SessionEnding ? "the session is logging out" : "position updates are suspended")}.");
                     return;
                 }
             }
@@ -1217,7 +1239,7 @@ namespace Gordian.Core.Network
                 if (_outboundWireTrace > 0)
                 {
                     _outboundWireTrace--;
-                    GordianLog.Debug("NET", $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
+                    GordianLog.Debug(LogCategories.Wire, $"Map datagram out Seq={clientSeq}: header {Convert.ToHexString(headerSpan)}, " +
                         $"{_currentBufferLength} sub-packet bytes compressed to {compressedBytes}: {Convert.ToHexString(bundledChunks)}");
                 }
 
@@ -1236,7 +1258,7 @@ namespace Gordian.Core.Network
                 {
                     _performance.RecordOutboundPackets(outboundSubPacketCount);
                 }
-                GordianLog.Debug("NET", $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={Volatile.Read(ref _serverPacketIdSequence)}, {datagramLength} bytes to {remoteEndpoint}");
+                GordianLog.Debug(LogCategories.Net, $"Outbound UDP datagram transmitted: Seq={clientSeq}, Ack={Volatile.Read(ref _serverPacketIdSequence)}, {datagramLength} bytes to {remoteEndpoint}");
             }
             finally
             {
@@ -1246,6 +1268,7 @@ namespace Gordian.Core.Network
 
         private async Task OutboundNetworkFlushLoopAsync(Socket socket, CancellationToken token)
         {
+            GordianLog.SetFlowScope(LogScope);
             try
             {
                 while (!token.IsCancellationRequested)
@@ -1379,25 +1402,26 @@ namespace Gordian.Core.Network
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex) when (!token.IsCancellationRequested)
                     {
-                        GordianLog.Error("NET", "Transient error in outbound flush loop", ex);
+                        GordianLog.Error(LogCategories.Net, "Transient error in outbound flush loop", ex);
                     }
                 }
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                GordianLog.Error("NET", "Outbound UDP flush failure", ex);
+                GordianLog.Error(LogCategories.Net, "Outbound UDP flush failure", ex);
             }
         }
 
         private async Task InboundNetworkReadLoopAsync(Socket socket, CancellationToken token)
         {
+            GordianLog.SetFlowScope(LogScope);
             const int readBufferSize = 2048;
 
             try
             {
                 EndPoint anySender = new IPEndPoint(IPAddress.Any, 0);
-                GordianLog.Debug("NET", $"InboundNetworkReadLoopAsync started on local endpoint {socket.LocalEndPoint}");
+                GordianLog.Debug(LogCategories.Net, $"InboundNetworkReadLoopAsync started on local endpoint {socket.LocalEndPoint}");
                 while (!token.IsCancellationRequested)
                 {
                     try
@@ -1412,11 +1436,11 @@ namespace Gordian.Core.Network
 
                         if (result.ReceivedBytes == 0)
                         {
-                            GordianLog.Warning("NET", $"Inbound UDP datagram of 0 bytes received from {result.RemoteEndPoint}; ignoring.");
+                            GordianLog.Warn(LogCategories.Net, $"Inbound UDP datagram of 0 bytes received from {result.RemoteEndPoint}; ignoring.");
                             continue;
                         }
 
-                        GordianLog.Debug("NET", $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
+                        GordianLog.Debug(LogCategories.Net, $"Inbound UDP datagram received: {result.ReceivedBytes} bytes from {result.RemoteEndPoint}");
                         if (RetailMapProtocol && result.ReceivedBytes >= FfxiHeaderSize)
                         {
                             lock (_serverState) packetBuffer.WritableData.Slice(0x0C, 16).CopyTo(_serverState);
@@ -1425,7 +1449,7 @@ namespace Gordian.Core.Network
                         {
                             _inboundWireTrace--;
                             ReadOnlySpan<byte> inHeader = packetBuffer.WritableData.Slice(0, FfxiHeaderSize);
-                            GordianLog.Debug("NET", $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
+                            GordianLog.Debug(LogCategories.Wire, $"Map datagram in Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader)}, " +
                                 $"acks our Seq={BinaryPrimitives.ReadUInt16LittleEndian(inHeader[2..])}: header {Convert.ToHexString(inHeader)}");
                         }
                         _performance.RecordInboundDatagram(result.ReceivedBytes);
@@ -1437,25 +1461,25 @@ namespace Gordian.Core.Network
                     {
                         // On Windows UDP, ICMP Port Unreachable throws WSAECONNRESET (10054).
                         // Ignore it and continue waiting for incoming server datagrams.
-                        GordianLog.Debug("NET", "Ignored UDP ICMP ConnectionReset (10054); awaiting server datagram...");
+                        GordianLog.Debug(LogCategories.Net, "Ignored UDP ICMP ConnectionReset (10054); awaiting server datagram...");
                     }
                     catch (Exception ex) when (!token.IsCancellationRequested)
                     {
-                        GordianLog.Error("NET", "Inbound UDP packet processing error inside loop", ex);
+                        GordianLog.Error(LogCategories.Net, "Inbound UDP packet processing error inside loop", ex);
                     }
                 }
             }
             catch (OperationCanceledException)
             {
-                GordianLog.Debug("NET", "InboundNetworkReadLoopAsync cancelled via CancellationToken.");
+                GordianLog.Debug(LogCategories.Net, "InboundNetworkReadLoopAsync cancelled via CancellationToken.");
             }
             catch (Exception ex)
             {
-                GordianLog.Error("NET", "Inbound UDP read loop failure", ex);
+                GordianLog.Error(LogCategories.Net, "Inbound UDP read loop failure", ex);
             }
             finally
             {
-                GordianLog.Debug("NET", $"InboundNetworkReadLoopAsync finally block reached. CurrentState={CurrentState}, TokenCancelled={token.IsCancellationRequested}");
+                GordianLog.Debug(LogCategories.Net, $"InboundNetworkReadLoopAsync finally block reached. CurrentState={CurrentState}, TokenCancelled={token.IsCancellationRequested}");
                 CurrentState = SessionState.Disconnecting;
                 ExecuteSocketCleanup();
                 CurrentState = SessionState.Disconnected;
@@ -1492,7 +1516,7 @@ namespace Gordian.Core.Network
                     ResetSequenceTracking();
                     CheckAndTrackSequence(newSeq);
                     ZoneTransitionPending = false;
-                    GordianLog.Info("NET", $"First datagram from the new map server accepted (Seq={newSeq}); zone transition complete.");
+                    GordianLog.Info(LogCategories.Net, $"First datagram from the new map server accepted (Seq={newSeq}); zone transition complete.");
                 }
                 return accepted;
             }
@@ -1518,7 +1542,7 @@ namespace Gordian.Core.Network
             if (EnableSequenceDeduplication && CheckAndTrackSequence(newSeq))
             {
                 _performance.RecordDuplicateDatagram();
-                GordianLog.Debug("NET", $"Dropped retransmitted/duplicate server datagram Seq={newSeq}. ACK updated.");
+                GordianLog.Debug(LogCategories.Net, $"Dropped retransmitted/duplicate server datagram Seq={newSeq}. ACK updated.");
                 return false;
             }
 
@@ -1646,7 +1670,7 @@ namespace Gordian.Core.Network
             }
             catch (Exception ex)
             {
-                GordianLog.Error("NET", "Unhandled exception during zone transition handling", ex);
+                GordianLog.Error(LogCategories.Net, "Unhandled exception during zone transition handling", ex);
             }
         }
 
@@ -1659,7 +1683,7 @@ namespace Gordian.Core.Network
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
 
-            GordianLog.Info("NET", $"Starting dynamic zone transition to {targetIp}:{targetPort} for character '{CharacterName}'...");
+            GordianLog.Info(LogCategories.Net, $"Starting dynamic zone transition to {targetIp}:{targetPort} for character '{CharacterName}'...");
             _zoneKeyAdvanced = false;
             ZoneTransitionPending = true;
             CurrentState = SessionState.LoadingWorldData;
@@ -1677,7 +1701,7 @@ namespace Gordian.Core.Network
                 // Advance cryptographic session key (LandSandBoat adds 2 to the fifth 32-bit key word)
                 bool advanced = _parser.CryptoSuite.AdvanceZoneKey();
                 _zoneChanges++;
-                GordianLog.Debug("NET", $"Session crypto key advanced for zone transition: {advanced}");
+                GordianLog.Debug(LogCategories.Net, $"Session crypto key advanced for zone transition: {advanced}");
 
                 // Reset packet sequence numbers for new map server
                 _clientPacketIdSequence = 1;
@@ -1704,11 +1728,12 @@ namespace Gordian.Core.Network
                 var token = _cts?.Token ?? ct;
                 _ = Task.Run(async () =>
                 {
+                    GordianLog.SetFlowScope(LogScope);
                     int attempt = 0;
                     while (!token.IsCancellationRequested && CurrentState == SessionState.LoadingWorldData && attempt < 25)
                     {
                         attempt++;
-                        GordianLog.Debug("NET", $"Transmitting zone transition 0x00A attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
+                        GordianLog.Debug(LogCategories.Net, $"Transmitting zone transition 0x00A attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
                         try
                         {
                             if (_udpSocket != null && _serverEndpoint != null)
@@ -1718,7 +1743,7 @@ namespace Gordian.Core.Network
                         }
                         catch (Exception ex)
                         {
-                            GordianLog.Warning("NET", $"Failed to send zone transition 0x00A attempt #{attempt}: {ex.Message}");
+                            GordianLog.Warn(LogCategories.Net, $"Failed to send zone transition 0x00A attempt #{attempt}: {ex.Message}");
                             break;
                         }
 
@@ -1781,7 +1806,7 @@ namespace Gordian.Core.Network
 
         public void Disconnect()
         {
-            GordianLog.Info("NET", $"Disconnect() called directly. CurrentState={CurrentState}");
+            GordianLog.Info(LogCategories.Net, $"Disconnect() called directly. CurrentState={CurrentState}");
             if (CurrentState == SessionState.Disconnected) return;
 
             CurrentState = SessionState.Disconnecting;

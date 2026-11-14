@@ -47,7 +47,7 @@ namespace Gordian.App.Audio
                 _device = _alc.OpenDevice(string.Empty);
                 if (_device == null)
                 {
-                    GordianLog.Info("AUDIO", "OpenAL Soft found no audio device; sound is silent this session.");
+                    GordianLog.Info(LogCategories.Audio, "OpenAL Soft found no audio device; sound is silent this session.");
                     Dispose();
                     return false;
                 }
@@ -57,7 +57,7 @@ namespace Gordian.App.Audio
                 _context = _alc.CreateContext(_device, attributes);
                 if (_context == null || !_alc.MakeContextCurrent(_context))
                 {
-                    GordianLog.Warn("AUDIO", "OpenAL Soft could not create a context; sound is silent this session.");
+                    GordianLog.Warn(LogCategories.Audio, "OpenAL Soft could not create a context; sound is silent this session.");
                     Dispose();
                     return false;
                 }
@@ -76,19 +76,19 @@ namespace Gordian.App.Audio
                 AudioError error = _al.GetError();
                 if (error != AudioError.NoError)
                 {
-                    GordianLog.Warn("AUDIO", $"OpenAL Soft setup failed ({error}); sound is silent this session.");
+                    GordianLog.Warn(LogCategories.Audio, $"OpenAL Soft setup failed ({error}); sound is silent this session.");
                     Dispose();
                     return false;
                 }
 
                 _open = true;
                 string name = _alc.GetContextProperty(_device, GetContextString.DeviceSpecifier) ?? "default device";
-                GordianLog.Info("AUDIO", $"OpenAL Soft opened '{name}' at {SampleRate} Hz stereo (streaming, {MaxBuffers} buffers).");
+                GordianLog.Info(LogCategories.Audio, $"OpenAL Soft opened '{name}' at {SampleRate} Hz stereo (streaming, {MaxBuffers} buffers).");
                 return true;
             }
             catch (Exception ex)
             {
-                GordianLog.Info("AUDIO", $"OpenAL Soft is not available ({ex.GetType().Name}: {ex.Message}); sound is silent this session.");
+                GordianLog.Info(LogCategories.Audio, $"OpenAL Soft is not available ({ex.GetType().Name}: {ex.Message}); sound is silent this session.");
                 Dispose();
                 return false;
             }
@@ -212,7 +212,7 @@ namespace Gordian.App.Audio
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("AUDIO", $"OpenAL Soft shutdown failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Audio, $"OpenAL Soft shutdown failed: {ex.Message}");
             }
         }
 
@@ -228,7 +228,7 @@ namespace Gordian.App.Audio
             }
             catch (Exception) when (FindBundledLibrary() is string path)
             {
-                GordianLog.Info("AUDIO", $"Loading bundled OpenAL Soft from {path}.");
+                GordianLog.Info(LogCategories.Audio, $"Loading bundled OpenAL Soft from {path}.");
                 return (new ALContext(new DefaultNativeContext(path)), new AL(new DefaultNativeContext(path)));
             }
         }

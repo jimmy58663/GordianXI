@@ -398,12 +398,12 @@ namespace Gordian.Engine.Ui
                 try
                 {
                     await Task.Delay(AutoStackDelay).ConfigureAwait(false);
-                    GordianLog.Info("ITEM", "Inventory Sort: merging the inventory's stacks after an item was obtained.");
+                    GordianLog.Info(LogCategories.Item, "Inventory Sort: merging the inventory's stacks after an item was obtained.");
                     await sort(ContainerId.Inventory).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("ITEM", $"Inventory Sort failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Item, $"Inventory Sort failed: {ex.Message}");
                 }
                 finally
                 {
@@ -817,7 +817,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke(error ?? "Items cannot be used in this session.");
                 return;
             }
-            GordianLog.Info("ITEM", $"Using {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) on {t.Name} ({t.ServerId}, index {t.TargetIndex}).");
+            GordianLog.Info(LogCategories.Item, $"Using {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}) on {t.Name} ({t.ServerId}, index {t.TargetIndex}).");
             _ = SendItemAsync(() => use(t.ServerId, t.TargetIndex, row.Container, row.Slot), "Use");
         }
 
@@ -991,7 +991,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("Items cannot be dropped in this session.");
                 return;
             }
-            GordianLog.Info("ITEM", $"Dropping {count} x {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}).");
+            GordianLog.Info(LogCategories.Item, $"Dropping {count} x {record.Name} (item {row.ItemId}, {row.Container} slot {row.Slot}).");
             _ = SendItemAsync(() => drop(row.Container, row.Slot, count), "Drop");
         }
 
@@ -1013,7 +1013,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("Items cannot be restored in this session.");
                 return;
             }
-            GordianLog.Info("ITEM", $"Restoring {count} x item {row.ItemId} from the recycle bin slot {row.Slot}.");
+            GordianLog.Info(LogCategories.Item, $"Restoring {count} x item {row.ItemId} from the recycle bin slot {row.Slot}.");
             _ = SendItemAsync(() => move(count, ContainerId.RecycleBin, row.Slot, ContainerId.Inventory, StockUiItems.AnyFreeSlot), "Restore");
         }
 
@@ -1092,7 +1092,7 @@ namespace Gordian.Engine.Ui
             Changed?.Invoke();
             if (ItemSort is { } sort)
             {
-                GordianLog.Info("ITEM", $"Auto-sort of {container}.");
+                GordianLog.Info(LogCategories.Item, $"Auto-sort of {container}.");
                 _ = SendItemAsync(() => sort(container), "Sort");
             }
         }
@@ -1248,7 +1248,7 @@ namespace Gordian.Engine.Ui
             }
             byte index = remove ? (byte)0 : row.Slot;
             var container = remove ? ContainerId.Inventory : row.Container;
-            GordianLog.Info("ITEM", remove ? $"Removing {row.Name} from {slot}." : $"Equipping {row.Name} (item {row.ItemId}, {container} slot {row.Slot}) in {slot}.");
+            GordianLog.Info(LogCategories.Item, remove ? $"Removing {row.Name} from {slot}." : $"Equipping {row.Name} (item {row.ItemId}, {container} slot {row.Slot}) in {slot}.");
             _ = SendItemAsync(() => equip(index, slot, container), remove ? "Remove" : "Equip");
         }
 
@@ -1276,7 +1276,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("ITEM", $"{what} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Item, $"{what} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{what} failed: {ex.Message}");
             }
         }

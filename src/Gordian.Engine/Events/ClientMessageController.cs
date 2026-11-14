@@ -182,7 +182,7 @@ namespace Gordian.Engine.Events
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("EMOTE", $"Emote {emote} of {race} could not be read: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Emote, $"Emote {emote} of {race} could not be read: {ex.Message}");
                 }
                 // Not cached without a loader: the app sets it after the session starts.
                 if (loader != null) _emoteBanks[(race, emote, variant)] = bank;

@@ -358,7 +358,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("EQUIPSET", $"{what} of set {number} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Equipset, $"{what} of set {number} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{what} failed: {ex.Message}");
             }
         }
@@ -505,7 +505,7 @@ namespace Gordian.Engine.Ui
             };
             CloseMenu(list);
             book.Set(number, set.WithPiece(slot, piece));
-            GordianLog.Info("EQUIPSET", $"Set {number}: {slot} = {piece.Kind}{(piece.HasItem ? $" {row.Name} (item {row.ItemId}, {row.Container} slot {row.Slot})" : string.Empty)}.");
+            GordianLog.Info(LogCategories.Equipset, $"Set {number}: {slot} = {piece.Kind}{(piece.HasItem ? $" {row.Name} (item {row.ItemId}, {row.Container} slot {row.Slot})" : string.Empty)}.");
             Changed?.Invoke();
             if (piece.Kind == EquipmentSetPieceKind.Empty || EquipSetCheck is not { } check) return;
             lock (_sync) _pendingCheck = (number, EquipSetValidation?.Invoke() ?? Array.Empty<EquipsetSlotEntry>());
@@ -531,7 +531,7 @@ namespace Gordian.Engine.Ui
             var after = StockUiEquipSets.ApplyValidation(before, entries);
             for (int i = 0; i < EquipmentSet.SlotCount; i++)
             {
-                if (before.Pieces[i] != after.Pieces[i]) GordianLog.Info("EQUIPSET", $"Set {pending.Number}: the server's check changed {(EquipSlotId)i} to {after.Pieces[i].Kind} {after.Pieces[i].ItemId}.");
+                if (before.Pieces[i] != after.Pieces[i]) GordianLog.Info(LogCategories.Equipset, $"Set {pending.Number}: the server's check changed {(EquipSlotId)i} to {after.Pieces[i].Kind} {after.Pieces[i].ItemId}.");
             }
             book.Set(pending.Number, after);
             Changed?.Invoke();

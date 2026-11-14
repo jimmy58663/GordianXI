@@ -100,7 +100,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("UI", $"Failed to load stock UI resources: {ex.Message}");
+                    GordianLog.Error(LogCategories.Ui, $"Failed to load stock UI resources: {ex.Message}");
                 }
             });
         }
@@ -132,7 +132,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("UI", $"Failed to load window skin {skin}: {ex.Message}");
+                    GordianLog.Error(LogCategories.Ui, $"Failed to load window skin {skin}: {ex.Message}");
                 }
                 finally
                 {
@@ -467,7 +467,7 @@ namespace Gordian.App.Graphics
             if (!_zoneMaps.TryGetValue(key, out var map))
             {
                 map = _resources != null ? Gordian.Core.Resources.Tables.ZoneMapFiles.LoadWithOrigin(_resources, zone, mapNumber) : null;
-                if (map == null) GordianLog.Warning("UI", $"Zone map {zone} / {mapNumber} could not be loaded.");
+                if (map == null) GordianLog.Warn(LogCategories.Ui, $"Zone map {zone} / {mapNumber} could not be loaded.");
                 _zoneMaps[key] = map;
             }
             return map;
@@ -480,7 +480,7 @@ namespace Gordian.App.Graphics
             if (!_regionMaps.TryGetValue(regionMap, out var texture))
             {
                 texture = _resources != null ? Gordian.Core.Resources.Tables.RegionMapFiles.Load(_resources, regionMap) : null;
-                if (texture == null) GordianLog.Warning("UI", $"Region map {regionMap} could not be loaded.");
+                if (texture == null) GordianLog.Warn(LogCategories.Ui, $"Region map {regionMap} could not be loaded.");
                 _regionMaps[regionMap] = texture;
             }
             return texture;

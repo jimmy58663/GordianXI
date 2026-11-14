@@ -197,7 +197,7 @@ namespace Gordian.Core.World
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
                 {
-                    GordianLog.Warning("CRAFT", $"Failed to load the synthesis history '{path}': {ex.Message}. Starting with an empty history.");
+                    GordianLog.Warn(LogCategories.Craft, $"Failed to load the synthesis history '{path}': {ex.Message}. Starting with an empty history.");
                 }
             }
             return new SynthesisHistory();
@@ -235,7 +235,7 @@ namespace Gordian.Core.World
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        GordianLog.Warning("CRAFT", $"Could not save the synthesis history '{path}': {ex.Message}");
+                        GordianLog.Warn(LogCategories.Craft, $"Could not save the synthesis history '{path}': {ex.Message}");
                     }
                 };
                 return history;

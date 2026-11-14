@@ -79,7 +79,7 @@ namespace Gordian.App.Services
 
                     if (_getState != null)
                     {
-                        GordianLog.Info("INPUT", $"XInput controller driver successfully initialized using '{dll}'.");
+                        GordianLog.Info(LogCategories.Input, $"XInput controller driver successfully initialized using '{dll}'.");
                         break;
                     }
                 }

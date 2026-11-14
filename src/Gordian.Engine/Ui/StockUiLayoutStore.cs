@@ -36,7 +36,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Could not save the UI layout '{path}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Could not save the UI layout '{path}': {ex.Message}");
             }
         }
     }

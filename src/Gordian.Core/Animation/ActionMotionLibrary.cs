@@ -311,7 +311,7 @@ namespace Gordian.Core.Animation
             }
             catch (Exception ex)
             {
-                Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"Synthesis effect 0x{effectNum:X2} (file {fileId}) could not be read: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Anim, $"Synthesis effect 0x{effectNum:X2} (file {fileId}) could not be read: {ex.Message}");
                 return null;
             }
 
@@ -393,7 +393,7 @@ namespace Gordian.Core.Animation
                 }
                 catch (Exception ex)
                 {
-                    Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"Effects of {label} could not be preloaded: {ex.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Anim, $"Effects of {label} could not be preloaded: {ex.Message}");
                 }
             });
 
@@ -431,7 +431,7 @@ namespace Gordian.Core.Animation
             }
             catch (Exception ex)
             {
-                Gordian.Core.Diagnostics.GordianLog.Warning("ANIM", $"{kind} animation {animation} (file {fileId}) could not be read: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Anim, $"{kind} animation {animation} (file {fileId}) could not be read: {ex.Message}");
                 return null;
             }
         }

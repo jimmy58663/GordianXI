@@ -66,7 +66,7 @@ namespace Gordian.Core.Network.Retail
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            GordianLog.Info("RETAIL_LOGIN", "Ending the PlayOnline session.");
+            GordianLog.Info(LogCategories.RetailLogin, "Ending the PlayOnline session.");
             await _core.DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -146,7 +146,7 @@ namespace Gordian.Core.Network.Retail
                 catch (Exception ex) when (!ct.IsCancellationRequested &&
                     ex is RetailLoginException or IOException or System.Net.Sockets.SocketException or OperationCanceledException)
                 {
-                    GordianLog.Warning("RETAIL_LOGIN", $"The Viewer key request failed ({ex.Message}); continuing.");
+                    GordianLog.Warn(LogCategories.RetailLogin, $"The Viewer key request failed ({ex.Message}); continuing.");
                 }
 
                 // Stage 7: the PML pages. Maintenance shows only here (the Play button flag), so it stops the login; any
@@ -161,7 +161,7 @@ namespace Gordian.Core.Network.Retail
                 }
                 catch (RetailLoginException ex) when (!ct.IsCancellationRequested)
                 {
-                    GordianLog.Warning("RETAIL_LOGIN", $"{ex.Message} Continuing.");
+                    GordianLog.Warn(LogCategories.RetailLogin, $"{ex.Message} Continuing.");
                 }
                 if (launch is { PlayEnabled: false } closed)
                     throw new RetailLoginException("PlayOnline pages",
@@ -211,18 +211,18 @@ namespace Gordian.Core.Network.Retail
                 catch (Exception ex) when (!ct.IsCancellationRequested &&
                     ex is RetailLoginException or IOException or System.Net.Sockets.SocketException or OperationCanceledException)
                 {
-                    GordianLog.Warning("RETAIL_LOGIN", $"The {product} version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
+                    GordianLog.Warn(LogCategories.RetailLogin, $"The {product} version check could not be read ({ex.GetType().Name}: {ex.Message}); continuing without it.");
                 }
             }
             if (answer is not { } reply) return;
             if (!reply.ChecksumValid)
-                GordianLog.Warning("RETAIL_LOGIN", $"The {product} version reply's checksum does not match its frame.");
+                GordianLog.Warn(LogCategories.RetailLogin, $"The {product} version reply's checksum does not match its frame.");
             // An outdated install still gets status 1; the reply's current version is what differs (spec section 4.1.5).
             if (!reply.IsCurrent(installed))
                 throw new RetailLoginException("version check",
                     $"{product} {installed} is not the current version (server status {reply.Status}, current {reply.CurrentVersion}). Update it in PlayOnline Viewer, then log in again.",
                     (int)reply.Status);
-            GordianLog.Info("RETAIL_LOGIN", $"{product} version {installed} is current.");
+            GordianLog.Info(LogCategories.RetailLogin, $"{product} version {installed} is current.");
         }
 
         /// <summary>
@@ -247,7 +247,7 @@ namespace Gordian.Core.Network.Retail
 
         private void Report(string status)
         {
-            GordianLog.Info("RETAIL_LOGIN", status);
+            GordianLog.Info(LogCategories.RetailLogin, status);
             StatusChanged?.Invoke(this, status);
         }
     }

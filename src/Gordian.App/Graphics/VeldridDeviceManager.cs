@@ -84,7 +84,7 @@ namespace Gordian.App.Graphics
             );
 
             Device = CreateDeviceWithFallback(scDesc, options, preference);
-            GordianLog.Info("Graphics", $"Initialized Veldrid {Device.BackendType} device: '{Device.DeviceName}' ({CurrentWidth}x{CurrentHeight}, VSync={vsync})");
+            GordianLog.Info(LogCategories.Graphics, $"Initialized Veldrid {Device.BackendType} device: '{Device.DeviceName}' ({CurrentWidth}x{CurrentHeight}, VSync={vsync})");
         }
 
         /// <summary>
@@ -118,7 +118,7 @@ namespace Gordian.App.Graphics
             }
             _shared = shared;
             Device = shared.Device;
-            GordianLog.Info("Graphics", $"Created a viewport swapchain on the shared {Device.BackendType} device ({CurrentWidth}x{CurrentHeight}, VSync={vsync}).");
+            GordianLog.Info(LogCategories.Graphics, $"Created a viewport swapchain on the shared {Device.BackendType} device ({CurrentWidth}x{CurrentHeight}, VSync={vsync}).");
         }
 
         /// <summary>Presents this window's swapchain (call under <see cref="GpuLock"/>).</summary>
@@ -154,7 +154,7 @@ namespace Gordian.App.Graphics
                 catch (Exception ex)
                 {
                     lastEx = ex;
-                    GordianLog.Warning("Graphics", $"Failed to initialize backend {backend}: {ex.Message}. Attempting fallback...");
+                    GordianLog.Warn(LogCategories.Graphics, $"Failed to initialize backend {backend}: {ex.Message}. Attempting fallback...");
                 }
             }
 
@@ -231,7 +231,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("Graphics", $"Swapchain resize error: {ex.Message}");
+                GordianLog.Warn(LogCategories.Graphics, $"Swapchain resize error: {ex.Message}");
             }
         }
 

@@ -229,7 +229,7 @@ namespace Gordian.App.Audio
             if (_heard && wanted != _loggedTrack)
             {
                 _loggedTrack = wanted;
-                Gordian.Core.Diagnostics.GordianLog.Info("AUDIO", $"Music: slot {(_overrideTrack >= 0 ? "override" : CurrentSlot.ToString())} → track {wanted} (was {_currentTrack}).");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Audio, $"Music: slot {(_overrideTrack >= 0 ? "override" : CurrentSlot.ToString())} → track {wanted} (was {_currentTrack}).");
             }
 
             if (_currentTrack > 0)

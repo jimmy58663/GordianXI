@@ -865,10 +865,10 @@ namespace Gordian.Engine.Input
                     }
                     catch (Exception copyEx)
                     {
-                        GordianLog.Warn("INPUT", $"Could not keep the unreadable input profile as '{aside}': {copyEx.Message}");
+                        GordianLog.Warn(LogCategories.Input, $"Could not keep the unreadable input profile as '{aside}': {copyEx.Message}");
                         return CreateCompact();
                     }
-                    GordianLog.Error("INPUT", $"Failed to load input profile from '{filePath}': {ex.Message}. Using the default; the file was kept as '{aside}'.", ex);
+                    GordianLog.Error(LogCategories.Input, $"Failed to load input profile from '{filePath}': {ex.Message}. Using the default; the file was kept as '{aside}'.", ex);
                 }
             }
 
@@ -879,7 +879,7 @@ namespace Gordian.Engine.Input
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("INPUT", $"Could not save default input profile to '{filePath}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Input, $"Could not save default input profile to '{filePath}': {ex.Message}");
             }
             return defaultProfile;
         }

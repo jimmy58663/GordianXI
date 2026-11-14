@@ -937,7 +937,7 @@ void main()
             _sampler.Dispose();
             _textureLayout.Dispose();
             _uniformLayout.Dispose();
-            GordianLog.Debug("UI", "Stock UI renderer disposed.");
+            GordianLog.Debug(LogCategories.Ui, "Stock UI renderer disposed.");
         }
     }
 

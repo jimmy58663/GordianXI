@@ -91,7 +91,7 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
-            GordianLog.Debug("AUDIO", $"0x05F music slot {packet.Slot} = {packet.MusicNum}");
+            GordianLog.Debug(LogCategories.Audio, $"0x05F music slot {packet.Slot} = {packet.MusicNum}");
             _music.SetSlot(packet.Slot, packet.MusicNum);
         }
 
@@ -103,7 +103,7 @@ namespace Gordian.Core.Network.Packets
                 return;
             }
 
-            GordianLog.Debug("AUDIO", $"0x060 music volume {packet.Volume} over {packet.Time}");
+            GordianLog.Debug(LogCategories.Audio, $"0x060 music volume {packet.Volume} over {packet.Time}");
             _music.SetVolume(packet.Time, packet.Volume);
         }
     }

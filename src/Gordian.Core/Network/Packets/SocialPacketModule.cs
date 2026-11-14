@@ -78,7 +78,7 @@ namespace Gordian.Core.Network.Packets
             var result = new S2C_0x04B_PbxResult(payload);
             if (!result.IsValid) return;
 
-            GordianLog.Debug("DELIVERY", $"PBX answer: {result.Command} box={result.BoxNo} slot={result.PostWorkNo} result={result.ResultCode} params={result.ResParam1},{result.ResParam2},{result.ResParam3} item={result.ItemId} stat={result.Stat}");
+            GordianLog.Debug(LogCategories.Delivery, $"PBX answer: {result.Command} box={result.BoxNo} slot={result.PostWorkNo} result={result.ResultCode} params={result.ResParam1},{result.ResParam2},{result.ResParam3} item={result.ItemId} stat={result.Stat}");
             _delivery.Apply(in result);
         }
 
@@ -87,7 +87,7 @@ namespace Gordian.Core.Network.Packets
             var page = new S2C_0x041_BlackList(payload);
             if (!page.IsValid) return;
 
-            GordianLog.Debug("BLACKLIST", $"Blacklist page: {page.Count} entries, stat=0x{page.Stat:X2}");
+            GordianLog.Debug(LogCategories.Blacklist, $"Blacklist page: {page.Count} entries, stat=0x{page.Stat:X2}");
             _blacklist.Apply(in page);
         }
 
@@ -96,7 +96,7 @@ namespace Gordian.Core.Network.Packets
             var edit = new S2C_0x042_BlackEdit(payload);
             if (!edit.IsValid) return;
 
-            GordianLog.Debug("BLACKLIST", $"Blacklist edit: {edit.Mode} id=0x{edit.Id:X8} name='{edit.GetName()}'");
+            GordianLog.Debug(LogCategories.Blacklist, $"Blacklist edit: {edit.Mode} id=0x{edit.Id:X8} name='{edit.GetName()}'");
             _blacklist.Apply(in edit);
         }
 
@@ -105,7 +105,7 @@ namespace Gordian.Core.Network.Packets
             var pass = new S2C_0x059_FriendPass(payload);
             if (!pass.IsValid) return;
 
-            GordianLog.Debug("FRIENDPASS", $"World pass answer: type={pass.Type}, price={pass.Price}, uses={pass.LeftNum}, hours={pass.LeftHours}");
+            GordianLog.Debug(LogCategories.Friendpass, $"World pass answer: type={pass.Type}, price={pass.Price}, uses={pass.LeftNum}, hours={pass.LeftHours}");
             _social.SetFriendPass(new FriendPassInfo(pass.LeftNum, pass.LeftHours, pass.Price, pass.GetPass(), pass.Type));
         }
 
@@ -128,7 +128,7 @@ namespace Gordian.Core.Network.Packets
                 }
             }
 
-            GordianLog.Debug("ITEMSEARCH", $"/itemsearch answer: item={search.ItemId}, async={search.IsAsync}, name='{search.GetItemName()}', held in {containers.Count} containers");
+            GordianLog.Debug(LogCategories.Itemsearch, $"/itemsearch answer: item={search.ItemId}, async={search.IsAsync}, name='{search.GetItemName()}', held in {containers.Count} containers");
             _social.SetItemSearch(new ItemSearchResult(search.ItemId, search.GetItemName(), search.IsAsync, containers));
         }
 
@@ -137,7 +137,7 @@ namespace Gordian.Core.Network.Packets
             var id = new S2C_0x0E1_GroupCheckId(payload);
             if (!id.IsValid) return;
 
-            GordianLog.Debug("PARTY", $"Party group id: {id.GroupId}");
+            GordianLog.Debug(LogCategories.Party, $"Party group id: {id.GroupId}");
             _social.SetGroupId(id.GroupId);
         }
 
@@ -154,7 +154,7 @@ namespace Gordian.Core.Network.Packets
             var concierge = new S2C_0x048_LinkConcierge(payload);
             if (!concierge.IsValid) return;
 
-            GordianLog.Debug("LINKSHELL", concierge.IsHeader
+            GordianLog.Debug(LogCategories.Linkshell, concierge.IsHeader
                 ? $"Concierge header: own slot={concierge.SlotIndex}, registered={concierge.Registered}, posted {concierge.PostedDays}d ago"
                 : "Concierge records");
             _social.ApplyConcierge(in concierge);

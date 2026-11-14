@@ -82,32 +82,33 @@ namespace Gordian.Core.Config
                     return _customRootDirectory;
                 }
 
-                string appDir = AppDomain.CurrentDomain.BaseDirectory;
-
-                // If running from Program Files or other protected system root, redirect to AppData
-                if (IsProtectedSystemDirectory(appDir))
+                string path = ResolveRootDataDirectory(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+                if (!Directory.Exists(path))
                 {
-                    string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                    if (string.IsNullOrWhiteSpace(appData))
-                    {
-                        appData = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    }
-
-                    string path = Path.Combine(appData, AppFolderName);
-                    if (!Directory.Exists(path))
-                    {
-                        Directory.CreateDirectory(path);
-                    }
-                    return path;
+                    Directory.CreateDirectory(path);
                 }
-
-                // Standard user-space location: keep everything local!
-                return appDir;
+                return path;
             }
             set
             {
                 _customRootDirectory = value;
             }
+        }
+
+        /// <summary>
+        /// The data root for an executable in <paramref name="appDirectory"/>: that folder itself (portable), unless it is a
+        /// protected system folder (<see cref="IsProtectedSystemDirectory"/>), in which case
+        /// <c>&lt;applicationData&gt;/GordianXI</c> (<paramref name="userProfile"/> when the platform has no application data
+        /// folder). The logs folder, and so the Logs tab's Open logs folder button, follow it (#566).
+        /// </summary>
+        public static string ResolveRootDataDirectory(string appDirectory, string? applicationData, string? userProfile)
+        {
+            if (!IsProtectedSystemDirectory(appDirectory)) return appDirectory;
+            string baseFolder = !string.IsNullOrWhiteSpace(applicationData) ? applicationData : userProfile ?? string.Empty;
+            return Path.Combine(baseFolder, AppFolderName);
         }
 
         private static string? _customUserSettingsDirectory;

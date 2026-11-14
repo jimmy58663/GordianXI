@@ -120,15 +120,15 @@ namespace Gordian.App.Services
                 bool primaryOpen = _primaryWindow != null;
                 var activeTab = _primaryViewModel.ActiveTab;
                 var poppedOut = new System.Collections.Generic.List<Guid>(_secondaryWindows.Keys);
-                GordianLog.Info("ViewportManager", $"Reopening the viewport for the {_primaryViewModel.SelectedBackend} backend ({poppedOut.Count} pop-out(s)).");
+                GordianLog.Info(LogCategories.ViewportManager, $"Reopening the viewport for the {_primaryViewModel.SelectedBackend} backend ({poppedOut.Count} pop-out(s)).");
 
                 foreach (var window in new System.Collections.Generic.List<ViewportWindow>(_secondaryWindows.Values))
                 {
                     try { window.Close(); }
-                    catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close a pop-out for the reopen: {ex.Message}"); }
+                    catch (Exception ex) { GordianLog.Warn(LogCategories.ViewportManager, $"Failed to close a pop-out for the reopen: {ex.Message}"); }
                 }
                 try { _primaryWindow?.Close(); }
-                catch (Exception ex) { GordianLog.Warning("ViewportManager", $"Failed to close the primary viewport for the reopen: {ex.Message}"); }
+                catch (Exception ex) { GordianLog.Warn(LogCategories.ViewportManager, $"Failed to close the primary viewport for the reopen: {ex.Message}"); }
                 _primaryWindow = null;
 
                 var deadline = DateTime.UtcNow + ReopenDeviceWait;
@@ -138,7 +138,7 @@ namespace Gordian.App.Services
                     // The device goes when the last window has released it; the next window creates it with the new choice.
                     if (SharedGraphicsDevice.Current != null && DateTime.UtcNow < deadline) return;
                     timer.Stop();
-                    if (SharedGraphicsDevice.Current != null) GordianLog.Warning("ViewportManager", "The viewport device was still open after the wait; reopening on it.");
+                    if (SharedGraphicsDevice.Current != null) GordianLog.Warn(LogCategories.ViewportManager, "The viewport device was still open after the wait; reopening on it.");
                     try
                     {
                         if (primaryOpen)
@@ -309,7 +309,7 @@ namespace Gordian.App.Services
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("ViewportManager", $"Failed to cleanly close primary viewport window: {ex.Message}");
+                GordianLog.Warn(LogCategories.ViewportManager, $"Failed to cleanly close primary viewport window: {ex.Message}");
             }
             _primaryWindow = null;
         }
@@ -344,7 +344,7 @@ namespace Gordian.App.Services
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Warning("ViewportManager", $"Failed to cleanly close secondary window for {session.CharacterName}: {ex.Message}");
+                        GordianLog.Warn(LogCategories.ViewportManager, $"Failed to cleanly close secondary window for {session.CharacterName}: {ex.Message}");
                     }
                 }
 

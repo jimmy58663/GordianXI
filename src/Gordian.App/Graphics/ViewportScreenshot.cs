@@ -126,7 +126,7 @@ namespace Gordian.App.Graphics
 
         private void Fail(Exception ex)
         {
-            GordianLog.Warning("Graphics", $"Screenshot failed: {ex.Message}");
+            GordianLog.Warn(LogCategories.Graphics, $"Screenshot failed: {ex.Message}");
             Report?.Invoke($"Screenshot failed: {ex.Message}");
         }
 

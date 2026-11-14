@@ -89,7 +89,7 @@ namespace Gordian.Core.Network.Packets
         {
             var scheduler = new S2C_0x039_MapSchedulor(payload);
             if (!scheduler.IsValid) return;
-            GordianLog.Debug("ENTITY", $"Map scheduler '{scheduler.Routine}' (caster {scheduler.CasterServerId}, target {scheduler.TargetServerId}).");
+            GordianLog.Debug(LogCategories.Entity, $"Map scheduler '{scheduler.Routine}' (caster {scheduler.CasterServerId}, target {scheduler.TargetServerId}).");
             _world.PostMapScheduler(scheduler.Routine, scheduler.CasterServerId, scheduler.TargetServerId);
         }
 
@@ -117,7 +117,7 @@ namespace Gordian.Core.Network.Packets
 
             if (pc.IsDespawn)
             {
-                GordianLog.Debug("ENTITY", $"PC despawn: ServerId=0x{pc.UniqueNo:X8}, Index={pc.ActorIndex}");
+                GordianLog.Debug(LogCategories.Entity, $"PC despawn: ServerId=0x{pc.UniqueNo:X8}, Index={pc.ActorIndex}");
                 _pendingEntityRequests.Remove(pc.ActorIndex);
                 _world.RemoveEntity(pc.UniqueNo);
                 return;
@@ -172,7 +172,7 @@ namespace Gordian.Core.Network.Packets
                             AddMotionSample(player, newPos, isMoving: true, movTime, pc.Direction);
 
                             string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
-                            GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, speed={player.Speed}, packetDelta={dtMs:F0}ms, sampleAge={player.LastSampleAgeSeconds:F2}s, delay={player.PlaybackDelaySeconds:F2}s, interval={player.UpdateIntervalSeconds:F2}s, ground={player.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, player.Position):F2}");
+                            GordianLog.Info(LogCategories.Locomotion, $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, speed={player.Speed}, packetDelta={dtMs:F0}ms, sampleAge={player.LastSampleAgeSeconds:F2}s, delay={player.PlaybackDelaySeconds:F2}s, interval={player.UpdateIntervalSeconds:F2}s, ground={player.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, player.Position):F2}");
                         }
                         else if (S2C_0x00D_CharPc.IsMovingMovTime(movTime))
                         {
@@ -184,7 +184,7 @@ namespace Gordian.Core.Network.Packets
                             // rather than snapping, and drop to idle once it gets there.
                             if (player.Speed > 0)
                             {
-                                GordianLog.Info("Locomotion", $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, remaining={Vector3.Distance(newPos, player.Position):F2}");
+                                GordianLog.Info(LogCategories.Locomotion, $"[0x00D PC 0x{pc.UniqueNo:X8}:{player.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, movTime={movTime}, remaining={Vector3.Distance(newPos, player.Position):F2}");
                             }
                             float horizontal = Vector2.Distance(new Vector2(newPos.X, newPos.Z),
                                                                 new Vector2(player.TargetPosition.X, player.TargetPosition.Z));
@@ -242,7 +242,7 @@ namespace Gordian.Core.Network.Packets
                     if (pc.HasFlags6) player.MountWire = pc.MountIndex;
                     if (mount != player.Mount)
                     {
-                        GordianLog.Debug("ENTITY", $"Mount 0x{pc.UniqueNo:X8}: status={pc.ServerStatus} wire={wire} chocoboIndex={pc.ChocoboIndex} -> {mount.Kind} {mount.MountId}");
+                        GordianLog.Debug(LogCategories.Entity, $"Mount 0x{pc.UniqueNo:X8}: status={pc.ServerStatus} wire={wire} chocoboIndex={pc.ChocoboIndex} -> {mount.Kind} {mount.MountId}");
                     }
                     player.Mount = mount;
                 }
@@ -334,7 +334,7 @@ namespace Gordian.Core.Network.Packets
 
             if (npcPacket.IsDespawn)
             {
-                GordianLog.Debug("ENTITY", $"NPC/Mob despawn: ServerId=0x{npcPacket.UniqueNo:X8}, Index={npcPacket.ActorIndex}");
+                GordianLog.Debug(LogCategories.Entity, $"NPC/Mob despawn: ServerId=0x{npcPacket.UniqueNo:X8}, Index={npcPacket.ActorIndex}");
                 _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 if (_world.TryGetByServerId(npcPacket.UniqueNo, out var leaving))
                 {
@@ -365,7 +365,7 @@ namespace Gordian.Core.Network.Packets
                 if (!npcPacket.HasPosition && _despawnedNpcs.Remove(npcPacket.UniqueNo, out var kept))
                 {
                     // Back from a despawn with a partial update: keep its last state and apply only the flagged fields.
-                    GordianLog.Debug("ENTITY", $"NPC back from despawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} flags=0x{(byte)npcPacket.UpdateFlags:X2}: " +
+                    GordianLog.Debug(LogCategories.Entity, $"NPC back from despawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} flags=0x{(byte)npcPacket.UpdateFlags:X2}: " +
                         $"kept pos=({kept.Position.X:F1},{kept.Position.Y:F1},{kept.Position.Z:F1}) model={kept.Appearance.ModelId}");
                     entity = kept;
                 }
@@ -428,13 +428,13 @@ namespace Gordian.Core.Network.Packets
                         AddMotionSample(entity, newPos, isMoving: true, movTime: 0, npcPacket.Direction);
 
                         string phase = prevSpeed == 0 ? "MOVE START" : "MOVE PACKET";
-                        GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, speed={entity.Speed}, packetDelta={dtMs:F0}ms, delay={entity.PlaybackDelaySeconds:F2}s, interval={entity.UpdateIntervalSeconds:F2}s, ground={entity.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, entity.Position):F2}");
+                        GordianLog.Info(LogCategories.Locomotion, $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] {phase}: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), dist={dist:F2}, speed={entity.Speed}, packetDelta={dtMs:F0}ms, delay={entity.PlaybackDelaySeconds:F2}s, interval={entity.UpdateIntervalSeconds:F2}s, ground={entity.GroundSpeedYalms:F2}, behind={Vector3.Distance(newPos, entity.Position):F2}");
                     }
                     else
                     {
                         if (entity.Speed > 0)
                         {
-                            GordianLog.Info("Locomotion", $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), remaining={Vector3.Distance(newPos, entity.Position):F2}");
+                            GordianLog.Info(LogCategories.Locomotion, $"[0x00E NPC 0x{npcPacket.UniqueNo:X8}:{entity.Name}] MOVE STOP PACKET: pos=({newPos.X:F2},{newPos.Y:F2},{newPos.Z:F2}), remaining={Vector3.Distance(newPos, entity.Position):F2}");
                         }
                         AddMotionSample(entity, newPos, isMoving: false, movTime: 0, npcPacket.Direction);
                     }
@@ -511,7 +511,7 @@ namespace Gordian.Core.Network.Packets
                     entity.TransportObservedSeconds = arrival;
                     _world.TransportClockSkewSeconds = global::Gordian.Core.World.Collision.MovingPlatforms.RefineClockSkew(_world.TransportClockSkewSeconds, arrival, legStart);
                 }
-                GordianLog.Debug("Elevator", $"[0x00E 0x{npcPacket.UniqueNo:X8}] id={transportId} flags={npcPacket.UpdateFlags} anim={entity.AnimationState} " +
+                GordianLog.Debug(LogCategories.Elevator, $"[0x00E 0x{npcPacket.UniqueNo:X8}] id={transportId} flags={npcPacket.UpdateFlags} anim={entity.AnimationState} " +
                     $"stamp={legStart} (was {entity.TransportStartSeconds}) travel={travel} arrival={arrival:F3} (arrival-stamp={arrival - legStart:F3}) " +
                     $"observed={entity.TransportObservedSeconds:F3} isNew={isNew} pos=({entity.Position.X:F2},{entity.Position.Y:F2},{entity.Position.Z:F2})");
                 entity.TransportId = transportId;
@@ -566,7 +566,7 @@ namespace Gordian.Core.Network.Packets
 
             if (isNew)
             {
-                GordianLog.Debug("ENTITY", $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
+                GordianLog.Debug(LogCategories.Entity, $"NPC spawn 0x{npcPacket.UniqueNo:X8} index={npcPacket.ActorIndex} type={type} name='{entity.Name}' " +
                     $"look={npcPacket.LookSize} model={entity.Appearance.ModelId} face={entity.Appearance.FaceModel:X4} flags=0x{npcPacket.UpdateFlags:X} sub={npcPacket.AnimationSub} " +
                     $"pos=({entity.Position.X:F1},{entity.Position.Y:F1},{entity.Position.Z:F1})");
             }
@@ -585,7 +585,7 @@ namespace Gordian.Core.Network.Packets
             var update = new S2C_0x067_EntityUpdate1(payload);
             if (!update.IsValid)
             {
-                GordianLog.Debug("ENTITY", $"0x067 ignored: unsupported mode or short payload ({payload.Length} bytes).");
+                GordianLog.Debug(LogCategories.Entity, $"0x067 ignored: unsupported mode or short payload ({payload.Length} bytes).");
                 return;
             }
             ApplyEntitySync(update.Sync, S2C_0x067_EntityUpdate1.PacketId);
@@ -596,7 +596,7 @@ namespace Gordian.Core.Network.Packets
             var update = new S2C_0x068_EntityUpdate2(payload);
             if (!update.IsValid)
             {
-                GordianLog.Debug("ENTITY", $"0x068 ignored: unsupported mode or short payload ({payload.Length} bytes).");
+                GordianLog.Debug(LogCategories.Entity, $"0x068 ignored: unsupported mode or short payload ({payload.Length} bytes).");
                 return;
             }
             ApplyEntitySync(update.Sync, S2C_0x068_EntityUpdate2.PacketId);
@@ -614,7 +614,7 @@ namespace Gordian.Core.Network.Packets
                 case EntitySyncMode.Player:
                 {
                     bool isLocal = _localPlayer.ServerId != 0 && sync.UniqueNo == _localPlayer.ServerId;
-                    GordianLog.Debug("ENTITY", $"0x{packetId:X3} char sync: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} local={isLocal} " +
+                    GordianLog.Debug(LogCategories.Entity, $"0x{packetId:X3} char sync: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} local={isLocal} " +
                         $"nameFlags=0x{sync.NameFlags:X8} levelSync={sync.IsLevelSynced} levelCap={sync.LevelRestriction} mount={sync.MountWord} " +
                         $"mjobLv={sync.MainJobLevel} mogExpansion={sync.MogExpansionFlag}");
                     if (isLocal) _localPlayer.ApplyCharSync(sync);
@@ -630,7 +630,7 @@ namespace Gordian.Core.Network.Packets
                 {
                     if (!_world.TryGetByServerId(sync.UniqueNo, out var entity) || entity == null)
                     {
-                        GordianLog.Debug("ENTITY", $"0x{packetId:X3} entity update for unknown entity 0x{sync.UniqueNo:X8} (index {sync.ActIndex}) ignored.");
+                        GordianLog.Debug(LogCategories.Entity, $"0x{packetId:X3} entity update for unknown entity 0x{sync.UniqueNo:X8} (index {sync.ActIndex}) ignored.");
                         break;
                     }
 
@@ -646,7 +646,7 @@ namespace Gordian.Core.Network.Packets
                         // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
                         entity.Name = sync.Name.Replace('_', ' ');
                     }
-                    GordianLog.Debug("ENTITY", $"0x{packetId:X3} entity update: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} owner={sync.SecondIndex} name='{entity.Name}' type={entity.Type}");
+                    GordianLog.Debug(LogCategories.Entity, $"0x{packetId:X3} entity update: id=0x{sync.UniqueNo:X8} index={sync.ActIndex} owner={sync.SecondIndex} name='{entity.Name}' type={entity.Type}");
                     _world.UpsertEntity(entity);
                     break;
                 }
@@ -675,7 +675,7 @@ namespace Gordian.Core.Network.Packets
 
             if (petIndex == 0)
             {
-                GordianLog.Debug("ENTITY", $"0x{packetId:X3} pet sync: pet gone.");
+                GordianLog.Debug(LogCategories.Entity, $"0x{packetId:X3} pet sync: pet gone.");
                 Pet.Clear();
                 return;
             }
@@ -692,7 +692,7 @@ namespace Gordian.Core.Network.Packets
                 _world.UpsertEntity(petEntity);
             }
 
-            GordianLog.Debug("ENTITY", $"0x{packetId:X3} pet sync: pet index={petIndex} id=0x{petId:X8} owner index={ownerIndex} hp={sync.Hpp}% mp={sync.Mpp}% tp={sync.Tp} " +
+            GordianLog.Debug(LogCategories.Entity, $"0x{packetId:X3} pet sync: pet index={petIndex} id=0x{petId:X8} owner index={ownerIndex} hp={sync.Hpp}% mp={sync.Mpp}% tp={sync.Tp} " +
                 $"target=0x{sync.TargetId:X8} name='{name}'");
             Pet.Set(new LocalPet(petId, petIndex, ownerIndex, sync.Hpp, sync.Mpp, sync.Tp, sync.TargetId, name));
         }
@@ -721,7 +721,7 @@ namespace Gordian.Core.Network.Packets
                     localEnt.SpeedBase = charStatus.SpeedBase;
                 }
             }
-            GordianLog.Debug("ENTITY", $"Updated active character status: HPP={charStatus.Hpp}%, Speed={charStatus.Speed}");
+            GordianLog.Debug(LogCategories.Entity, $"Updated active character status: HPP={charStatus.Hpp}%, Speed={charStatus.Speed}");
         }
 
         private void HandleCliStatus(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -730,7 +730,7 @@ namespace Gordian.Core.Network.Packets
             if (!cliStatus.IsValid) return;
 
             _localPlayer.UpdateFromCliStatus(cliStatus);
-            GordianLog.Debug("ENTITY", $"Updated character stats: {cliStatus.MainJob} Lv{cliStatus.MainJobLevel}/{cliStatus.SubJob} Lv{cliStatus.SubJobLevel}, HP={cliStatus.HpMax}, MP={cliStatus.MpMax}, Atk={cliStatus.Attack}, Def={cliStatus.Defense}");
+            GordianLog.Debug(LogCategories.Entity, $"Updated character stats: {cliStatus.MainJob} Lv{cliStatus.MainJobLevel}/{cliStatus.SubJob} Lv{cliStatus.SubJobLevel}, HP={cliStatus.HpMax}, MP={cliStatus.MpMax}, Atk={cliStatus.Attack}, Def={cliStatus.Defense}");
         }
 
         private void HandleCliStatus2(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -739,7 +739,7 @@ namespace Gordian.Core.Network.Packets
             if (!cliStatus2.IsValid) return;
 
             _localPlayer.UpdateFromCliStatus2(cliStatus2);
-            GordianLog.Debug("ENTITY", "Updated character skills and ability recasts.");
+            GordianLog.Debug(LogCategories.Entity, "Updated character skills and ability recasts.");
         }
 
         private void HandleGroupEffects(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -756,7 +756,7 @@ namespace Gordian.Core.Network.Packets
                 }
             }
             PartyBuffsReceived?.Invoke(effects);
-            GordianLog.Debug("ENTITY", $"Received party group effects for {effects.MemberCount} members.");
+            GordianLog.Debug(LogCategories.Entity, $"Received party group effects for {effects.MemberCount} members.");
         }
 
         private void HandleEntityVis(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -765,12 +765,12 @@ namespace Gordian.Core.Network.Packets
             if (!vis.IsValid) return;
             if (!vis.IsUniqueNoList)
             {
-                GordianLog.Debug("ENTITY", $"Ignored visibility update with unhandled Flags {vis.Flags}.");
+                GordianLog.Debug(LogCategories.Entity, $"Ignored visibility update with unhandled Flags {vis.Flags}.");
                 return;
             }
 
             EntityVisibilityReceived?.Invoke(vis);
-            GordianLog.Debug("ENTITY", $"Received visibility range update for {vis.Count} entities (Flags: {vis.Flags}).");
+            GordianLog.Debug(LogCategories.Entity, $"Received visibility range update for {vis.Count} entities (Flags: {vis.Flags}).");
         }
 
         private void HandleJobInfo(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -779,7 +779,7 @@ namespace Gordian.Core.Network.Packets
             if (!jobInfo.IsValid) return;
 
             _localPlayer.UpdateFromJobInfo(jobInfo);
-            GordianLog.Debug("ENTITY", $"Updated job info: {jobInfo.MainJob} Lv{jobInfo.MainJobLevel}/{jobInfo.SubJob} Lv{jobInfo.SubJobLevel}, MaxHP={jobInfo.HpMax}, MaxMP={jobInfo.MpMax}");
+            GordianLog.Debug(LogCategories.Entity, $"Updated job info: {jobInfo.MainJob} Lv{jobInfo.MainJobLevel}/{jobInfo.SubJob} Lv{jobInfo.SubJobLevel}, MaxHP={jobInfo.HpMax}, MaxMP={jobInfo.MpMax}");
         }
 
         private void HandleGroupAttr(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -794,7 +794,7 @@ namespace Gordian.Core.Network.Packets
                     _localPlayer.ServerId = groupAttr.UniqueNo;
                 }
                 _localPlayer.UpdateFromGroupAttr(groupAttr);
-                GordianLog.Debug("ENTITY", $"Updated local player vitals from GroupAttr: HP={groupAttr.Hp}, MP={groupAttr.Mp}, TP={groupAttr.Tp}, HPP={groupAttr.Hpp}%, Job={groupAttr.MainJob} Lv{groupAttr.MainJobLevel}");
+                GordianLog.Debug(LogCategories.Entity, $"Updated local player vitals from GroupAttr: HP={groupAttr.Hp}, MP={groupAttr.Mp}, TP={groupAttr.Tp}, HPP={groupAttr.Hpp}%, Job={groupAttr.MainJob} Lv{groupAttr.MainJobLevel}");
             }
 
             // 0x0DF also carries every party member's vitals as they change (0x0DD only on roster changes).

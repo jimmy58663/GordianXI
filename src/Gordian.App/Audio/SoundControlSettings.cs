@@ -154,7 +154,7 @@ namespace Gordian.App.Audio
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("AUDIO", $"Failed to load sound settings from '{filePath}': {ex.Message}. Using defaults.");
+                    GordianLog.Warn(LogCategories.Audio, $"Failed to load sound settings from '{filePath}': {ex.Message}. Using defaults.");
                 }
             }
 

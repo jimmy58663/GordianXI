@@ -89,16 +89,16 @@ namespace Gordian.App.Services
                 if (SDL_Init(SubSystems))
                 {
                     _isAvailable = true;
-                    GordianLog.Info("INPUT", "SDL3 cross-platform gamepad driver initialized successfully.");
+                    GordianLog.Info(LogCategories.Input, "SDL3 cross-platform gamepad driver initialized successfully.");
                 }
                 else
                 {
-                    GordianLog.Warn("INPUT", $"SDL_Init failed for the gamepad subsystem: {SDL_GetError()}");
+                    GordianLog.Warn(LogCategories.Input, $"SDL_Init failed for the gamepad subsystem: {SDL_GetError()}");
                 }
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("INPUT", $"Failed to initialize SDL3 gamepad driver: {ex.Message}");
+                GordianLog.Warn(LogCategories.Input, $"Failed to initialize SDL3 gamepad driver: {ex.Message}");
                 _isAvailable = false;
             }
         }
@@ -130,7 +130,7 @@ namespace Gordian.App.Services
 
             if (FindBundledSdlLibrary() is string bundledPath && NativeLibrary.TryLoad(bundledPath, out handle))
             {
-                GordianLog.Info("INPUT", $"Loading bundled SDL3 from {bundledPath}.");
+                GordianLog.Info(LogCategories.Input, $"Loading bundled SDL3 from {bundledPath}.");
                 return handle;
             }
 
@@ -292,7 +292,7 @@ namespace Gordian.App.Services
                 _slotToInstanceId[slot] = instanceId;
                 string? name = SDL_GetGamepadName(opened);
                 _controllerNames[slot] = !string.IsNullOrWhiteSpace(name) ? name : "Gamepad";
-                GordianLog.Info("INPUT", $"SDL Gamepad Slot {slot} connected: '{name}' (Instance {(uint)instanceId}).");
+                GordianLog.Info(LogCategories.Input, $"SDL Gamepad Slot {slot} connected: '{name}' (Instance {(uint)instanceId}).");
             }
         }
 
