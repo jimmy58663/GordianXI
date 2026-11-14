@@ -94,6 +94,33 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public SoundSettingsViewModel Sound { get; } = new();
 
+        /// <summary>The Logs tab: the logs folder's tree and a terminal-style viewer (#566).</summary>
+        public LogsViewModel Logs { get; } = new();
+
+        /// <summary>The Logs tab's settings expander: levels, network file, chat logs (#566).</summary>
+        public LoggingSettingsViewModel LoggingSettings { get; } = new();
+
+        /// <summary>The main window's tab index of the Logs tab.</summary>
+        public const int LogsTabIndex = 1;
+
+        private int _selectedTabIndex;
+
+        /// <summary>The main window's selected tab.</summary>
+        public int SelectedTabIndex
+        {
+            get => _selectedTabIndex;
+            set => SetProperty(ref _selectedTabIndex, value);
+        }
+
+        /// <summary>The status box's history: this launch's latest status messages, oldest first (#566).</summary>
+        public ObservableCollection<string> RecentStatusLines { get; } = new();
+
+        /// <summary>How many status messages the Profiles and Launch box keeps; the Logs tab shows them all.</summary>
+        public const int RecentStatusCapacity = 50;
+
+        /// <summary>Opens the Logs tab on this launch's status file.</summary>
+        public ICommand ShowLogsTabCommand { get; }
+
         private bool _showStateInspector = true;
 
         /// <summary>
@@ -340,7 +367,18 @@ namespace Gordian.App.ViewModels
             {
                 GordianLog.Status(value);
                 SetProperty(ref _statusMessage, value);
+                if (!string.IsNullOrWhiteSpace(value)) AddRecentStatus(value, DateTime.Now);
             }
+        }
+
+        /// <summary>
+        /// Adds a message to <see cref="RecentStatusLines"/> as the status file shows it (<c>[HH:mm:ss] message</c>),
+        /// dropping the oldest past <see cref="RecentStatusCapacity"/>.
+        /// </summary>
+        internal void AddRecentStatus(string message, DateTime time)
+        {
+            RecentStatusLines.Add($"[{time:HH:mm:ss}] {message}");
+            while (RecentStatusLines.Count > RecentStatusCapacity) RecentStatusLines.RemoveAt(0);
         }
 
         private bool _isConfirmDeleteModalVisible;
@@ -443,6 +481,11 @@ namespace Gordian.App.ViewModels
             TrustCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(true));
             RejectCertificateCommand = new RelayCommand(() => AnswerCertificatePrompt(false));
             OpenProfilesDirectoryCommand = new RelayCommand(OpenProfilesDirectory);
+            ShowLogsTabCommand = new RelayCommand(() =>
+            {
+                Logs.ShowStatusCommand.Execute(null);
+                SelectedTabIndex = LogsTabIndex;
+            });
 
             SaveProfileCommand = new RelayCommand(SaveProfile);
             ClearFormCommand = new RelayCommand(ClearForm);
@@ -2268,6 +2311,7 @@ namespace Gordian.App.ViewModels
             Chat.Dispose();
             Inventory.Dispose();
             Console.Dispose();
+            Logs.Dispose();
         }
     }
 }

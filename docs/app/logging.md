@@ -4,7 +4,7 @@ How GordianXI logs, where the files go, and how to turn detail up or down (#564)
 
 ## Folders
 
-Everything lives under the user data logs folder, `GordianStorage.LogsDirectory`. That is `logs/` next to the executable, or `%APPDATA%/GordianXI/logs` when the client runs from a protected folder such as Program Files. For the maintainer's Debug build it is `src/Gordian.App/bin/Debug/net10.0/logs`.
+Everything lives under the user data logs folder, `GordianStorage.LogsDirectory`. That is `logs/` next to the executable, or `%APPDATA%/GordianXI/logs` when the client runs from a protected folder such as Program Files (`GordianStorage.ResolveRootDataDirectory`; Linux and macOS layouts are #567). The Logs tab's tree and its **Open logs folder** button use the folder the running logger was given, `GordianLog.LogsDirectory`. For the maintainer's Debug build it is `src/Gordian.App/bin/Debug/net10.0/logs`.
 
 ```
 logs/
@@ -64,7 +64,7 @@ Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core
 
 ## Settings
 
-`logging.json` in `GordianStorage.UserSettingsDirectory` (`%LOCALAPPDATA%/GordianXI` on Windows). Every field is optional; a missing one keeps the built-in default, so the file never freezes an old default. Read at startup; the Logs tab (#566) will edit it and apply it live through `GordianLog.ApplySettings`.
+`logging.json` in `GordianStorage.UserSettingsDirectory` (`%LOCALAPPDATA%/GordianXI` on Windows). Every field is optional; a missing one keeps the built-in default, so the file never freezes an old default. The file does not exist until something saves it. Read at startup; the Logs tab's **Logging settings** (#566, [desktop-shell.md](desktop-shell.md#status-box-and-logs-tab-566)) edits it and applies it live through `GordianLog.ApplySettings`.
 
 ```json
 {

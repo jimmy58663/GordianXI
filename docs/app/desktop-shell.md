@@ -23,6 +23,16 @@ dotnet run --project src/Gordian.App/Gordian.App.csproj -- --profiles-dir <path>
 
 `--profile` takes retail and private server profiles alike, with the same checks as the Launch button; a retail profile logs in to Square Enix's live servers. Profile passwords are encrypted with the per-user key in `~/.gordian_key`, so a shared folder works from every build under the same user. Selection state for the launch list is not changed.
 
+## Status box and Logs tab (#566)
+
+The **status box** under the Profiles and Launch tab lists this launch's latest status messages (the last 50, 13 px monospace, newest at the bottom, `MainWindowViewModel.RecentStatusLines`) instead of only the newest one. **View full log** opens the Logs tab on this launch's status file.
+
+The **Logs** tab is the second tab (`MainWindowViewModel.LogsTabIndex`):
+
+- **Left: the logs folder.** **Open logs folder** opens `GordianLog.LogsDirectory` in the OS file manager through Avalonia's `Launcher.LaunchDirectoryInfoAsync`: the folder the logger writes to, next to the exe or in the user's application data folder when the exe is in a protected folder such as Program Files (`GordianStorage.ResolveRootDataDirectory`). It is never a path built from `%LOCALAPPDATA%` or `%APPDATA%`. **Status (this session)** is pinned above the tree. The tree (`LogTreeBuilder`) lists `status`, `system`, `network` and `chat` first, then other folders, then loose files (the pre-#564 logs); files are newest first. A `FileSystemWatcher` marks it for rebuild when files appear or go, keeping expanded folders and the highlighted file; **Refresh** rebuilds it by hand.
+- **Right: a terminal-style viewer.** 13 px monospace on near-black, virtualized. A file loads off the UI thread (`LogFileReader`); one larger than 32 MB loads only its last 32 MB, which the header line says. While the file grows (this launch's status file, today's system or chat file) the view's half-second timer calls `LogsViewModel.Poll`, which reads only the appended lines; **Follow** keeps the newest in view. Search filters lines as you type; the level filter (system and network files) keeps a stack trace with the error above it. Lines are coloured by level. **Copy** copies the selected lines, or all shown lines when none is selected.
+- **Logging settings** (expander): the default level, per-category levels (each shows its built-in default), the network packet log and chat logs. **Save and apply** writes `logging.json` with only what differs from the defaults and applies it to the running logger at once (`LoggingSettingsViewModel`); retention and file size keep the file's values and apply at the next launch. Details: [logging.md](logging.md).
+
 ## Screenshots
 
 `/screenshot [hide] [name]` saves the viewport's next frame as a PNG in the `screenshots` folder under `GordianStorage.RootDataDirectory`, and the chat log prints the saved path.

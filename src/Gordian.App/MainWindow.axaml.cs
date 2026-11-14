@@ -1,5 +1,8 @@
 using System;
+using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -18,6 +21,73 @@ namespace Gordian.App
         private readonly DispatcherTimer _inputLoopTimer;
         private readonly IGamepadDriver _gamepadDriver;
         private long _lastInputLoopTimestamp;
+
+        private DispatcherTimer? _logsPollTimer;
+
+        /// <summary>
+        /// Wires the Logs tab (#566): the tree and status file load now, a half-second timer follows the shown file and
+        /// the folder, and the status box keeps its newest line in view.
+        /// </summary>
+        private void InitializeLogsTab()
+        {
+            var logs = _viewModel.Logs;
+            logs.OpenFolderRequested += path => _ = OpenLogsFolderAsync(path);
+            logs.LinesAppended += () =>
+            {
+                if (!logs.Follow) return;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var listBox = this.FindControl<ListBox>("LogLinesListBox");
+                    if (listBox != null && listBox.ItemCount > 0) listBox.ScrollIntoView(listBox.ItemCount - 1);
+                });
+            };
+            _viewModel.RecentStatusLines.CollectionChanged += (_, _) =>
+                Dispatcher.UIThread.Post(() => this.FindControl<ScrollViewer>("StatusHistoryScroll")?.ScrollToEnd());
+
+            logs.Start();
+            _logsPollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => logs.Poll());
+            _logsPollTimer.Start();
+            Closed += (_, _) => _logsPollTimer?.Stop();
+        }
+
+        /// <summary>
+        /// Opens the folder the logs are written to in the OS file manager. It is <c>GordianLog.LogsDirectory</c> (next to
+        /// the exe, or the user's application data folder when the exe is in Program Files), never a path built here.
+        /// </summary>
+        private async System.Threading.Tasks.Task OpenLogsFolderAsync(string path)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(path);
+                var launcher = TopLevel.GetTopLevel(this)?.Launcher;
+                bool opened = launcher != null && await launcher.LaunchDirectoryInfoAsync(new System.IO.DirectoryInfo(path));
+                if (!opened) Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.App, $"The OS did not open the logs folder {path}.");
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Error(Gordian.Core.Diagnostics.LogCategories.App, $"Could not open the logs folder {path}", ex);
+            }
+        }
+
+        /// <summary>Copies the selected log lines, or every shown line when none is selected.</summary>
+        private async void OnCopyLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            var listBox = this.FindControl<ListBox>("LogLinesListBox");
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (listBox == null || clipboard == null) return;
+            var selected = listBox.SelectedItems?.OfType<LogLineItem>().ToList();
+            var lines = selected is { Count: > 0 }
+                ? _viewModel.Logs.Lines.Where(selected.Contains)
+                : _viewModel.Logs.Lines;
+            try
+            {
+                await clipboard.SetTextAsync(LogsViewModel.JoinLines(lines));
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Clipboard, $"Could not copy log lines: {ex.Message}");
+            }
+        }
 
         public MainWindow()
         {
@@ -54,6 +124,8 @@ namespace Gordian.App
                     }
                 });
             };
+
+            InitializeLogsTab();
 
             _viewModel.Chat.RequestOpenPopOutWindow += (s, e) =>
             {

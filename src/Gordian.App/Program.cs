@@ -12,6 +12,12 @@ namespace Gordian.App
 
     internal class Program
     {
+        /// <summary>Whether logging started with Debug as its default level (Debug build or <c>GORDIAN_DEBUG=1</c>).</summary>
+        internal static bool LogDebugByDefault { get; private set; }
+
+        /// <summary>Whether <c>GORDIAN_LOG_NETWORK_DISK=1</c> forced the network file on.</summary>
+        internal static bool LogNetworkFileOverride { get; private set; }
+
         // Initialization code. Don't use any Avalonia, third-party APIs or any
         // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
         // yet and stuff might break.
@@ -54,12 +60,14 @@ namespace Gordian.App
 #else
                 const bool debugBuild = false;
 #endif
+                LogDebugByDefault = debugBuild || IsSet("GORDIAN_DEBUG");
+                LogNetworkFileOverride = IsSet("GORDIAN_LOG_NETWORK_DISK");
                 GordianLog.Initialize(new LogOptions
                 {
                     LogsDirectory = GordianStorage.LogsDirectory,
                     Settings = LoggingSettings.Load(LoggingSettings.DefaultPath),
-                    DebugByDefault = debugBuild || IsSet("GORDIAN_DEBUG"),
-                    NetworkFileOverride = IsSet("GORDIAN_LOG_NETWORK_DISK"),
+                    DebugByDefault = LogDebugByDefault,
+                    NetworkFileOverride = LogNetworkFileOverride,
                     MirrorToConsole = IsSet("GORDIAN_LOG_CONSOLE"),
                 });
 
