@@ -12,6 +12,9 @@ namespace Gordian.Core.Diagnostics
         /// <summary>Completed by the writer once every record queued before it is on disk.</summary>
         public TaskCompletionSource? FlushSignal { get; init; }
 
+        /// <summary>For a chat line: the server it goes under (<see cref="Category"/> holds the character, <see cref="Message"/> the formatted line).</summary>
+        public string? ChatServer { get; init; }
+
         public static LogRecord Barrier(TaskCompletionSource signal) =>
             new(default, LogLevel.Off, string.Empty, null, string.Empty) { FlushSignal = signal };
     }
@@ -27,6 +30,7 @@ namespace Gordian.Core.Diagnostics
         private readonly RollingLogFile _system;
         private readonly RollingLogFile _network;
         private readonly StreamWriter _status;
+        private readonly ChatLogFiles _chat;
         private readonly bool _console;
         private readonly StringBuilder _line = new(256);
 
@@ -34,6 +38,7 @@ namespace Gordian.Core.Diagnostics
         {
             _system = new RollingLogFile(Path.Combine(logsDirectory, GordianLog.SystemFolder), "gordian", maxFileBytes);
             _network = new RollingLogFile(Path.Combine(logsDirectory, GordianLog.NetworkFolder), "network", maxFileBytes);
+            _chat = new ChatLogFiles(logsDirectory);
             _console = mirrorToConsole;
 
             string statusDirectory = Path.Combine(logsDirectory, GordianLog.StatusFolder);
@@ -52,6 +57,12 @@ namespace Gordian.Core.Diagnostics
 
         public void Write(in LogRecord record)
         {
+            if (record.ChatServer is { } server)
+            {
+                _chat.WriteLine(server, record.Category, record.Timestamp, record.Message);
+                return;
+            }
+
             if (record.Level == LogLevel.Status)
             {
                 string statusLine = FormatStatus(record);
@@ -74,6 +85,7 @@ namespace Gordian.Core.Diagnostics
             _system.Flush();
             _network.Flush();
             _status.Flush();
+            _chat.Flush();
         }
 
         public void Dispose()
@@ -82,6 +94,7 @@ namespace Gordian.Core.Diagnostics
             _system.Dispose();
             _network.Dispose();
             _status.Dispose();
+            _chat.Dispose();
         }
 
         private string Format(in LogRecord record)

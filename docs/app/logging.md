@@ -17,9 +17,24 @@ logs/
 - **`system/`**: every category except status messages and packet detail. The file is named by the date a line is written, so a session that runs past midnight moves to the next day's file. When a file reaches the size cap the next lines go to `_2`, `_3`, and so on; a second launch on the same day continues the newest file.
 - **`network/`**: the detail (Trace and Debug) of the network categories `NET`, `PARSER`, `CRYPTO` and `DISPATCHER`: datagram headers, sub-packets, unhandled packet ids, key exchange. Off by default. Their Info, Warn and Error lines (login steps, zone transitions) go to the system log as usual, and also here when the file is on, so it reads on its own.
 - **`status/`**: the messages the user was shown in the Profiles and Launch status box (and the Controls tab's status line), one file per launch named by its start time. They are not repeated in the system log.
-- **`chat/`**: reserved for the per-character chat logs (#565).
+- **`chat/`**: the per-character chat logs (see [Chat logs](#chat-logs)).
 
 At startup the writer thread deletes `system/`, `network/` and `status/` files last written more than 7 days ago. It never touches `chat/`, the pre-#564 files at the top of `logs/` (`gordian_system_<yyyyMMdd>.log`, kept by hand because some are cited as calibration evidence), or any other file.
+
+## Chat logs
+
+Every line a character's in-game log shows (say, shout, yell, tell, party, linkshell, unity, assist, emotes, NPC dialog, system, combat and battle messages, client notices and errors) is also written to `chat/<server>/<character>/<yyyy-MM-dd>.log` (#565):
+
+```
+[21:05:09] [Tell] Gemini>> meet at the Home Point
+[21:05:12] [Combat] Gemini hits the Wild Rabbit for 12 points of damage.
+```
+
+- **`<server>`** is `Retail` for a retail profile and the server host for a LandSandBoat profile (`AccountProfile.ChatLogServerName`, set on `CharacterSession.ServerName`), so the same character name on two servers never shares a file. Server and character names keep their casing; characters a file system rejects become `_`, and an empty name becomes `Unknown` (`ChatLogFiles.FolderName`).
+- **The date** is the local date the line was logged, so play past midnight moves to the next day's file. Chat files never roll by size and are never deleted.
+- **The text** is the log line as plain text (`ChatLogFileWriter.PlainText`): element icons become their element words, line breaks become spaces, and the stock UI's drawing codes are dropped. Auto-translate phrases are written as the in-game log shows them; resolving them to words is #388.
+- **How:** `ChatLogFileWriter` (`src/Gordian.Engine/Ui`), built by `CharacterSession`, listens to `StockUiChatLog.LineAdded` and hands each formatted line to `GordianLog.Chat`; the logger's writer thread opens and appends the files, so the network thread never waits on disk, and `Shutdown` flushes them.
+- **Setting:** `"ChatLog": false` in `logging.json` turns it off (on by default).
 
 ## Line format
 
@@ -56,6 +71,7 @@ Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core
   "DefaultLevel": "Info",
   "Categories": { "LOCOMOTION": "Info", "GRAPHICS": "Debug" },
   "NetworkFile": true,
+  "ChatLog": true,
   "RetentionDays": 7,
   "MaxFileBytes": 20971520
 }
@@ -96,4 +112,10 @@ Before `GordianLog.Initialize` runs nothing is logged, so tests and tools that u
 dotnet test tests/Gordian.Core.Tests --filter "FullyQualifiedName~Gordian.Core.Tests.Diagnostics"
 ```
 
-`GordianLogTests` covers level gating (a disabled interpolated line is not formatted), routing of each category to its file, status files per launch, the character tag and full exceptions; `LogFilesTests` covers rolling, write-date naming, retention (chat is never deleted) and `logging.json`.
+`GordianLogTests` covers level gating (a disabled interpolated line is not formatted), routing of each category to its file, status files per launch, the character tag and full exceptions; `LogFilesTests` covers rolling, write-date naming, retention (chat is never deleted) and `logging.json`; `ChatLogFilesTests` covers chat folder naming.
+
+```bash
+dotnet test tests/Gordian.Engine.Tests --filter "FullyQualifiedName~ChatLogFileWriter"
+```
+
+`ChatLogFileWriterTests` covers the line format and plain text, per-day files across midnight, separate files per character, the setting and logout.

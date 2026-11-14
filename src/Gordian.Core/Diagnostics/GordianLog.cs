@@ -215,6 +215,22 @@ namespace Gordian.Core.Diagnostics
             Write(LogLevel.Status, LogCategories.Status, message);
         }
 
+        /// <summary>Whether chat lines are being written to <c>logs/chat/</c> (the <c>ChatLog</c> setting, on by default).</summary>
+        public static bool ChatLogEnabled => s_filter?.ChatLog == true;
+
+        /// <summary>
+        /// Appends one formatted chat line to <c>chat/&lt;server&gt;/&lt;character&gt;/yyyy-MM-dd.log</c> (#565), the date
+        /// taken from <paramref name="timestamp"/>. Does nothing while chat logging is off or before <see cref="Initialize"/>.
+        /// </summary>
+        public static void Chat(string server, string character, DateTime timestamp, string line)
+        {
+            if (!ChatLogEnabled) return;
+            Channel<LogRecord>? channel = s_channel;
+            if (channel is null) return;
+            var record = new LogRecord(timestamp, LogLevel.Info, character ?? string.Empty, null, line ?? string.Empty) { ChatServer = server ?? string.Empty };
+            if (!channel.Writer.TryWrite(record)) Interlocked.Increment(ref s_dropped);
+        }
+
         private static void Write(LogLevel level, string category, string message)
         {
             if (!IsEnabled(level, category)) return;

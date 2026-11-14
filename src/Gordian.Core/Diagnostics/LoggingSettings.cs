@@ -47,6 +47,9 @@ namespace Gordian.Core.Diagnostics
         /// </summary>
         public bool? NetworkFile { get; set; }
 
+        /// <summary>Whether each character's chat log is written to <c>logs/chat/</c> (#565). Unset: on.</summary>
+        public bool? ChatLog { get; set; }
+
         /// <summary>Days to keep system, network and status logs. Unset: <see cref="DefaultRetentionDays"/>. Chat logs are never deleted.</summary>
         public int? RetentionDays { get; set; }
 

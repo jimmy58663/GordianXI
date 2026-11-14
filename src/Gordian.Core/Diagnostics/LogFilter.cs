@@ -13,10 +13,11 @@ namespace Gordian.Core.Diagnostics
     {
         private readonly FrozenDictionary<string, LogLevel> _levels;
 
-        private LogFilter(LogLevel defaultLevel, bool networkFile, int retentionDays, long maxFileBytes, FrozenDictionary<string, LogLevel> levels)
+        private LogFilter(LogLevel defaultLevel, bool networkFile, bool chatLog, int retentionDays, long maxFileBytes, FrozenDictionary<string, LogLevel> levels)
         {
             DefaultLevel = defaultLevel;
             NetworkFile = networkFile;
+            ChatLog = chatLog;
             RetentionDays = retentionDays;
             MaxFileBytes = maxFileBytes;
             _levels = levels;
@@ -27,6 +28,9 @@ namespace Gordian.Core.Diagnostics
 
         /// <summary>Whether network-category detail below <see cref="LogLevel.Info"/> is written to <c>logs/network/</c>.</summary>
         public bool NetworkFile { get; }
+
+        /// <summary>Whether chat lines are written to <c>logs/chat/</c>.</summary>
+        public bool ChatLog { get; }
 
         /// <summary>Days to keep system, network and status logs.</summary>
         public int RetentionDays { get; }
@@ -64,7 +68,7 @@ namespace Gordian.Core.Diagnostics
 
             int retention = settings.RetentionDays is > 0 ? settings.RetentionDays.Value : LoggingSettings.DefaultRetentionDays;
             long maxBytes = settings.MaxFileBytes is > 0 ? settings.MaxFileBytes.Value : LoggingSettings.DefaultMaxFileBytes;
-            return new LogFilter(defaultLevel, networkFile, retention, maxBytes, levels.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
+            return new LogFilter(defaultLevel, networkFile, settings.ChatLog ?? true, retention, maxBytes, levels.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
         }
 
         /// <summary>The minimum level a record of <paramref name="category"/> needs.</summary>

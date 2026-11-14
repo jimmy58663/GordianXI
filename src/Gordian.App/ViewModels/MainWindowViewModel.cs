@@ -1985,7 +1985,8 @@ namespace Gordian.App.ViewModels
                 netManager
             )
             {
-                ProfileName = profile.ProfileName
+                ProfileName = profile.ProfileName,
+                ServerName = profile.ChatLogServerName,
             };
 
             // The profile's saved camera zoom comes back before the first frame; a settled zoom is saved on it (#550).
