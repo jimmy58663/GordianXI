@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/assets/gordian_256.png" alt="GordianXI Gordian Knot logo" width="180">
+  <img src="resources/assets/gordian_readme_banner.png" alt="GordianXI: a modern 64-bit client for Final Fantasy XI. Open source, cross-platform, native multi-boxing." width="100%">
 </p>
 
 # GordianXI
