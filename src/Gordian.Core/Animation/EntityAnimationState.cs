@@ -235,9 +235,8 @@ namespace Gordian.Core.Animation
         private float _overlayPeak;
         private float _overlayElapsed;
         private float _overlayDuration;
-        private ShieldBlockPose.ShieldMount? _shieldBlock;
-        private float _shieldBlockElapsed;
-        private float _shieldBlockDuration;
+        private ShieldBlockPose.ShieldMount? _shieldArm;
+        private System.Numerics.Quaternion _shieldGuardPivot;
 
         private readonly object _controlLockSync = new();
         private readonly List<(long Start, long Until, ActionFreezeSource Source)> _controlLocks = new();
@@ -614,7 +613,6 @@ namespace Gordian.Core.Animation
             _weaponMotion = WeaponMotion.None;
             _actionSpeed = 1f;
             _overlayClip = null;
-            _shieldBlock = null;
         }
 
         private void AcceptIncoming(long now)
@@ -920,9 +918,9 @@ namespace Gordian.Core.Animation
                 var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
                 pose = LocomotionLayering.Combine(skeleton, pose, lowerPose, parentOverrides);
             }
-            if (_shieldBlock is { } shield && _shieldBlockDuration > 0f)
+            if (_shieldArm is { } shieldArm && overlay is { } block)
             {
-                ShieldBlockPose.Apply(skeleton, pose, shield, OverlayEnvelope(_shieldBlockElapsed / _shieldBlockDuration), parentOverrides);
+                ShieldBlockPose.Apply(skeleton, pose, shieldArm, _shieldGuardPivot, block.Weight, parentOverrides);
             }
             return pose;
         }
@@ -1249,11 +1247,6 @@ namespace Gordian.Core.Animation
                 if (_overlayElapsed >= _overlayDuration) _overlayClip = null;
             }
 
-            if (_shieldBlock != null)
-            {
-                _shieldBlockElapsed += dt;
-                if (_shieldBlockElapsed >= _shieldBlockDuration) _shieldBlock = null;
-            }
         }
 
         private void ApplyReaction(EntityModel model, HitReaction reaction, long now)
@@ -1283,28 +1276,19 @@ namespace Gordian.Core.Animation
                     break;
 
                 case ActionResolution.Block:
-                    // With a shield the block swings it up in front (ShieldBlockPose, #546 round 3), for the length of the
-                    // routine's pose flash; without one (a monster) the routine's guard pose.
-                    if (model.Shield is { } shield)
-                    {
-                        _shieldBlock = shield;
-                        _shieldBlockElapsed = 0f;
-                        int ticks = model.MotionRoutines.TryGetValue("gur1", out var gur1) && gur1.PoseFlashTicks > 0 ? gur1.PoseFlashTicks : DefaultPoseFlashTicks;
-                        _shieldBlockDuration = ticks / RoutineTicksPerSecond;
-                    }
-                    else
-                    {
-                        StartPoseRoutine(model, "gur1", "gurd");
-                    }
+                    // With a shield the block's guard pose plays on the shield arm only (ShieldBlockPose, #546 round 4);
+                    // without one (a monster) the routine's guard pose on the whole body.
+                    StartPoseRoutine(model, "gur1", "gurd", model.Shield);
                     break;
             }
         }
 
         /// <summary>
         /// Plays a guard / parry / block routine as a pose flash: the PC routines carry op 0x5A (pose 0 = guard <c>gdm</c>,
-        /// 1 = parry <c>pym</c>; a block with a shield is <see cref="ShieldBlockPose"/> instead), the monster ones a two-tick guard pose clip that blends out over its blend-out time.
+        /// 1 = parry <c>pym</c>; with a <paramref name="shieldArm"/> the guard pose moves that arm alone, <see cref="ShieldBlockPose"/>),
+        /// the monster ones a two-tick guard pose clip that blends out over its blend-out time.
         /// </summary>
-        private void StartPoseRoutine(EntityModel model, string name, string fallbackName)
+        private void StartPoseRoutine(EntityModel model, string name, string fallbackName, ShieldBlockPose.ShieldMount? shieldArm = null)
         {
             if (!model.MotionRoutines.TryGetValue(name, out var routine) && !model.MotionRoutines.TryGetValue(fallbackName, out routine)) return;
 
@@ -1312,6 +1296,14 @@ namespace Gordian.Core.Animation
             {
                 string pose = routine.PoseFlashIndex == 1 ? "pym" : "gdm";
                 StartOverlay(model, pose, 1f, routine.PoseFlashTicks > 0 ? routine.PoseFlashTicks : DefaultPoseFlashTicks);
+                if (shieldArm != null && pose == "gdm" && _overlayClip != null && model.Skeleton is { } skeleton)
+                {
+                    // The pose itself on the shield arm (as the viewer shows it), not its offset from the neutral twin.
+                    _overlayMask = ShieldBlockPose.ArmMask(skeleton, shieldArm, _overlayMask, model.ParentOverrides);
+                    _overlayReference = null;
+                    _shieldArm = shieldArm;
+                    _shieldGuardPivot = SkeletonPoseEvaluator.EvaluatePose(skeleton, _overlayClip, 0f, false, model.ParentOverrides).Rotations[shieldArm.Pivot];
+                }
             }
             else if (routine.Segments.Count == 1)
             {
@@ -1324,6 +1316,7 @@ namespace Gordian.Core.Animation
         {
             if (!model.Animations.TryGetValue(clipName, out var clip) || ticks <= 0) return;
             _overlayClip = clip;
+            _shieldArm = null;
             _overlayReference = ReferencePose(model, clipName);
             _overlayMask = OverlayMask(model, clip);
             _overlayPeak = Math.Clamp(peak, 0f, 1f);

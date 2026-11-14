@@ -8,46 +8,38 @@ using Gordian.Core.Resources.Models;
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// The shield block (#546 rounds 1-3): the shield arm swings the shield up in front of the chest, upright and facing
-    /// the attacker.
+    /// The shield block (#546 rounds 1-4): the guard pose <c>gdm</c> played on the shield arm alone.
     /// <para>
     /// A block plays the PC routine <c>gur1</c>, whose op 0x5A pose flash is pose 0, the guard pose <c>gdm</c> of the guard
-    /// routine <c>gurd</c> (xi-tools names the op IdleCasterGuard). That guard is the weapon arm's (Hume male: the right hand
-    /// rises about 1.0 yalm, the left about 0.1), so the block came from the wrong hand (in-game test round 1), and the game
-    /// data has no block pose of its own. The maintainer's retail recording <c>Shield_Block_Retail.mp4</c> (a paladin with a
-    /// shield, 2026-11-13) shows the block: at about 51.4 s the shield is held out in front of the chest toward the attacker,
-    /// upright, its face toward the attacker, for about 8 frames at 30 fps (about 0.27 s), then back to the stance; at about
-    /// 46.2 s it goes up toward the attacker the same way. Round 2 played the guard mirrored onto the shield arm; the arm
-    /// chains' local frames mirror each other, but the guard's own motion does not make a block: in game the arm went out
-    /// away from the attacker, and over the idle stance (a block while not engaged) the shield lay flat (round 3).
+    /// routine <c>gurd</c> (xi-tools names the op IdleCasterGuard); the game data has no block pose of its own. <c>gdm</c> is a
+    /// single pose (2 keys) over most of the body that brings both hands up to the middle of the chest (as XI Model Viewer
+    /// shows it). Played on the whole body as an offset from its neutral twin <c>gdi6</c>, as a plain guard plays it, it
+    /// moves mostly the weapon arm, so the block came from the wrong hand (in-game test round 1). Round 2 mirrored it onto
+    /// the shield arm and round 3 turned the shield arm procedurally to face ahead; neither looked like retail (rounds 3-4).
+    /// The maintainer's suggestion (round 4): <c>gdm</c> on the shield side only. So a block blends the shield arm (the joint
+    /// where the arm leaves the chest, <see cref="ShieldMount.Pivot"/>, and every joint below it, <see cref="ArmMask"/>) toward
+    /// <c>gdm</c> as it is (not its offset from <c>gdi6</c>, which is small on that arm: Hume male's shield moves under 0.2
+    /// yalm): the joints below the pivot take <c>gdm</c>'s local rotations, and the pivot turns the arm to point where
+    /// <c>gdm</c> points it relative to the body (<see cref="Apply"/>), while the other arm and the body stay on whatever is
+    /// playing. The maintainer's retail recording
+    /// <c>Shield_Block_Retail.mp4</c> (a paladin, 2026-11-13) shows the shield pulled across the chest toward the attacker at
+    /// about 51.4 s, held about 8 frames at 30 fps (about 0.27 s, the routine's 16-tick flash), then back.
     /// </para>
     /// <para>
-    /// So the block is procedural, laid on whatever pose is playing (<see cref="Apply"/>): the whole shield arm, from the
-    /// joint where it leaves the chest (the first joint above the left hand reference 126 that is not above the right hand
-    /// 127), turns rigidly so the shield's outward face points straight ahead (model +X, toward the attacker) and the shield
-    /// comes in front of the chest. The turn keeps the angle between the arm and the shield's face, so the arm's direction
-    /// is chosen to make the face land exactly ahead: forward by that angle, the rest down and out to the shield side. The
-    /// shield is found from its mesh (<see cref="Find"/>: the off-hand slot's vertices, all bound to one arm joint on every
-    /// race checked: Hume male 87, Galka 74, Tarutaru male 28, Elvaan female 94). *Inference*: the arm's path is ours; the
-    /// video shows the end pose (and the body turning toward the attacker, which is not modelled).
+    /// The shield is found from its mesh (<see cref="Find"/>: the off-hand slot's vertices, all bound to one arm joint on every
+    /// race checked: Hume male 87, Galka 74, Tarutaru male 28, Elvaan female 94).
     /// </para>
     /// </summary>
     public static class ShieldBlockPose
     {
         private const int LeftHandReference = 126, RightHandReference = 127;
 
-        /// <summary>
-        /// The least the arm points forward at the block (the cosine to straight ahead): a shield bound almost along the arm
-        /// would otherwise be held out to the side to face ahead exactly; with this it comes in front, its face a little off.
-        /// </summary>
-        private const float MinForward = 0.65f;
-
         /// <summary>The off-hand weapon slot (the shield's meshes).</summary>
         private const int SubSlot = 1;
 
         /// <summary>
         /// Where the shield sits on the arm: the joint its meshes are bound to, and the shield's centre and face normal in
-        /// that joint's frame; <see cref="Pivot"/> is the joint the arm turns about, <see cref="Chest"/> its parent.
+        /// that joint's frame; <see cref="Pivot"/> is the joint where the arm leaves the chest, <see cref="Chest"/> its parent.
         /// </summary>
         public sealed record ShieldMount(int Joint, Vector3 LocalCentre, Vector3 LocalNormal, int Pivot, int Chest);
 
@@ -90,18 +82,39 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>
-        /// Turns the shield arm of <paramref name="pose"/> (model space, in place) toward the block by <paramref name="weight"/>
-        /// (0 none, 1 the full block).
+        /// The joints the block's guard pose may move by their local rotations: those below the shield arm's pivot (a
+        /// re-parented joint by its new parent) that <paramref name="poseMask"/> allows (null: all). The pivot itself is
+        /// turned by <see cref="Apply"/>.
         /// </summary>
-        public static void Apply(Skeleton skeleton, in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount, float weight,
-            IReadOnlyDictionary<int, int>? parentOverrides = null)
+        public static bool[] ArmMask(Skeleton skeleton, ShieldMount mount, bool[]? poseMask, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            ArgumentNullException.ThrowIfNull(mount);
+            var mask = new bool[skeleton.Count];
+            for (int j = 0; j < mask.Length; j++)
+            {
+                mask[j] = j != mount.Pivot && (poseMask == null || (j < poseMask.Length && poseMask[j])) && IsBelow(skeleton, j, mount.Pivot, parentOverrides);
+            }
+            return mask;
+        }
+
+        /// <summary>
+        /// Turns the shield arm of <paramref name="pose"/> (model space, in place) rigidly about its pivot so the pivot's
+        /// rotation moves toward <paramref name="guardPivot"/> (the pivot's model-space rotation in <c>gdm</c> played alone) by
+        /// <paramref name="weight"/>: the arm points where the guard points it relative to the body, whatever the chest is
+        /// doing (Galka's and Elvaan male's <c>gdm</c> bend the chest forward, so the guard's arm on their upright stance chest
+        /// would hold the shield over the head).
+        /// </summary>
+        public static void Apply(Skeleton skeleton, in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount, Quaternion guardPivot,
+            float weight, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             ArgumentNullException.ThrowIfNull(skeleton);
             ArgumentNullException.ThrowIfNull(mount);
             int n = Math.Min(skeleton.Count, pose.Rotations.Length);
-            if (weight <= 0f || mount.Joint >= n || mount.Pivot >= n || mount.Chest >= n) return;
-            var turn = Turn(pose, mount);
-            if (weight < 1f) turn = Quaternion.Normalize(Quaternion.Slerp(Quaternion.Identity, turn, weight));
+            if (weight <= 0f || mount.Pivot >= n) return;
+            var turn = Quaternion.Normalize(guardPivot * Quaternion.Conjugate(pose.Rotations[mount.Pivot]));
+            if (turn.W < 0f) turn = -turn;
+            turn = Quaternion.Normalize(Quaternion.Slerp(Quaternion.Identity, turn, Math.Min(weight, 1f)));
             Vector3 pivot = pose.Translations[mount.Pivot];
             for (int j = 0; j < n; j++)
             {
@@ -119,46 +132,6 @@ namespace Gordian.Core.Animation
             var centre = pose.Translations[mount.Joint] + Vector3.Transform(mount.LocalCentre, rotation);
             var normal = Vector3.Normalize(Vector3.Transform(mount.LocalNormal, rotation));
             return (centre, Vector3.Dot(normal, centre - pose.Translations[mount.Chest]) >= 0f ? normal : -normal);
-        }
-
-        /// <summary>
-        /// The rigid turn about the pivot that brings the shield's outward face to straight ahead (+X) with the shield in
-        /// front: the arm (pivot to shield centre) goes to a direction whose forward part equals the cosine between the arm and
-        /// the face (which any turn keeps), the rest down and out to the shield side; then a twist about the arm sets the face.
-        /// </summary>
-        private static Quaternion Turn(in SkeletonPoseEvaluator.EvaluatedPose pose, ShieldMount mount)
-        {
-            var (centre, outward) = ShieldIn(pose, mount);
-            var arm = centre - pose.Translations[mount.Pivot];
-            if (arm.LengthSquared() < 1e-8f) return Quaternion.Identity;
-            var along = Vector3.Normalize(arm);
-            float forward = Math.Clamp(Vector3.Dot(outward, along), MinForward, 0.95f);
-            // Down (+Y in model space) and out to the shield's side (+Z, the left), as the shield hangs in the stance.
-            var aside = Vector3.Normalize(new Vector3(0f, 0.75f, 0.66f));
-            var aim = Vector3.Normalize(forward * Vector3.UnitX + MathF.Sqrt(1f - forward * forward) * aside);
-
-            var swing = FromTo(along, aim);
-            var face = Vector3.Transform(outward, swing);
-            Vector3 Across(Vector3 v) => v - Vector3.Dot(v, aim) * aim;
-            var from = Across(face);
-            var to = Across(Vector3.UnitX);
-            if (from.LengthSquared() < 1e-8f || to.LengthSquared() < 1e-8f) return swing;
-            from = Vector3.Normalize(from);
-            to = Vector3.Normalize(to);
-            float twist = MathF.Atan2(Vector3.Dot(Vector3.Cross(from, to), aim), Vector3.Dot(from, to));
-            return Quaternion.Normalize(Quaternion.CreateFromAxisAngle(aim, twist) * swing);
-        }
-
-        private static Quaternion FromTo(Vector3 from, Vector3 to)
-        {
-            float dot = Math.Clamp(Vector3.Dot(from, to), -1f, 1f);
-            var axis = Vector3.Cross(from, to);
-            if (axis.LengthSquared() < 1e-10f)
-            {
-                if (dot > 0f) return Quaternion.Identity;
-                axis = Vector3.Cross(from, MathF.Abs(from.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY);
-            }
-            return Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.Acos(dot));
         }
 
         /// <summary>The points' centre and the normal of their best plane, and whether they lie flat.</summary>
