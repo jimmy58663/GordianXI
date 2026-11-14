@@ -204,7 +204,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("CLI", $"Command execution failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Cli, $"Command execution failed: {ex.Message}", ex);
                 DispatchToUi(() =>
                 {
                     AddEntry(CommandConsoleItemViewModel.CreateError($"Execution exception: {ex.Message}"));

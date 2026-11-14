@@ -56,7 +56,7 @@ namespace Gordian.Core.Network.Packets
             var list = new S2C_0x0D2_TrophyList(payload);
             if (!list.IsValid) return;
 
-            GordianLog.Debug("TREASURE", $"Pool item: slot={list.Slot}, item={list.ItemId}, gil={list.Gold}, dropper=0x{list.DropperId:X8}, entry={list.Entry}");
+            GordianLog.Debug(LogCategories.Treasure, $"Pool item: slot={list.Slot}, item={list.ItemId}, gil={list.Gold}, dropper=0x{list.DropperId:X8}, entry={list.Entry}");
             _pool.ApplyFound(in list, _localPlayerState.ServerId);
         }
 
@@ -65,7 +65,7 @@ namespace Gordian.Core.Network.Packets
             var solution = new S2C_0x0D3_TrophySolution(payload);
             if (!solution.IsValid) return;
 
-            GordianLog.Debug("TREASURE", $"Pool update: slot={solution.Slot}, judge={solution.Judge}, entry={solution.EntryName} lot={solution.EntryLot} isLot={solution.EntryIsLot}");
+            GordianLog.Debug(LogCategories.Treasure, $"Pool update: slot={solution.Slot}, judge={solution.Judge}, entry={solution.EntryName} lot={solution.EntryLot} isLot={solution.EntryIsLot}");
             _pool.ApplySolution(in solution, _localPlayerState.ServerId);
         }
 
@@ -76,7 +76,7 @@ namespace Gordian.Core.Network.Packets
         {
             byte index = FirstEmptyInventoryIndex();
             byte[] packet = TreasurePacketBuilder.BuildLot(slot, index, NextSequence());
-            GordianLog.Info("TREASURE", $"Sent C2S 0x041 lot: slot={slot} inventoryIndex={index}{(index == 0 ? " (bag full or unknown)" : string.Empty)}");
+            GordianLog.Info(LogCategories.Treasure, $"Sent C2S 0x041 lot: slot={slot} inventoryIndex={index}{(index == 0 ? " (bag full or unknown)" : string.Empty)}");
             LogOutbound(0x041, packet);
             return _sendChunkCallback(packet, true);
         }
@@ -85,7 +85,7 @@ namespace Gordian.Core.Network.Packets
         public Task SendPassAsync(byte slot)
         {
             byte[] packet = TreasurePacketBuilder.BuildPass(slot, NextSequence());
-            GordianLog.Info("TREASURE", $"Sent C2S 0x042 pass: slot={slot}");
+            GordianLog.Info(LogCategories.Treasure, $"Sent C2S 0x042 pass: slot={slot}");
             LogOutbound(0x042, packet);
             return _sendChunkCallback(packet, true);
         }

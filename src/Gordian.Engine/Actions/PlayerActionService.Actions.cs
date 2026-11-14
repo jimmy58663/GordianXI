@@ -523,7 +523,7 @@ namespace Gordian.Engine.Actions
                 ItemContainer = container,
                 ItemSlot = slot,
             };
-            GordianLog.Info("ACTION", $"Sub-target cursor for {name} (targets 0x{(int)allowed:X2}) on {start.Name}.");
+            GordianLog.Info(LogCategories.Action, $"Sub-target cursor for {name} (targets 0x{(int)allowed:X2}) on {start.Name}.");
             SubTargetChanged?.Invoke();
             return PlayerActionResult.Info($"{name}: select a target.");
         }
@@ -615,7 +615,7 @@ namespace Gordian.Engine.Actions
             }
             catch (Exception ex)
             {
-                GordianLog.Error("ACTION", $"Item use failed: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Action, $"Item use failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"Item use failed: {ex.Message}");
             }
         }

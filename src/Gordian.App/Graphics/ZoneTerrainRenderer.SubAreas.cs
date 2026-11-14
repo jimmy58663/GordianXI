@@ -184,11 +184,11 @@ namespace Gordian.App.Graphics
                         interior.EffectEmitters.Add((layer, emitter));
                     }
                 }
-                GordianLog.Info("Graphics", $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes, {interior.EffectEmitters.Count} effect generators uploaded.");
+                GordianLog.Info(LogCategories.Graphics, $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes, {interior.EffectEmitters.Count} effect generators uploaded.");
             }
             else
             {
-                GordianLog.Warning("Graphics", $"Sub-area {subAreaId}: no interior DAT (file {ZoneSubAreas.InteriorFileId(subAreaId)}).");
+                GordianLog.Warn(LogCategories.Graphics, $"Sub-area {subAreaId}: no interior DAT (file {ZoneSubAreas.InteriorFileId(subAreaId)}).");
             }
             _interiors[subAreaId] = interior;
             return interior;

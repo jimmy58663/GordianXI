@@ -136,7 +136,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x01D_ItemSame(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("INVENTORY", $"Container update sync: State={p.State}, Flags=0x{p.Flags:X8}");
+            GordianLog.Info(LogCategories.Inventory, $"Container update sync: State={p.State}, Flags=0x{p.Flags:X8}");
         }
 
         private void HandleItemNum(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -168,7 +168,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x021_ItemTradeReq(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("TRADE", $"Trade request received from Entity ServerId={p.UniqueNo}, ActIndex={p.ActIndex}");
+            GordianLog.Info(LogCategories.Trade, $"Trade request received from Entity ServerId={p.UniqueNo}, ActIndex={p.ActIndex}");
             _inventoryState.ReceiveTradeRequest(p.UniqueNo, p.ActIndex);
         }
 
@@ -177,7 +177,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x022_ItemTradeRes(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("TRADE", $"Trade status result: Kind={p.Kind}");
+            GordianLog.Info(LogCategories.Trade, $"Trade status result: Kind={p.Kind}");
             _inventoryState.SetTradeStatus(p.Kind, p.UniqueNo, p.ActIndex);
         }
 
@@ -202,7 +202,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x026_ItemSubcontainer(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("INVENTORY", $"Subcontainer item in {p.Container} slot {p.Slot}: Head={p.ModelIdHead}, Body={p.ModelIdBody}");
+            GordianLog.Info(LogCategories.Inventory, $"Subcontainer item in {p.Container} slot {p.Slot}: Head={p.ModelIdHead}, Body={p.ModelIdBody}");
             _inventoryState.SetMannequinLook(p.Container, p.Slot, new MannequinLook(p.ModelIdHead, p.ModelIdBody, p.ModelIdHands, p.ModelIdLegs, p.ModelIdFeet,
                 p.ModelIdMain, p.ModelIdSub, p.ModelIdRange, p.Race, p.Pose));
         }
@@ -242,7 +242,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x03F_ShopBuy(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("SHOP", $"Purchased shop item {p.ShopItemIndex} x{p.Count}, Result={p.BuyState}");
+            GordianLog.Info(LogCategories.Shop, $"Purchased shop item {p.ShopItemIndex} x{p.Count}, Result={p.BuyState}");
             _inventoryState.NotifyPurchase(p.ShopItemIndex, p.Count);
         }
 
@@ -251,7 +251,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x04C_Auc(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("AUCTION", $"Auction response: Command={p.Command}, Result={p.Result} ({p.ResultCode}), Status={p.Status}, Slot={p.AucWorkIndex}, Item={p.ItemId}, Price={p.Price}, Count={p.Count}, ParamPrice={p.ParamPrice}, ParamStacks={p.ParamStacks}, Parcel={p.Stat}, Seller='{p.SellerName}'");
+            GordianLog.Info(LogCategories.Auction, $"Auction response: Command={p.Command}, Result={p.Result} ({p.ResultCode}), Status={p.Status}, Slot={p.AucWorkIndex}, Item={p.ItemId}, Price={p.Price}, Count={p.Count}, ParamPrice={p.ParamPrice}, ParamStacks={p.ParamStacks}, Parcel={p.Stat}, Seller='{p.SellerName}'");
             _inventoryState.SetAuctionResponse(new AuctionResponse(p.Command, p.AucWorkIndex, p.Result, p.ResultStatus,
                 p.ParcelStat, p.ParcelItemIndex, p.ItemId, p.Count, p.Price, p.SellerName,
                 p.ParcelCategory, p.ParcelMarketNo, p.ParcelLotNo, p.ParcelTimeStamp, p.ParamStacks, p.ParamWorkIndex));
@@ -276,7 +276,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x082_GuildBuy(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("GUILD", $"Guild buy confirmation: Item={p.ItemId}, Count={p.Count}");
+            GordianLog.Info(LogCategories.Guild, $"Guild buy confirmation: Item={p.ItemId}, Count={p.Count}");
             _inventoryState.SetGuildTransaction(new GuildTransaction(true, p.ItemId, p.Count, p.Trade));
         }
 
@@ -316,7 +316,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x084_GuildSell(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("GUILD", $"Guild sell confirmation: Item={p.ItemId}, Count={p.Count}");
+            GordianLog.Info(LogCategories.Guild, $"Guild sell confirmation: Item={p.ItemId}, Count={p.Count}");
             _inventoryState.SetGuildTransaction(new GuildTransaction(false, p.ItemId, p.Count, p.Trade));
         }
 
@@ -325,7 +325,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x085_GuildSellList(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("GUILD", $"Guild accepted sales list populated with {p.Count} entries.");
+            GordianLog.Info(LogCategories.Guild, $"Guild accepted sales list populated with {p.Count} entries.");
             int count = Math.Min((int)p.Count, 30);
             var items = new GuildItemEntry[count];
             for (int i = 0; i < count; i++)
@@ -368,7 +368,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x106_BazaarBuy(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("BAZAAR", $"Bazaar purchase: State={p.State}, Seller={p.TargetName}");
+            GordianLog.Info(LogCategories.Bazaar, $"Bazaar purchase: State={p.State}, Seller={p.TargetName}");
             _inventoryState.SetBazaarPurchaseResult(new BazaarPurchaseResult(p.State, p.TargetName));
         }
 
@@ -377,7 +377,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x107_BazaarClose(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("BAZAAR", $"Bazaar closed by seller {p.SellerName}");
+            GordianLog.Info(LogCategories.Bazaar, $"Bazaar closed by seller {p.SellerName}");
             _inventoryState.StopViewingBazaar();
         }
 
@@ -386,7 +386,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x108_BazaarShopping(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("BAZAAR", $"Visitor {p.BuyerName} {p.State} local bazaar.");
+            GordianLog.Info(LogCategories.Bazaar, $"Visitor {p.BuyerName} {p.State} local bazaar.");
             _inventoryState.SetBazaarVisitor(new BazaarVisitor(p.UniqueNo, p.ActIndex, p.BuyerName), p.State == BazaarShoppingState.Enter);
         }
 
@@ -395,7 +395,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x109_BazaarSell(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("BAZAAR", $"{p.BuyerName} bought item in slot {p.Slot} x{p.Count} from personal bazaar.");
+            GordianLog.Info(LogCategories.Bazaar, $"{p.BuyerName} bought item in slot {p.Slot} x{p.Count} from personal bazaar.");
             _inventoryState.RecordBazaarSlotSold(new BazaarSlotSold(p.UniqueNo, p.ActIndex, p.BuyerName, p.Slot, p.Count));
         }
 
@@ -404,7 +404,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x10A_BazaarSale(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Info("BAZAAR", $"Sold Item {p.ItemId} x{p.Count} to {p.BuyerName}.");
+            GordianLog.Info(LogCategories.Bazaar, $"Sold Item {p.ItemId} x{p.Count} to {p.BuyerName}.");
             _inventoryState.RecordBazaarSale(new BazaarSale(p.ItemId, p.Count, p.BuyerName));
         }
 
@@ -428,7 +428,7 @@ namespace Gordian.Core.Network.Packets
                 entries[i] = new EquipsetSlotEntry(item.HasItem, item.RemoveItem, item.Container, item.ItemIndex, item.ItemId);
             }
 
-            GordianLog.Info("EQUIPSET", $"Equipset validation: changed piece item {entries[0].ItemId}.");
+            GordianLog.Info(LogCategories.Equipset, $"Equipset validation: changed piece item {entries[0].ItemId}.");
             _inventoryState.SetEquipsetValidation(entries);
         }
 
@@ -453,7 +453,7 @@ namespace Gordian.Core.Network.Packets
             }
 
             var result = new EquipsetResult(changed, equipped);
-            GordianLog.Info("EQUIPSET", $"Equipset applied with {p.Count} items, {result.FailedItems.Count()} failed.");
+            GordianLog.Info(LogCategories.Equipset, $"Equipset applied with {p.Count} items, {result.FailedItems.Count()} failed.");
             _inventoryState.SetEquipsetResult(result);
         }
 
@@ -464,7 +464,7 @@ namespace Gordian.Core.Network.Packets
 
             var items = new ushort[p.ItemCount];
             for (int i = 0; i < items.Length; i++) items[i] = p.GetItemId(i);
-            GordianLog.Info("LOCKSTYLE", $"Style lock could not use {items.Length} item(s): {string.Join(", ", items)}.");
+            GordianLog.Info(LogCategories.Lockstyle, $"Style lock could not use {items.Length} item(s): {string.Join(", ", items)}.");
             LockstyleFailed?.Invoke(items);
         }
 

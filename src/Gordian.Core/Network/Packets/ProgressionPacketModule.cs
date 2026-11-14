@@ -107,7 +107,7 @@ namespace Gordian.Core.Network.Packets
             var evt = new S2C_0x032_Event(payload);
             if (!evt.IsValid) return;
 
-            GordianLog.Info("EVENT", $"Cutscene started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}, Mode={evt.Mode}");
+            GordianLog.Info(LogCategories.Event, $"Cutscene started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}, Mode={evt.Mode}");
             _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode,
                 eventNum2: evt.EventNum2, eventPara2: evt.EventPara2);
         }
@@ -123,7 +123,7 @@ namespace Gordian.Core.Network.Packets
             var data = new uint[8];
             for (int i = 0; i < 8; i++) data[i] = evt.GetDataParam(i);
 
-            GordianLog.Info("EVENT", $"Cutscene (Str) started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}");
+            GordianLog.Info(LogCategories.Event, $"Cutscene (Str) started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}");
             _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode,
                 null, strings, data);
         }
@@ -136,7 +136,7 @@ namespace Gordian.Core.Network.Packets
             var nums = new int[8];
             for (int i = 0; i < 8; i++) nums[i] = evt.GetNumericParam(i);
 
-            GordianLog.Info("EVENT", $"Cutscene (Num) started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}");
+            GordianLog.Info(LogCategories.Event, $"Cutscene (Num) started: EventNum={evt.EventNum}, ActIndex={evt.ActIndex}");
             _progressionState.StartEvent(evt.UniqueNo, evt.ActIndex, evt.EventNum, evt.EventPara, evt.Mode,
                 nums, null, null, eventNum2: evt.EventNum2, eventPara2: evt.EventPara2);
         }
@@ -146,7 +146,7 @@ namespace Gordian.Core.Network.Packets
             var talk = new S2C_0x036_TalkNum(payload);
             if (!talk.IsValid) return;
 
-            GordianLog.Debug("DIALOG", $"TalkNum message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}");
+            GordianLog.Debug(LogCategories.Dialog, $"TalkNum message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}");
             _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type,
                 Array.Empty<int>(), string.Empty));
         }
@@ -163,7 +163,7 @@ namespace Gordian.Core.Network.Packets
             // is a text parameter (and LandSandBoat's copy of the entity's name).
             bool hideName = talk.HideName && !talk.NameIsSpeaker;
             string[]? strings = talk.Flag == 0 && name.Length > 0 ? new[] { name } : null;
-            GordianLog.Debug("DIALOG", $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flag={talk.Flag}, Numbers={string.Join(",", numbers)}, Name='{name}'");
+            GordianLog.Debug(LogCategories.Dialog, $"TalkNumWork message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flag={talk.Flag}, Numbers={string.Join(",", numbers)}, Name='{name}'");
             _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, hideName, talk.Type, numbers, name, strings));
         }
 
@@ -200,7 +200,7 @@ namespace Gordian.Core.Network.Packets
                 speaker = second;
             }
             byte type = talk.Type < 8 ? (byte)talk.Type : (byte)0;
-            GordianLog.Debug("DIALOG", $"TalkNumWork2 message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flags={talk.Flags}, Numbers={string.Join(",", numbers)}, String1='{first}', String2='{second}'");
+            GordianLog.Debug(LogCategories.Dialog, $"TalkNumWork2 message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Flags={talk.Flags}, Numbers={string.Join(",", numbers)}, String1='{first}', String2='{second}'");
             _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, hideName, type, numbers,
                 speaker, new[] { first, second }));
         }
@@ -216,7 +216,7 @@ namespace Gordian.Core.Network.Packets
             if (!talk.IsValid) return;
 
             string name = talk.GetName();
-            GordianLog.Debug("DIALOG", $"TalkNumName message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Name='{name}'");
+            GordianLog.Debug(LogCategories.Dialog, $"TalkNumName message received: MessageId={talk.MessageId}, ActIndex={talk.ActIndex}, HideName={talk.HideName}, Type={talk.Type}, Name='{name}'");
             _progressionState.PostDialogMessage(new DialogMessageInfo(talk.MessageId, talk.UniqueNo, talk.ActIndex, talk.HideName, talk.Type,
                 Array.Empty<int>(), string.Empty, new[] { name }));
         }
@@ -227,7 +227,7 @@ namespace Gordian.Core.Network.Packets
             var mes = new S2C_0x03B_EventMes(payload);
             if (!mes.IsValid) return;
 
-            GordianLog.Debug("DIALOG", $"EventMes message received: MessageId={mes.MessageId}, ActIndex={mes.ActIndex}, UsesName={mes.UsesName}");
+            GordianLog.Debug(LogCategories.Dialog, $"EventMes message received: MessageId={mes.MessageId}, ActIndex={mes.ActIndex}, UsesName={mes.UsesName}");
             _progressionState.PostDialogMessage(new DialogMessageInfo(mes.MessageId, mes.UniqueNo, mes.ActIndex, !mes.UsesName, 0,
                 Array.Empty<int>(), string.Empty));
         }
@@ -240,7 +240,7 @@ namespace Gordian.Core.Network.Packets
 
             Span<int> numbers = stackalloc int[S2C_0x05C_PendingNum.ParameterCount];
             for (int i = 0; i < numbers.Length; i++) numbers[i] = pending.GetParameter(i);
-            GordianLog.Info("EVENT", $"Event numbers updated (0x05C): {numbers[0]}, {numbers[1]}, {numbers[2]}, {numbers[3]}, {numbers[4]}, {numbers[5]}, {numbers[6]}, {numbers[7]}");
+            GordianLog.Info(LogCategories.Event, $"Event numbers updated (0x05C): {numbers[0]}, {numbers[1]}, {numbers[2]}, {numbers[3]}, {numbers[4]}, {numbers[5]}, {numbers[6]}, {numbers[7]}");
             _progressionState.UpdateEventNumbers(numbers);
         }
 
@@ -252,7 +252,7 @@ namespace Gordian.Core.Network.Packets
 
             var strings = new string[S2C_0x05D_PendingStr.StringCount];
             for (int i = 0; i < strings.Length; i++) strings[i] = pending.GetString(i);
-            GordianLog.Info("EVENT", $"Event strings updated (0x05D): '{string.Join("', '", strings)}'");
+            GordianLog.Info(LogCategories.Event, $"Event strings updated (0x05D): '{string.Join("', '", strings)}'");
             _progressionState.UpdateEventStrings(strings);
         }
 
@@ -268,7 +268,7 @@ namespace Gordian.Core.Network.Packets
             if (!ucoff.IsValid) return;
 
             var mode = ucoff.Kind;
-            GordianLog.Info("EVENT", $"Event user control release: Mode={mode} (raw 0x{(uint)ucoff.Mode:X})");
+            GordianLog.Info(LogCategories.Event, $"Event user control release: Mode={mode} (raw 0x{(uint)ucoff.Mode:X})");
             switch (mode)
             {
                 case EventUcOffMode.Standard:
@@ -282,7 +282,7 @@ namespace Gordian.Core.Network.Packets
                     var active = _progressionState.ActiveEvent;
                     if (active == null || active.EventPara != ucoff.EventId)
                     {
-                        GordianLog.Debug("EVENT", $"Ignored event cancel for event {ucoff.EventId} (running: {active?.EventPara.ToString() ?? "none"})");
+                        GordianLog.Debug(LogCategories.Event, $"Ignored event cancel for event {ucoff.EventId} (running: {active?.EventPara.ToString() ?? "none"})");
                         break;
                     }
                     _progressionState.CancelEventByServer();
@@ -312,7 +312,7 @@ namespace Gordian.Core.Network.Packets
             }
 
             _progressionState.UpdateKeyItems(scenario.TableIndex, acquired, seen);
-            GordianLog.Debug("PROGRESSION", $"Updated Key Items for Table {scenario.TableIndex}");
+            GordianLog.Debug(LogCategories.Progression, $"Updated Key Items for Table {scenario.TableIndex}");
         }
 
         private void HandleMission(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -321,12 +321,12 @@ namespace Gordian.Core.Network.Packets
             if (!mission.IsValid) return;
 
             _progressionState.UpdateMissions(in mission);
-            GordianLog.Debug("PROGRESSION", $"Updated Mission Log (Port=0x{mission.Port:X4})");
+            GordianLog.Debug(LogCategories.Progression, $"Updated Mission Log (Port=0x{mission.Port:X4})");
         }
 
         private void HandleOpenMogMenu(PacketHeader header, ReadOnlySpan<byte> payload)
         {
-            GordianLog.Info("MOGHOUSE", "Mog House menu opened.");
+            GordianLog.Info(LogCategories.Moghouse, "Mog House menu opened.");
             _progressionState.OpenMogMenu();
         }
 
@@ -336,7 +336,7 @@ namespace Gordian.Core.Network.Packets
             if (!enter.IsValid) return;
 
             _progressionState.SetMyRoomResult(enter.Result);
-            GordianLog.Info("MOGHOUSE", $"MyRoom Enter response: Result={enter.Result}");
+            GordianLog.Info(LogCategories.Moghouse, $"MyRoom Enter response: Result={enter.Result}");
         }
 
         private void HandleMyRoomOperation(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -344,7 +344,7 @@ namespace Gordian.Core.Network.Packets
             var op = new S2C_0x0FA_MyRoomOperation(payload);
             if (!op.IsValid) return;
 
-            GordianLog.Debug("MOGHOUSE", $"MyRoom Operation: Item={op.MyroomItemNo}, Result={op.Result}");
+            GordianLog.Debug(LogCategories.Moghouse, $"MyRoom Operation: Item={op.MyroomItemNo}, Result={op.Result}");
             _progressionState.SetMyRoomOperation(new MyRoomOperationInfo(op.MyroomItemNo, op.Result, op.MyroomItemIndex, (ContainerId)op.MyroomCategory));
         }
 
@@ -354,7 +354,7 @@ namespace Gordian.Core.Network.Packets
             if (!merit.IsValid) return;
 
             _progressionState.UpdateMerits(in merit);
-            GordianLog.Debug("PROGRESSION", $"Updated Merits: Entries={merit.EntryCount}");
+            GordianLog.Debug(LogCategories.Progression, $"Updated Merits: Entries={merit.EntryCount}");
         }
 
         private void HandleJobPoints(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -363,7 +363,7 @@ namespace Gordian.Core.Network.Packets
             if (!jp.IsValid) return;
 
             _progressionState.UpdateJobPoints(in jp);
-            GordianLog.Debug("PROGRESSION", "Updated Job Points table.");
+            GordianLog.Debug(LogCategories.Progression, "Updated Job Points table.");
         }
 
         private void HandleRoeActiveLog(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -372,7 +372,7 @@ namespace Gordian.Core.Network.Packets
             if (!roe.IsValid) return;
 
             _progressionState.UpdateRoeActiveLog(in roe);
-            GordianLog.Debug("ROE", "Updated Records of Eminence active objectives.");
+            GordianLog.Debug(LogCategories.Roe, "Updated Records of Eminence active objectives.");
         }
 
         private void HandleRoeLog(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -381,7 +381,7 @@ namespace Gordian.Core.Network.Packets
             if (!chunk.IsValid) return;
 
             _progressionState.UpdateRoeLogChunk(in chunk);
-            GordianLog.Debug("ROE", $"Updated Records of Eminence completed log at offset {chunk.Offset}");
+            GordianLog.Debug(LogCategories.Roe, $"Updated Records of Eminence completed log at offset {chunk.Offset}");
         }
 
         private void HandleConquest(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -390,7 +390,7 @@ namespace Gordian.Core.Network.Packets
             if (!conquest.IsValid) return;
 
             _progressionState.UpdateConquest(in conquest);
-            GordianLog.Debug("CONQUEST", $"Updated Conquest data: Balance={conquest.Balance}, CP={conquest.ConquestPoints}");
+            GordianLog.Debug(LogCategories.Conquest, $"Updated Conquest data: Balance={conquest.Balance}, CP={conquest.ConquestPoints}");
         }
 
         private void HandleFish(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -399,7 +399,7 @@ namespace Gordian.Core.Network.Packets
             if (!fish.IsValid) return;
 
             _progressionState.UpdateFishing(in fish);
-            GordianLog.Info("FISHING", $"Fishing battle began: Stamina={fish.Stamina}, Time={fish.Time}");
+            GordianLog.Info(LogCategories.Fishing, $"Fishing battle began: Stamina={fish.Stamina}, Time={fish.Time}");
         }
 
         private void HandleChocoboToteboard(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -408,7 +408,7 @@ namespace Gordian.Core.Network.Packets
             if (!toteboard.IsValid) return;
 
             _progressionState.UpdateToteboard(in toteboard);
-            GordianLog.Debug("CHOCOBO", $"Updated chocobo race toteboard: Slot={toteboard.SlotIndex}, Ident=0x{toteboard.Ident:X}");
+            GordianLog.Debug(LogCategories.Chocobo, $"Updated chocobo race toteboard: Slot={toteboard.SlotIndex}, Ident=0x{toteboard.Ident:X}");
         }
 
         private void HandleUnity(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -417,7 +417,7 @@ namespace Gordian.Core.Network.Packets
             if (!unity.IsValid) return;
 
             _progressionState.UpdateUnity(in unity);
-            GordianLog.Debug("UNITY", $"Updated Unity status: Sparks={unity.Sparks}, Deeds={unity.Deeds}");
+            GordianLog.Debug(LogCategories.Unity, $"Updated Unity status: Sparks={unity.Sparks}, Deeds={unity.Deeds}");
         }
 
         private void HandleMiscData(PacketHeader header, ReadOnlySpan<byte> payload)

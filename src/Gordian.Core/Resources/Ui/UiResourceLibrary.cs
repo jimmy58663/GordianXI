@@ -62,7 +62,7 @@ namespace Gordian.Core.Resources.Ui
             var baseMenu = resources.LoadDatBytesByFileId(BaseMenuFileId);
             if (english == null && baseMenu == null)
             {
-                GordianLog.Warning("UI", "No menu DAT found (file ids 39542, 1); stock UI unavailable.");
+                GordianLog.Warn(LogCategories.Ui, "No menu DAT found (file ids 39542, 1); stock UI unavailable.");
                 return null;
             }
 
@@ -76,7 +76,7 @@ namespace Gordian.Core.Resources.Ui
             // Pictures 1000 and up (#361): ROM/324/95's magico2w group.
             var secondSpellIcons = resources.LoadDatBytesByFileId(SecondSpellIconFileId);
             if (secondSpellIcons != null) library.AddDat(secondSpellIcons);
-            GordianLog.Info("UI", $"Stock UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
+            GordianLog.Info(LogCategories.Ui, $"Stock UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
                                   $"{library._texturePayloads.Count} textures (window skin {skin}).");
             return library;
         }
@@ -95,7 +95,7 @@ namespace Gordian.Core.Resources.Ui
             var baseMenu = resources.LoadDatBytesByFileId(BaseMenuFileId);
             if (lobby == null && english == null && baseMenu == null)
             {
-                GordianLog.Warning("UI", $"No lobby or menu DAT found ({LobbyDatPath}); lobby UI unavailable.");
+                GordianLog.Warn(LogCategories.Ui, $"No lobby or menu DAT found ({LobbyDatPath}); lobby UI unavailable.");
                 return null;
             }
 
@@ -113,7 +113,7 @@ namespace Gordian.Core.Resources.Ui
             {
                 library._groups[LobbyPs2GroupName] = lobbyGroup;
             }
-            GordianLog.Info("UI", $"Lobby UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
+            GordianLog.Info(LogCategories.Ui, $"Lobby UI resources: {library._menus.Count} menus, {library._groups.Count} element groups, " +
                                   $"{library._texturePayloads.Count} textures (lobby DAT {(lobby != null ? "found" : "missing")}).");
             return library;
         }

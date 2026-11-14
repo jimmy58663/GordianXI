@@ -54,7 +54,7 @@ namespace Gordian.Engine.Macros
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        GordianLog.Warning("MACRO", $"Could not save the macros '{path}': {ex.Message}");
+                        GordianLog.Warn(LogCategories.Macro, $"Could not save the macros '{path}': {ex.Message}");
                     }
                 };
                 return library;
@@ -72,7 +72,7 @@ namespace Gordian.Engine.Macros
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                GordianLog.Warning("MACRO", $"Could not read the macros '{path}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Macro, $"Could not read the macros '{path}': {ex.Message}");
             }
             return library;
         }

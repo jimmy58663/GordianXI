@@ -591,7 +591,7 @@ namespace Gordian.Engine.Ui
                 var definition = StockUiCommandMenu.Build(library, rows, out var frameImage);
                 if (definition == null)
                 {
-                    GordianLog.Warning("UI", $"Stock menu '{StockUiCommandMenu.Template}' is not available.");
+                    GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiCommandMenu.Template}' is not available.");
                     return false;
                 }
                 var menu = new StockUiOpenMenu(definition, null, Array.Empty<string>(), null)
@@ -938,7 +938,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(menuName, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{menuName}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{menuName}' is not available.");
                 return null;
             }
 
@@ -1855,7 +1855,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiConfigPages.FontColorListMenu, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{StockUiConfigPages.FontColorListMenu}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiConfigPages.FontColorListMenu}' is not available.");
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null) { FontColorCategory = category };
@@ -1900,7 +1900,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiConfigPages.LogListMenu, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{StockUiConfigPages.LogListMenu}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiConfigPages.LogListMenu}' is not available.");
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null) { LogCategory = category };
@@ -2211,7 +2211,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"{entry.Label} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"{entry.Label} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{entry.Label} failed: {ex.Message}");
             }
         }
@@ -2228,7 +2228,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Logout request failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Logout request failed: {ex.Message}");
                 NoticePosted?.Invoke($"Log out failed: {ex.Message}");
             }
         }
@@ -2394,7 +2394,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiShop.ListMenu, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{StockUiShop.ListMenu}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiShop.ListMenu}' is not available.");
                 return null;
             }
             int visible = 0;
@@ -2494,7 +2494,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{StockUiShop.QuantityMenu}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiShop.QuantityMenu}' is not available.");
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null)
@@ -2566,7 +2566,7 @@ namespace Gordian.Engine.Ui
                     return;
                 }
                 ushort shopNo = StockUiShop.ShopNo(Inventory?.ShopListNum ?? 0);
-                GordianLog.Info("SHOP", $"Buying {count} x {row.Name} (item {row.ItemId}, shop slot {row.ShopIndex}) for {total} gil.");
+                GordianLog.Info(LogCategories.Shop, $"Buying {count} x {row.Name} (item {row.ItemId}, shop slot {row.ShopIndex}) for {total} gil.");
                 _ = SendAsync(() => buy(count, shopNo, (ushort)row.ShopIndex), "Purchase");
             }
             else
@@ -2578,7 +2578,7 @@ namespace Gordian.Engine.Ui
                     NoticePosted?.Invoke("Selling is not available in this session.");
                     return;
                 }
-                GordianLog.Info("SHOP", $"Selling {count} x {row.Name} (item {row.ItemId}, slot {row.Slot}) at {prompt.UnitPrice} gil each.");
+                GordianLog.Info(LogCategories.Shop, $"Selling {count} x {row.Name} (item {row.ItemId}, slot {row.Slot}) at {prompt.UnitPrice} gil each.");
                 _ = SendAsync(async () =>
                 {
                     await appraise(count, row.ItemId, row.Slot).ConfigureAwait(false);
@@ -2595,7 +2595,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("SHOP", $"{what} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Shop, $"{what} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{what} failed: {ex.Message}");
             }
         }

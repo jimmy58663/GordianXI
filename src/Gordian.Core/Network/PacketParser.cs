@@ -96,7 +96,7 @@ namespace Gordian.Core.Network
                 _localPlayer.ZoneId = zoneId;
                 // Trusts are dismissed by every zone change and the server never tells the client (#373, PartyState.RemoveTrusts).
                 int trusts = _party.RemoveTrusts();
-                if (trusts > 0) GordianLog.Info("PARTY", $"Zone-in: dismissed {trusts} Trust(s) from the party.");
+                if (trusts > 0) GordianLog.Info(LogCategories.Party, $"Zone-in: dismissed {trusts} Trust(s) from the party.");
                 // The S2C 0x00A login position (set just before) is settled onto this zone's floor once its collision loads (#350).
                 _localPlayer.RequestGroundSettle();
                 // Into or out of the Mog House within the same city changes what is drawn and walked, not the zone (#354).
@@ -174,9 +174,8 @@ namespace Gordian.Core.Network
 
             _dispatcher.UnhandledPacket += (header, payload) =>
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[NET_TRACE] Unhandled Packet ID: 0x{header.PacketId:X3} | Seq: 0x{header.SequenceId:X4} | Size: {header.TotalSize} bytes"
-                );
+                GordianLog.Debug(LogCategories.Net,
+                    $"Unhandled Packet ID: 0x{header.PacketId:X3} | Seq: 0x{header.SequenceId:X4} | Size: {header.TotalSize} bytes");
             };
         }
 
@@ -488,7 +487,7 @@ namespace Gordian.Core.Network
             // Minimum FFXI datagram envelope: 28-byte header + 16-byte MD5 checksum
             if (rawPacketBuffer.Length < FfxiHeaderSize + 16)
             {
-                GordianLog.Debug("PARSER", $"Raw datagram buffer too short ({rawPacketBuffer.Length} bytes). Minimum: {FfxiHeaderSize + 16}");
+                GordianLog.Debug(LogCategories.Parser, $"Raw datagram buffer too short ({rawPacketBuffer.Length} bytes). Minimum: {FfxiHeaderSize + 16}");
                 return false;
             }
 
@@ -498,7 +497,7 @@ namespace Gordian.Core.Network
             {
                 if (!_cryptoSuite.TryDecryptAndVerify(rawPacketBuffer, FfxiHeaderSize, out payloadLength))
                 {
-                    GordianLog.Warning("PARSER", "Inbound datagram failed Blowfish decryption or MD5 checksum verification.");
+                    GordianLog.Warn(LogCategories.Parser, "Inbound datagram failed Blowfish decryption or MD5 checksum verification.");
                     // Log undecrypted raw packet to inspector for diagnostic inspection
                     var undecryptedEntry = new PacketLogEntry
                     {
@@ -518,7 +517,7 @@ namespace Gordian.Core.Network
                 // session just left (e.g. a retransmitted 0x00B). Its contents describe the old zone: never dispatch it.
                 if (_cryptoSuite.LastDecryptUsedPreviousKey)
                 {
-                    GordianLog.Debug("PARSER", "Dropped stale datagram from the previous zone's map server.");
+                    GordianLog.Debug(LogCategories.Parser, "Dropped stale datagram from the previous zone's map server.");
                     return false;
                 }
             }
@@ -530,7 +529,7 @@ namespace Gordian.Core.Network
 
             if (payloadLength <= 0)
             {
-                GordianLog.Debug("PARSER", $"Inbound payload length non-positive ({payloadLength}).");
+                GordianLog.Debug(LogCategories.Parser, $"Inbound payload length non-positive ({payloadLength}).");
                 return false;
             }
 
@@ -544,7 +543,7 @@ namespace Gordian.Core.Network
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("PARSER", $"Payload decompression error: {ex.Message}");
+                GordianLog.Warn(LogCategories.Parser, $"Payload decompression error: {ex.Message}");
                 return false;
             }
 
@@ -560,7 +559,7 @@ namespace Gordian.Core.Network
 
             if (decompressedBytes < 4)
             {
-                GordianLog.Debug("PARSER", $"Decompressed length ({decompressedBytes}) < 4.");
+                GordianLog.Debug(LogCategories.Parser, $"Decompressed length ({decompressedBytes}) < 4.");
                 return false;
             }
 
@@ -570,7 +569,7 @@ namespace Gordian.Core.Network
             if (traced)
             {
                 SubPacketTrace--;
-                GordianLog.Debug("NET", $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+                GordianLog.Debug(LogCategories.Wire, $"Map datagram in: {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
             }
             bool serverMove = false;
             int offset = 0;
@@ -604,7 +603,7 @@ namespace Gordian.Core.Network
                     if (late)
                     {
                         // Evidence for the round 1 failure: a group first seen after a newer one.
-                        GordianLog.Debug("NET", $"Late sub-packet 0x{header.PacketId:X3} with sync {header.SequenceId} (newest {ResendFilter.NewestSync}): dispatched.");
+                        GordianLog.Debug(LogCategories.Net, $"Late sub-packet 0x{header.PacketId:X3} with sync {header.SequenceId} (newest {ResendFilter.NewestSync}): dispatched.");
                     }
                 }
 
@@ -618,13 +617,13 @@ namespace Gordian.Core.Network
             // and the next ones, as after a login, so a retail round captures the exact 0x00E sequence.
             if (serverMove && filterResends)
             {
-                if (!traced) GordianLog.Debug("NET", $"Map datagram in (0x065 move): {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
+                if (!traced) GordianLog.Debug(LogCategories.Net, $"Map datagram in (0x065 move): {decompressedBytes} sub-packet bytes: {Convert.ToHexString(subPackets)}");
                 SubPacketTrace = Math.Max(SubPacketTrace, ServerMoveTraceDatagrams);
             }
 
             if (resentSubPacketCount > 0)
             {
-                GordianLog.Debug("NET", $"Skipped {resentSubPacketCount} resent sub-packets (already dispatched; newest sync {ResendFilter.NewestSync}).");
+                GordianLog.Debug(LogCategories.Net, $"Skipped {resentSubPacketCount} resent sub-packets (already dispatched; newest sync {ResendFilter.NewestSync}).");
             }
 
             if (inboundSubPacketCount > 0)

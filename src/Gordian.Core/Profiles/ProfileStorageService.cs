@@ -75,7 +75,7 @@ namespace Gordian.Core.Profiles
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ProfileStorageService] Failed to read {storePath}, attempting backup: {ex.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Profile, $"Failed to read {storePath}, attempting backup: {ex.Message}");
                     string backupPath = Path.Combine(baseDirectory, BackupFileName);
                     if (File.Exists(backupPath))
                     {
@@ -128,7 +128,7 @@ namespace Gordian.Core.Profiles
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ProfileStorageService] Warning: Could not create backup: {ex.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Profile, $"Could not create profile backup: {ex.Message}");
                 }
             }
 

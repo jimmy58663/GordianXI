@@ -483,7 +483,7 @@ namespace Gordian.App
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("Viewport", $"Could not {(open ? "open" : "close")} the {popup.Name} overlay: {ex.Message}");
+                GordianLog.Warn(LogCategories.Viewport, $"Could not {(open ? "open" : "close")} the {popup.Name} overlay: {ex.Message}");
             }
         }
 
@@ -604,7 +604,7 @@ namespace Gordian.App
                     if (_viewModel == null) return;
                     var before = _viewModel.ActiveTab;
                     var chosen = shortcut == ViewportShortcut.NextCharacter ? _viewModel.CycleNextCharacter() : _viewModel.CyclePreviousCharacter();
-                    GordianLog.Info("Viewport", $"{(shortcut == ViewportShortcut.NextCharacter ? "Ctrl+Tab" : "Ctrl+Shift+Tab")}: " +
+                    GordianLog.Info(LogCategories.Viewport, $"{(shortcut == ViewportShortcut.NextCharacter ? "Ctrl+Tab" : "Ctrl+Shift+Tab")}: " +
                         $"{before?.CharacterName ?? "none"} -> {chosen?.CharacterName ?? "none"}{(chosen?.IsPoppedOut == true ? " (its own window)" : string.Empty)}");
                     break;
                 case ViewportShortcut.ToggleFullscreen:
@@ -624,11 +624,11 @@ namespace Gordian.App
                     {
                         restored.ActionService.UiVisibility.ReleaseAll();
                         restored.ActionService.Menus.PostNotice("Stock UI restored (Ctrl+Shift+F12).");
-                        GordianLog.Info("Viewport", $"Ctrl+Shift+F12: stock UI restored for {restored.CharacterName}.");
+                        GordianLog.Info(LogCategories.Viewport, $"Ctrl+Shift+F12: stock UI restored for {restored.CharacterName}.");
                     }
                     break;
                 case ViewportShortcut.ToggleImGuiTestWindow:
-                    GordianLog.Info("Viewport", ImGuiInputTestWindow.Instance.Toggle() ? "ImGui input test window shown." : "ImGui input test window hidden.");
+                    GordianLog.Info(LogCategories.Viewport, ImGuiInputTestWindow.Instance.Toggle() ? "ImGui input test window shown." : "ImGui input test window hidden.");
                     break;
                 case ViewportShortcut.CyclePerformanceOverlay:
                     ViewportRenderSettings.PerformanceOverlay = PerformanceOverlayModes.Next(ViewportRenderSettings.PerformanceOverlay);
@@ -734,7 +734,7 @@ namespace Gordian.App
 
             if (gKey is GordianKey.T or GordianKey.NumPadMultiply)
             {
-                Gordian.Core.Diagnostics.GordianLog.Info("LockOn", $"KeyDown {e.Key} -> {gKey} reached the game input (modifiers {mods})");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"KeyDown {e.Key} -> {gKey} reached the game input (modifiers {mods})");
             }
 
             if (gKey != GordianKey.None)
@@ -1012,7 +1012,7 @@ namespace Gordian.App
             string hit = drag.HitTest(x, y) ?? "nothing";
             double scale = RenderScaling;
             var bounds = _viewportControl?.Bounds ?? default;
-            GordianLog.Info("UI", $"Stock UI unlocked press ({path}) at ({x:0}, {y:0}) hit {hit}; {regions.Count} regions; " +
+            GordianLog.Info(LogCategories.Ui, $"Stock UI unlocked press ({path}) at ({x:0}, {y:0}) hit {hit}; {regions.Count} regions; " +
                 $"viewport {bounds.Width:0} x {bounds.Height:0} at scale {scale:0.##}");
         }
 

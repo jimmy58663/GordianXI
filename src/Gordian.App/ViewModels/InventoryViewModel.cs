@@ -535,7 +535,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("INVENTORY_UI", "Failed requesting currencies 1", ex);
+                GordianLog.Error(LogCategories.InventoryUi, "Failed requesting currencies 1", ex);
                 DispatchToUi(() => StatusText = $"Currency request error: {ex.Message}");
             }
         }
@@ -550,7 +550,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("INVENTORY_UI", "Failed requesting currencies 2", ex);
+                GordianLog.Error(LogCategories.InventoryUi, "Failed requesting currencies 2", ex);
                 DispatchToUi(() => StatusText = $"Currency request error: {ex.Message}");
             }
         }
@@ -565,7 +565,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("INVENTORY_UI", "Failed sending sort request", ex);
+                GordianLog.Error(LogCategories.InventoryUi, "Failed sending sort request", ex);
                 DispatchToUi(() => StatusText = $"Sort request error: {ex.Message}");
             }
         }

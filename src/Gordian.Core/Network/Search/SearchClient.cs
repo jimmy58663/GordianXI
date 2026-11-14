@@ -167,7 +167,7 @@ namespace Gordian.Core.Network.Search
 
                     if (!SearchFrame.TryDecryptResponse(answer, answerKey, out var content))
                     {
-                        GordianLog.Warning("SEARCH", "A search server answer failed its length or hash check and was dropped.");
+                        GordianLog.Warn(LogCategories.Search, "A search server answer failed its length or hash check and was dropped.");
                         continue;
                     }
                     contents.Add(content.ToArray());
@@ -176,7 +176,7 @@ namespace Gordian.Core.Network.Search
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                GordianLog.Debug("SEARCH", $"Search request type 0x{body[0x0B]:X2} timed out after {contents.Count} answers.");
+                GordianLog.Debug(LogCategories.Search, $"Search request type 0x{body[0x0B]:X2} timed out after {contents.Count} answers.");
                 return new SearchExchange(contents, false);
             }
         }

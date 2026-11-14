@@ -173,13 +173,13 @@ namespace Gordian.Engine.Animation
             {
                 long started = Stopwatch.GetTimestamp();
                 var asset = library.Resolve(category, animation, race);
-                GordianLog.Debug("ANIM", $"Action {category} animation {animation} on {actor?.ServerId ?? 0:X8}: " +
+                GordianLog.Debug(LogCategories.Anim, $"Action {category} animation {animation} on {actor?.ServerId ?? 0:X8}: " +
                     (asset != null ? $"{asset} ({Seconds(started, Stopwatch.GetTimestamp()) * 1000f:F1} ms)" : "no presentation (stand-in)"));
                 return asset;
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("ANIM", $"Action {category} animation {animation}: presentation not read ({ex.Message}).");
+                GordianLog.Warn(LogCategories.Anim, $"Action {category} animation {animation}: presentation not read ({ex.Message}).");
                 return null;
             }
         }

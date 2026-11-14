@@ -118,7 +118,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("AUDIO", $"Saving sound settings failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Audio, $"Saving sound settings failed: {ex.Message}");
             }
         }
     }

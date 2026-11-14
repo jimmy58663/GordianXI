@@ -72,7 +72,7 @@ namespace Gordian.Core.Network.Packets
             }
 
             var outcome = new SynthesisOutcome(p.Result, p.ResultId, p.Grade, p.Count, p.ItemId, p.CrystalNo, lost, materials, ups.ToArray());
-            GordianLog.Info("CRAFT", $"Synthesis result: {p.Result} (0x{p.ResultId:X2}), grade={p.Grade}, item={p.ItemId} x{p.Count}, crystal={p.CrystalNo}, skillups={ups.Count}");
+            GordianLog.Info(LogCategories.Craft, $"Synthesis result: {p.Result} (0x{p.ResultId:X2}), grade={p.Grade}, item={p.ItemId} x{p.Count}, crystal={p.CrystalNo}, skillups={ups.Count}");
             _state.SetOutcome(outcome);
         }
 
@@ -85,7 +85,7 @@ namespace Gordian.Core.Network.Packets
             for (int i = 0; i < lost.Length; i++) lost[i] = p.GetBreakNo(i);
 
             var outcome = new OtherSynthesisOutcome(p.Result, p.ResultId, p.Grade, p.Count, p.ItemId, lost, p.UniqueNo, p.ActIndex, p.Name);
-            GordianLog.Debug("CRAFT", $"Synthesis result for {p.Name}: {p.Result} (0x{p.ResultId:X2}), grade={p.Grade}, item={p.ItemId} x{p.Count}");
+            GordianLog.Debug(LogCategories.Craft, $"Synthesis result for {p.Name}: {p.Result} (0x{p.ResultId:X2}), grade={p.Grade}, item={p.ItemId} x{p.Count}");
             _state.SetOtherOutcome(outcome);
         }
 
@@ -108,7 +108,7 @@ namespace Gordian.Core.Network.Packets
                         items[i] = p.GetIngredientItem(i);
                         counts[i] = p.GetIngredientCount(i);
                     }
-                    GordianLog.Debug("CRAFT", $"Recipe ({p.Kind}): product={p.ProductItem}, crystal={p.NeedItem}, key item={p.NeedKeyItem}");
+                    GordianLog.Debug(LogCategories.Craft, $"Recipe ({p.Kind}): product={p.ProductItem}, crystal={p.NeedItem}, key item={p.NeedKeyItem}");
                     _state.SetRecipe(new RecipeDetail(p.Kind, p.ProductItem, skills, p.NeedItem, p.NeedKeyItem, items, counts));
                     break;
                 }
@@ -122,12 +122,12 @@ namespace Gordian.Core.Network.Packets
                         if (list[i] != 0) used = i + 1;
                     }
                     Array.Resize(ref list, used);
-                    GordianLog.Debug("CRAFT", $"Recipe list: {used} items, next page starts at {p.ListNextItem}");
+                    GordianLog.Debug(LogCategories.Craft, $"Recipe list: {used} items, next page starts at {p.ListNextItem}");
                     _state.SetRecipeList(new RecipeListPage(list, p.ListNextItem));
                     break;
                 }
                 default:
-                    GordianLog.Debug("CRAFT", $"Recipe packet of unhandled type {(ushort)p.Kind}");
+                    GordianLog.Debug(LogCategories.Craft, $"Recipe packet of unhandled type {(ushort)p.Kind}");
                     break;
             }
         }

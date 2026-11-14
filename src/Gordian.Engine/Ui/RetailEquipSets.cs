@@ -93,15 +93,15 @@ namespace Gordian.Engine.Ui
                     var sets = Parse(data, file * SetsPerFile + 1);
                     if (sets == null)
                     {
-                        GordianLog.Warning("EQUIPSET", $"'{path}' is {data.Length} bytes, not {FileSize}; skipped.");
+                        GordianLog.Warn(LogCategories.Equipset, $"'{path}' is {data.Length} bytes, not {FileSize}; skipped.");
                         continue;
                     }
-                    if (!HasValidChecksum(data)) GordianLog.Warning("EQUIPSET", $"'{path}': the stored MD5 does not match; read anyway.");
+                    if (!HasValidChecksum(data)) GordianLog.Warn(LogCategories.Equipset, $"'{path}': the stored MD5 does not match; read anyway.");
                     all.AddRange(sets);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    GordianLog.Warning("EQUIPSET", $"Could not read '{path}': {ex.Message}");
+                    GordianLog.Warn(LogCategories.Equipset, $"Could not read '{path}': {ex.Message}");
                 }
             }
             return all;

@@ -83,7 +83,7 @@ namespace Gordian.App.Services
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("WINDOW", $"Failed to load window placements from '{_filePath}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Window, $"Failed to load window placements from '{_filePath}': {ex.Message}");
             }
         }
 
@@ -106,7 +106,7 @@ namespace Gordian.App.Services
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("WINDOW", $"Failed to save window placements to '{_filePath}': {ex.Message}");
+                    GordianLog.Warn(LogCategories.Window, $"Failed to save window placements to '{_filePath}': {ex.Message}");
                 }
             }
         }
@@ -196,7 +196,7 @@ namespace Gordian.App.Services
 
             if (!isOnScreen)
             {
-                GordianLog.Warn("WINDOW", $"Saved placement for '{key}' ({placement.X}, {placement.Y}) is off-screen. Resetting to center.");
+                GordianLog.Warn(LogCategories.Window, $"Saved placement for '{key}' ({placement.X}, {placement.Y}) is off-screen. Resetting to center.");
                 window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
                 if (placement.Width > 0 && placement.Height > 0)
                 {

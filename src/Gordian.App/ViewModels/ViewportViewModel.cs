@@ -74,7 +74,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                Gordian.Core.Diagnostics.GordianLog.Warn("VIEWPORT", $"Auto-save failed: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Viewport, $"Auto-save failed: {ex.Message}");
             }
         }
 
@@ -103,7 +103,7 @@ namespace Gordian.App.ViewModels
                 // saved as Auto at the next settings change.
                 if (System.Threading.Interlocked.Exchange(ref s_openGlNoticeLogged, 1) == 0)
                 {
-                    Gordian.Core.Diagnostics.GordianLog.Info("VIEWPORT", "The saved OpenGL backend is no longer offered (#390); using Auto (Direct3D 11 on Windows, Vulkan elsewhere).");
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Viewport, "The saved OpenGL backend is no longer offered (#390); using Auto (Direct3D 11 on Windows, Vulkan elsewhere).");
                 }
                 _selectedBackend = GraphicsBackendPreference.Auto;
             }

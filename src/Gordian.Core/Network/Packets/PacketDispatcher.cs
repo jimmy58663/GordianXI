@@ -52,7 +52,7 @@ namespace Gordian.Core.Network.Packets
             ArgumentNullException.ThrowIfNull(handler);
             ushort index = (ushort)(packetId & 0x1FF);
             _handlers[index] = handler;
-            GordianLog.Debug("DISPATCHER", $"Registered handler for Packet ID 0x{index:X3}");
+            GordianLog.Debug(LogCategories.Dispatcher, $"Registered handler for Packet ID 0x{index:X3}");
         }
 
         /// <inheritdoc />
@@ -60,7 +60,7 @@ namespace Gordian.Core.Network.Packets
         {
             ushort index = (ushort)(packetId & 0x1FF);
             _handlers[index] = null;
-            GordianLog.Debug("DISPATCHER", $"Unregistered handler for Packet ID 0x{index:X3}");
+            GordianLog.Debug(LogCategories.Dispatcher, $"Unregistered handler for Packet ID 0x{index:X3}");
         }
 
         /// <inheritdoc />

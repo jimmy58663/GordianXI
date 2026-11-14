@@ -468,7 +468,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Failed to load UI settings '{path}': {ex.Message}. Using the defaults.");
+                GordianLog.Warn(LogCategories.Ui, $"Failed to load UI settings '{path}': {ex.Message}. Using the defaults.");
             }
             return settings;
         }
@@ -499,7 +499,7 @@ namespace Gordian.Engine.Ui
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Warning("UI", $"Could not save the UI settings '{path}': {ex.Message}");
+                        GordianLog.Warn(LogCategories.Ui, $"Could not save the UI settings '{path}': {ex.Message}");
                     }
                 }
                 settings.Changed += (k, _) =>

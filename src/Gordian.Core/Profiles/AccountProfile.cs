@@ -335,7 +335,7 @@ namespace Gordian.Core.Profiles
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[AccountProfile] Failed to load profile from '{filePath}': {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Profile, $"Failed to load profile from '{filePath}': {ex.Message}");
                 return null;
             }
         }

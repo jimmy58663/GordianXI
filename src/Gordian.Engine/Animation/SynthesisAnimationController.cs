@@ -78,10 +78,10 @@ namespace Gordian.Engine.Animation
                 var asset = Library.ResolveSynthesis(effectNum, type);
                 if (asset == null)
                 {
-                    GordianLog.Debug("CRAFT", $"Synthesis effect 0x{effectNum:X2} on {entity.ServerId:X8}: no effect file.");
+                    GordianLog.Debug(LogCategories.Craft, $"Synthesis effect 0x{effectNum:X2} on {entity.ServerId:X8}: no effect file.");
                     return;
                 }
-                GordianLog.Debug("CRAFT", $"Synthesis effect 0x{effectNum:X2} ({ActionMotionLibrary.SynthesisEnding(type)}) on {entity.ServerId:X8}: {asset}.");
+                GordianLog.Debug(LogCategories.Craft, $"Synthesis effect 0x{effectNum:X2} ({ActionMotionLibrary.SynthesisEnding(type)}) on {entity.ServerId:X8}: {asset}.");
                 entity.Animation.EnqueueAction(new ActionRequest
                 {
                     ActorId = entity.ServerId,
@@ -93,7 +93,7 @@ namespace Gordian.Engine.Animation
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("CRAFT", $"Synthesis effect on {entity.ServerId:X8} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Craft, $"Synthesis effect on {entity.ServerId:X8} failed: {ex.Message}");
             }
         }
     }

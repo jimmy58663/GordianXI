@@ -48,7 +48,7 @@ namespace Gordian.Core.Resources
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
             ZoneDataLoader.ParseZoneContainer(dat, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, textures, GetSharedEffects(),
                 datSource: DecodedTexture.FileLabel(fileId), interior: true);
-            GordianLog.Debug("RES", $"Loaded furniture {itemId} (file {fileId}: {meshes.Count} submeshes).");
+            GordianLog.Debug(LogCategories.Res, $"Loaded furniture {itemId} (file {fileId}: {meshes.Count} submeshes).");
             return new FurnitureModel(itemId, meshes, textures);
         }
     }

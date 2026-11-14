@@ -410,7 +410,7 @@ namespace Gordian.Engine.Ui
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("UI", $"Failed to load UI layout '{path}': {ex.Message}. Using the retail layout.");
+                    GordianLog.Warn(LogCategories.Ui, $"Failed to load UI layout '{path}': {ex.Message}. Using the retail layout.");
                 }
             }
             return new StockUiLayout();

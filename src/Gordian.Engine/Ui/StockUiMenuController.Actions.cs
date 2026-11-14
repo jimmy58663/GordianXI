@@ -93,7 +93,7 @@ namespace Gordian.Engine.Ui
             };
             if (library == null || !library.TryGetMenu(menuName, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{menuName}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{menuName}' is not available.");
                 return null;
             }
             var target = CommandTargetOf(parent);
@@ -258,7 +258,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"{request.Name} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"{request.Name} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{request.Name} failed: {ex.Message}");
             }
         }

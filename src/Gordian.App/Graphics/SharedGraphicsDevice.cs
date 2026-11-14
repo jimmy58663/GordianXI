@@ -60,12 +60,12 @@ namespace Gordian.App.Graphics
                     var options = CreateOptions(debug, vsync: true);
                     var device = CreateHeadlessDevice(options, preference);
                     s_instance = new SharedGraphicsDevice(device, preference);
-                    GordianLog.Info("Graphics", $"Created the shared Veldrid {device.BackendType} device: '{device.DeviceName}' (one per process, #300).");
-                    if (FallbackNote(preference, device.BackendType) is { } note) GordianLog.Warning("Graphics", note);
+                    GordianLog.Info(LogCategories.Graphics, $"Created the shared Veldrid {device.BackendType} device: '{device.DeviceName}' (one per process, #300).");
+                    if (FallbackNote(preference, device.BackendType) is { } note) GordianLog.Warn(LogCategories.Graphics, note);
                 }
                 else if (preference != GraphicsBackendPreference.Auto && !Matches(preference, s_instance.Device.BackendType))
                 {
-                    GordianLog.Info("Graphics", $"A viewport preferred {preference}; it shares the open {s_instance.Device.BackendType} device.");
+                    GordianLog.Info(LogCategories.Graphics, $"A viewport preferred {preference}; it shares the open {s_instance.Device.BackendType} device.");
                 }
                 s_instance._references++;
                 return s_instance;
@@ -88,7 +88,7 @@ namespace Gordian.App.Graphics
                 Resources.Dispose();
                 Device.Dispose();
             }
-            GordianLog.Info("Graphics", "Disposed the shared graphics device (no viewport window left).");
+            GordianLog.Info(LogCategories.Graphics, "Disposed the shared graphics device (no viewport window left).");
         }
 
         /// <summary>A swapchain for one window's surface on the shared device (call under <see cref="Lock"/>).</summary>
@@ -153,7 +153,7 @@ namespace Gordian.App.Graphics
                 catch (Exception ex)
                 {
                     lastEx = ex;
-                    GordianLog.Warning("Graphics", $"Failed to initialize backend {backend}: {ex.Message}. Attempting fallback...");
+                    GordianLog.Warn(LogCategories.Graphics, $"Failed to initialize backend {backend}: {ex.Message}. Attempting fallback...");
                 }
             }
             throw new InvalidOperationException($"Failed to initialize any 3D graphics backend for preference '{preference}'.", lastEx);

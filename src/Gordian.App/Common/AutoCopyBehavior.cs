@@ -98,12 +98,12 @@ namespace Gordian.App.Common
             {
                 stb.Copy();
                 OnCopiedForTesting?.Invoke(text);
-                GordianLog.Debug("CLIPBOARD", $"Auto-copied {text.Length} characters to clipboard: '{text}'");
+                GordianLog.Debug(LogCategories.Clipboard, $"Auto-copied {text.Length} characters to clipboard: '{text}'");
                 return true;
             }
             catch (Exception ex)
             {
-                GordianLog.Debug("CLIPBOARD", $"Auto-copy failed: {ex.Message}");
+                GordianLog.Debug(LogCategories.Clipboard, $"Auto-copy failed: {ex.Message}");
                 return false;
             }
         }

@@ -75,7 +75,7 @@ namespace Gordian.Core.Network.Retail
         public void OnReply(ReadOnlySpan<byte> packet)
         {
             if (!LobbyClientPackets.Verify(packet))
-                Diagnostics.GordianLog.Warning("RETAIL_LOGIN", $"Lobby packet 0x{packet[8]:X2} failed its MD5 check.");
+                Diagnostics.GordianLog.Warn(Diagnostics.LogCategories.RetailLogin, $"Lobby packet 0x{packet[8]:X2} failed its MD5 check.");
         }
 
         public Task BeforeCharacterListAsync(Func<CancellationToken, Task> resend, CancellationToken ct) => Task.CompletedTask;

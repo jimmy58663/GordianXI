@@ -875,7 +875,7 @@ namespace Gordian.App.Graphics
 
             if (resident != null)
             {
-                GordianLog.Info("Graphics", $"Showing Zone {resident.ZoneId}: {_zoneSubmeshes.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) resident on the GPU{(resumed ? ", its effects resumed" : string.Empty)}.");
+                GordianLog.Info(LogCategories.Graphics, $"Showing Zone {resident.ZoneId}: {_zoneSubmeshes.Count} zone submeshes, {_weatherSkySubmeshes.Count} weather sky submeshes and {_effectSubmeshes.Count} zone effect submeshes ({TotalVertices} vertices) resident on the GPU{(resumed ? ", its effects resumed" : string.Empty)}.");
             }
         }
 
@@ -1037,7 +1037,7 @@ namespace Gordian.App.Graphics
                     throw;
                 }
                 resident.BuildMilliseconds = watch.Elapsed.TotalMilliseconds;
-                GordianLog.Info("Graphics", $"Uploaded Zone {zone.ZoneId} to the GPU in {resident.BuildMilliseconds:F0} ms: {resident.ZoneSubmeshes.Count} zone submeshes, {resident.WeatherSkySubmeshes.Count} weather sky submeshes, {resident.EffectSubmeshes.Count} zone effect submeshes ({resident.TotalVertices} vertices), {textures?.Count ?? 0} textures, {resident.Bytes >> 20} MB.");
+                GordianLog.Info(LogCategories.Graphics, $"Uploaded Zone {zone.ZoneId} to the GPU in {resident.BuildMilliseconds:F0} ms: {resident.ZoneSubmeshes.Count} zone submeshes, {resident.WeatherSkySubmeshes.Count} weather sky submeshes, {resident.EffectSubmeshes.Count} zone effect submeshes ({resident.TotalVertices} vertices), {textures?.Count ?? 0} textures, {resident.Bytes >> 20} MB.");
                 return resident;
             }
 
@@ -2409,7 +2409,7 @@ namespace Gordian.App.Graphics
                 var effects = resourceManager.GetSceneEffects(entry.FileId);
                 if (effects == null)
                 {
-                    GordianLog.Debug("EVENT", $"Scene effects of file {entry.FileId}: none drawn (no generator this client draws); task {entry.Routine} plays nothing.");
+                    GordianLog.Debug(LogCategories.Event, $"Scene effects of file {entry.FileId}: none drawn (no generator this client draws); task {entry.Routine} plays nothing.");
                     return;
                 }
                 slot = new SceneEffectSlot
@@ -2520,8 +2520,8 @@ namespace Gordian.App.Graphics
                 foreach (var request in _mapSchedulerRequests)
                 {
                     bool known = PlayMapScheduler(request);
-                    if (!known) GordianLog.Debug("Graphics", $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
-                    else GordianLog.Debug("Graphics", $"Zone routine '{request.Routine}' {(request.Stop ? "stopped" : "started")} (actors {request.CasterServerId:X8} / {request.TargetServerId:X8}); {_mapRoutines!.RunningCount} running in zone {_mapRoutineZoneId}.");
+                    if (!known) GordianLog.Debug(LogCategories.Graphics, $"Map scheduler '{request.Routine}' names no routine of zone {_mapRoutineZoneId}.");
+                    else GordianLog.Debug(LogCategories.Graphics, $"Zone routine '{request.Routine}' {(request.Stop ? "stopped" : "started")} (actors {request.CasterServerId:X8} / {request.TargetServerId:X8}); {_mapRoutines!.RunningCount} running in zone {_mapRoutineZoneId}.");
                 }
             }
             // Doors play their own routines as they open and close (#227).

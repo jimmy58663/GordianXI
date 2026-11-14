@@ -238,20 +238,20 @@ namespace Gordian.Engine.Ui
             ushort itemId = poolSlot?.ItemId ?? 0;
             if (menu.IsGreyed(button.ButtonId))
             {
-                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} item={itemId} reason=already {(poolSlot?.Entry == TreasureEntryKind.Pass ? "passed" : "lotted")}");
+                GordianLog.Info(LogCategories.Treasure, $"{what} refused in the window: slot={slot} item={itemId} reason=already {(poolSlot?.Entry == TreasureEntryKind.Pass ? "passed" : "lotted")}");
                 NoticePosted?.Invoke(lot ? "You have already cast lots on or passed this item." : "You have already passed on this item.");
                 return;
             }
             if (poolSlot == null)
             {
-                GordianLog.Info("TREASURE", $"{what} refused in the window: slot={slot} reason=not in the pool");
+                GordianLog.Info(LogCategories.Treasure, $"{what} refused in the window: slot={slot} reason=not in the pool");
                 CloseMenu(menu);
                 return;
             }
             if (lot && TreasureLotRefusal(poolSlot) is { } refusal)
             {
                 // Retail checks before sending, and LandSandBoat would ignore the lot without a word (treasure_pool.cpp).
-                GordianLog.Info("TREASURE", $"Cast Lot refused in the window: slot={slot} item={itemId} reason={refusal.Reason}");
+                GordianLog.Info(LogCategories.Treasure, $"Cast Lot refused in the window: slot={slot} item={itemId} reason={refusal.Reason}");
                 NoticePosted?.Invoke(refusal.Message);
                 return;
             }
@@ -259,11 +259,11 @@ namespace Gordian.Engine.Ui
             var send = lot ? TreasureLot : TreasurePass;
             if (send == null)
             {
-                GordianLog.Info("TREASURE", $"{what} not sent: slot={slot} item={itemId} reason=no session");
+                GordianLog.Info(LogCategories.Treasure, $"{what} not sent: slot={slot} item={itemId} reason=no session");
                 NoticePosted?.Invoke("The treasure pool is not available in this session.");
                 return;
             }
-            GordianLog.Info("TREASURE", $"{what} confirmed in the window: slot={slot} item={itemId}, sending");
+            GordianLog.Info(LogCategories.Treasure, $"{what} confirmed in the window: slot={slot} item={itemId}, sending");
             _ = SendTreasureAsync(send, slot, lot);
         }
 
@@ -312,7 +312,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("UI", $"Treasure {(lot ? "lot" : "pass")} failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Ui, $"Treasure {(lot ? "lot" : "pass")} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{(lot ? "Cast Lot" : "Pass")} failed: {ex.Message}");
             }
         }

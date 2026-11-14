@@ -78,7 +78,7 @@ namespace Gordian.Engine.Actions
                 _ => (LockstyleMode?)null,
             };
             if (mode is not { } m || InventoryModule is not { } module) return;
-            GordianLog.Info("LOCKSTYLE", $"Zone-in: style lock {_styleLock}, sending 0x053 {m}.");
+            GordianLog.Info(LogCategories.Lockstyle, $"Zone-in: style lock {_styleLock}, sending 0x053 {m}.");
             await module.SetLockstyleAsync(m).ConfigureAwait(false);
         }
 
@@ -97,7 +97,7 @@ namespace Gordian.Engine.Actions
             if (before is not { } previous || (previous.Main == main && (previous.Sub == sub || sub == JobId.None || previous.Sub == JobId.None))) return;
             _styleLock = StyleLockStatus.Off;
             if (InventoryModule is not { } module) return;
-            GordianLog.Info("LOCKSTYLE", $"Job change {previous.Main}/{previous.Sub} -> {main}/{sub}: sending 0x053 Disable.");
+            GordianLog.Info(LogCategories.Lockstyle, $"Job change {previous.Main}/{previous.Sub} -> {main}/{sub}: sending 0x053 Disable.");
             await module.SetLockstyleAsync(LockstyleMode.Disable).ConfigureAwait(false);
         }
 
@@ -131,7 +131,7 @@ namespace Gordian.Engine.Actions
             if (module == null) return PlayerActionResult.Fail("Style lock is unavailable: no inventory module.", ChatCommandResultKind.LockstyleSet);
 
             var items = LockstyleItems(set, module.State);
-            GordianLog.Info("LOCKSTYLE", $"/lockstyleset {number} ({set.Name}){(echo ? " echo" : string.Empty)}: 0x053 Set.");
+            GordianLog.Info(LogCategories.Lockstyle, $"/lockstyleset {number} ({set.Name}){(echo ? " echo" : string.Empty)}: 0x053 Set.");
             await module.SetLockstyleAsync(LockstyleMode.Set, echo, items).ConfigureAwait(false);
             NoteStyleLockSent(LockstyleMode.Set);
             return PlayerActionResult.Ok(string.Empty, ChatCommandResultKind.LockstyleSet);
@@ -161,7 +161,7 @@ namespace Gordian.Engine.Actions
             var (entries, missing) = EquipsetEntries(set, module.State);
             if (entries.Count > 0)
             {
-                GordianLog.Info("EQUIPSET", $"/equipset {number} ({set.Name}): 0x051 with {entries.Count} slot(s).");
+                GordianLog.Info(LogCategories.Equipset, $"/equipset {number} ({set.Name}): 0x051 with {entries.Count} slot(s).");
                 await module.EquipSetAsync(entries.ToArray()).ConfigureAwait(false);
             }
             if (missing.Count > 0)

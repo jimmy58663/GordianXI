@@ -42,7 +42,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x038_Schedulor(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Debug("SCHEDULER", $"Actor scheduler '{p.Routine}' (0x{p.RoutineId:X8}): caster 0x{p.CasterServerId:X8} [{p.CasterIndex}] -> target 0x{p.TargetServerId:X8} [{p.TargetIndex}].");
+            GordianLog.Debug(LogCategories.Scheduler, $"Actor scheduler '{p.Routine}' (0x{p.RoutineId:X8}): caster 0x{p.CasterServerId:X8} [{p.CasterIndex}] -> target 0x{p.TargetServerId:X8} [{p.TargetIndex}].");
             _state.PostActor(new ActorSchedulerRequest(_world.CurrentZoneId, p.Routine, p.RoutineId, p.CasterServerId, p.TargetServerId, p.CasterIndex, p.TargetIndex));
         }
 
@@ -51,7 +51,7 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x03A_MagicSchedulor(payload);
             if (!p.IsValid) return;
 
-            GordianLog.Debug("SCHEDULER", $"Magic scheduler file {p.FileNumber} type {p.TypeId}: caster 0x{p.CasterServerId:X8} [{p.CasterIndex}] -> target 0x{p.TargetServerId:X8} [{p.TargetIndex}].");
+            GordianLog.Debug(LogCategories.Scheduler, $"Magic scheduler file {p.FileNumber} type {p.TypeId}: caster 0x{p.CasterServerId:X8} [{p.CasterIndex}] -> target 0x{p.TargetServerId:X8} [{p.TargetIndex}].");
             _state.PostMagic(new MagicSchedulerRequest(_world.CurrentZoneId, p.FileNumber, p.TypeId, p.CasterServerId, p.TargetServerId, p.CasterIndex, p.TargetIndex));
         }
     }

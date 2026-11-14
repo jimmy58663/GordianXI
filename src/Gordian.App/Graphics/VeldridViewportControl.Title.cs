@@ -50,17 +50,17 @@ namespace Gordian.App.Graphics
                 if (scene == null)
                 {
                     _titleUnavailable = true;
-                    GordianLog.Warning("Graphics", "Title fly-through: ROM/0/23.DAT could not be read; the lobby draws its plain backdrop.");
+                    GordianLog.Warn(LogCategories.Graphics, "Title fly-through: ROM/0/23.DAT could not be read; the lobby draws its plain backdrop.");
                     return null;
                 }
                 _title = new TitleFlythrough(scene, zone => rm.TryResolveFile(ZoneDataLoader.GetZoneModelFileId(zone), out _));
                 if (_title.Segment == null) _titleUnavailable = true;
-                GordianLog.Info("Graphics", $"Title fly-through: {scene.Segments.Count} segments, {scene.Groups.Count} choices; opening segment {_title.Segment?.Number} (zone {_title.ZoneId}).");
+                GordianLog.Info(LogCategories.Graphics, $"Title fly-through: {scene.Segments.Count} segments, {scene.Groups.Count} choices; opening segment {_title.Segment?.Number} (zone {_title.ZoneId}).");
             }
             catch (Exception ex)
             {
                 _titleUnavailable = true;
-                GordianLog.Warning("Graphics", $"Title fly-through unavailable: {ex.Message}");
+                GordianLog.Warn(LogCategories.Graphics, $"Title fly-through unavailable: {ex.Message}");
             }
             return _title;
         }
@@ -129,7 +129,7 @@ namespace Gordian.App.Graphics
             _stagePreloaded = true;
             if (!rm.TryResolveFile(ZoneDataLoader.GetZoneModelFileId(LobbyStage.ZoneId), out _))
             {
-                GordianLog.Warning("Graphics", $"Lobby stage: zone {LobbyStage.ZoneId} (ROM/1/5.DAT) is not installed; character select shows a black backdrop.");
+                GordianLog.Warn(LogCategories.Graphics, $"Lobby stage: zone {LobbyStage.ZoneId} (ROM/1/5.DAT) is not installed; character select shows a black backdrop.");
                 return;
             }
             renderer.SharedResources.Zones.PreloadInBackground(rm, LobbyStage.ZoneId);
@@ -179,7 +179,7 @@ namespace Gordian.App.Graphics
                 _titlePreloadedZone = next;
                 if (!renderer.SharedResources.Zones.PreloadInBackground(rm, next))
                 {
-                    GordianLog.Info("Graphics", $"Title fly-through: zone {next} not preloaded (already loading, or over the zone cache budget); it loads when its segment starts if need be.");
+                    GordianLog.Info(LogCategories.Graphics, $"Title fly-through: zone {next} not preloaded (already loading, or over the zone cache budget); it loads when its segment starts if need be.");
                 }
             }
         }

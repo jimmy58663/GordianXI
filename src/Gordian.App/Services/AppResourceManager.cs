@@ -81,18 +81,18 @@ namespace Gordian.App.Services
                 string? gameDir = requestedDirectory ?? GameDirectoryDetector.DetectGameDirectory();
                 if (string.IsNullOrEmpty(gameDir))
                 {
-                    GordianLog.Warning("RES", "GameDirectoryDetector could not locate FFXI installation directory.");
+                    GordianLog.Warn(LogCategories.Res, "GameDirectoryDetector could not locate FFXI installation directory.");
                     return;
                 }
 
                 var rm = new ResourceManager(gameDir);
                 if (rm.InitializeFileTable())
                 {
-                    GordianLog.Info("RES", $"AppResourceManager successfully initialized for '{gameDir}' with {rm.FileTable.Count} files.");
+                    GordianLog.Info(LogCategories.Res, $"AppResourceManager successfully initialized for '{gameDir}' with {rm.FileTable.Count} files.");
                 }
                 else
                 {
-                    GordianLog.Warning("RES", $"AppResourceManager initialized for '{gameDir}', but InitializeFileTable() returned false.");
+                    GordianLog.Warn(LogCategories.Res, $"AppResourceManager initialized for '{gameDir}', but InitializeFileTable() returned false.");
                 }
 
                 // Item names come from the same install as everything else.
@@ -101,7 +101,7 @@ namespace Gordian.App.Services
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to initialize AppResourceManager: {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to initialize AppResourceManager: {ex.Message}");
             }
         }
     }

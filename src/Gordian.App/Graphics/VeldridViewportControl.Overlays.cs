@@ -114,7 +114,7 @@ namespace Gordian.App.Graphics
             {
                 // A missing native cimgui or a shader the backend cannot take: stop trying for this window.
                 _overlayLayerFailed = true;
-                GordianLog.Warning("Graphics", $"ImGui overlay layer unavailable: {ex.Message}");
+                GordianLog.Warn(LogCategories.Graphics, $"ImGui overlay layer unavailable: {ex.Message}");
                 return;
             }
 

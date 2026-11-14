@@ -134,7 +134,7 @@ namespace Gordian.Engine.Ui
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    Gordian.Core.Diagnostics.GordianLog.Warning("UI", $"Member List: the search server failed ({ex.Message}); listing the party state.");
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Ui, $"Member List: the search server failed ({ex.Message}); listing the party state.");
                 }
             }
             // No search server answer: the members the world server told us about.
@@ -177,7 +177,7 @@ namespace Gordian.Engine.Ui
         private static void LogLinkshellRanks(uint shell, IReadOnlyList<SearchEntity> players)
         {
             foreach (var p in players)
-                Gordian.Core.Diagnostics.GordianLog.Info("UI", $"Linkshell 0x{shell:X} member {p.Name}: ls1 0x{p.LinkshellId1:X} rank {p.LinkshellRank1}, ls2 0x{p.LinkshellId2:X} rank {p.LinkshellRank2}.");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Ui, $"Linkshell 0x{shell:X} member {p.Name}: ls1 0x{p.LinkshellId1:X} rank {p.LinkshellRank1}, ls2 0x{p.LinkshellId2:X} rank {p.LinkshellRank2}.");
         }
 
         /// <summary>The containers a linkshell item can be worn from: the inventory and the wardrobes.</summary>

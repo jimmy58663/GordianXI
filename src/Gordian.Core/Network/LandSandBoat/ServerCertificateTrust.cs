@@ -158,7 +158,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     // The pin holds in memory until the file changes or GordianXI restarts; then the user is asked again.
-                    GordianLog.Warning("LSB_LOGIN", $"Could not save the trusted server certificate to {_filePath}: {ex.Message}");
+                    GordianLog.Warn(LogCategories.LsbLogin, $"Could not save the trusted server certificate to {_filePath}: {ex.Message}");
                 }
             }
         }
@@ -198,7 +198,7 @@ namespace Gordian.Core.Network.LandSandBoat
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 // An unreadable file trusts nothing: every server is asked about again.
-                GordianLog.Warning("LSB_LOGIN", $"Could not read the trusted server certificates in {_filePath}: {ex.Message}");
+                GordianLog.Warn(LogCategories.LsbLogin, $"Could not read the trusted server certificates in {_filePath}: {ex.Message}");
             }
             return _pins;
         }

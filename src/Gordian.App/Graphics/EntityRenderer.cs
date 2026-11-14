@@ -686,7 +686,7 @@ namespace Gordian.App.Graphics
                             : -1;
                         float distToTarget = Vector3.Distance(entity.Position, entity.TargetPosition);
 
-                        GordianLog.Info("Locomotion",
+                        GordianLog.Info(LogCategories.Locomotion,
                             $"[Entity 0x{entity.ServerId:X8}:{entity.Name}] ANIMATION STATE CHANGED: {entity.Animation.Current} -> {category} " +
                             $"(Speed={entity.Speed}, ElapsedSincePacket={elapsedSincePacketMs:F0}ms, DistRemaining={distToTarget:F2}, MovTime={entity.LastMovTime})");
                     }
@@ -964,7 +964,7 @@ namespace Gordian.App.Graphics
             {
                 if (!_loggedPaletteOverflow)
                 {
-                    GordianLog.Warning("GFX", $"Skeleton has {count} joints, exceeding MaxPaletteJoints ({ZoneShaders.MaxPaletteJoints}); clamping.");
+                    GordianLog.Warn(LogCategories.Gfx, $"Skeleton has {count} joints, exceeding MaxPaletteJoints ({ZoneShaders.MaxPaletteJoints}); clamping.");
                     _loggedPaletteOverflow = true;
                 }
                 count = ZoneShaders.MaxPaletteJoints;

@@ -45,7 +45,7 @@ namespace Gordian.Core.Resources.Vfs
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("VFS", $"Failed to parse vfs.json from {configPath}: {ex.Message}");
+                    GordianLog.Error(LogCategories.Vfs, $"Failed to parse vfs.json from {configPath}: {ex.Message}");
                 }
             }
 
@@ -67,7 +67,7 @@ namespace Gordian.Core.Resources.Vfs
             }
             catch (Exception ex)
             {
-                GordianLog.Error("VFS", $"Failed to save vfs.json to {configPath}: {ex.Message}");
+                GordianLog.Error(LogCategories.Vfs, $"Failed to save vfs.json to {configPath}: {ex.Message}");
             }
         }
 

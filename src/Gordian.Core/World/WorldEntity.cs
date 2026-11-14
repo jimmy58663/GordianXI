@@ -692,7 +692,7 @@ namespace Gordian.Core.World
 
             if (silentFor > 0f)
             {
-                GordianLog.Info("Locomotion", $"[Entity 0x{ServerId:X8}:{Name}] MOVE STOP (silence): no update for {silentFor:F2}s, " +
+                GordianLog.Info(LogCategories.Locomotion, $"[Entity 0x{ServerId:X8}:{Name}] MOVE STOP (silence): no update for {silentFor:F2}s, " +
                     $"interval={UpdateIntervalSeconds:F2}s, ground={GroundSpeedYalms:F2}, delay={PlaybackDelaySeconds:F2}s");
             }
 

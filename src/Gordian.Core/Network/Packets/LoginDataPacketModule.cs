@@ -60,7 +60,7 @@ namespace Gordian.Core.Network.Packets
             var mounts = new S2C_0x0AE_MountData(payload);
             if (!mounts.IsValid) return;
             _progression.UpdateMounts(mounts);
-            GordianLog.Debug("PROGRESSION", $"Mount data 0x0AE: table={Convert.ToHexString(mounts.MountTable)} unlocked={_progression.GetUnlockedMounts().Count}");
+            GordianLog.Debug(LogCategories.Progression, $"Mount data 0x0AE: table={Convert.ToHexString(mounts.MountTable)} unlocked={_progression.GetUnlockedMounts().Count}");
         }
 
         private void HandleDungeon(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -68,7 +68,7 @@ namespace Gordian.Core.Network.Packets
             var dungeon = new S2C_0x0AD_Dungeon(payload);
             if (!dungeon.IsValid) return;
             _progression.UpdateMazeUnlocks(dungeon);
-            GordianLog.Debug("PROGRESSION", $"Maze data 0x0AD: vouchers={_progression.GetMazeVoucherItemIds().Count} runes={_progression.GetMazeRuneItemIds().Count}");
+            GordianLog.Debug(LogCategories.Progression, $"Maze data 0x0AD: vouchers={_progression.GetMazeVoucherItemIds().Count} runes={_progression.GetMazeRuneItemIds().Count}");
         }
 
         private void HandleAlterEgoPoints(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -76,7 +76,7 @@ namespace Gordian.Core.Network.Packets
             var points = new S2C_0x08E_AlterEgoPoints(payload);
             if (!points.IsValid) return;
             _progression.UpdateAlterEgoPoints(points);
-            GordianLog.Debug("PROGRESSION", $"Alter Ego points 0x08E: points={points.Points}");
+            GordianLog.Debug(LogCategories.Progression, $"Alter Ego points 0x08E: points={points.Points}");
         }
 
         private void HandleExtendedJob(PacketHeader header, ReadOnlySpan<byte> payload)
@@ -87,7 +87,7 @@ namespace Gordian.Core.Network.Packets
             string slot = job.IsSubJob ? "sub" : "main";
             if (!applied)
             {
-                GordianLog.Debug("PROGRESSION", $"Extended job 0x044: job {job.JobNo} ({slot}) ignored, not the current {slot} job.");
+                GordianLog.Debug(LogCategories.Progression, $"Extended job 0x044: job {job.JobNo} ({slot}) ignored, not the current {slot} job.");
                 return;
             }
 
@@ -95,19 +95,19 @@ namespace Gordian.Core.Network.Packets
             {
                 int set = 0;
                 for (int i = 0; i < S2C_0x044_ExtendedJob.BlueSpellSlots; i++) if (job.GetBlueSpell(i) != 0) set++;
-                GordianLog.Debug("PROGRESSION", $"Extended job 0x044: Blue Mage ({slot}) {set} spells set.");
+                GordianLog.Debug(LogCategories.Progression, $"Extended job 0x044: Blue Mage ({slot}) {set} spells set.");
             }
             else if (job.IsPuppetmaster)
             {
-                GordianLog.Debug("PROGRESSION", $"Extended job 0x044: Puppetmaster ({slot}) automaton '{job.AutomatonName}' head={job.AutomatonHead} frame={job.AutomatonFrame} HP={job.AutomatonHp}/{job.AutomatonMaxHp}.");
+                GordianLog.Debug(LogCategories.Progression, $"Extended job 0x044: Puppetmaster ({slot}) automaton '{job.AutomatonName}' head={job.AutomatonHead} frame={job.AutomatonFrame} HP={job.AutomatonHp}/{job.AutomatonMaxHp}.");
             }
             else if (job.IsMonstrosity)
             {
-                GordianLog.Debug("PROGRESSION", $"Extended job 0x044: Monstrosity species={job.MonstrositySpecies}.");
+                GordianLog.Debug(LogCategories.Progression, $"Extended job 0x044: Monstrosity species={job.MonstrositySpecies}.");
             }
             else
             {
-                GordianLog.Debug("PROGRESSION", $"Extended job 0x044: job {job.JobNo} ({slot}), {payload.Length} bytes kept raw.");
+                GordianLog.Debug(LogCategories.Progression, $"Extended job 0x044: job {job.JobNo} ({slot}), {payload.Length} bytes kept raw.");
             }
         }
 

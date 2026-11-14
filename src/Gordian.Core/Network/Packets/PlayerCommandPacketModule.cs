@@ -76,7 +76,7 @@ namespace Gordian.Core.Network.Packets
         {
             var start = new S2C_0x078_SwitchStart(payload);
             if (!start.IsValid) return;
-            GordianLog.Debug("VOTE", $"Proposal 0x078: proposer='{start.ProposerName}' kind={start.Kind} text='{start.Text.Replace('\n', '|')}'");
+            GordianLog.Debug(LogCategories.Vote, $"Proposal 0x078: proposer='{start.ProposerName}' kind={start.Kind} text='{start.Text.Replace('\n', '|')}'");
             _state.Votes.ApplyStart(start.ProposerName, start.Kind, start.Text);
         }
 
@@ -87,7 +87,7 @@ namespace Gordian.Core.Network.Packets
 
             Span<int> votes = stackalloc int[S2C_0x079_SwitchProc.VoteSlots];
             for (int i = 1; i < S2C_0x079_SwitchProc.VoteSlots; i++) votes[i] = proc.GetVotes(i);
-            GordianLog.Debug("VOTE", $"Tally 0x079: proposer='{proc.ProposerName}' closed={proc.Closed} options={Math.Max(0, proc.QuestionNum - 1)} " +
+            GordianLog.Debug(LogCategories.Vote, $"Tally 0x079: proposer='{proc.ProposerName}' closed={proc.Closed} options={Math.Max(0, proc.QuestionNum - 1)} " +
                 $"votes=[{votes[1]},{votes[2]},{votes[3]},{votes[4]},{votes[5]},{votes[6]},{votes[7]},{votes[8]}]");
             _state.Votes.ApplyProc(proc.ProposerName, proc.Kind, proc.Closed, Math.Max(0, proc.QuestionNum - 1), votes, proc.Text);
         }
@@ -103,7 +103,7 @@ namespace Gordian.Core.Network.Packets
         {
             var pos = new S2C_0x0F5_TrackingPos(payload);
             if (!pos.IsValid) return;
-            GordianLog.Debug("WIDESCAN", $"Tracking 0x0F5: index={pos.ActIndex} state={pos.State} level={pos.Level} pos=({pos.X:F1},{pos.Y:F1},{pos.Z:F1})");
+            GordianLog.Debug(LogCategories.Widescan, $"Tracking 0x0F5: index={pos.ActIndex} state={pos.State} level={pos.Level} pos=({pos.X:F1},{pos.Y:F1},{pos.Z:F1})");
             _state.WideScan.ApplyTrack(new WideScanTrack(pos.ActIndex, pos.Level, new Vector3(pos.X, pos.Y, pos.Z), pos.State));
         }
 
@@ -111,7 +111,7 @@ namespace Gordian.Core.Network.Packets
         {
             var state = new S2C_0x0F6_TrackingState(payload);
             if (!state.IsValid) return;
-            GordianLog.Debug("WIDESCAN", $"List state 0x0F6: {state.State} ({_state.WideScan.Snapshot().Count} entries so far)");
+            GordianLog.Debug(LogCategories.Widescan, $"List state 0x0F6: {state.State} ({_state.WideScan.Snapshot().Count} entries so far)");
             _state.WideScan.ApplyListState(state.State);
         }
 
@@ -119,7 +119,7 @@ namespace Gordian.Core.Network.Packets
         {
             var list = new S2C_0x11A_EmoteList(payload);
             if (!list.IsValid) return;
-            GordianLog.Debug("EMOTE", $"Emote list 0x11A: jobEmotes=0x{list.JobEmotes:X8} chairs=0x{list.Chairs:X4}");
+            GordianLog.Debug(LogCategories.Emote, $"Emote list 0x11A: jobEmotes=0x{list.JobEmotes:X8} chairs=0x{list.Chairs:X4}");
             _state.Emotes.Apply(list.JobEmotes, list.Chairs);
         }
 
@@ -130,11 +130,11 @@ namespace Gordian.Core.Network.Packets
             if (_world.TryGetByTargetIndex(jump.ActIndex, out var entity) && entity != null)
             {
                 entity.NotifyJump();
-                GordianLog.Debug("ENTITY", $"Jump 0x11E: '{entity.Name}' (index {jump.ActIndex}) jumped (count {entity.JumpCount}).");
+                GordianLog.Debug(LogCategories.Entity, $"Jump 0x11E: '{entity.Name}' (index {jump.ActIndex}) jumped (count {entity.JumpCount}).");
             }
             else
             {
-                GordianLog.Debug("ENTITY", $"Jump 0x11E: unknown entity index {jump.ActIndex}.");
+                GordianLog.Debug(LogCategories.Entity, $"Jump 0x11E: unknown entity index {jump.ActIndex}.");
             }
         }
 
@@ -142,7 +142,7 @@ namespace Gordian.Core.Network.Packets
         {
             var msg = new S2C_0x053_SystemMes(payload);
             if (!msg.IsValid) return;
-            GordianLog.Debug("SYSMES", $"System message 0x053: id={msg.MessageId} para={msg.Para} para2={msg.Para2}");
+            GordianLog.Debug(LogCategories.Sysmes, $"System message 0x053: id={msg.MessageId} para={msg.Para} para2={msg.Para2}");
             _state.ApplySystemMessage(new SystemMessageInfo(msg.MessageId, msg.Para, msg.Para2));
         }
 
@@ -150,7 +150,7 @@ namespace Gordian.Core.Network.Packets
         {
             var motion = new S2C_0x05A_MotionMes(payload);
             if (!motion.IsValid) return;
-            GordianLog.Debug("EMOTE", $"Emote 0x05A: caster=0x{motion.CasterId:X8} target=0x{motion.TargetId:X8} emote={motion.EmoteId} param={motion.Param} mode={motion.Mode}");
+            GordianLog.Debug(LogCategories.Emote, $"Emote 0x05A: caster=0x{motion.CasterId:X8} target=0x{motion.TargetId:X8} emote={motion.EmoteId} param={motion.Param} mode={motion.Mode}");
             _state.ApplyEmote(new EmoteEcho(motion.CasterId, motion.CasterIndex, motion.TargetId, motion.TargetIndex, motion.EmoteId, motion.Param, motion.Mode));
         }
 
@@ -159,7 +159,7 @@ namespace Gordian.Core.Network.Packets
             var inspect = new S2C_0x0CA_InspectMessage(payload);
             if (!inspect.IsValid) return;
             var info = new InspectMessageInfo(inspect.Name, inspect.Message, inspect.HasBazaar, inspect.IsSelf, inspect.Race, inspect.TitleId);
-            GordianLog.Debug("INSPECT", $"Inspect message 0x0CA: '{info.Name}' self={info.IsSelf} bazaar={info.HasBazaar} title={info.TitleId} message='{info.Message.Replace('\n', '|')}'");
+            GordianLog.Debug(LogCategories.Inspect, $"Inspect message 0x0CA: '{info.Name}' self={info.IsSelf} bazaar={info.HasBazaar} title={info.TitleId} message='{info.Message.Replace('\n', '|')}'");
             _state.Inspect.Apply(info);
         }
 
@@ -175,11 +175,11 @@ namespace Gordian.Core.Network.Packets
             {
                 Span<EquipInspectItem> items = stackalloc EquipInspectItem[S2C_0x0C9_EquipInspect.MaxItemsPerPacket];
                 int count = inspect.ReadItems(items);
-                GordianLog.Debug("INSPECT", $"Equip inspect 0x0C9 mode {inspect.OptionFlag}: id=0x{inspect.ServerId:X8} items={count}");
+                GordianLog.Debug(LogCategories.Inspect, $"Equip inspect 0x0C9 mode {inspect.OptionFlag}: id=0x{inspect.ServerId:X8} items={count}");
                 _state.Equipment.AddItems(inspect.ServerId, items[..count]);
                 return;
             }
-            GordianLog.Debug("INSPECT", $"Equip inspect 0x0C9 general: id=0x{inspect.ServerId:X8} job={inspect.MainJob}/{inspect.SubJob} " +
+            GordianLog.Debug(LogCategories.Inspect, $"Equip inspect 0x0C9 general: id=0x{inspect.ServerId:X8} job={inspect.MainJob}/{inspect.SubJob} " +
                 $"lv={inspect.MainJobLevel}/{inspect.SubJobLevel} ls='{inspect.LinkshellName}'");
             _state.Equipment.Complete(inspect.ServerId, inspect.TargetIndex, inspect.MainJob, inspect.MainJobLevel, inspect.SubJob, inspect.SubJobLevel,
                 inspect.MasteryJob, inspect.MasteryLevel, inspect.MasteryFlags, inspect.LinkshellItemId, inspect.LinkshellName, inspect.LinkshellColor,

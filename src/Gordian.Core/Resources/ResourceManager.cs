@@ -137,13 +137,13 @@ namespace Gordian.Core.Resources
 
                     _fileTable = table;
                     _fileTableInitialized = true;
-                    GordianLog.Info("RES", $"Loaded master file table with {table.Count} entries across base and expansions.");
+                    GordianLog.Info(LogCategories.Res, $"Loaded master file table with {table.Count} entries across base and expansions.");
                     return true;
                 }
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to load master file tables: {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to load master file tables: {ex.Message}");
             }
 
             return false;
@@ -201,7 +201,7 @@ namespace Gordian.Core.Resources
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to load DAT tree for {relativePath}: {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to load DAT tree for {relativePath}: {ex.Message}");
             }
 
             return null;
@@ -250,7 +250,7 @@ namespace Gordian.Core.Resources
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to parse d_msg table {category}: {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to parse d_msg table {category}: {ex.Message}");
             }
 
             return null;
@@ -384,13 +384,13 @@ namespace Gordian.Core.Resources
                         loaded++;
                     }
 
-                    GordianLog.Info("RES", $"Loaded {loaded} items from {relativePath}");
+                    GordianLog.Info(LogCategories.Res, $"Loaded {loaded} items from {relativePath}");
                     return loaded;
                 }
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to load items from {relativePath}: {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to load items from {relativePath}: {ex.Message}");
             }
 
             return 0;
@@ -532,7 +532,7 @@ namespace Gordian.Core.Resources
                 }
             }
 
-            GordianLog.Info("RES", collision != null
+            GordianLog.Info(LogCategories.Res, collision != null
                 ? $"Loaded zone {zoneId} collision ({collision.TriangleCount} triangles)."
                 : $"Zone {zoneId} has no collision mesh.");
             return _collisionCache.GetOrAdd(zoneId, collision);
@@ -549,7 +549,7 @@ namespace Gordian.Core.Resources
                 }
                 else
                 {
-                    GordianLog.Warning("RES", "Could not extract key tables from FFXiMain.dll — zone geometry will not be decrypted.");
+                    GordianLog.Warn(LogCategories.Res, "Could not extract key tables from FFXiMain.dll — zone geometry will not be decrypted.");
                 }
             }
         }
@@ -560,18 +560,18 @@ namespace Gordian.Core.Resources
         private byte[]? ReadZoneModelDat(int zoneId)
         {
             int fileId = ZoneDataLoader.GetZoneModelFileId(zoneId);
-            GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): fileId={fileId}, ftable entries={_fileTable.Count}, gameDir='{_gameDirectory}'");
+            GordianLog.Debug(LogCategories.Res, $"ReadZoneModelDat({zoneId}): fileId={fileId}, ftable entries={_fileTable.Count}, gameDir='{_gameDirectory}'");
 
             byte[]? datBytes = null;
 
             if (TryResolveFile(fileId, out string fullPath) && File.Exists(fullPath))
             {
-                GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): resolved to '{fullPath}' via TryResolveFile.");
+                GordianLog.Debug(LogCategories.Res, $"ReadZoneModelDat({zoneId}): resolved to '{fullPath}' via TryResolveFile.");
                 datBytes = File.ReadAllBytes(fullPath);
             }
             else if (_fileTable.TryResolve(fileId, out string relPath))
             {
-                GordianLog.Debug("RES", $"ReadZoneModelDat({zoneId}): FTABLE resolved fileId={fileId} -> '{relPath}', trying VFS/gameDir.");
+                GordianLog.Debug(LogCategories.Res, $"ReadZoneModelDat({zoneId}): FTABLE resolved fileId={fileId} -> '{relPath}', trying VFS/gameDir.");
                 if (_vfs.TryResolveDat(relPath, out var resolved))
                 {
                     datBytes = resolved!.ReadAllBytes();
@@ -580,12 +580,12 @@ namespace Gordian.Core.Resources
                 {
                     string p = Path.Combine(_gameDirectory, relPath);
                     if (File.Exists(p)) datBytes = File.ReadAllBytes(p);
-                    else GordianLog.Warning("RES", $"ReadZoneModelDat({zoneId}): DAT file does not exist on disk: '{p}'");
+                    else GordianLog.Warn(LogCategories.Res, $"ReadZoneModelDat({zoneId}): DAT file does not exist on disk: '{p}'");
                 }
             }
             else
             {
-                GordianLog.Warning("RES", $"ReadZoneModelDat({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
+                GordianLog.Warn(LogCategories.Res, $"ReadZoneModelDat({zoneId}): FTABLE has no entry for fileId={fileId}. Check that FTABLE.DAT loaded correctly.");
             }
             return datBytes;
         }
@@ -610,7 +610,7 @@ namespace Gordian.Core.Resources
                 var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
                     GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId), interior: true);
                 _interiorCollisionCache.TryAdd(id, geometry.Collision);
-                GordianLog.Info("RES", $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
+                GordianLog.Info(LogCategories.Res, $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
                 return (geometry, decoded);
             });
             interior = entry?.Geometry;
@@ -654,7 +654,7 @@ namespace Gordian.Core.Resources
             // Diagnostic: warn if FTABLE is empty (init failed or game dir not found)
             if (_fileTable.Count == 0)
             {
-                GordianLog.Warning("RES", $"TryLoadZone({zoneId}): FileTable is empty — InitializeFileTable() may have failed or game directory not found.");
+                GordianLog.Warn(LogCategories.Res, $"TryLoadZone({zoneId}): FileTable is empty — InitializeFileTable() may have failed or game directory not found.");
             }
 
             EnsureKeyTables();
@@ -676,11 +676,11 @@ namespace Gordian.Core.Resources
                 else _collisionCache[zoneId] = zone.Collision;
 
                 _zoneCache[zoneId] = (zone, textures);
-                GordianLog.Info("RES", $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
+                GordianLog.Info(LogCategories.Res, $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
 
                 if (zone.MeshGroups.Count == 0)
                 {
-                    GordianLog.Warning("RES", $"TryLoadZone({zoneId}): DAT parsed but produced 0 submeshes. keyTable1={((_keyTable1 != null && _keyTable1.Length > 0) ? "OK" : "MISSING")}, keyTable2={((_keyTable2 != null && _keyTable2.Length > 0) ? "OK" : "MISSING")}");
+                    GordianLog.Warn(LogCategories.Res, $"TryLoadZone({zoneId}): DAT parsed but produced 0 submeshes. keyTable1={((_keyTable1 != null && _keyTable1.Length > 0) ? "OK" : "MISSING")}, keyTable2={((_keyTable2 != null && _keyTable2.Length > 0) ? "OK" : "MISSING")}");
                 }
 
                 return true;
@@ -703,7 +703,7 @@ namespace Gordian.Core.Resources
                     string sharedPath = Path.Combine("ROM", "0", "0.DAT");
                     byte[]? bytes = LoadDatBytes(sharedPath);
                     _sharedEffects = bytes != null && bytes.Length > 0 ? SharedEffectResources.Parse(bytes, sharedPath) : null;
-                    if (_sharedEffects == null) GordianLog.Warning("RES", "Shared effects DAT ROM/0/0.DAT unavailable; generators linking shared effects will be skipped.");
+                    if (_sharedEffects == null) GordianLog.Warn(LogCategories.Res, "Shared effects DAT ROM/0/0.DAT unavailable; generators linking shared effects will be skipped.");
                     _sharedEffectsLoaded = true;
                 }
                 return _sharedEffects;
@@ -735,7 +735,7 @@ namespace Gordian.Core.Resources
             }
             catch (Exception ex)
             {
-                GordianLog.Error("RES", $"Failed to load DAT bytes for '{relativePath}': {ex.Message}");
+                GordianLog.Error(LogCategories.Res, $"Failed to load DAT bytes for '{relativePath}': {ex.Message}");
             }
 
             return null;
@@ -791,7 +791,7 @@ namespace Gordian.Core.Resources
 
                 int monsterFileId = CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId);
                 bool ftableHasEntry = _fileTable.TryResolve(monsterFileId, out string monsterRelPath);
-                GordianLog.Debug("RES", $"TryLoadEntityModel: Monster modelId={entity.Appearance.ModelId}, fileId={monsterFileId}, ftable={_fileTable.Count} entries, resolved={ftableHasEntry}, relPath='{monsterRelPath}'");
+                GordianLog.Debug(LogCategories.Res, $"TryLoadEntityModel: Monster modelId={entity.Appearance.ModelId}, fileId={monsterFileId}, ftable={_fileTable.Count} entries, resolved={ftableHasEntry}, relPath='{monsterRelPath}'");
             }
 
             // 2. Player or Equipped NPC with GrapIdTable
@@ -899,7 +899,7 @@ namespace Gordian.Core.Resources
                     }
                     catch (Exception ex)
                     {
-                        GordianLog.Warning("RES", $"Shared hit routines not read: {ex.Message}");
+                        GordianLog.Warn(LogCategories.Res, $"Shared hit routines not read: {ex.Message}");
                     }
                     Volatile.Write(ref _sharedHitRoutinesState, 2);
                 });
@@ -948,7 +948,7 @@ namespace Gordian.Core.Resources
         {
             if (_fileTableInitialized && !InitializeFileTable())
             {
-                GordianLog.Warning("RES", "Could not rebuild the file table after a VFS reload; keeping the previous one.");
+                GordianLog.Warn(LogCategories.Res, "Could not rebuild the file table after a VFS reload; keeping the previous one.");
             }
             _zoneCache.Clear();
             _collisionCache.Clear();
@@ -976,7 +976,7 @@ namespace Gordian.Core.Resources
             ZoneEntityNames.Reset();
             ZoneDatLoader.Invalidate();
             Interlocked.Increment(ref _cacheGeneration);
-            GordianLog.Info("RES", "Resource caches cleared; DATs will be read again.");
+            GordianLog.Info(LogCategories.Res, "Resource caches cleared; DATs will be read again.");
         }
     }
 }

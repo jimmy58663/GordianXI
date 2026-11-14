@@ -177,11 +177,11 @@ namespace Gordian.Core.Network.Lobby
             {
                 long start = Stopwatch.GetTimestamp();
                 await client.ConnectAsync(host, port, ct).ConfigureAwait(false);
-                GordianLog.Info("LOBBY", $"Lobby connected to {client.Client.RemoteEndPoint} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
+                GordianLog.Info(LogCategories.Lobby, $"Lobby connected to {client.Client.RemoteEndPoint} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
                 session = new LobbySession(client, handoff, log, timeout ?? TimeSpan.FromSeconds(10));
                 start = Stopwatch.GetTimestamp();
                 await handoff.OpenAsync(ct).ConfigureAwait(false);
-                GordianLog.Info("LOBBY", $"Lobby handoff ({handoff.Name}) ready in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
+                GordianLog.Info(LogCategories.Lobby, $"Lobby handoff ({handoff.Name}) ready in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
                 await session.LoginAsync(ct).ConfigureAwait(false);
                 return session;
             }
@@ -203,15 +203,15 @@ namespace Gordian.Core.Network.Lobby
             await SendAsync(_lobbyLoginPacket, "GP_LOBBY_LOGIN", ct).ConfigureAwait(false);
             long sent = Stopwatch.GetTimestamp();
             // The AuthCode (+0x34..+0x73) carries the public address, so only the fields around it are logged.
-            GordianLog.Debug("LOBBY", $"Lobby login (0x26) sent ({_handoff.Name}): +0x00 {Convert.ToHexString(_lobbyLoginPacket, 0, 0x34)} ... +0x74 {Convert.ToHexString(_lobbyLoginPacket, 0x74, _lobbyLoginPacket.Length - 0x74)}");
+            GordianLog.Debug(LogCategories.Lobby, $"Lobby login (0x26) sent ({_handoff.Name}): +0x00 {Convert.ToHexString(_lobbyLoginPacket, 0, 0x34)} ... +0x74 {Convert.ToHexString(_lobbyLoginPacket, 0x74, _lobbyLoginPacket.Length - 0x74)}");
 
             byte[] reply = await ReadAsync("login", ct).ConfigureAwait(false);
             byte command = LobbyPackets.ReadCommand(reply);
-            GordianLog.Info("LOBBY", $"Lobby login answered with 0x{command:X2} ({reply.Length} bytes) after {Stopwatch.GetElapsedTime(sent).TotalMilliseconds:0} ms.");
+            GordianLog.Info(LogCategories.Lobby, $"Lobby login answered with 0x{command:X2} ({reply.Length} bytes) after {Stopwatch.GetElapsedTime(sent).TotalMilliseconds:0} ms.");
             if (command == LobbyCommand.ResponseError)
             {
                 int code = LobbyPackets.ReadErrorCode(reply);
-                GordianLog.Debug("LOBBY", $"Lobby error reply: {Convert.ToHexString(reply)}");
+                GordianLog.Debug(LogCategories.Lobby, $"Lobby error reply: {Convert.ToHexString(reply)}");
                 throw Broken(new LobbyRequestException("login", code,
                     $"The lobby refused the login: error code {code} ({LobbyErrorCode.Describe(code)}, FFXI-{LobbyErrorCode.DisplayCode(code)})."));
             }
@@ -222,7 +222,7 @@ namespace Gordian.Core.Network.Lobby
             ServerExpansions = expansions;
             _expansionsKnown = true;
             ServerFeatures = features;
-            GordianLog.Info("LOBBY", $"Lobby login accepted ({_handoff.Name}; account expansions 0x{expansions:X}, features 0x{features:X}).");
+            GordianLog.Info(LogCategories.Lobby, $"Lobby login accepted ({_handoff.Name}; account expansions 0x{expansions:X}, features 0x{features:X}).");
 
             await ReadCharacterListAsync(ct).ConfigureAwait(false);
             _worlds = await ReadWorldListAsync(ct).ConfigureAwait(false);
@@ -236,7 +236,7 @@ namespace Gordian.Core.Network.Lobby
             await _handoff.BeforeCharacterListAsync(token => SendAsync(request, "GP_LOBBY_GET_CHR", token), ct).ConfigureAwait(false);
             byte[] list = await ExpectAsync("character list", LobbyCommand.RequestGetChr, LobbyCommand.ResponseChrInfo2, ct).ConfigureAwait(false);
             _characters = LobbyPackets.ParseCharacterList(list);
-            GordianLog.Info("LOBBY", $"Lobby character list: {_characters.Count} content id(s): " +
+            GordianLog.Info(LogCategories.Lobby, $"Lobby character list: {_characters.Count} content id(s): " +
                 string.Join(", ", _characters.Select(c => c.IsEmpty ? $"{c.Slot}=(free)" : $"{c.Slot}={c.Name}")));
         }
 
@@ -309,7 +309,7 @@ namespace Gordian.Core.Network.Lobby
                 LobbyClientPackets.WriteCreateCharacter(request, freeSlot.ContentId, creation, NextHash());
                 await SendAsync(request, "GP_LOBBY_CREATE_CHR", ct).ConfigureAwait(false);
                 await ExpectAsync("character creation", LobbyCommand.RequestCreateChr, LobbyCommand.ResponseOk, ct).ConfigureAwait(false);
-                GordianLog.Info("LOBBY", $"Created character '{creation.Name}' (race {creation.Race}, face {creation.CombinedFace}, job {creation.MainJob}, size {creation.Size}, nation {creation.Nation}).");
+                GordianLog.Info(LogCategories.Lobby, $"Created character '{creation.Name}' (race {creation.Race}, face {creation.CombinedFace}, job {creation.MainJob}, size {creation.Size}, nation {creation.Nation}).");
                 await _handoff.OnCharacterChangedAsync(LobbyCharacterChange.Created, ct).ConfigureAwait(false);
                 await ReadCharacterListAsync(ct).ConfigureAwait(false);
             }
@@ -328,7 +328,7 @@ namespace Gordian.Core.Network.Lobby
                 LobbyClientPackets.WriteDeleteCharacter(request, character.ContentId, character.ServerId, NextHash());
                 await SendAsync(request, "GP_LOBBY_DELETE_CHR", ct).ConfigureAwait(false);
                 await ExpectAsync("character deletion", LobbyCommand.RequestDeleteChr, LobbyCommand.ResponseOk, ct).ConfigureAwait(false);
-                GordianLog.Info("LOBBY", $"Deleted character '{character.Name}' (content id {character.ContentId}).");
+                GordianLog.Info(LogCategories.Lobby, $"Deleted character '{character.Name}' (content id {character.ContentId}).");
                 await _handoff.OnCharacterChangedAsync(LobbyCharacterChange.Deleted, ct).ConfigureAwait(false);
                 await ReadCharacterListAsync(ct).ConfigureAwait(false);
             }
@@ -374,7 +374,7 @@ namespace Gordian.Core.Network.Lobby
             byte[] request = new byte[LobbyPackets.SelectCharacterSize];
             LobbyClientPackets.WriteSelectCharacter(request, character.ContentId, character.ServerId, character.Name, hash,
                 LobbyClientPackets.AuthCodeField(_lobbyLoginPacket), _handoff.ClientChecksum);
-            GordianLog.Debug("LOBBY", $"Selecting '{character.Name}' (content id {character.ContentId}, 0x07)...");
+            GordianLog.Debug(LogCategories.Lobby, $"Selecting '{character.Name}' (content id {character.ContentId}, 0x07)...");
             await SendAsync(request, "GP_LOBBY_CHAR_SELECT", ct).ConfigureAwait(false);
             await _handoff.AfterSelectRequestAsync(character, ct).ConfigureAwait(false);
 
@@ -385,7 +385,7 @@ namespace Gordian.Core.Network.Lobby
             _broken = true;
 
             var ticket = _handoff.CreateTicket(character, next, selectModifier);
-            GordianLog.Info("LOBBY", $"Character '{ticket.CharacterName}' selected (content id {character.ContentId}): map server {ticket.ZoneIp}:{ticket.ZonePort}.");
+            GordianLog.Info(LogCategories.Lobby, $"Character '{ticket.CharacterName}' selected (content id {character.ContentId}): map server {ticket.ZoneIp}:{ticket.ZonePort}.");
             return ticket;
         }
 

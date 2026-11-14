@@ -453,7 +453,7 @@ namespace Gordian.Engine.Ui.Lobby
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("LOBBY", $"Lobby request failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Lobby, $"Lobby request failed: {ex.Message}");
                     lock (SyncRoot)
                     {
                         Prompt = null;

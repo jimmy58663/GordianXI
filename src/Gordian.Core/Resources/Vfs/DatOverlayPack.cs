@@ -37,7 +37,7 @@ namespace Gordian.Core.Resources.Vfs
 
             if (string.IsNullOrWhiteSpace(RootPath) || !Directory.Exists(RootPath))
             {
-                GordianLog.Warn("VFS", $"Cannot mount DAT pack '{Id}': directory does not exist ({RootPath}).");
+                GordianLog.Warn(LogCategories.Vfs, $"Cannot mount DAT pack '{Id}': directory does not exist ({RootPath}).");
                 return false;
             }
 
@@ -65,12 +65,12 @@ namespace Gordian.Core.Resources.Vfs
                     }
                 }
 
-                GordianLog.Info("VFS", $"Mounted DAT overlay pack '{Id}' with {_fileIndex.Count} files (Priority: {Priority}).");
+                GordianLog.Info(LogCategories.Vfs, $"Mounted DAT overlay pack '{Id}' with {_fileIndex.Count} files (Priority: {Priority}).");
                 return true;
             }
             catch (Exception ex)
             {
-                GordianLog.Error("VFS", $"Error mounting DAT overlay pack '{Id}': {ex.Message}");
+                GordianLog.Error(LogCategories.Vfs, $"Error mounting DAT overlay pack '{Id}': {ex.Message}");
                 return false;
             }
         }

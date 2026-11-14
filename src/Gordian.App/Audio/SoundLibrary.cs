@@ -127,7 +127,7 @@ namespace Gordian.App.Audio
         {
             if (_reported.TryAdd(key, 0))
             {
-                GordianLog.Info("AUDIO", message);
+                GordianLog.Info(LogCategories.Audio, message);
             }
         }
     }

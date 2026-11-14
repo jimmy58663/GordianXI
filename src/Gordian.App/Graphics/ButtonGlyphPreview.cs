@@ -156,7 +156,7 @@ namespace Gordian.App.Graphics
                 }
                 catch (Exception ex)
                 {
-                    Gordian.Core.Diagnostics.GordianLog.Warning("UI", $"Button preview could not read '{folder}': {ex.Message}");
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Ui, $"Button preview could not read '{folder}': {ex.Message}");
                 }
                 finally
                 {

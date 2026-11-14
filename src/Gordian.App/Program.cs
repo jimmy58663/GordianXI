@@ -1,10 +1,11 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.Runtime;
+using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Logging;
 using Gordian.App.Services;
 using Gordian.Core.Config;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.App
 {
@@ -20,10 +21,8 @@ namespace Gordian.App
             // ⚡ Optimize GC for sustained low latency (suppresses blocking Gen 2 collections during rendering & packet streaming)
             GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
 
-            // 📝 Initialize the Platform-Agnostic File Logger
-            InitializeSegmentedLogFiles();
-
-            Debug.WriteLine($"[GordianXI Boot] GC Profile: ServerGC={GCSettings.IsServerGC}, LatencyMode={GCSettings.LatencyMode}");
+            InitializeLogging();
+            GordianLog.Info(LogCategories.App, $"GordianXI starting. GC: ServerGC={GCSettings.IsServerGC}, LatencyMode={GCSettings.LatencyMode}. Logs: {GordianLog.LogsDirectory}");
 
             DevLaunchOptions.Current = DevLaunchOptions.Parse(args);
             if (DevLaunchOptions.Current.ProfilesDirectory is { } profilesDirectory)
@@ -31,77 +30,69 @@ namespace Gordian.App
                 GordianStorage.ProfilesDirectory = profilesDirectory;
             }
 
-            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            try
+            {
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            }
+            finally
+            {
+                GordianLog.Info(LogCategories.App, "GordianXI exiting.");
+                GordianLog.Shutdown();
+            }
         }
 
-            private static void InitializeSegmentedLogFiles()
+        /// <summary>
+        /// Starts <see cref="GordianLog"/> in the user data logs folder (system, network and status files; see
+        /// docs/app/logging.md) with the user's logging.json, and makes sure a crash reaches the log before the process ends.
+        /// </summary>
+        private static void InitializeLogging()
         {
             try
             {
-                string logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-                if (!Directory.Exists(logDirectory))
+#if DEBUG
+                const bool debugBuild = true;
+#else
+                const bool debugBuild = false;
+#endif
+                GordianLog.Initialize(new LogOptions
                 {
-                    Directory.CreateDirectory(logDirectory);
-                }
+                    LogsDirectory = GordianStorage.LogsDirectory,
+                    Settings = LoggingSettings.Load(LoggingSettings.DefaultPath),
+                    DebugByDefault = debugBuild || IsSet("GORDIAN_DEBUG"),
+                    NetworkFileOverride = IsSet("GORDIAN_LOG_NETWORK_DISK"),
+                    MirrorToConsole = IsSet("GORDIAN_LOG_CONSOLE"),
+                });
 
-                string dateStamp = DateTime.Now.ToString("yyyyMMdd");
-                string netToken = "[NET_TRACE]";
-
-                // 📁 File Target A: The General System / Application Log
-                string systemLogPath = Path.Combine(logDirectory, $"gordian_system_{dateStamp}.log");
-                TextWriterTraceListener systemListener = new TextWriterTraceListener(systemLogPath)
+                AppDomain.CurrentDomain.UnhandledException += (_, e) =>
                 {
-                    Name = "SystemLogListener",
-                    // ✅ RULE: Hide anything starting with [NET_TRACE] from this file
-                    Filter = new PrefixTraceFilter(netToken, rejectIfMatch: true)
+                    GordianLog.Error(LogCategories.App, "Unhandled exception; the client is closing.", e.ExceptionObject as Exception);
+                    GordianLog.Flush(TimeSpan.FromSeconds(2));
                 };
-
-                // 📁 File Target B: The Isolated Network Packet Log
-                string networkLogPath = Path.Combine(logDirectory, $"gordian_network_{dateStamp}.log");
-                TextWriterTraceListener networkListener = new TextWriterTraceListener(networkLogPath)
-                {
-                    Name = "NetworkLogListener",
-                    // ✅ RULE: ONLY allow strings starting with [NET_TRACE] into this file
-                    Filter = new PrefixTraceFilter(netToken, rejectIfMatch: false)
-                };
-
-                // Add diagnostic trace pipes to the process ledger collection
-                Trace.Listeners.Add(systemListener);
-
-                // 🛑 Network trace disk logging is disabled by default to prevent high-frequency disk I/O.
-                // Enable on demand via environment variable GORDIAN_LOG_NETWORK_DISK=1 or true.
-                string? netDiskLogging = Environment.GetEnvironmentVariable("GORDIAN_LOG_NETWORK_DISK");
-                if (string.Equals(netDiskLogging, "1", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(netDiskLogging, "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    Trace.Listeners.Add(networkListener);
-                    Debug.WriteLine("[GordianXI Boot] High-frequency network packet disk logging ENABLED via GORDIAN_LOG_NETWORK_DISK.");
-                }
-                else
-                {
-                    networkListener.Dispose();
-                }
-
-                // Trace.AutoFlush, not Debug.AutoFlush: on .NET Core the latter does nothing, so the listener only wrote
-                // every 4 KB and a short run (a failed login) lost everything it logged when the process exited.
-                Trace.AutoFlush = true;
-
-                Debug.WriteLine("[GordianXI Boot] Global tracing infrastructure online.");
+                TaskScheduler.UnobservedTaskException += (_, e) =>
+                    GordianLog.Error(LogCategories.App, "Unobserved task exception.", e.Exception);
+                // Backstop for exits that skip Main's finally (a native library ending the process): flush what is queued.
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => GordianLog.Shutdown();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to initialize segmented logging: {ex.Message}");
+                Console.Error.WriteLine($"Failed to start logging: {ex}");
             }
         }
 
+        private static bool IsSet(string variable) =>
+            Environment.GetEnvironmentVariable(variable) is { } value
+            && (value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase));
+
         // Avalonia configuration, don't remove; also used by visual designer.
         public static AppBuilder BuildAvaloniaApp()
-            => AppBuilder.Configure<App>()
+        {
+            Logger.Sink = new AvaloniaLogSink(LogEventLevel.Warning);
+            return AppBuilder.Configure<App>()
                 .UsePlatformDetect()
     #if DEBUG
                 .WithDeveloperTools()
     #endif
-                .WithInterFont()
-                .LogToTrace();
+                .WithInterFont();
+        }
     }
 }

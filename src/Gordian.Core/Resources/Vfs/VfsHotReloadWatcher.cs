@@ -77,11 +77,11 @@ namespace Gordian.Core.Resources.Vfs
                     watcher.EnableRaisingEvents = true;
                     _watchers.Add(watcher);
 
-                    GordianLog.Info("VFS", $"Hot-reload watching directory: {path}");
+                    GordianLog.Info(LogCategories.Vfs, $"Hot-reload watching directory: {path}");
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("VFS", $"Could not attach hot-reload watcher to {path}: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Vfs, $"Could not attach hot-reload watcher to {path}: {ex.Message}");
                 }
             }
         }
@@ -115,11 +115,11 @@ namespace Gordian.Core.Resources.Vfs
                     watcher.EnableRaisingEvents = true;
                     _watchers.Add(watcher);
 
-                    GordianLog.Info("VFS", $"Hot-reload watching file: {Path.Combine(directory, fileName)}");
+                    GordianLog.Info(LogCategories.Vfs, $"Hot-reload watching file: {Path.Combine(directory, fileName)}");
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("VFS", $"Could not attach hot-reload watcher to {Path.Combine(directory, fileName)}: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Vfs, $"Could not attach hot-reload watcher to {Path.Combine(directory, fileName)}: {ex.Message}");
                 }
             }
         }
@@ -191,7 +191,7 @@ namespace Gordian.Core.Resources.Vfs
                     else
                     {
                         _retries.TryRemove(path, out _);
-                        GordianLog.Warn("VFS", $"Hot-reload gave up waiting for '{path}' to be readable.");
+                        GordianLog.Warn(LogCategories.Vfs, $"Hot-reload gave up waiting for '{path}' to be readable.");
                     }
                 }
                 else
@@ -203,13 +203,13 @@ namespace Gordian.Core.Resources.Vfs
 
             if (structuralChange)
             {
-                GordianLog.Info("VFS", "Hot-reload detected structural pack changes. Triggering re-index.");
+                GordianLog.Info(LogCategories.Vfs, "Hot-reload detected structural pack changes. Triggering re-index.");
                 OnPacksStructureChanged?.Invoke();
             }
 
             if (accessibleChangedFiles.Count > 0)
             {
-                GordianLog.Info("VFS", $"Hot-reload detected {accessibleChangedFiles.Count} asset changes.");
+                GordianLog.Info(LogCategories.Vfs, $"Hot-reload detected {accessibleChangedFiles.Count} asset changes.");
                 OnAssetsChanged?.Invoke(accessibleChangedFiles);
             }
 

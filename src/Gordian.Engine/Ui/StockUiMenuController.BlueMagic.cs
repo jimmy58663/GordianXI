@@ -303,7 +303,7 @@ namespace Gordian.Engine.Ui
             int target = learned.BlueTargetSlot;
             if (target < 0 || BlueSpellSet is not { } set) return;
             byte value = (byte)(row.SpellId - S2C_0x044_ExtendedJob.BlueSpellIdBase);
-            GordianLog.Info("BLUE", $"Setting {row.Name} (spell {row.SpellId}) into set {target + 1}.");
+            GordianLog.Info(LogCategories.Blue, $"Setting {row.Name} (spell {row.SpellId}) into set {target + 1}.");
             _ = SendAsync(() => set(target, value, state.SubJob), "Set blue magic spell");
             CloseLearned(learned, StockUiBlueMagic.NextEmptySlot(state, target + 1) is var next && next >= 0 && next != target ? next : target);
         }
@@ -333,7 +333,7 @@ namespace Gordian.Engine.Ui
         {
             if (BlueSpellRemove is not { } remove) return;
             byte value = (byte)(spellId - S2C_0x044_ExtendedJob.BlueSpellIdBase);
-            GordianLog.Info("BLUE", $"Removing {name} (spell {spellId}) from set {slot + 1}.");
+            GordianLog.Info(LogCategories.Blue, $"Removing {name} (spell {spellId}) from set {slot + 1}.");
             _ = SendAsync(() => remove(slot, value, state.SubJob), "Remove blue magic spell");
         }
 
@@ -351,7 +351,7 @@ namespace Gordian.Engine.Ui
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("BLUE", $"Removing set {i + 1} failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Blue, $"Removing set {i + 1} failed: {ex.Message}");
                     return;
                 }
             }

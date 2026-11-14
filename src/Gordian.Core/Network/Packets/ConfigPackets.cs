@@ -321,11 +321,11 @@ namespace Gordian.Core.Network.Packets
             var config = new S2C_0x0B4_Config(payload);
             if (!config.IsValid)
             {
-                GordianLog.Warning("NET", $"S2C 0x0B4 Config payload too short ({payload.Length} bytes).");
+                GordianLog.Warn(LogCategories.Net, $"S2C 0x0B4 Config payload too short ({payload.Length} bytes).");
                 return;
             }
             _state.Apply(config);
-            GordianLog.Debug("NET", $"S2C 0x0B4 Config: flags=0x{config.Flags:X8} filters=0x{config.MessageFilter1:X8}/0x{config.MessageFilter2:X8} languages={config.PartyLanguages}");
+            GordianLog.Debug(LogCategories.Net, $"S2C 0x0B4 Config: flags=0x{config.Flags:X8} filters=0x{config.MessageFilter1:X8}/0x{config.MessageFilter2:X8} languages={config.PartyLanguages}");
         }
 
         /// <summary>Sets or clears one player flag (C2S 0x0DC); the server answers with 0x0B4.</summary>

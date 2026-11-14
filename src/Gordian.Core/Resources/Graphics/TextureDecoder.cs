@@ -176,7 +176,7 @@ namespace Gordian.Core.Resources.Graphics
         private static void ReportSkipped(string name, string reason)
         {
             if (ReportedSkips.TryAdd(name, 0))
-                Gordian.Core.Diagnostics.GordianLog.Debug("RES", $"Texture '{name}' skipped: {reason}.");
+                Gordian.Core.Diagnostics.GordianLog.Debug(Gordian.Core.Diagnostics.LogCategories.Res, $"Texture '{name}' skipped: {reason}.");
         }
 
         /// <summary>

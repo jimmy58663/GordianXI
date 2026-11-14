@@ -198,7 +198,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("The guild shop is not available in this session.");
                 return;
             }
-            GordianLog.Info("GUILD", side == StockUiShopSide.Buy ? "Asking for the guild's stock." : "Asking what the guild buys.");
+            GordianLog.Info(LogCategories.Guild, side == StockUiShopSide.Buy ? "Asking for the guild's stock." : "Asking what the guild buys.");
             _ = SendAsync(request, "Guild list");
         }
 
@@ -382,7 +382,7 @@ namespace Gordian.Engine.Ui
                     NoticePosted?.Invoke("Buying is not available in this session.");
                     return;
                 }
-                GordianLog.Info("GUILD", $"Buying {count} x {row.Name} (item {row.ItemId}) from the guild at {row.Price} gil each.");
+                GordianLog.Info(LogCategories.Guild, $"Buying {count} x {row.Name} (item {row.ItemId}) from the guild at {row.Price} gil each.");
                 _ = SendAsync(() => buy(row.ItemId, count), "Guild purchase");
                 return;
             }
@@ -391,7 +391,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("Selling is not available in this session.");
                 return;
             }
-            GordianLog.Info("GUILD", $"Selling {count} x {row.Name} (item {row.ItemId}, slot {row.Slot}) to the guild at {row.Price} gil each.");
+            GordianLog.Info(LogCategories.Guild, $"Selling {count} x {row.Name} (item {row.ItemId}, slot {row.Slot}) to the guild at {row.Price} gil each.");
             _ = SendAsync(() => sell(row.ItemId, row.Slot, count), "Guild sale");
         }
     }

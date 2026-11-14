@@ -28,6 +28,13 @@ namespace Gordian.Engine.Sessions
         /// </summary>
         public string ProfileName { get; set; } = string.Empty;
         public SessionNetworkManager NetworkManager { get; }
+
+        /// <summary>
+        /// The character's log tag. The network loops log under it; per-frame work for this character outside them wraps
+        /// itself in <c>using (GordianLog.BeginScope(session.LogScope))</c>.
+        /// </summary>
+        public LogScope LogScope => NetworkManager.LogScope;
+
         public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 
         /// <summary>

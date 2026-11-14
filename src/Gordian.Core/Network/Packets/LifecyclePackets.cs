@@ -1067,7 +1067,7 @@ namespace Gordian.Core.Network.Packets
         {
             var p = new S2C_0x10E_ReqSubMapNum(payload);
             if (!p.IsValid) return;
-            GordianLog.Info("LIFECYCLE", $"S2C 0x10E sub-map number: {p.MapNum}.");
+            GordianLog.Info(LogCategories.Lifecycle, $"S2C 0x10E sub-map number: {p.MapNum}.");
             SubMapNumberReceived?.Invoke(p.MapNum);
         }
 
@@ -1076,21 +1076,21 @@ namespace Gordian.Core.Network.Packets
             var p = new S2C_0x10F_ReqLogoutInfo(payload);
             if (!p.IsValid) return;
             // Deprecated in retail (XiPackets) and never sent by LandSandBoat: noted, nothing reads it.
-            GordianLog.Info("LIFECYCLE", $"S2C 0x10F logout info: Mode={p.Mode} (no client action).");
+            GordianLog.Info(LogCategories.Lifecycle, $"S2C 0x10F logout info: Mode={p.Mode} (no client action).");
         }
 
         private void HandlePacketControl(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var p = new S2C_0x005_PacketControl(payload);
             if (!p.IsValid) return;
-            GordianLog.Info("LIFECYCLE", $"S2C 0x005 packet control: PacketCnt={p.PacketCount}.");
+            GordianLog.Info(LogCategories.Lifecycle, $"S2C 0x005 packet control: PacketCnt={p.PacketCount}.");
             PacketControlReceived?.Invoke(p.PacketCount);
         }
 
         private void HandleNaraku(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             // A GM collision report request: the retail client answers with C2S 0x01F GM commands; GordianXI does not.
-            GordianLog.Warning("LIFECYCLE", $"S2C 0x006 (NARAKU) collision report request received ({payload.Length} payload bytes); not answered.");
+            GordianLog.Warn(LogCategories.Lifecycle, $"S2C 0x006 (NARAKU) collision report request received ({payload.Length} payload bytes); not answered.");
         }
 
         /// <summary>
@@ -1119,7 +1119,7 @@ namespace Gordian.Core.Network.Packets
             {
                 _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x0F2, 0, packet);
             }
-            GordianLog.Info("LIFECYCLE", $"C2S 0x0F2 sub-map change: State={state}, SubMap={subMapNumber}.");
+            GordianLog.Info(LogCategories.Lifecycle, $"C2S 0x0F2 sub-map change: State={state}, SubMap={subMapNumber}.");
             SubMapChangeSent?.Invoke(subMapNumber);
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
@@ -1136,7 +1136,7 @@ namespace Gordian.Core.Network.Packets
                     LoginAppearanceReceived?.Invoke(ack.UniqueNo, grap.ToArray(), name);
                 }
 
-                GordianLog.Debug("LIFECYCLE", $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}, GameTime={ack.GameTime}");
+                GordianLog.Debug(LogCategories.Lifecycle, $"Extracted player initial position: X={ack.X:F2}, Y={ack.Y:F2}, Z={ack.Z:F2}, Dir={ack.Direction}, ActIndex={ack.ActorIndex}, ZoneId={ack.ZoneId}, Weather={ack.WeatherNumber}, GameTime={ack.GameTime}");
                 if (ack.GameTime > 0)
                 {
                     ServerGameTimeReceived?.Invoke(ack.GameTime);
@@ -1153,7 +1153,7 @@ namespace Gordian.Core.Network.Packets
                 WeatherReceived?.Invoke(ack.WeatherNumber);
                 if (ack.HasZoneInEvent)
                 {
-                    GordianLog.Info("EVENT", $"Zone-in event: EventNum={ack.EventNum}, EventPara={ack.EventPara}, Mode=0x{ack.EventMode:X}, EventNo={ack.EventNo}");
+                    GordianLog.Info(LogCategories.Event, $"Zone-in event: EventNum={ack.EventNum}, EventPara={ack.EventPara}, Mode=0x{ack.EventMode:X}, EventNo={ack.EventNo}");
                     ZoneInEventReceived?.Invoke(new ZoneInEvent(ack.UniqueNo, ack.ActorIndex, ack.EventNum, ack.EventPara, ack.EventMode, ack.EventNo));
                 }
             }
@@ -1167,7 +1167,7 @@ namespace Gordian.Core.Network.Packets
                 {
                     _logPacketCallback?.Invoke(PacketDirection.Outbound, 0x011, 0, zoneIn);
                 }
-                GordianLog.Info("LIFECYCLE", $"Retail map login: answering 0x00A with 0x011; 0x00C follows in {RetailGameOkDelay.TotalSeconds:0.#} s.");
+                GordianLog.Info(LogCategories.Lifecycle, $"Retail map login: answering 0x00A with 0x011; 0x00C follows in {RetailGameOkDelay.TotalSeconds:0.#} s.");
                 _ = _sendChunkCallback(zoneIn, true);
                 _ = SendGameOkLaterAsync();
                 return;
@@ -1195,7 +1195,7 @@ namespace Gordian.Core.Network.Packets
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("LIFECYCLE", $"Retail map login: sending 0x00C failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Lifecycle, $"Retail map login: sending 0x00C failed: {ex.Message}");
             }
         }
 
@@ -1205,7 +1205,7 @@ namespace Gordian.Core.Network.Packets
         private void HandleEnterZone(PacketHeader header, ReadOnlySpan<byte> payload)
         {
             var enterZone = new S2C_0x008_EnterZone(payload);
-            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_ENTERZONE (0x008). Table valid={enterZone.IsValid}");
+            GordianLog.Debug(LogCategories.Lifecycle, $"Received GP_SERV_ENTERZONE (0x008). Table valid={enterZone.IsValid}");
             if (enterZone.IsValid) ZonesVisitedReceived?.Invoke(enterZone.EnterZoneTable.ToArray());
 
             // 1. Send 0x00D (NetEnd)
@@ -1243,12 +1243,12 @@ namespace Gordian.Core.Network.Packets
             var logout = new S2C_0x00B_Logout(payload);
             if (!logout.IsValid)
             {
-                GordianLog.Warning("LIFECYCLE", "Received invalid 0x00B logout packet payload.");
+                GordianLog.Warn(LogCategories.Lifecycle, "Received invalid 0x00B logout packet payload.");
                 return;
             }
 
             IPAddress targetIp = logout.GetTargetIpAddress();
-            GordianLog.Info("LIFECYCLE", $"Received GP_SERV_COMMAND_LOGOUT (0x00B): State={logout.State}, Target={targetIp}:{logout.TargetPort}, Err={logout.ErrorCode}");
+            GordianLog.Info(LogCategories.Lifecycle, $"Received GP_SERV_COMMAND_LOGOUT (0x00B): State={logout.State}, Target={targetIp}:{logout.TargetPort}, Err={logout.ErrorCode}");
             ZoneTransitionReceived?.Invoke(logout.State, targetIp, logout.TargetPort, logout.ErrorCode);
         }
 
@@ -1257,7 +1257,7 @@ namespace Gordian.Core.Network.Packets
             var weather = new S2C_0x057_Weather(payload);
             if (weather.IsValid)
             {
-                GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WEATHER (0x057): Weather={weather.WeatherNumber}, Offset={weather.WeatherOffsetTime}, StartTime={weather.StartTime}");
+                GordianLog.Debug(LogCategories.Lifecycle, $"Received GP_SERV_COMMAND_WEATHER (0x057): Weather={weather.WeatherNumber}, Offset={weather.WeatherOffsetTime}, StartTime={weather.StartTime}");
                 WeatherTimingReceived?.Invoke(weather.Timing);
                 WeatherReceived?.Invoke(weather.WeatherNumber);
             }
@@ -1269,7 +1269,7 @@ namespace Gordian.Core.Network.Packets
             Span<ushort> grap = stackalloc ushort[9];
             if (!list.TryGetGrapIdTable(grap)) return;
             ushort[] table = grap.ToArray();
-            GordianLog.Debug("LIFECYCLE", $"GP_SERV_GRAP_LIST (0x051): face/race=0x{table[0]:X4} gear={string.Join(',', table[1..])}");
+            GordianLog.Debug(LogCategories.Lifecycle, $"GP_SERV_GRAP_LIST (0x051): face/race=0x{table[0]:X4} gear={string.Join(',', table[1..])}");
             LocalAppearanceReceived?.Invoke(table);
         }
 
@@ -1278,7 +1278,7 @@ namespace Gordian.Core.Network.Packets
             var wpos = new S2C_0x05B_WPos(payload);
             if (!wpos.IsValid) return;
 
-            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS (0x05B): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            GordianLog.Debug(LogCategories.Lifecycle, $"Received GP_SERV_COMMAND_WPOS (0x05B): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
             WorldPositionReceived?.Invoke(new WorldPositionUpdate(wpos.UniqueNo, wpos.ActorIndex,
                 new System.Numerics.Vector3(wpos.X, wpos.Y, wpos.Z), wpos.Direction, wpos.Mode));
         }
@@ -1288,7 +1288,7 @@ namespace Gordian.Core.Network.Packets
             var wpos = new S2C_0x065_WPos2(payload);
             if (!wpos.IsValid) return;
 
-            GordianLog.Debug("LIFECYCLE", $"Received GP_SERV_COMMAND_WPOS2 (0x065): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
+            GordianLog.Debug(LogCategories.Lifecycle, $"Received GP_SERV_COMMAND_WPOS2 (0x065): X={wpos.X:F2}, Y={wpos.Y:F2}, Z={wpos.Z:F2}, Dir={wpos.Direction}, UniqueNo=0x{wpos.UniqueNo:X8}, ActIndex={wpos.ActorIndex}, Mode={wpos.Mode}");
             WorldPositionReceived?.Invoke(new WorldPositionUpdate(wpos.UniqueNo, wpos.ActorIndex,
                 new System.Numerics.Vector3(wpos.X, wpos.Y, wpos.Z), wpos.Direction, wpos.Mode));
         }
@@ -1319,7 +1319,7 @@ namespace Gordian.Core.Network.Packets
             if (restrictions.IsValid)
             {
                 _profile.ApplyServerRestrictions(restrictions);
-                GordianLog.Info("LIFECYCLE", $"Server feature restrictions: received {restrictions.Value}, in force {_profile.FeatureRestrictions}");
+                GordianLog.Info(LogCategories.Lifecycle, $"Server feature restrictions: received {restrictions.Value}, in force {_profile.FeatureRestrictions}");
             }
         }
 
@@ -1391,7 +1391,7 @@ namespace Gordian.Core.Network.Packets
         {
             ReqLogoutKind? next = ApplyLogoutRequest(PendingLogoutKind, mode, kind);
             Volatile.Write(ref _pendingLogoutKind, next.HasValue ? (int)next.Value : 0);
-            GordianLog.Info("LIFECYCLE", $"Requesting C2S 0x0E7: Mode={mode}, Kind={kind}; pending logout now {next?.ToString() ?? "none"}.");
+            GordianLog.Info(LogCategories.Lifecycle, $"Requesting C2S 0x0E7: Mode={mode}, Kind={kind}; pending logout now {next?.ToString() ?? "none"}.");
 
             byte[] packet = LifecycleOutboundPackets.BuildReqLogout(mode, kind);
             if (LogOutboundOnRoute)

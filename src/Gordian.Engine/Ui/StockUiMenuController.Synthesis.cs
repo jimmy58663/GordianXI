@@ -110,7 +110,7 @@ namespace Gordian.Engine.Ui
                 grid.CompanionRows = StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots);
                 PushOpen(grid);
             }
-            GordianLog.Debug("CRAFT", $"Synthesis grid opened with crystal {crystal.ItemId} (inventory slot {crystal.Slot}).");
+            GordianLog.Debug(LogCategories.Craft, $"Synthesis grid opened with crystal {crystal.ItemId} (inventory slot {crystal.Slot}).");
             Changed?.Invoke();
             return grid;
         }
@@ -345,7 +345,7 @@ namespace Gordian.Engine.Ui
                 grid.SelectedButtonId = slot + 2 <= StockUiSynthesis.SlotCount ? slot + 2 : StockUiSynthesis.OkButton;
                 RefreshSynthesisRows(grid);
             }
-            GordianLog.Debug("CRAFT", $"Synthesis slot {slot + 1}: {count} x {row.Name} (item {row.ItemId}, inventory slot {row.Slot}).");
+            GordianLog.Debug(LogCategories.Craft, $"Synthesis slot {slot + 1}: {count} x {row.Name} (item {row.ItemId}, inventory slot {row.Slot}).");
             Changed?.Invoke();
         }
 
@@ -388,7 +388,7 @@ namespace Gordian.Engine.Ui
                 NoticePosted?.Invoke("Synthesis is not available in this session.");
                 return;
             }
-            GordianLog.Info("CRAFT", $"Synthesis: {record.Name} (slot {crystal.InventorySlot}) with {ingredients.Length} items.");
+            GordianLog.Info(LogCategories.Craft, $"Synthesis: {record.Name} (slot {crystal.InventorySlot}) with {ingredients.Length} items.");
             CloseSynthesisFlow(grid);
             _ = SendItemAsync(async () =>
             {

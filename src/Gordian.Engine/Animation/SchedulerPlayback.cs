@@ -72,7 +72,7 @@ namespace Gordian.Engine.Animation
                 });
             }
             _world.PostActorEffect(new ActorEffectRequest(caster.ServerId, target, request.Routine));
-            GordianLog.Debug("ANIM", $"Actor scheduler '{request.Routine}' on {caster.ServerId:X8} toward {target:X8}{(moves ? string.Empty : " (no motion of that name)")}.");
+            GordianLog.Debug(LogCategories.Anim, $"Actor scheduler '{request.Routine}' on {caster.ServerId:X8} toward {target:X8}{(moves ? string.Empty : " (no motion of that name)")}.");
         }
 
         /// <summary>Plays an S2C 0x03A on its caster toward its target.</summary>
@@ -83,7 +83,7 @@ namespace Gordian.Engine.Animation
             uint target = TryFind(request.TargetServerId, request.TargetIndex, out var found) ? found.ServerId : caster.ServerId;
             if (CategoryOf(request.Type) is not { } category || _library == null)
             {
-                GordianLog.Debug("ANIM", $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8}: type not played.");
+                GordianLog.Debug(LogCategories.Anim, $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8}: type not played.");
                 return;
             }
             var race = category == ActionCategory.SkillFinish && caster.Appearance.ModelId == 0
@@ -92,7 +92,7 @@ namespace Gordian.Engine.Animation
             var asset = _library.Resolve(category, request.FileNumber, race);
             if (asset == null)
             {
-                GordianLog.Debug("ANIM", $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8}: no presentation file.");
+                GordianLog.Debug(LogCategories.Anim, $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8}: no presentation file.");
                 return;
             }
             if (asset.Motion != null)
@@ -109,7 +109,7 @@ namespace Gordian.Engine.Animation
                 });
             }
             if (asset.Effects != null) _world.PostActorEffect(new ActorEffectRequest(caster.ServerId, target, string.Empty, asset));
-            GordianLog.Debug("ANIM", $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8} toward {target:X8}: {asset}.");
+            GordianLog.Debug(LogCategories.Anim, $"Magic scheduler {request.FileNumber} type {request.TypeId} on {caster.ServerId:X8} toward {target:X8}: {asset}.");
         }
 
         private bool TryFind(uint serverId, ushort index, out WorldEntity entity)

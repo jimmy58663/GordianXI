@@ -173,7 +173,7 @@ namespace Gordian.App
             if (lobby != null && _lobbyGamepad.NextCharacterPressed)
             {
                 var chosen = viewports.PrimaryViewModel.CycleNextCharacter();
-                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Viewport, $"Next Character (gamepad): lobby -> {chosen?.CharacterName ?? "none"}");
             }
 
             // A character that takes the pad from another ignores the buttons still held from it until they are let go:
@@ -197,12 +197,18 @@ namespace Gordian.App
                     session.InputState.SetGamepadState(GamepadState.Disconnected);
                 }
 
-                session.Locomotion.Update(elapsed);
+                using (Gordian.Core.Diagnostics.GordianLog.BeginScope(session.LogScope))
+                {
+                    session.Locomotion.Update(elapsed);
+                }
             }
             if (activeSessions.Count == 0 && gamepadTarget != null)
             {
                 gamepadTarget.InputState.SetGamepadState(padState);
-                gamepadTarget.Locomotion.Update(elapsed);
+                using (Gordian.Core.Diagnostics.GordianLog.BeginScope(gamepadTarget.LogScope))
+                {
+                    gamepadTarget.Locomotion.Update(elapsed);
+                }
             }
 
             // Next Character (the gamepad's L1 by default, #326): the next character in tab order, as Ctrl+Tab does (#151);
@@ -210,7 +216,7 @@ namespace Gordian.App
             if (gamepadTarget != null && gamepadTarget.InputState.WasActionTriggered(Gordian.Engine.Input.InputAction.CycleCharacter))
             {
                 var chosen = viewports.PrimaryViewModel.CycleFrom(gamepadTarget, +1);
-                Gordian.Core.Diagnostics.GordianLog.Info("Viewport", $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");
+                Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Viewport, $"Next Character (gamepad): {gamepadTarget.CharacterName} -> {chosen?.CharacterName ?? "none"}");
             }
 
             _viewModel.Controls.UpdateTelemetry();
@@ -368,6 +374,7 @@ namespace Gordian.App
             }
             catch (Exception ex)
             {
+                Gordian.Core.Diagnostics.GordianLog.Error(Gordian.Core.Diagnostics.LogCategories.App, "Could not open the folder picker", ex);
                 _viewModel.StatusMessage = $"Could not open the folder picker: {ex.Message}";
             }
         }

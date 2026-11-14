@@ -211,7 +211,7 @@ namespace Gordian.App.Graphics
                 var factory = _gd.ResourceFactory;
                 uint width = (uint)Math.Max(1, decoded.Width);
                 uint height = (uint)Math.Max(1, decoded.Height);
-                GordianLog.Debug("GPU_TEX", $"Uploading GPU texture '{decoded.Name}' from '{decoded.Source}', {width}x{height}.");
+                GordianLog.Debug(LogCategories.GpuTex, $"Uploading GPU texture '{decoded.Name}' from '{decoded.Source}', {width}x{height}.");
                 var tex = factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, PixelFormat.R8_G8_B8_A8_UNorm, TextureUsage.Sampled));
                 _gd.UpdateTexture(tex, decoded.RgbaPixels, 0, 0, 0, width, height, 1, 0, 0);
                 var view = factory.CreateTextureView(tex);
@@ -222,7 +222,7 @@ namespace Gordian.App.Graphics
             }
             catch (Exception ex)
             {
-                GordianLog.Warning("Graphics", $"Failed to upload GPU texture '{decoded.Name}': {ex.Message}");
+                GordianLog.Warn(LogCategories.Graphics, $"Failed to upload GPU texture '{decoded.Name}': {ex.Message}");
                 return null;
             }
         }
@@ -237,7 +237,7 @@ namespace Gordian.App.Graphics
         {
             if (string.IsNullOrWhiteSpace(textureName)) return _defaultResourceSet;
             if (Resolve(textureName, decodedTextures) is { } decoded) return GetOrCreateResourceSet(decoded);
-            if (_missing.TryAdd(textureName.Trim(), 0)) GordianLog.Warning("GPU_TEX", $"TEXTURE NOT FOUND: '{textureName}', returning default checkerboard!");
+            if (_missing.TryAdd(textureName.Trim(), 0)) GordianLog.Warn(LogCategories.GpuTex, $"TEXTURE NOT FOUND: '{textureName}', returning default checkerboard!");
             return _defaultResourceSet;
         }
 

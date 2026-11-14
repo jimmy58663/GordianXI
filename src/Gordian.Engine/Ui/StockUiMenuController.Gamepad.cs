@@ -59,7 +59,7 @@ namespace Gordian.Engine.Ui
             var library = _library;
             if (library == null || !library.TryGetMenu(StockUiConfigPages.GamepadAssignMenu, out var definition))
             {
-                GordianLog.Warning("UI", $"Stock menu '{StockUiConfigPages.GamepadAssignMenu}' is not available.");
+                GordianLog.Warn(LogCategories.Ui, $"Stock menu '{StockUiConfigPages.GamepadAssignMenu}' is not available.");
                 return null;
             }
             var menu = new StockUiOpenMenu(definition, parent, Array.Empty<string>(), null, listKind: StockUiListKind.GamepadAssign);
@@ -137,7 +137,7 @@ namespace Gordian.Engine.Ui
             if (Interlocked.Exchange(ref _pendingGamepadReset, null) is { } resetList && GamepadProfileEdited is { } reset)
             {
                 reset(GamepadAssignments.ResetDefaults);
-                GordianLog.Info("INPUT", "Gamepad: every button back on its default function.");
+                GordianLog.Info(LogCategories.Input, "Gamepad: every button back on its default function.");
                 lock (_sync) Refresh(resetList);
                 Changed?.Invoke();
             }
@@ -161,7 +161,7 @@ namespace Gordian.Engine.Ui
             {
                 var function = GamepadAssignments.Functions[_captureEntry];
                 GamepadProfileEdited?.Invoke(profile => GamepadAssignments.Assign(profile, function, pressed));
-                GordianLog.Info("INPUT", $"Gamepad: {GamepadAssignments.ButtonName(pressed)} assigned to {function.Label}.");
+                GordianLog.Info(LogCategories.Input, $"Gamepad: {GamepadAssignments.ButtonName(pressed)} assigned to {function.Label}.");
                 SoundCue?.Invoke(StockUiSoundCue.Select);
                 EndGamepadCapture(list, release: true);
                 return true;

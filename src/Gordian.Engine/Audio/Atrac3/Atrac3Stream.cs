@@ -266,7 +266,7 @@ namespace Gordian.Engine.Audio.Atrac3
                     if (!_warned)
                     {
                         _warned = true;
-                        GordianLog.Warn("AUDIO", $"ATRAC3 sound {_id}: frame {index} channel {c} is not a valid single-channel sound unit "
+                        GordianLog.Warn(LogCategories.Audio, $"ATRAC3 sound {_id}: frame {index} channel {c} is not a valid single-channel sound unit "
                             + "(joint stereo and other ATRAC3 variants are not supported); decoded as silence.");
                     }
                 }

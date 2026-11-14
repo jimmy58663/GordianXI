@@ -33,12 +33,12 @@ namespace Gordian.App.Services
                     string report = $"DATs reloaded in {watch.ElapsedMilliseconds} ms: {vfs.ActiveDatPacks.Count} DAT pack(s) and " +
                                     $"{vfs.ActiveAssetPacks.Count} asset pack(s) active{(vfs.IsEnabled ? string.Empty : " (VFS switched off in vfs.json)")}. " +
                                     "The zone, models, textures and UI reload on the next frame.";
-                    GordianLog.Info("VFS", report);
+                    GordianLog.Info(LogCategories.Vfs, report);
                     return report;
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Error("VFS", $"DAT reload failed: {ex.Message}", ex);
+                    GordianLog.Error(LogCategories.Vfs, $"DAT reload failed: {ex.Message}", ex);
                     return $"DAT reload failed: {ex.Message}";
                 }
             }

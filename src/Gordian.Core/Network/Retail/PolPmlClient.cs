@@ -134,7 +134,7 @@ namespace Gordian.Core.Network.Retail
             try
             {
                 var first = await connection.SendAsync(BuildRequest(MainPage, viewerVersion, wantHello, FirstIfModifiedSince, null), ct).ConfigureAwait(false);
-                Diagnostics.GordianLog.Info("RETAIL_LOGIN", $"PML {MainPage}: {first.Status} ({first.Body.Length} bytes).");
+                Diagnostics.GordianLog.Info(Diagnostics.LogCategories.RetailLogin, $"PML {MainPage}: {first.Status} ({first.Body.Length} bytes).");
                 if (first.Status != 401 || !first.Headers.TryGetValue("WWW-Authenticate", out string? challengeText))
                     throw new RetailLoginException("PlayOnline pages", $"{MainPage} answered {first.Status}, not a digest challenge.", first.Status);
                 var challenge = ParseChallenge(challengeText);
@@ -145,14 +145,14 @@ namespace Gordian.Core.Network.Retail
 
                 if (first.CloseAfter) { connection.Dispose(); connection = await HttpConnection.OpenAsync(host, port, ct).ConfigureAwait(false); }
                 var main = await connection.SendAsync(BuildRequest(MainPage, viewerVersion, wantHello, null, Authorize(MainPage)), ct).ConfigureAwait(false);
-                Diagnostics.GordianLog.Info("RETAIL_LOGIN", $"PML {MainPage}: {main.Status} ({main.Body.Length} bytes).");
+                Diagnostics.GordianLog.Info(Diagnostics.LogCategories.RetailLogin, $"PML {MainPage}: {main.Status} ({main.Body.Length} bytes).");
                 if (main.Status != 200)
                     throw new RetailLoginException("PlayOnline pages", $"{MainPage} answered {main.Status} to the digest.", main.Status);
 
                 if (main.CloseAfter) { connection.Dispose(); connection = await HttpConnection.OpenAsync(host, port, ct).ConfigureAwait(false); }
                 var ffxi = await connection.SendAsync(BuildRequest(FfxiPage, viewerVersion, wantHello, null, Authorize(FfxiPage)), ct).ConfigureAwait(false);
                 var status = ParseLaunchStatus(Encoding.Latin1.GetString(ffxi.Body));
-                Diagnostics.GordianLog.Info("RETAIL_LOGIN",
+                Diagnostics.GordianLog.Info(Diagnostics.LogCategories.RetailLogin,
                     $"PML {FfxiPage}: {ffxi.Status} ({ffxi.Body.Length} bytes), playbutton_enable {(status.PlayEnabled is { } p ? (p ? "1" : "0") : "not found")}.");
                 if (ffxi.Status != 200)
                     throw new RetailLoginException("PlayOnline pages", $"The FFXI page answered {ffxi.Status}.", ffxi.Status);

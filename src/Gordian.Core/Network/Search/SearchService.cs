@@ -166,7 +166,7 @@ namespace Gordian.Core.Network.Search
                 var finished = await Task.WhenAny(answered.Task, Task.Delay(GroupIdTimeout, cancellationToken)).ConfigureAwait(false);
                 if (finished != answered.Task)
                 {
-                    GordianLog.Debug("SEARCH", "The world server did not answer the party group id request.");
+                    GordianLog.Debug(LogCategories.Search, "The world server did not answer the party group id request.");
                     return null;
                 }
                 return await answered.Task.ConfigureAwait(false);

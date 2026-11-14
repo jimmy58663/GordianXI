@@ -79,7 +79,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Warn("INPUT", $"Auto-save failed: {ex.Message}");
+                GordianLog.Warn(LogCategories.Input, $"Auto-save failed: {ex.Message}");
             }
         }
 
@@ -100,10 +100,15 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _activePresetName, value);
         }
 
+        /// <summary>The Controls tab's status line; every non-empty message is also written to the status log.</summary>
         public string StatusMessage
         {
             get => _statusMessage;
-            set => SetProperty(ref _statusMessage, value);
+            set
+            {
+                GordianLog.Status(value);
+                SetProperty(ref _statusMessage, value);
+            }
         }
 
         public float MouseSensitivityX
@@ -524,7 +529,7 @@ namespace Gordian.App.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warn("INPUT", $"Failed to load input profile from '{_profilePath}': {ex.Message}");
+                    GordianLog.Warn(LogCategories.Input, $"Failed to load input profile from '{_profilePath}': {ex.Message}");
                     _activeProfile = InputProfile.CreateCompact();
                 }
             }
@@ -604,7 +609,7 @@ namespace Gordian.App.ViewModels
             }
             catch (Exception ex)
             {
-                GordianLog.Error("INPUT", $"Failed to save input profile: {ex.Message}", ex);
+                GordianLog.Error(LogCategories.Input, $"Failed to save input profile: {ex.Message}", ex);
                 StatusMessage = $"Save error: {ex.Message}";
             }
         }

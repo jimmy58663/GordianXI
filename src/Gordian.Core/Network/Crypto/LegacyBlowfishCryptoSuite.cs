@@ -353,7 +353,7 @@ namespace Gordian.Core.Network.Crypto
                 _candidates[i].InitializeKey(candidates[i].Key);
                 _candidateLabels[i] = candidates[i].Label;
             }
-            GordianLog.Info("CRYPTO", $"Negotiating the map session key among {candidates.Count} candidates: {string.Join(", ", _candidateLabels)}. Outbound packets use '{_candidateLabels[0]}' until the server's first datagram verifies.");
+            GordianLog.Info(LogCategories.Crypto, $"Negotiating the map session key among {candidates.Count} candidates: {string.Join(", ", _candidateLabels)}. Outbound packets use '{_candidateLabels[0]}' until the server's first datagram verifies.");
         }
 
         /// <summary>Tries every candidate on a copy of the datagram; on success adopts that candidate's state.</summary>
@@ -375,7 +375,7 @@ namespace Gordian.Core.Network.Crypto
                     Adopt(candidates[i]);
                     NegotiatedKeyLabel = _candidateLabels![i];
                     LastDecryptUsedPreviousKey = candidates[i].LastDecryptUsedPreviousKey;
-                    GordianLog.Info("CRYPTO", $"Map session key negotiated: '{NegotiatedKeyLabel}' (candidate {i + 1} of {candidates.Length}) verified the server's first datagram.");
+                    GordianLog.Info(LogCategories.Crypto, $"Map session key negotiated: '{NegotiatedKeyLabel}' (candidate {i + 1} of {candidates.Length}) verified the server's first datagram.");
                     DisposeCandidates();
                     return true;
                 }
@@ -417,7 +417,7 @@ namespace Gordian.Core.Network.Crypto
             }
             if (_rawKey == null || _rawKey.Length != 20)
             {
-                GordianLog.Warning("CRYPTO", "Cannot advance zone key: no 20-byte session key has been initialized.");
+                GordianLog.Warn(LogCategories.Crypto, "Cannot advance zone key: no 20-byte session key has been initialized.");
                 return false;
             }
 
@@ -429,7 +429,7 @@ namespace Gordian.Core.Network.Crypto
             // Key schedule referenced from LandSandBoat (https://github.com/LandSandBoat/server, MapSession::incrementBlowfish).
             uint word4 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_rawKey.AsSpan(16, 4));
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(_rawKey.AsSpan(16, 4), word4 + 2);
-            GordianLog.Info("CRYPTO", $"Advancing session Blowfish key for zone transition. New key word[4]=0x{word4 + 2:X8} (full: {Convert.ToHexString(_rawKey)})");
+            GordianLog.Info(LogCategories.Crypto, $"Advancing session Blowfish key for zone transition. New key word[4]=0x{word4 + 2:X8} (full: {Convert.ToHexString(_rawKey)})");
             InitializeKeyCore(_rawKey);
             return true;
         }
@@ -450,7 +450,7 @@ namespace Gordian.Core.Network.Crypto
             Span<byte> hashedKey = stackalloc byte[16];
             if (key.Length == 20)
             {
-                GordianLog.Debug("CRYPTO", $"InitializeKey: raw 20-byte key: {Convert.ToHexString(key)}");
+                GordianLog.Debug(LogCategories.Crypto, $"InitializeKey: raw 20-byte key: {Convert.ToHexString(key)}");
                 MD5.HashData(key, hashedKey);
                 for (int i = 0; i < 16; ++i)
                 {
@@ -460,7 +460,7 @@ namespace Gordian.Core.Network.Crypto
                         break;
                     }
                 }
-                GordianLog.Debug("CRYPTO", $"InitializeKey: MD5-derived effective key (after null truncation): {Convert.ToHexString(hashedKey)}");
+                GordianLog.Debug(LogCategories.Crypto, $"InitializeKey: MD5-derived effective key (after null truncation): {Convert.ToHexString(hashedKey)}");
                 effectiveKey = hashedKey;
             }
             else
@@ -569,7 +569,7 @@ namespace Gordian.Core.Network.Crypto
                 MD5.HashData(payloadRegion, computedHash);
                 if (CryptographicOperations.FixedTimeEquals(computedHash, receivedHash))
                 {
-                    GordianLog.Debug("CRYPTO", "Decryption succeeded using fallback previous zone Blowfish key.");
+                    GordianLog.Debug(LogCategories.Crypto, "Decryption succeeded using fallback previous zone Blowfish key.");
                     LastDecryptUsedPreviousKey = true;
                     decryptedPayloadLength = payloadRegionLength;
                     return true;

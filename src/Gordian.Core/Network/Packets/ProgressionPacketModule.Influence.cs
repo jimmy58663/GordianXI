@@ -12,7 +12,7 @@ namespace Gordian.Core.Network.Packets
             var influence = new S2C_0x071_Influence(payload);
             if (!influence.IsValid)
             {
-                GordianLog.Debug("CONQUEST", $"S2C 0x071 mode {influence.Mode} ignored ({payload.Length} bytes).");
+                GordianLog.Debug(LogCategories.Conquest, $"S2C 0x071 mode {influence.Mode} ignored ({payload.Length} bytes).");
                 return;
             }
             _progressionState.UpdateInfluence(in influence);

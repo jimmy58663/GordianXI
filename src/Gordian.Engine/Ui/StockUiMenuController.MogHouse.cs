@@ -641,7 +641,7 @@ namespace Gordian.Engine.Ui
             }
             catch (Exception ex)
             {
-                Gordian.Core.Diagnostics.GordianLog.Warning("MOGHOUSE", $"{what} failed: {ex.Message}");
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Moghouse, $"{what} failed: {ex.Message}");
                 NoticePosted?.Invoke($"{what} failed: {ex.Message}");
             }
         }

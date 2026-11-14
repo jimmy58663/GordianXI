@@ -124,7 +124,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 && (required.Major, required.Minor) != (version.Major, version.Minor))
             {
                 var retryVersion = (required.Major, required.Minor, (byte)0);
-                GordianLog.Info("LSB_LOGIN", $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; logging in again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
+                GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; logging in again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
                 version = retryVersion;
                 (result, error) = await AuthenticateTrustedAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
             }
@@ -134,7 +134,7 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             s_acceptedVersions[ServerKey(host, port)] = version;
-            GordianLog.Info("LSB_LOGIN", $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}.");
+            GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}.");
             return result;
         }
 
@@ -153,10 +153,10 @@ namespace Gordian.Core.Network.LandSandBoat
             catch (UntrustedServerCertificateException ex) when (ConfirmServerCertificate != null)
             {
                 var info = ex.Certificate;
-                GordianLog.Warning("LSB_LOGIN", ex.Message);
+                GordianLog.Warn(LogCategories.LsbLogin, ex.Message);
                 if (!await ConfirmServerCertificate(info, ct).ConfigureAwait(false)) throw;
                 CertificateStore.Set(host, port, info.Sha256Fingerprint);
-                GordianLog.Info("LSB_LOGIN", $"Trusted the TLS certificate of {host}:{port} (SHA-256 {info.Sha256Fingerprint}).");
+                GordianLog.Info(LogCategories.LsbLogin, $"Trusted the TLS certificate of {host}:{port} (SHA-256 {info.Sha256Fingerprint}).");
             }
             return await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
         }
@@ -170,7 +170,7 @@ namespace Gordian.Core.Network.LandSandBoat
             string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
             CancellationToken ct)
         {
-            GordianLog.Info("LSB_LOGIN", $"Connecting to auth server {host}:{port} for user '{username}' (xiloader version {version.Major}.{version.Minor}.{version.Patch})...");
+            GordianLog.Info(LogCategories.LsbLogin, $"Connecting to auth server {host}:{port} for user '{username}' (xiloader version {version.Major}.{version.Minor}.{version.Patch})...");
             using var ctsAuth = CancellationTokenSource.CreateLinkedTokenSource(ct);
             ctsAuth.CancelAfter(10000); // 10 second timeout for auth server
             var authCt = ctsAuth.Token;
@@ -261,7 +261,7 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             // The account id stays out of the log: logs are shared in bug reports (CodeQL cs/cleartext-storage, #441).
-            GordianLog.Info("LSB_LOGIN", $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
+            GordianLog.Info(LogCategories.LsbLogin, $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
             return ((accountId, sessionHash), null);
         }
 
@@ -338,7 +338,7 @@ namespace Gordian.Core.Network.LandSandBoat
             {
                 if (!string.IsNullOrWhiteSpace(name) || id != 0)
                 {
-                    GordianLog.Warning("LSB_LOGIN", $"Character '{name}' (ID {id}) is not on this account; logging in as '{slots[0].Name}'.");
+                    GordianLog.Warn(LogCategories.LsbLogin, $"Character '{name}' (ID {id}) is not on this account; logging in as '{slots[0].Name}'.");
                 }
                 return slots[0];
             }
@@ -392,7 +392,7 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             var chosen = ChooseCharacter(slots, targetCharacterName, targetCharacterId, targetCharacterSlot);
-            GordianLog.Info("LSB_LOGIN", $"Character choice: requested name='{targetCharacterName}' slot={targetCharacterSlot} id={targetCharacterId} -> slot {chosen.Slot} '{chosen.Name}' (ID {chosen.Id}) of {slots.Count} character(s).");
+            GordianLog.Info(LogCategories.LsbLogin, $"Character choice: requested name='{targetCharacterName}' slot={targetCharacterSlot} id={targetCharacterId} -> slot {chosen.Slot} '{chosen.Name}' (ID {chosen.Id}) of {slots.Count} character(s).");
             var selected = lobby.Characters.First(c => c.Slot == chosen.Slot);
             return await lobby.SelectCharacterAsync(selected, ct).ConfigureAwait(false);
         }
@@ -434,7 +434,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)
                 {
                     string retryMsg = $"Handshake retry: Re-authenticating with LandSandBoat (retrying in 750ms after transient issue: {ex.Message})...";
-                    GordianLog.Warning("LSB_LOGIN", retryMsg);
+                    GordianLog.Warn(LogCategories.LsbLogin, retryMsg);
                     StatusChanged?.Invoke(this, retryMsg);
                     await Task.Delay(750, ct).ConfigureAwait(false);
                 }
@@ -518,7 +518,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)
                 {
                     string retryMsg = $"Handshake retry: Re-authenticating with LandSandBoat (retrying in 750ms after transient issue: {ex.Message})...";
-                    GordianLog.Warning("LSB_LOGIN", retryMsg);
+                    GordianLog.Warn(LogCategories.LsbLogin, retryMsg);
                     StatusChanged?.Invoke(this, retryMsg);
                     await Task.Delay(750, ct).ConfigureAwait(false);
                 }

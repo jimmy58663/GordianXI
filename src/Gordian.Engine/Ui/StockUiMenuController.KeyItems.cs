@@ -214,7 +214,7 @@ namespace Gordian.Engine.Ui
             {
                 CloseMenu(top);
                 if (button.ButtonId != StockUiKeyItems.YesButton) return true;
-                GordianLog.Info("KEYITEM", $"Key item {shown.Id} ({shown.Name}) examined: marking it read.");
+                GordianLog.Info(LogCategories.Keyitem, $"Key item {shown.Id} ({shown.Name}) examined: marking it read.");
                 KeyItemViewed?.Invoke(shown.Id);
                 OpenKeyItemDescription(list, shown with { IsNew = false });
             }

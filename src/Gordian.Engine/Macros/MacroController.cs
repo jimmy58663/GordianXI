@@ -75,7 +75,7 @@ namespace Gordian.Engine.Macros
                 // Log once per hold why a palette did nothing (round 2, A22: the reason was not visible in the logs).
                 if (palette != MacroPalette.None && !_blockLogged)
                 {
-                    GordianLog.Info("MACRO", $"{(palette == MacroPalette.Alt ? "Alt" : "Ctrl")} palette held but blocked: {(Suspended ? "the macro editor is open" : blockedReason ?? "blocked")}.");
+                    GordianLog.Info(LogCategories.Macro, $"{(palette == MacroPalette.Alt ? "Alt" : "Ctrl")} palette held but blocked: {(Suspended ? "the macro editor is open" : blockedReason ?? "blocked")}.");
                     _blockLogged = true;
                 }
                 if (palette == MacroPalette.None) _blockLogged = false;
@@ -169,7 +169,7 @@ namespace Gordian.Engine.Macros
             var slot = Library.CurrentSlot(palette, key);
             var macro = Library.Get(slot);
             if (macro.IsEmpty) return;
-            GordianLog.Info("MACRO", $"Running {slot.KeyLabel} \"{macro.Title}\" (book {slot.Book + 1}, set {slot.Set + 1}).");
+            GordianLog.Info(LogCategories.Macro, $"Running {slot.KeyLabel} \"{macro.Title}\" (book {slot.Book + 1}, set {slot.Set + 1}).");
             MacroStarted?.Invoke(slot);
             _ = Runner.Run(macro);
         }

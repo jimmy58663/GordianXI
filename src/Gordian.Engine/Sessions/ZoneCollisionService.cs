@@ -61,7 +61,7 @@ namespace Gordian.Engine.Sessions
                 }
                 catch (Exception ex)
                 {
-                    GordianLog.Warning("Collision", $"Loading zone {zoneId} collision failed: {ex.Message}");
+                    GordianLog.Warn(LogCategories.Collision, $"Loading zone {zoneId} collision failed: {ex.Message}");
                 }
             });
         }
