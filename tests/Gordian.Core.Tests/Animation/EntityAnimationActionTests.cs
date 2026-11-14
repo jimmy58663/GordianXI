@@ -448,15 +448,19 @@ namespace Gordian.Core.Tests.Animation
         [InlineData(ActionResolution.Block, "gdi6", "gdm")]
         [InlineData(ActionResolution.Guard, "gdi6", "gdm")]
         [InlineData(ActionResolution.Parry, "pyi6", "pym")]
-        public void PoseFlash_DrawsTheWholeBodyPose_OrTheUpperBodyOneWhileMoving(ActionResolution resolution, string body, string upper)
+        public void PoseFlash_DrawsTheWholeBodyPose_OrAParrysUpperBodyOneWhileMoving(ActionResolution resolution, string body, string upper)
         {
-            // #546 round 6: standing, pose 0 is gdi6 and pose 1 pyi6, absolute with the joint translations; moving, gdm / pym
-            // over the walk or run.
+            // #546 rounds 6-7: engaged and standing, pose 0 is gdi6 and pose 1 pyi6, absolute with the joint translations;
+            // a parry on the move, pym over the walk or run.
             var model = Model([("gdm", 0f), ("gdi6", 0f), ("pym", 0f), ("pyi6", 0f), ("run", 0f)],
                 ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))),
                 ("gurd", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(0, 16))),
                 ("pary", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(1, 16))));
-            foreach (var (category, clip, translations) in new[] { (AnimationCategory.Combat, body, true), (AnimationCategory.Run, upper, false) })
+            // (A block on the move moves the shield arm alone, which needs a skeleton: ShieldBlockRealPathTests.)
+            var cases = resolution == ActionResolution.Parry
+                ? new[] { (AnimationCategory.Combat, body, true), (AnimationCategory.Run, upper, false) }
+                : new[] { (AnimationCategory.Combat, body, true) };
+            foreach (var (category, clip, translations) in cases)
             {
                 var state = new EntityAnimationState();
                 state.Advance(0f, category, 0, model);

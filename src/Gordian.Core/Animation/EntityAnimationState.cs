@@ -1321,9 +1321,12 @@ namespace Gordian.Core.Animation
         /// chest; the parry a wide crouch with the sword raised and the shield dropped to the hip (the sword pack's blade points
         /// up where retail's points down toward the attacker; the katana pack's points down). The upper-body <c>gdm</c> drawn
         /// over <c>gdi6</c> lifts the sword over the head, which the still does not show, so the pose is the whole-body one alone,
-        /// absolute over the whole body, weapon arm and legs included, joint translations too (the lunge's crouch). While
-        /// moving, the upper-body <c>gdm</c> / <c>pym</c> (upper-body clips only, joints 3-93 on Hume male) play over the walk or
-        /// run instead, so the legs keep going (*inference*). The routine's 16 ticks are held, coming in over 2
+        /// absolute over the whole body, weapon arm and legs included, joint translations too (the lunge's crouch), when the
+        /// actor is engaged and standing. Moving or not engaged (the weapon sheathed), a block moves the shield arm alone to
+        /// <c>gdi6</c>'s over whatever is playing (in-game round 7: <c>gdm</c> on the move brought both hands together, and the
+        /// whole body over the idle stance moved the sheathed sword; the race's only block routine is the base pack's
+        /// <c>gur1</c>, so there is no idle block of its own), and a parry plays the upper-body <c>pym</c> (upper-body clips
+        /// only, joints 3-93 on Hume male) over it, the weapon grips left alone. The routine's 16 ticks are held, coming in over 2
         /// ticks and going out over 4 (<see cref="HeldEnvelope"/>; *inference* from the recording at 30 fps: the block held
         /// 8-9 frames from 51.40 s, the parry at 1:09 about 10). A model without the whole-body pose (the dual-wield packs
         /// of some races) plays the upper-body pose alone as an offset from its twin, as before; the monster routines play
@@ -1339,16 +1342,25 @@ namespace Gordian.Core.Animation
                 string pose = parry ? "pym" : "gdm";
                 int ticks = routine.PoseFlashTicks > 0 ? routine.PoseFlashTicks : DefaultPoseFlashTicks;
                 int total = ticks + FlashInTicks + FlashOutTicks;
-                if (!IsLocomotion(Current) && model.Animations.TryGetValue(parry ? "pyi6" : "gdi6", out var body))
+                bool hasBody = model.Animations.TryGetValue(parry ? "pyi6" : "gdi6", out var body);
+                if (hasBody && Current == AnimationCategory.Combat)
                 {
+                    // Engaged and standing: the whole body.
                     ClearLayers();
-                    AddLayer(body, null, null, 1f, total, held: true, translations: true);
+                    AddLayer(body!, null, null, 1f, total, held: true, translations: true);
                 }
-                else if (model.Animations.ContainsKey(parry ? "pyi6" : "gdi6") && model.Animations.TryGetValue(pose, out var upper))
+                else if (hasBody && !parry && model.Skeleton is { } skeleton && ShieldArmMask(skeleton, model.ParentOverrides) is { } arm)
                 {
-                    // Moving: the upper-body pose over the walk or run, the legs keep going.
+                    // Moving, or not engaged (the weapon sheathed): the block pose's shield arm alone over what is playing.
                     ClearLayers();
-                    AddLayer(upper, null, OverlayMask(model, upper), 1f, total, held: true);
+                    AddLayer(body!, null, arm, 1f, total, held: true);
+                }
+                else if (hasBody && model.Animations.TryGetValue(pose, out var upper))
+                {
+                    // A parry on the move: the upper-body pose over the walk or run, the legs keep going; it never moves the
+                    // weapon grip, so a sheathed weapon stays sheathed.
+                    ClearLayers();
+                    AddLayer(upper, null, WithoutGrips(model, OverlayMask(model, upper) ?? AllJoints(upper)), 1f, total, held: true);
                 }
                 else
                 {
@@ -1368,6 +1380,65 @@ namespace Gordian.Core.Animation
             if (!model.Animations.TryGetValue(clipName, out var clip) || ticks <= 0) return;
             ClearLayers();
             AddLayer(clip, ReferencePose(model, clipName), OverlayMask(model, clip), peak, ticks, held: false);
+        }
+
+        /// <summary>
+        /// The shield arm: the first joint above the left hand (reference 126) that is not above the right hand (127), and
+        /// every joint below it in the skeleton, the weapon grips the loader re-parents into a hand left out. Null for a
+        /// skeleton without the hand references.
+        /// </summary>
+        private static bool[]? ShieldArmMask(Skeleton skeleton, IReadOnlyDictionary<int, int>? overrides)
+        {
+            const int leftHand = 126, rightHand = 127;
+            if (skeleton.References.Count <= rightHand) return null;
+            int left = skeleton.References[leftHand].Index, right = skeleton.References[rightHand].Index, n = skeleton.Count;
+            if (left >= n || right >= n) return null;
+            int Parent(int j) => skeleton.Joints[j].Parent is int p && p >= 0 && p < n && p != j ? p : -1;
+            var aboveRight = new HashSet<int>();
+            for (int j = right, g = 0; j >= 0 && g <= n; j = Parent(j), g++) aboveRight.Add(j);
+            int pivot = -1;
+            for (int j = left, g = 0; j >= 0 && g <= n; j = Parent(j), g++)
+            {
+                if (aboveRight.Contains(j)) break;
+                pivot = j;
+            }
+            if (pivot < 0) return null;
+            var mask = new bool[n];
+            for (int j = 0; j < n; j++)
+            {
+                if (overrides != null && overrides.ContainsKey(j)) continue;
+                for (int k = j, g = 0; k >= 0 && g <= n; k = Parent(k), g++)
+                {
+                    if (k == pivot) { mask[j] = true; break; }
+                }
+            }
+            return mask;
+        }
+
+        /// <summary>The mask with the weapon grips (the joints the loader re-parents into a hand) and the joints below them cleared.</summary>
+        private static bool[] WithoutGrips(EntityModel model, bool[] mask)
+        {
+            if (model.ParentOverrides is not { Count: > 0 } overrides || model.Skeleton is not { } skeleton) return mask;
+            int n = skeleton.Count;
+            for (int j = 0; j < mask.Length && j < n; j++)
+            {
+                for (int k = j, g = 0; k >= 0 && k < n && g <= n; g++)
+                {
+                    if (overrides.ContainsKey(k)) { mask[j] = false; break; }
+                    int p = skeleton.Joints[k].Parent;
+                    k = p == k ? -1 : p;
+                }
+            }
+            return mask;
+        }
+
+        private static bool[] AllJoints(AnimationClip clip)
+        {
+            int max = 0;
+            foreach (var joint in clip.Tracks.Keys) max = Math.Max(max, joint + 1);
+            var mask = new bool[max];
+            foreach (var joint in clip.Tracks.Keys) mask[joint] = true;
+            return mask;
         }
 
         private int AddLayer(AnimationClip clip, AnimationClip? reference, bool[]? mask, float peak, int ticks, bool held, bool translations = false)

@@ -79,37 +79,21 @@ namespace Gordian.Engine.Tests.Animation
             return (c, Vector3.Dot(n, c - from) >= 0f ? n : -n);
         }
 
-        /// <summary>Whether the joint is a weapon grip the loader re-parents into a hand, or hangs below one.</summary>
-        private static bool HangsFromAGrip(Skeleton skeleton, System.Collections.Generic.IReadOnlyDictionary<int, int> overrides, int joint)
-        {
-            for (int guard = 0; joint >= 0 && joint < skeleton.Count && guard <= skeleton.Count; guard++)
-            {
-                if (overrides.ContainsKey(joint)) return true;
-                int parent = skeleton.Joints[joint].Parent;
-                joint = parent == joint ? -1 : parent;
-            }
-            return false;
-        }
-
         public static TheoryData<CharacterRace, AnimationCategory, ActionResolution> Cases()
         {
             var data = new TheoryData<CharacterRace, AnimationCategory, ActionResolution>();
             foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.ElvaanFemale,
                          CharacterRace.TaruMale, CharacterRace.TaruFemale, CharacterRace.Mithra, CharacterRace.Galka })
             {
-                foreach (var stance in new[] { AnimationCategory.Combat, AnimationCategory.Idle })
-                {
-                    data.Add(race, stance, ActionResolution.Block);
-                    data.Add(race, stance, ActionResolution.Parry);
-                }
+                data.Add(race, AnimationCategory.Combat, ActionResolution.Block);
+                data.Add(race, AnimationCategory.Combat, ActionResolution.Parry);
             }
             return data;
         }
 
         /// <summary>
-        /// In the hold the whole body is the weapon's reaction pose (every joint within 1 degree of the whole-body pose
-        /// evaluated on its own; at rest the sheathed weapon stays on the hip), whatever stance it
-        /// came from, and the feet stand on the
+        /// Engaged and standing, the hold is the weapon's whole-body reaction pose (every joint within 1 degree of the pose
+        /// evaluated on its own), and the feet stand on the
         /// ground (the lowest point of the body within 0.03 yalm of it: the lunge's crouch comes from the pose's joint
         /// translations).
         /// </summary>
@@ -128,8 +112,6 @@ namespace Gordian.Engine.Tests.Animation
             var expected = SkeletonPoseEvaluator.EvaluatePose(skeleton, layers[0].Clip, 0f, false, overrides);
             for (int j = 0; j < skeleton.Count; j++)
             {
-                // At rest the sheathed weapon's grip keeps its skeletal parent (the hip), not the hand.
-                if (stance == AnimationCategory.Idle && overrides != null && HangsFromAGrip(skeleton, overrides, j)) continue;
                 float off = Angle(held.Rotations[j], expected.Rotations[j]);
                 Assert.True(off < 1f, $"joint {j} {off:F1} degrees from the reaction pose");
             }
@@ -174,6 +156,65 @@ namespace Gordian.Engine.Tests.Animation
             Assert.True(hand.Y < chest.Y + 0.05f && hand.X > chest.X + 0.1f, $"weapon hand at {hand - chest:F2} from the chest: not raised toward the attacker (Y down)");
             Assert.True(centre.X < chest.X + 0.15f, $"shield at {centre - chest:F2} from the chest: held out in front");
             Assert.True(centre.Y > chest.Y - 0.05f, $"shield at {centre - chest:F2} from the chest: not dropped");
+        }
+
+        public static TheoryData<CharacterRace, AnimationCategory, ActionResolution> OffGuardCases()
+        {
+            var data = new TheoryData<CharacterRace, AnimationCategory, ActionResolution>();
+            foreach (var race in new[] { CharacterRace.HumeMale, CharacterRace.HumeFemale, CharacterRace.ElvaanMale, CharacterRace.ElvaanFemale,
+                         CharacterRace.TaruMale, CharacterRace.TaruFemale, CharacterRace.Mithra, CharacterRace.Galka })
+            {
+                foreach (var stance in new[] { AnimationCategory.Idle, AnimationCategory.Run, AnimationCategory.CombatRun })
+                {
+                    data.Add(race, stance, ActionResolution.Block);
+                    data.Add(race, stance, ActionResolution.Parry);
+                }
+            }
+            return data;
+        }
+
+        /// <summary>
+        /// Not engaged (the weapon sheathed) or moving (in-game round 7), a block, and a parry with the weapon sheathed, leave
+        /// the weapon where it was: every weapon vertex within 0.005 yalm of the pose without the reaction (sheathed on the
+        /// hip, or in the hand running). A block moves the shield arm alone: the weapon hand stays put and the shield comes forward of the chest
+        /// at about chest height (measured 2026-11-13: 0.1-0.9 yalm in front, from 0.5 above the chest to 0.25 below).
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(OffGuardCases))]
+        public void OffGuardOrMoving_TheWeaponStaysAndABlockMovesTheShieldArm(CharacterRace race, AnimationCategory stance, ActionResolution resolution)
+        {
+            if (Load(race) is not { } model) return;
+            var skeleton = model.Skeleton!;
+            var overrides = model.ParentOverrides;
+            var state = new EntityAnimationState();
+            var plain = new EntityAnimationState();
+            for (int i = 0; i < 300; i++)
+            {
+                state.Advance(Dt, stance, 0, model);
+                plain.Advance(Dt, stance, 0, model);
+            }
+            state.EnqueueReaction(new HitReaction(resolution, 0.5f, 0, true, default, 0, 0, 0, Stopwatch.GetTimestamp()));
+            for (int i = 0; i < 30; i++)
+            {
+                state.Advance(Dt, stance, 0, model);
+                plain.Advance(Dt, stance, 0, model);
+            }
+            Assert.Single(state.OverlayLayers.ToArray());
+            var held = state.EvaluatePose(skeleton, overrides);
+            var still = plain.EvaluatePose(skeleton, overrides);
+            float sword = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 0).SelectMany(g => g.Vertices)
+                .Max(v => Vector3.Distance(Skin(v, held), Skin(v, still)));
+            // An engaged parry on the run raises the sword in the hand (passed in game, round 7).
+            if (resolution == ActionResolution.Parry && stance == AnimationCategory.CombatRun) return;
+            Assert.True(sword < 0.005f, $"weapon moved {sword:F3} yalm");
+            if (resolution != ActionResolution.Block) return;
+
+            int hand = skeleton.References[127].Index;
+            Assert.True(Vector3.Distance(held.Translations[hand], still.Translations[hand]) < 0.005f, "the weapon hand moved in a block");
+            var chest = held.Translations[LocomotionLayering.Chest(skeleton)];
+            var (centre, _) = Shield(model, held, chest);
+            Assert.True(centre.X > chest.X + 0.08f, $"shield at {centre - chest:F2} from the chest: not in front");
+            Assert.True(centre.Y < chest.Y + 0.3f, $"shield at {centre - chest:F2} from the chest: below it (Y down)");
         }
 
         /// <summary>
