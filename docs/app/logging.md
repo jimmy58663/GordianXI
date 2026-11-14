@@ -15,7 +15,7 @@ logs/
 ```
 
 - **`system/`**: every category except status messages and packet detail. The file is named by the date a line is written, so a session that runs past midnight moves to the next day's file. When a file reaches the size cap the next lines go to `_2`, `_3`, and so on; a second launch on the same day continues the newest file.
-- **`network/`**: the detail (Trace and Debug) of the network categories `NET`, `PARSER`, `CRYPTO` and `DISPATCHER`: datagram headers, sub-packets, unhandled packet ids, key exchange. Off by default. Their Info, Warn and Error lines (login steps, zone transitions) go to the system log as usual, and also here when the file is on, so it reads on its own.
+- **`network/`**: the detail (Trace and Debug) of the network categories `NET`, `PARSER`, `CRYPTO`, `DISPATCHER` and `WIRE`: datagram headers, sub-packets, unhandled packet ids, key exchange. Off by default. Their Info, Warn and Error lines (login steps, zone transitions) go to the system log as usual, and also here when the file is on, so it reads on its own.
 - **`status/`**: the messages the user was shown in the Profiles and Launch status box (and the Controls tab's status line), one file per launch named by its start time. They are not repeated in the system log.
 - **`chat/`**: the per-character chat logs (see [Chat logs](#chat-logs)).
 
@@ -42,7 +42,7 @@ Every line a character's in-game log shows (say, shout, yell, tell, party, links
 [08:39:14.512] [INFO] [NET] [Gemini] First datagram from the new map server accepted (Seq=3); zone transition complete.
 ```
 
-Time, level, category, then the character tag when the line was logged inside a character's scope (see below). An error with an exception carries the full `ToString()`, stack trace included, on the following lines. Status lines are shorter: `[08:39:14] [Gemini] message`.
+Time, level, category, then the character tag when the line was logged inside a character's scope (see below). An error with an exception carries the full `ToString()`, stack trace included, on the following lines. Status lines are shorter, `[08:39:14] message`, and carry no character tag: each message names its own profile or character (`[Gemini] Session disconnected.`), and the UI thread that shows it may be running another session's work.
 
 ## Levels and categories
 
@@ -56,9 +56,9 @@ The default minimum is `Debug` in Debug builds or with `GORDIAN_DEBUG=1`, otherw
 | `GRAPHICS` | Info | per-frame and per-draw detail |
 | `ENTITY` | Info | per-entity update detail |
 | `GPU_TEX` | Info | per-texture upload detail |
-| `NET`, `PARSER`, `CRYPTO`, `DISPATCHER` | Debug only into `network/` | packet detail |
+| `NET`, `PARSER`, `CRYPTO`, `DISPATCHER`, `WIRE` | Debug only into `network/` | packet detail |
 
-The bounded wire trace (the first 20 map datagrams each way after login and each zone line, headers and sub-packets) uses its own `WIRE` category, which is not a network category, so it stays in the system log at Debug for login debugging without the network file.
+The bounded wire trace (the first 20 map datagrams each way after login and each zone line, headers and sub-packets) uses its own `WIRE` category. It is a network category, so it goes to `network/` with the other packet detail; turn the network file on to capture it.
 
 Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages).
 
@@ -94,6 +94,7 @@ Environment overrides, for development:
 Multi-box sessions share one process, so lines carry the character they belong to. `SessionNetworkManager.LogScope` (also `CharacterSession.LogScope`) is named from `CharacterName`.
 
 - The network loops (inbound read, outbound flush, the 0x00A retransmit tasks) call `GordianLog.SetFlowScope(LogScope)` once at the top, so everything they run, including every packet handler in Core and the engine, logs under the character.
+- A session's state change (`SessionNetworkManager.CurrentState`) runs its handlers inside that session's scope, whichever thread changes it (a disconnect from the UI, another session's cleanup).
 - Synchronous per-character work on a shared thread wraps itself in `using (GordianLog.BeginScope(session.LogScope))`; `MainWindow`'s input loop does this around `Locomotion.Update`. A thread scope does not survive an `await`.
 
 ## Writing
@@ -104,7 +105,7 @@ Before `GordianLog.Initialize` runs nothing is logged, so tests and tools that u
 
 ## Status messages
 
-`MainWindowViewModel.StatusMessage` and `ControlsInputViewModel.StatusMessage` write every non-empty message to the status file as it is set (`GordianLog.Status`), including a repeat of the previous one. A failure the user has to act on is a status message and also leaves a `Warn` or `Error` with the technical detail in the system log, since the system log does not repeat status messages.
+`MainWindowViewModel.StatusMessage` and `ControlsInputViewModel.StatusMessage` write every non-empty message to the status file as it is set (`GordianLog.Status`), including a repeat of the previous one, so callers set it only when there is something new to say: a session's state change sets it for the states that have a message, and a disconnect once (`MainWindowViewModel.SessionStateStatus`). A failure the user has to act on is a status message and also leaves a `Warn` or `Error` with the technical detail in the system log, since the system log does not repeat status messages.
 
 ## Verification
 

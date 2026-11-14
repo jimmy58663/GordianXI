@@ -240,7 +240,7 @@ namespace Gordian.Core.Diagnostics
 
         /// <summary>
         /// <c>WIRE</c>: the bounded wire trace of the first 20 map datagrams each way after login and each zone line
-        /// (headers and sub-packets). Not a network category, so it stays in the system log at Debug for login debugging.
+        /// (headers and sub-packets). A network category: it goes to <c>logs/network/</c> with the rest of the packet detail.
         /// </summary>
         public const string Wire = "WIRE";
 
@@ -254,7 +254,7 @@ namespace Gordian.Core.Diagnostics
         /// Network categories: their detail (below <see cref="LogLevel.Info"/>) goes only to <c>logs/network/</c>, and
         /// only when the network file is on; their milestones go to the system log as usual.
         /// </summary>
-        public static readonly IReadOnlyList<string> Network = new[] { Net, Parser, Crypto, Dispatcher };
+        public static readonly IReadOnlyList<string> Network = new[] { Net, Parser, Crypto, Dispatcher, Wire };
 
         /// <summary>
         /// Built-in minimum levels for categories that would otherwise flood the system log; the user's
@@ -274,6 +274,7 @@ namespace Gordian.Core.Diagnostics
             string.Equals(category, Net, StringComparison.OrdinalIgnoreCase)
             || string.Equals(category, Parser, StringComparison.OrdinalIgnoreCase)
             || string.Equals(category, Crypto, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(category, Dispatcher, StringComparison.OrdinalIgnoreCase);
+            || string.Equals(category, Dispatcher, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(category, Wire, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -372,6 +372,20 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
+        /// The status box message for a session reaching <paramref name="state"/>, or null when that state has none of its
+        /// own (Disconnecting) or is a repeat of a disconnect already reported (<paramref name="firstDisconnect"/> false).
+        /// </summary>
+        internal static string? SessionStateStatus(string character, SessionState state, MapSessionTicket ticket, bool timedOut, bool firstDisconnect) => state switch
+        {
+            SessionState.ConnectingToGameServer => $"[{character}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
+            SessionState.ExchangingCryptoKeys => $"[{character}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
+            SessionState.LoadingWorldData => $"[{character}] Loading zone world data...",
+            SessionState.ActiveInWorld => $"[{character}] Connected! In-game session active in world.",
+            SessionState.Disconnected when firstDisconnect => timedOut ? $"[{character}] Lost connection to the server." : $"[{character}] Session disconnected.",
+            _ => null,
+        };
+
+        /// <summary>
         /// Adds a message to <see cref="RecentStatusLines"/> as the status file shows it (<c>[HH:mm:ss] message</c>),
         /// dropping the oldest past <see cref="RecentStatusCapacity"/>.
         /// </summary>
@@ -2039,6 +2053,7 @@ namespace Gordian.App.ViewModels
             bool timedOut = false;
             bool returningToLobby = false;
             int endedOnce = 0;
+            int disconnectReported = 0;
             netManager.StateChanged += (s, state) =>
             {
                 if (state == SessionState.Disconnected)
@@ -2056,18 +2071,16 @@ namespace Gordian.App.ViewModels
                         catch (Exception ex) { GordianLog.Warn(LogCategories.Session, $"Ending '{profile.ProfileName}''s login session failed: {ex.Message}"); }
                     });
                 }
+                // A disconnect passes through Disconnected more than once (Disconnect, then the read loop's cleanup): say it once.
+                bool firstDisconnect = state == SessionState.Disconnected && Interlocked.Exchange(ref disconnectReported, 1) == 0;
+                if (state != SessionState.Disconnected) Interlocked.Exchange(ref disconnectReported, 0);
+                string? message = SessionStateStatus(session.CharacterName, state, ticket, Volatile.Read(ref timedOut), firstDisconnect);
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     RefreshAllStatuses();
-                    StatusMessage = state switch
-                    {
-                        SessionState.ConnectingToGameServer => $"[{session.CharacterName}] Connecting UDP socket to {ticket.ZoneIp}:{ticket.ZonePort}...",
-                        SessionState.ExchangingCryptoKeys => $"[{session.CharacterName}] Handshaking (0x00A) with map server at {ticket.ZoneIp}:{ticket.ZonePort}...",
-                        SessionState.LoadingWorldData => $"[{session.CharacterName}] Loading zone world data...",
-                        SessionState.ActiveInWorld => $"[{session.CharacterName}] Connected! In-game session active in world.",
-                        SessionState.Disconnected => timedOut ? $"[{session.CharacterName}] Lost connection to the server." : $"[{session.CharacterName}] Session disconnected.",
-                        _ => StatusMessage
-                    };
+                    // States without a message of their own (Disconnecting) leave the status box as it is, rather than
+                    // writing its last message to the status log again.
+                    if (message != null) StatusMessage = message;
                 });
             };
 

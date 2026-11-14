@@ -3,6 +3,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -41,6 +42,15 @@ namespace Gordian.App
                     if (listBox != null && listBox.ItemCount > 0) listBox.ScrollIntoView(listBox.ItemCount - 1);
                 });
             };
+            logs.LinesReplaced += () => Dispatcher.UIThread.Post(() =>
+            {
+                // Start every newly shown file or filter from the top, so a short file never keeps the long one's offset
+                // (and sits at the bottom); then follow to the newest line, which leaves a short file at the top.
+                var listBox = this.FindControl<ListBox>("LogLinesListBox");
+                if (listBox == null) return;
+                if (listBox.FindDescendantOfType<ScrollViewer>() is { } scroll) scroll.Offset = default;
+                if (logs.Follow && listBox.ItemCount > 0) listBox.ScrollIntoView(listBox.ItemCount - 1);
+            }, DispatcherPriority.Background);
             _viewModel.RecentStatusLines.CollectionChanged += (_, _) =>
                 Dispatcher.UIThread.Post(() => this.FindControl<ScrollViewer>("StatusHistoryScroll")?.ScrollToEnd());
 

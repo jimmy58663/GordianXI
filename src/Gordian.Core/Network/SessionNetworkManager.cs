@@ -130,8 +130,13 @@ namespace Gordian.Core.Network
                     // A session coming up starts its server-silence clock now (TimeSinceLastServerPacket).
                     if (_currentState == SessionState.Disconnected) Volatile.Write(ref _lastServerTrafficTimestamp, _time.GetTimestamp());
                     _currentState = value;
-                    GordianLog.Debug(LogCategories.Net, $"Session state changed to: {_currentState}");
-                    StateChanged?.Invoke(this, _currentState);
+                    // A state change is this session's work whichever thread makes it (Disconnect from the UI, another
+                    // session's cleanup): tag it and its handlers with this character, not the caller's.
+                    using (GordianLog.BeginScope(LogScope))
+                    {
+                        GordianLog.Debug(LogCategories.Net, $"Session state changed to: {_currentState}");
+                        StateChanged?.Invoke(this, _currentState);
+                    }
                 }
             }
         }

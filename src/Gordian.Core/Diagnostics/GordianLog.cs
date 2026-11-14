@@ -212,7 +212,12 @@ namespace Gordian.Core.Diagnostics
         public static void Status(string message)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
-            Write(LogLevel.Status, LogCategories.Status, message);
+            // No character tag: a status message names its own profile or character ("[Gemini] ..."), and the UI thread
+            // that shows it may be running another session's posted work, whose tag would be wrong.
+            Channel<LogRecord>? channel = s_channel;
+            if (channel is null) return;
+            var record = new LogRecord(DateTime.Now, LogLevel.Status, LogCategories.Status, null, message);
+            if (!channel.Writer.TryWrite(record)) Interlocked.Increment(ref s_dropped);
         }
 
         /// <summary>Whether chat lines are being written to <c>logs/chat/</c> (the <c>ChatLog</c> setting, on by default).</summary>

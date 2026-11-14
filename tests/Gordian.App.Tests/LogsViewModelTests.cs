@@ -219,6 +219,69 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void Segments_ColourEachTokenOfASystemLine()
+        {
+            var segments = LogLineSegments.Split("[10:43:53.120] [WARN] [SESSION] [Gemini] Lost connection.", LogLevel.Warn, hasLevels: true, search: null);
+
+            Assert.Equal(new[] { "[10:43:53.120]", " [WARN]", " [SESSION]", " [Gemini]", " Lost connection." }, segments.Select(s => s.Text));
+            Assert.Equal(new[] { LogLineSegments.TimestampColor, LogLineSegments.LevelColor(LogLevel.Warn), LogLineSegments.CategoryColor, LogLineSegments.TagColor, LogLineSegments.MessageColorFor(LogLevel.Warn) },
+                segments.Select(s => s.Foreground));
+            Assert.DoesNotContain(segments, s => s.Match);
+        }
+
+        [Fact]
+        public void Segments_StatusLineAndStackTraceLine()
+        {
+            var status = LogLineSegments.Split("[10:43:53] [Gordian] Session disconnected.", null, hasLevels: false, search: null);
+            Assert.Equal(new[] { "[10:43:53]", " [Gordian]", " Session disconnected." }, status.Select(s => s.Text));
+
+            var trace = LogLineSegments.Split("   at Gordian.Login()", LogLevel.Error, hasLevels: true, search: null);
+            Assert.Equal(LogLineSegments.MessageColorFor(LogLevel.Error), Assert.Single(trace).Foreground);
+        }
+
+        [Fact]
+        public void Segments_HighlightMatchesAcrossTokensCaseInsensitively()
+        {
+            var segments = LogLineSegments.Split("[10:00:00.000] [WARN] [NET] warn again", LogLevel.Warn, hasLevels: true, search: "N] [n");
+
+            Assert.Equal("N] [N", string.Concat(segments.Where(s => s.Match).Select(s => s.Text)));
+            Assert.Equal("[10:00:00.000] [WARN] [NET] warn again", string.Concat(segments.Select(s => s.Text)));
+
+            var many = LogLineSegments.Split("[10:00:00] warn and WARN", null, hasLevels: false, search: "warn");
+            Assert.Equal(2, many.Count(s => s.Match));
+        }
+
+        [Fact]
+        public void SessionStatus_ReportsADisconnectOnceAndNothingForDisconnecting()
+        {
+            var ticket = new Gordian.Core.Network.Lobby.MapSessionTicket { ZoneIp = "127.0.0.1", ZonePort = 54230 };
+
+            Assert.Null(MainWindowViewModel.SessionStateStatus("Gemini", Gordian.Core.Network.SessionState.Disconnecting, ticket, false, false));
+            Assert.Equal("[Gemini] Session disconnected.", MainWindowViewModel.SessionStateStatus("Gemini", Gordian.Core.Network.SessionState.Disconnected, ticket, false, true));
+            Assert.Null(MainWindowViewModel.SessionStateStatus("Gemini", Gordian.Core.Network.SessionState.Disconnected, ticket, false, false));
+            Assert.Equal("[Gemini] Lost connection to the server.", MainWindowViewModel.SessionStateStatus("Gemini", Gordian.Core.Network.SessionState.Disconnected, ticket, true, true));
+        }
+
+        [Fact]
+        public async Task SwitchingFiles_ReplacesTheLines()
+        {
+            string longFile = Write(Path.Combine("system", "gordian_2026-11-14.log"), Enumerable.Range(0, 200).Select(i => $"[10:00:00.000] [INFO] [APP] line {i}").ToArray());
+            string shortFile = Write(Path.Combine("system", "gordian_2026-11-13.log"), "[09:00:00.000] [INFO] [APP] only");
+            using var vm = new LogsViewModel(() => _root, () => null);
+            vm.Start();
+            int replaced = 0;
+            vm.LinesReplaced += () => replaced++;
+
+            vm.SelectedNode = LogTreeBuilder.Find(vm.Nodes, longFile);
+            await vm.LoadSelectedAsync();
+            vm.SelectedNode = LogTreeBuilder.Find(vm.Nodes, shortFile);
+            await vm.LoadSelectedAsync();
+
+            Assert.Single(vm.Lines);
+            Assert.True(replaced >= 2);
+        }
+
+        [Fact]
         public void StatusBox_KeepsTheLatestMessages()
         {
             using var vm = new MainWindowViewModel();

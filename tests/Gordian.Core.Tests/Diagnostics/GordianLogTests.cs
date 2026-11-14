@@ -168,6 +168,32 @@ namespace Gordian.Core.Tests.Diagnostics
         }
 
         [Fact]
+        public void Status_CarriesNoCharacterTag()
+        {
+            Start();
+
+            using (GordianLog.BeginScope(new LogScope("Knot")))
+            {
+                GordianLog.Status("[Gordian] Session disconnected.");
+            }
+
+            string status = StatusLog();
+            Assert.Matches(@"^\[\d\d:\d\d:\d\d\] \[Gordian\] Session disconnected\.", status);
+            Assert.DoesNotContain("Knot", status);
+        }
+
+        [Fact]
+        public void WireTrace_GoesToTheNetworkFileOnly()
+        {
+            Start(debug: true, network: true);
+
+            GordianLog.Debug(LogCategories.Wire, "Map datagram in Seq=3");
+
+            Assert.Contains("[DEBUG] [WIRE] Map datagram in Seq=3", NetworkLog());
+            Assert.DoesNotContain("Map datagram", SystemLog());
+        }
+
+        [Fact]
         public void SecondLaunchInTheSameSecond_GetsItsOwnStatusFile()
         {
             Start();

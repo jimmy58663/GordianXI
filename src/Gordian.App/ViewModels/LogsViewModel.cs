@@ -17,11 +17,15 @@ namespace Gordian.App.ViewModels
     /// <summary>One line in the Logs tab's viewer, with the level it was logged at (continuation lines take the previous line's).</summary>
     public sealed class LogLineItem
     {
-        public LogLineItem(string text, LogLevel? level)
+        public LogLineItem(string text, LogLevel? level, bool hasLevels = false)
         {
             Text = text;
             Level = level;
+            HasLevels = hasLevels;
         }
+
+        /// <summary>Whether the line comes from a file with a level column (system, network), which sets how it is coloured.</summary>
+        public bool HasLevels { get; }
 
         public string Text { get; }
 
@@ -173,6 +177,12 @@ namespace Gordian.App.ViewModels
         /// <summary>Raised after lines were appended to <see cref="Lines"/> (the view scrolls to the newest when following).</summary>
         public event Action? LinesAppended;
 
+        /// <summary>
+        /// Raised after <see cref="Lines"/> was replaced (another file, or a filter change): the view resets its scroll to the
+        /// top, so a short file always sits at the top, then scrolls to the newest line when following.
+        /// </summary>
+        public event Action? LinesReplaced;
+
         /// <summary>Builds the tree, starts watching the folder and shows this launch's status file.</summary>
         public void Start()
         {
@@ -259,7 +269,6 @@ namespace Gordian.App.ViewModels
             IsLevelFilterAvailable = levels;
             ApplyFilters();
             UpdateHeader();
-            LinesAppended?.Invoke();
         }
 
         /// <summary>The visible lines' text, for Copy.</summary>
@@ -310,7 +319,7 @@ namespace Gordian.App.ViewModels
                     level = ParseLevel(text) ?? previous;
                     previous = level;
                 }
-                _all.Add(new LogLineItem(text, level));
+                _all.Add(new LogLineItem(text, level, levels));
             }
         }
 
@@ -318,6 +327,7 @@ namespace Gordian.App.ViewModels
         {
             Lines = new ObservableCollection<LogLineItem>(_all.Where(Matches));
             UpdateHeader();
+            LinesReplaced?.Invoke();
         }
 
         private bool Matches(LogLineItem line)
