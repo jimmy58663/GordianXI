@@ -357,6 +357,7 @@ namespace Gordian.Core.Resources
             var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
             var extraWeaponSlots = new List<int>();
             int rangedType = -1;
+            bool secondWaistSet = false;
             var occlusion = new GearOcclusion();
 
             // 1. Face slot (from GrapIdTable[0] & 0xFF)
@@ -401,6 +402,11 @@ namespace Gordian.Core.Resources
                             // stances hold at scale 0 or at the feet. Its RangeType picks those clips' routines.
                             rangedType = ReadRangedType(gearDat);
                         }
+                        else if (slot == CharacterSlot.Body)
+                        {
+                            // Long skirts and robes take the second waist set of every waist pack (body Info byte 9 = 2).
+                            secondWaistSet = CharacterEquipmentResolver.UsesSecondWaistSet(gearDat);
+                        }
 
                         extraDats.Add(gearDat);
                         extraSources.Add(DecodedTexture.FileLabel(gearFid));
@@ -434,7 +440,7 @@ namespace Gordian.Core.Resources
             // Gated off by default - see EnableSpeculativeMotionPacks.
             if (EnableSpeculativeMotionPacks)
             {
-                var (_, upperPath, waistPath) = CharacterEquipmentResolver.GetLocomotionPackPaths(race);
+                var (_, upperPath, waistPath) = CharacterEquipmentResolver.GetLocomotionPackPaths(race, secondWaistSet);
                 var overlaySources = new List<List<AnimationClip>>();
 
                 byte[]? upperDat = string.IsNullOrEmpty(upperPath) ? null : datByPath(upperPath);
@@ -499,18 +505,24 @@ namespace Gordian.Core.Resources
                     model.IsDualWielding = true;
                 }
 
+                // The battle waist pack (#546): the skirt parts of the pack's stance, swings and draws (btl2, at02, inb2...) join
+                // their stems below, so skirts and robes follow the battle motion instead of the idle's skirt tracks, plus the
+                // whole-body reaction poses.
+                List<AnimationClip>? battleWaist = null;
+                if (battleAnims != null)
+                {
+                    battleWaist = LoadBattleWaist(datByPath, set => dualWield
+                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, mainInfo!.Value.Type, set)
+                        : CharacterEquipmentResolver.GetBattleWaistPackPath(race, weaponAnimType, set), secondWaistSet);
+                    if (battleWaist != null) battleAnims = [.. battleAnims, .. BattleWaistParts(battleWaist, battleAnims)];
+                }
+
                 if (overlaySources.Count > 0 || (battleAnims != null && battleAnims.Count > 0))
                 {
                     MergeLocomotionCategories(model, overlaySources, battleAnims);
                 }
 
-                if (battleAnims != null)
-                {
-                    string battleWaistPath = dualWield
-                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, mainInfo!.Value.Type)
-                        : CharacterEquipmentResolver.GetBattleWaistPackPath(race, weaponAnimType);
-                    ApplyReactionPoses(model, battleAnims, string.IsNullOrEmpty(battleWaistPath) ? null : datByPath(battleWaistPath));
-                }
+                if (battleAnims != null) ApplyReactionPoses(model, battleAnims, battleWaist);
 
                 model.RebuildMotionRoutines();
             }
@@ -528,13 +540,50 @@ namespace Gordian.Core.Resources
         /// guard, block and parry are the weapon's: the sword's block is a braced lunge with the shield held up in front, its
         /// parry the sword raised across the body (checked against <c>Shield_Block_Retail.mp4</c>, 2026-11-13).
         /// </summary>
-        private static void ApplyReactionPoses(EntityModel model, List<AnimationClip> battleAnims, byte[]? waistDat)
+        private static void ApplyReactionPoses(EntityModel model, List<AnimationClip> battleAnims, List<AnimationClip>? waist)
         {
-            var waist = waistDat is { Length: > 0 } ? ParseDatContainer(waistDat, "BattleWaist").Animations : null;
             foreach (var name in (ReadOnlySpan<string>)["gdi6", "pyi6"])
             {
                 var clip = battleAnims.FirstOrDefault(a => a.Name == name) ?? waist?.FirstOrDefault(a => a.Name == name);
                 if (clip != null) model.Animations[name] = clip;
+            }
+        }
+
+        /// <summary>
+        /// The clips of a battle waist pack, from the second waist set when the body takes it (<paramref name="secondWaistSet"/>),
+        /// with the first set's clips for any name the second lacks: a few second-set packs leave out clips the first has
+        /// (retail 2026-11-13: Hume male <c>ROM/32/31</c> has no <c>inb2</c> / <c>otb2</c>, the Kunai <c>98/57</c> no
+        /// <c>pyi6</c>, Mithra <c>56/33</c> no <c>gdi6</c> / <c>dfi6</c> / <c>dbi6</c>; <c>BattleWaistPackRealDataTests</c>).
+        /// Null when the pack is missing.
+        /// </summary>
+        private static List<AnimationClip>? LoadBattleWaist(Func<string, byte[]?> datByPath, Func<bool, string> pathOf, bool secondWaistSet)
+        {
+            List<AnimationClip>? Load(bool set) =>
+                pathOf(set) is { Length: > 0 } path && datByPath(path) is { Length: > 0 } dat ? ParseDatContainer(dat, "BattleWaist").Animations : null;
+            var first = Load(false);
+            if (!secondWaistSet) return first;
+            var second = Load(true);
+            if (second == null || first == null) return second ?? first;
+            var names = new HashSet<string>(second.Select(c => c.Name), StringComparer.Ordinal);
+            return [.. second, .. first.Where(c => !names.Contains(c.Name))];
+        }
+
+        /// <summary>
+        /// The skirt parts of a battle waist pack that belong to the battle pack's clips: a part-2 clip (<c>btl2</c>,
+        /// <c>at02</c>-<c>at22</c>, <c>inb2</c> / <c>otb2</c>...) whose stem the battle pack has (<c>btl0</c> / <c>btl1</c>). Each
+        /// keys only the waist joints (38-47 on Hume male) and has its stem's frame count. The whole-body poses (<c>gdi6</c>,
+        /// <c>pyi6</c>, <c>dfi6</c>, <c>dbi6</c>) are left to <see cref="ApplyReactionPoses"/>; a part with no stem in the pack
+        /// is left out, as it would add a clip of skirt tracks alone. Read from the retail packs (2026-11-13: Hume male sword
+        /// <c>ROM/32/14</c> / <c>32/23</c>, <c>BattleWaistPackRealDataTests</c>).
+        /// </summary>
+        internal static IEnumerable<AnimationClip> BattleWaistParts(List<AnimationClip> waist, List<AnimationClip> battleAnims)
+        {
+            var stems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var clip in battleAnims) stems.Add(StripBodyRegionSuffix(clip.Name));
+            foreach (var clip in waist)
+            {
+                if (clip.Name.Length != 4 || clip.Name[3] != '2') continue;
+                if (stems.Contains(StripBodyRegionSuffix(clip.Name))) yield return clip;
             }
         }
 
