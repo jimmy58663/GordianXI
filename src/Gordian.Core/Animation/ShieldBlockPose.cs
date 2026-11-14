@@ -8,7 +8,8 @@ using Gordian.Core.Resources.Models;
 namespace Gordian.Core.Animation
 {
     /// <summary>
-    /// The shield block (#546 rounds 1-4): the guard pose <c>gdm</c> played on the shield arm alone.
+    /// The shield arm of a shield block (#546 rounds 1-5): the guard pose <c>gdm</c> played on the shield arm alone, one of
+    /// the block's three layers (with the hit flinch and the guard stance's legs, <c>EntityAnimationState.StartShieldBlock</c>).
     /// <para>
     /// A block plays the PC routine <c>gur1</c>, whose op 0x5A pose flash is pose 0, the guard pose <c>gdm</c> of the guard
     /// routine <c>gurd</c> (xi-tools names the op IdleCasterGuard); the game data has no block pose of its own. <c>gdm</c> is a
@@ -23,7 +24,7 @@ namespace Gordian.Core.Animation
     /// <c>gdm</c> points it relative to the body (<see cref="Apply"/>), while the other arm and the body stay on whatever is
     /// playing. The maintainer's retail recording
     /// <c>Shield_Block_Retail.mp4</c> (a paladin, 2026-11-13) shows the shield pulled across the chest toward the attacker at
-    /// about 51.4 s, held about 8 frames at 30 fps (about 0.27 s, the routine's 16-tick flash), then back.
+    /// 51.40 s, held 8 frames at 30 fps (about 0.27 s, the routine's 16-tick flash), then back within a frame.
     /// </para>
     /// <para>
     /// The shield is found from its mesh (<see cref="Find"/>: the off-hand slot's vertices, all bound to one arm joint on every
@@ -95,6 +96,39 @@ namespace Gordian.Core.Animation
             {
                 mask[j] = j != mount.Pivot && (poseMask == null || (j < poseMask.Length && poseMask[j])) && IsBelow(skeleton, j, mount.Pivot, parentOverrides);
             }
+            return mask;
+        }
+
+        /// <summary>Whether <paramref name="joint"/> is the shield arm's pivot or below it (a re-parented joint by its new parent).</summary>
+        public static bool IsOnArm(Skeleton skeleton, ShieldMount mount, int joint, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            ArgumentNullException.ThrowIfNull(mount);
+            return IsBelow(skeleton, joint, mount.Pivot, parentOverrides);
+        }
+
+        /// <summary>
+        /// The weapon arm: the first joint above the right hand (reference 127) that is not above the left hand (126), and
+        /// every joint below it, including the weapon grips re-parented into the hand. All false for a skeleton without the
+        /// hand references.
+        /// </summary>
+        public static bool[] WeaponArmMask(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
+        {
+            ArgumentNullException.ThrowIfNull(skeleton);
+            var mask = new bool[skeleton.Count];
+            if (skeleton.References.Count <= RightHandReference) return mask;
+            int left = skeleton.References[LeftHandReference].Index, right = skeleton.References[RightHandReference].Index;
+            if (left >= skeleton.Count || right >= skeleton.Count) return mask;
+            var aboveLeft = new HashSet<int>();
+            for (int j = left, guard = 0; j >= 0 && guard <= skeleton.Count; j = Parent(skeleton, j), guard++) aboveLeft.Add(j);
+            int pivot = -1;
+            for (int j = right, guard = 0; j >= 0 && guard <= skeleton.Count; j = Parent(skeleton, j), guard++)
+            {
+                if (aboveLeft.Contains(j)) break;
+                pivot = j;
+            }
+            if (pivot < 0) return mask;
+            for (int j = 0; j < mask.Length; j++) mask[j] = IsBelow(skeleton, j, pivot, parentOverrides);
             return mask;
         }
 

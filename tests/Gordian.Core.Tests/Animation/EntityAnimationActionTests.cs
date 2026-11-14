@@ -429,6 +429,34 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void Block_WithoutAShield_FlashesTheGuardPoseAlone()
+        {
+            // A monster (no shield mesh): the block routine's guard pose over the whole body, one pose, as before #546 round 5.
+            var model = Model([("gdm", 0f), ("pym", 0f), ("dfm", 0f)],
+                ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))));
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Combat, 0, model);
+
+            state.EnqueueReaction(new HitReaction(ActionResolution.Block, 1f, 0, true, ActionReactKind.None, 1, 0f, 0f, Stopwatch.GetTimestamp()));
+            Run(state, model, AnimationCategory.Combat, 4);
+
+            Assert.Equal(1, state.OverlayLayers.Length);
+            Assert.Equal("gdm", state.Overlay!.Value.Clip.Name);
+        }
+
+        [Fact]
+        public void HeldEnvelope_ComesInAndOutWithinAnEighth()
+        {
+            // A shield block's poses (#546 round 5): retail is in within a frame at 30 fps, holds, and is out within one.
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(0f));
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.125f), 3);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.5f), 3);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.875f), 3);
+            Assert.InRange(EntityAnimationState.HeldEnvelope(0.95f), 0.05f, 0.95f);
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(1f));
+        }
+
+        [Fact]
         public void Parry_FlashesTheParryPose()
         {
             var model = Model([("gdm", 0f), ("pym", 0f)],

@@ -87,7 +87,8 @@ namespace Gordian.Core.Resources.Graphics
         /// Joints without a track in the clip (or when clip is null) retain their static bind-pose transform.
         /// Reference: xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js.
         /// </summary>
-        public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null, PoseOverlay? overlay = null)
+        public static EvaluatedPose EvaluatePose(Skeleton skeleton, AnimationClip? clip, float timeSeconds, bool loop, IReadOnlyDictionary<int, int>? parentOverrides = null, PoseOverlay? overlay = null,
+            ReadOnlySpan<PoseOverlay> layers = default)
         {
             int n = skeleton.Count;
             if (n == 0)
@@ -169,7 +170,7 @@ namespace Gordian.Core.Resources.Graphics
                             s = animScale; // root scale ignored per FFXI spec
                         }
                     }
-                    if (ApplyOverlay(overlay, i, ref deltaRot)) hasDelta = true;
+                    if (ApplyOverlays(overlay, layers, i, ref deltaRot)) hasDelta = true;
                     if (hasDelta)
                     {
                         // Protocol spec referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) pose.js:
@@ -245,15 +246,16 @@ namespace Gordian.Core.Resources.Graphics
             bool loopB,
             float blendWeight,
             IReadOnlyDictionary<int, int>? parentOverrides = null,
-            PoseOverlay? overlay = null)
+            PoseOverlay? overlay = null,
+            ReadOnlySpan<PoseOverlay> layers = default)
         {
             if (blendWeight <= 0f || clipB == null)
             {
-                return EvaluatePose(skeleton, clipA, timeA, loopA, parentOverrides, overlay);
+                return EvaluatePose(skeleton, clipA, timeA, loopA, parentOverrides, overlay, layers);
             }
             if (blendWeight >= 1f || clipA == null)
             {
-                return EvaluatePose(skeleton, clipB, timeB, loopB, parentOverrides, overlay);
+                return EvaluatePose(skeleton, clipB, timeB, loopB, parentOverrides, overlay, layers);
             }
 
             int n = skeleton.Count;
@@ -372,7 +374,7 @@ namespace Gordian.Core.Resources.Graphics
                         }
 
                         t += transDelta;
-                        ApplyOverlay(overlay, i, ref blendedDeltaRot);
+                        ApplyOverlays(overlay, layers, i, ref blendedDeltaRot);
                         r = blendedDeltaRot * r;
                         if (i != 0)
                         {
@@ -382,7 +384,7 @@ namespace Gordian.Core.Resources.Graphics
                     else
                     {
                         Quaternion overlayDelta = Quaternion.Identity;
-                        if (ApplyOverlay(overlay, i, ref overlayDelta)) r = overlayDelta * r;
+                        if (ApplyOverlays(overlay, layers, i, ref overlayDelta)) r = overlayDelta * r;
                     }
 
                     if (i == 0)
@@ -433,6 +435,14 @@ namespace Gordian.Core.Resources.Graphics
             } while (missing && passes < n + 2);
 
             return new EvaluatedPose(rot, trans, scale);
+        }
+
+        /// <summary>The overlay, then each of <paramref name="layers"/> in order (each with its own joint mask, weight and mode).</summary>
+        private static bool ApplyOverlays(PoseOverlay? overlay, ReadOnlySpan<PoseOverlay> layers, int joint, ref Quaternion deltaRot)
+        {
+            bool touched = ApplyOverlay(overlay, joint, ref deltaRot);
+            foreach (var layer in layers) touched |= ApplyOverlay(layer, joint, ref deltaRot);
+            return touched;
         }
 
         /// <summary>
