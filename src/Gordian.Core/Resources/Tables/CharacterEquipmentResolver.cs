@@ -1,6 +1,7 @@
 // src/Gordian.Core/Resources/Tables/CharacterEquipmentResolver.cs
 using System;
 using System.IO;
+using Gordian.Core.Resources.Containers;
 
 namespace Gordian.Core.Resources.Tables
 {
@@ -378,8 +379,12 @@ namespace Gordian.Core.Resources.Tables
         /// overlay (base+3) DATs that layer on top of it to form full-body animation.
         /// Referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js,
         /// which documents this base(+0)/upper(+1)/waist(+3) layering convention.
+        /// <para>
+        /// <paramref name="secondWaistSet"/> (the body gear's waist set, <see cref="UsesSecondWaistSet"/>) takes the waist
+        /// pack at +4 instead: the same clips, differing only on the skirt joints (Hume male <c>ROM/27/85</c> / <c>27/86</c>).
+        /// </para>
         /// </summary>
-        public static (string Lower, string Upper, string Waist) GetLocomotionPackPaths(CharacterRace race)
+        public static (string Lower, string Upper, string Waist) GetLocomotionPackPaths(CharacterRace race, bool secondWaistSet = false)
         {
             var loc = GetBaseSkeletonLocation(race);
             if (!loc.HasValue) return (string.Empty, string.Empty, string.Empty);
@@ -389,7 +394,26 @@ namespace Gordian.Core.Resources.Tables
             return (
                 GetBaseSkeletonPath(race),
                 OffsetDatPath(loc.Value, 1),
-                OffsetDatPath(loc.Value, 3));
+                OffsetDatPath(loc.Value, secondWaistSet ? 4 : 3));
+        }
+
+        /// <summary>
+        /// Whether a body gear DAT pairs with the second waist set of every waist pack family: its Info section (0x45) byte 9
+        /// is 2 (the field is xi-model-viewer's <c>waistVariant</c>, ui/js/dat.js, and its rule in ui/js/pclists.js
+        /// <c>baseMotionCompanions</c> / <c>battleSkirtPath</c>: 2 takes the locomotion waist pack at +4 and the battle waist
+        /// packs at twice the run). Read from the retail Hume male bodies (2026-11-13, <c>BattleWaistPackRealDataTests</c>):
+        /// 331 carry 1 and 329 carry 2, the naked body 0. The bodies with 2 are the long skirts and robes, skinned to the outer
+        /// skirt joints (41, 45-47) that the bodies with 1 leave out; the second set moves joints 38 and 40 more and holds 42 and
+        /// 43 still, which those skirts do not use (the first set swings them for the short tabards skinned to 43).
+        /// </summary>
+        public static bool UsesSecondWaistSet(ReadOnlySpan<byte> bodyDat)
+        {
+            foreach (var head in DatSectionWalker.ReadHeaders(bodyDat))
+            {
+                if (head.TypeCode != DatSectionType.Info) continue;
+                return head.DataOffset + 9 < bodyDat.Length && bodyDat[head.DataOffset + 9] == 2;
+            }
+            return false;
         }
 
         /// <summary>
@@ -435,9 +459,12 @@ namespace Gordian.Core.Resources.Tables
         /// <c>in?2</c> / <c>ot?2</c>) and again at <c>32/31</c>-<c>39</c>; the Kunai pack <c>ROM/98/55</c> at <c>98/56</c>. So the
         /// waist pack is the battle pack plus the length of its run. The Tarutaru packs carry the poses themselves. Found by
         /// scanning the retail install for <c>pyi6</c> / <c>gdi6</c> (2026-11-13, <c>BattleWaistPackRealDataTests</c>).
-        /// <b>Beyond xi-model-viewer / xi-tools</b>, which list the battle packs only.
+        /// The second copy is the waist set of the long skirts and robes (<paramref name="secondWaistSet"/>,
+        /// <see cref="UsesSecondWaistSet"/>): the same clips, differing only on the skirt joints. xi-model-viewer
+        /// (ui/js/pclists.js <c>battleSkirtPath</c>) has the same two blocks from a fixed per-race pack count.
+        /// <b>Beyond xi-tools</b>, which lists the battle packs only.
         /// </summary>
-        public static string GetBattleWaistPackPath(CharacterRace race, int weaponTypeIndex = 0)
+        public static string GetBattleWaistPackPath(CharacterRace race, int weaponTypeIndex = 0, bool secondWaistSet = false)
         {
             int raceIdx = GetRetailRaceIndex(race);
             if (raceIdx < 0 || raceIdx >= BattleByTypeLocations.Length) return string.Empty;
@@ -447,21 +474,22 @@ namespace Gordian.Core.Resources.Tables
             int first = loc.File, last = loc.File;
             while (files.Contains((loc.Folder, first - 1))) first--;
             while (files.Contains((loc.Folder, last + 1))) last++;
-            return OffsetDatPath(loc, last - first + 1);
+            return OffsetDatPath(loc, (last - first + 1) * (secondWaistSet ? 2 : 1));
         }
 
         /// <summary>
         /// The waist pack of a dual-wield main-hand pack (see <see cref="GetBattleWaistPackPath"/>): the main-hand packs of a
         /// race are one run, followed by their waist packs (Hume male <c>ROM/108/112</c>-<c>115</c>, waist <c>108/116</c>-<c>119</c>).
-        /// Empty when the type has no dual-wield pack.
+        /// The second waist set (<paramref name="secondWaistSet"/>) follows them (<c>108/120</c>-<c>123</c>). Empty when the
+        /// type has no dual-wield pack.
         /// </summary>
-        public static string GetDualWieldWaistPackPath(CharacterRace race, int mainType)
+        public static string GetDualWieldWaistPackPath(CharacterRace race, int mainType, bool secondWaistSet = false)
         {
             int raceIdx = GetRetailRaceIndex(race);
             if (raceIdx < 0 || raceIdx >= DualWieldPacks.Length) return string.Empty;
             var (types, main, _) = DualWieldPacks[raceIdx];
             int rank = Array.IndexOf(types, mainType);
-            return rank < 0 ? string.Empty : OffsetDatPath(main, rank + types.Length);
+            return rank < 0 ? string.Empty : OffsetDatPath(main, rank + types.Length * (secondWaistSet ? 2 : 1));
         }
 
         /// <summary>
@@ -478,7 +506,7 @@ namespace Gordian.Core.Resources.Tables
         /// The main-hand pack holds <c>ati*</c>, the moving and counter swings, the engaged stance and the per-hand
         /// draw / sheathe <c>in1N</c> / <c>ot1N</c>; the off-hand pack holds <c>bti*</c>, <c>btf0</c> / <c>btb0</c> /
         /// <c>btl0</c> / <c>btr0</c> and <c>in2N</c> / <c>ot2N</c>, N the weapon's sub-type (Info byte 4). Each pack is
-        /// followed by its waist parts (not loaded, as for the single-weapon packs). <b>Differs from xi-tools:</b> its
+        /// followed by its waist parts (<see cref="GetDualWieldWaistPackPath"/>). <b>Differs from xi-tools:</b> its
         /// Mithra labels are swapped (<c>ROM/115/61</c>-<c>64</c> hold <c>bti*</c>, <c>ROM/115/73</c>-<c>76</c> <c>ati*</c>).
         /// </para>
         /// </summary>
