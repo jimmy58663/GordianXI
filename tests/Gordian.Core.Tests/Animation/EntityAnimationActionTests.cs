@@ -429,9 +429,9 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
-        public void Block_WithoutAShield_FlashesTheGuardPoseAlone()
+        public void Block_WithoutTheWholeBodyPose_FlashesTheGuardPoseAlone()
         {
-            // A monster (no shield mesh): the block routine's guard pose over the whole body, one pose, as before #546 round 5.
+            // A monster (no whole-body guard pose gdi6): the block routine's guard pose alone, one pose.
             var model = Model([("gdm", 0f), ("pym", 0f), ("dfm", 0f)],
                 ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))));
             var state = new EntityAnimationState();
@@ -444,16 +444,46 @@ namespace Gordian.Core.Tests.Animation
             Assert.Equal("gdm", state.Overlay!.Value.Clip.Name);
         }
 
-        [Fact]
-        public void HeldEnvelope_ComesInAndOutWithinAnEighth()
+        [Theory]
+        [InlineData(ActionResolution.Block, "gdi6", "gdm")]
+        [InlineData(ActionResolution.Guard, "gdi6", "gdm")]
+        [InlineData(ActionResolution.Parry, "pyi6", "pym")]
+        public void PoseFlash_DrawsTheWholeBodyPose_OrTheUpperBodyOneWhileMoving(ActionResolution resolution, string body, string upper)
         {
-            // A shield block's poses (#546 round 5): retail is in within a frame at 30 fps, holds, and is out within one.
-            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(0f));
-            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.125f), 3);
-            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.5f), 3);
-            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(0.875f), 3);
-            Assert.InRange(EntityAnimationState.HeldEnvelope(0.95f), 0.05f, 0.95f);
-            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(1f));
+            // #546 round 6: standing, pose 0 is gdi6 and pose 1 pyi6, absolute with the joint translations; moving, gdm / pym
+            // over the walk or run.
+            var model = Model([("gdm", 0f), ("gdi6", 0f), ("pym", 0f), ("pyi6", 0f), ("run", 0f)],
+                ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))),
+                ("gurd", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(0, 16))),
+                ("pary", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(1, 16))));
+            foreach (var (category, clip, translations) in new[] { (AnimationCategory.Combat, body, true), (AnimationCategory.Run, upper, false) })
+            {
+                var state = new EntityAnimationState();
+                state.Advance(0f, category, 0, model);
+                state.EnqueueReaction(new HitReaction(resolution, 0.5f, 0, true, ActionReactKind.None, 1, 0f, 0f, Stopwatch.GetTimestamp()));
+                Run(state, model, category, 8);
+
+                var layers = state.OverlayLayers.ToArray();
+                Assert.Single(layers);
+                Assert.Equal(clip, layers[0].Clip.Name);
+                Assert.Equal(translations, layers[0].Translations);
+                Assert.Null(layers[0].Reference);
+                Assert.Equal(1f, layers[0].Weight, 3); // held
+            }
+        }
+
+        [Fact]
+        public void HeldEnvelope_HoldsTheFlashBetweenAShortInAndOut()
+        {
+            // A PC guard / block / parry pose (#546 round 6): in over 2 ticks, the routine's 16 held, out over 4.
+            const float tick = 1f / 60f;
+            float duration = (16 + EntityAnimationState.FlashInTicks + EntityAnimationState.FlashOutTicks) * tick;
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(0f, duration));
+            Assert.InRange(EntityAnimationState.HeldEnvelope(tick, duration), 0.1f, 0.9f);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(2 * tick, duration), 3);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(18 * tick, duration), 3);
+            Assert.InRange(EntityAnimationState.HeldEnvelope(20 * tick, duration), 0.1f, 0.9f);
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(duration, duration));
         }
 
         [Fact]

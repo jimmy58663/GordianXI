@@ -504,14 +504,38 @@ namespace Gordian.Core.Resources
                     MergeLocomotionCategories(model, overlaySources, battleAnims);
                 }
 
+                if (battleAnims != null)
+                {
+                    string battleWaistPath = dualWield
+                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, mainInfo!.Value.Type)
+                        : CharacterEquipmentResolver.GetBattleWaistPackPath(race, weaponAnimType);
+                    ApplyReactionPoses(model, battleAnims, string.IsNullOrEmpty(battleWaistPath) ? null : datByPath(battleWaistPath));
+                }
+
                 model.RebuildMotionRoutines();
             }
 
             // Last, as the motion packs above regroup the clips.
             ApplyChairPack(model, race, datByFileId);
-            model.Shield = Gordian.Core.Animation.ShieldBlockPose.Find(model);
             if (faceId == CharacterEquipmentResolver.MannequinFace) ApplyMannequinPose(model, race, datByPath);
             return model;
+        }
+
+        /// <summary>
+        /// The weapon's whole-body reaction poses (#546 round 6): the guard / block pose <c>gdi6</c> and the parry pose
+        /// <c>pyi6</c> from the battle waist pack (<see cref="CharacterEquipmentResolver.GetBattleWaistPackPath"/>), or the
+        /// battle pack itself (Tarutaru). They replace the race's generic <c>gdi6</c> (from the locomotion waist pack) so the
+        /// guard, block and parry are the weapon's: the sword's block is a braced lunge with the shield held up in front, its
+        /// parry the sword raised across the body (checked against <c>Shield_Block_Retail.mp4</c>, 2026-11-13).
+        /// </summary>
+        private static void ApplyReactionPoses(EntityModel model, List<AnimationClip> battleAnims, byte[]? waistDat)
+        {
+            var waist = waistDat is { Length: > 0 } ? ParseDatContainer(waistDat, "BattleWaist").Animations : null;
+            foreach (var name in (ReadOnlySpan<string>)["gdi6", "pyi6"])
+            {
+                var clip = battleAnims.FirstOrDefault(a => a.Name == name) ?? waist?.FirstOrDefault(a => a.Name == name);
+                if (clip != null) model.Animations[name] = clip;
+            }
         }
 
         /// <summary>

@@ -426,6 +426,45 @@ namespace Gordian.Core.Resources.Tables
         }
 
         /// <summary>
+        /// The battle waist pack of a weapon's battle pack (#546 round 6): the whole-body reaction poses <c>gdi6</c> (guard and
+        /// block, pose 0 of op 0x5A) and <c>pyi6</c> (parry, pose 1), with <c>dfi6</c> / <c>dbi6</c> and the waist parts
+        /// (joints 38-47 on Hume male) of the pack's stance, swings and draws (<c>btl2</c>, <c>at02</c>, <c>ina2</c>...).
+        /// Each race's battle packs come in runs of consecutive files, and each run is followed by its waist packs in the same
+        /// order, then a second copy: Hume male packs <c>ROM/32/13</c>-<c>21</c> have their waist packs at <c>ROM/32/22</c>-<c>30</c>
+        /// (the sword pack <c>32/14</c> at <c>32/23</c>: each pack's draws <c>in?1</c> / <c>ot?1</c> match its waist pack's
+        /// <c>in?2</c> / <c>ot?2</c>) and again at <c>32/31</c>-<c>39</c>; the Kunai pack <c>ROM/98/55</c> at <c>98/56</c>. So the
+        /// waist pack is the battle pack plus the length of its run. The Tarutaru packs carry the poses themselves. Found by
+        /// scanning the retail install for <c>pyi6</c> / <c>gdi6</c> (2026-11-13, <c>BattleWaistPackRealDataTests</c>).
+        /// <b>Beyond xi-model-viewer / xi-tools</b>, which list the battle packs only.
+        /// </summary>
+        public static string GetBattleWaistPackPath(CharacterRace race, int weaponTypeIndex = 0)
+        {
+            int raceIdx = GetRetailRaceIndex(race);
+            if (raceIdx < 0 || raceIdx >= BattleByTypeLocations.Length) return string.Empty;
+            var table = BattleByTypeLocations[raceIdx];
+            var loc = table[Math.Clamp(weaponTypeIndex, 0, table.Length - 1)];
+            var files = new HashSet<(int, int)>(table);
+            int first = loc.File, last = loc.File;
+            while (files.Contains((loc.Folder, first - 1))) first--;
+            while (files.Contains((loc.Folder, last + 1))) last++;
+            return OffsetDatPath(loc, last - first + 1);
+        }
+
+        /// <summary>
+        /// The waist pack of a dual-wield main-hand pack (see <see cref="GetBattleWaistPackPath"/>): the main-hand packs of a
+        /// race are one run, followed by their waist packs (Hume male <c>ROM/108/112</c>-<c>115</c>, waist <c>108/116</c>-<c>119</c>).
+        /// Empty when the type has no dual-wield pack.
+        /// </summary>
+        public static string GetDualWieldWaistPackPath(CharacterRace race, int mainType)
+        {
+            int raceIdx = GetRetailRaceIndex(race);
+            if (raceIdx < 0 || raceIdx >= DualWieldPacks.Length) return string.Empty;
+            var (types, main, _) = DualWieldPacks[raceIdx];
+            int rank = Array.IndexOf(types, mainType);
+            return rank < 0 ? string.Empty : OffsetDatPath(main, rank + types.Length);
+        }
+
+        /// <summary>
         /// Per race, the dual-wield motion packs (#308): the weapon types of that race that can be dual wielded, in
         /// ascending order, and the first body pack of each hand. A weapon's pack is the first one plus the rank of its
         /// type in the list, for each hand (the main weapon in the main-hand window, the sub weapon in the off-hand one).
