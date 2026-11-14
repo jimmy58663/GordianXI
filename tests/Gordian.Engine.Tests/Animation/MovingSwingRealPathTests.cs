@@ -129,19 +129,76 @@ namespace Gordian.Engine.Tests.Animation
 
         /// <summary>
         /// Round 8: the main-hand weapon (its grip re-parented into the right hand) stays rigidly in the hand through swings and
-        /// hit reactions, standing and strafing. The off-hand claw of a hand-to-hand weapon is carried by its mount joint, not
-        /// re-parented, and drifts up to about 0.6 yalm in hit reactions on main as well: tracked separately, not part of #511.
+        /// hit reactions, standing and strafing.
         /// </summary>
         [Theory]
         [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, true)]
         [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
-        public void TheMainHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving)
+        public void TheMainHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving) =>
+            AssertWeaponStaysInHand(key, strafe, moving, weaponSlot: 0, handReference: 127);
+
+        /// <summary>
+        /// #546: the off-hand claw of a hand-to-hand weapon (its mount joint re-parented into the left hand, reference 126) stays
+        /// rigidly in the left hand through swings and hit reactions, standing and strafing. Before the fix it was carried by
+        /// the clips' own mount track and drifted up to about 0.2 yalm in swings and 0.6 yalm in hit reactions.
+        /// </summary>
+        [Theory]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, true)]
+        [InlineData(GordianKey.D, AnimationCategory.CombatMoveRight, false)]
+        public void TheOffHandWeapon_StaysInTheHand_ThroughSwingsAndHitReactions(GordianKey key, AnimationCategory strafe, bool moving) =>
+            AssertWeaponStaysInHand(key, strafe, moving, weaponSlot: 1, handReference: 126);
+
+        /// <summary>
+        /// #548 round 1: while strafing and attacking, the head keeps looking where the strafe looks, with the swing's own head
+        /// motion on top. The moving swings twist the chest up to about 140 degrees at the strike while the head turns far
+        /// less; placed on the strafe's chest the head flicked up to 95 degrees off (Elvaan male backward, 76 left), jumping
+        /// up to 49 degrees in two frames at 144 fps, "parallel with my shoulder" for a couple of frames in the maintainer's
+        /// test. With the head turned with the body it stays within 45 degrees (Elvaan male strafing right 43, the others
+        /// 19-30) and moves at most 12 degrees in a frame (the strike's own whip; before, up to about 25).
+        /// </summary>
+        [Theory]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft)]
+        [InlineData(CharacterRace.ElvaanMale, (ushort)484, GordianKey.S, AnimationCategory.CombatMoveBackward)]
+        [InlineData(CharacterRace.HumeMale, (ushort)157, GordianKey.D, AnimationCategory.CombatMoveRight)]
+        [InlineData(CharacterRace.Galka, (ushort)484, GordianKey.A, AnimationCategory.CombatMoveLeft)]
+        [InlineData(CharacterRace.TaruMale, (ushort)484, GordianKey.D, AnimationCategory.CombatMoveRight)]
+        public void ASwingWhileStrafing_KeepsTheHeadOnTheStrafesLook(CharacterRace race, ushort weapon, GordianKey key, AnimationCategory strafe)
+        {
+            if (Setup(race, weapon, weapon, key, strafe, false) is not var (model, me, Frame, locomotion)) return;
+            var skeleton = model.Skeleton!;
+            var overrides = model.ParentOverrides!;
+            int head = skeleton.References[5].Index;
+            static float Degrees(Quaternion q) => 2f * MathF.Acos(Math.Min(1f, Math.Abs(Quaternion.Normalize(q).W))) * 180f / MathF.PI;
+
+            float most = 0f, fastest = 0f, previous = 0f;
+            int swingFrames = 0;
+            for (int f = 0; f < 144 * 4; f++)
+            {
+                if (f % 144 == 10) me.Animation.EnqueueAction(Swing(me, (ushort)(f / 144 % 2)));
+                Frame();
+                if (me.Animation.LowerBodyClip is not { } lowerBody) continue;
+                swingFrames++;
+                var pose = me.Animation.EvaluatePose(skeleton, overrides);
+                var strafing = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, me.Animation.LowerBodyElapsedSeconds, true, overrides);
+                float off = Degrees(pose.Rotations[head] * Quaternion.Inverse(strafing.Rotations[head]));
+                most = Math.Max(most, off);
+                if (swingFrames > 1) fastest = Math.Max(fastest, Math.Abs(off - previous));
+                previous = off;
+            }
+            Assert.True(swingFrames > 250, $"{swingFrames} swing frames");
+            Assert.True(most < 45f, $"the head turned {most:F0} degrees off the strafe's look");
+            Assert.True(fastest < 15f, $"the head jumped {fastest:F1} degrees in one frame");
+        }
+
+        private static void AssertWeaponStaysInHand(GordianKey key, AnimationCategory strafe, bool moving, int weaponSlot, int handReference)
         {
             if (Setup(CharacterRace.ElvaanMale, 484, 484, key, strafe, false) is not var (model, me, Frame, _)) return;
             var skeleton = model.Skeleton!;
             var overrides = model.ParentOverrides!;
-            int rightHand = skeleton.References[127].Index;
-            var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == 0).SelectMany(g => g.Vertices).Take(40).ToArray();
+            int rightHand = skeleton.References[handReference].Index;
+            var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == weaponSlot).SelectMany(g => g.Vertices).Take(40).ToArray();
+            Assert.NotEmpty(claw);
             Func<AnimationCategory> step = moving ? Frame : () =>
             {
                 me.Animation.Advance(Dt, AnimationCategory.Combat, 0, model);
@@ -161,7 +218,7 @@ namespace Gordian.Engine.Tests.Animation
                 var pose = me.Animation.EvaluatePose(skeleton, overrides);
                 for (int k = 0; k < claw.Length; k++) drift = Math.Max(drift, Vector3.Distance(InHand(pose, claw[k]), held[k]));
             }
-            Assert.True(drift < 0.002f, $"main-hand claw drifted {drift:F3} yalm from the hand");
+            Assert.True(drift < 0.002f, $"weapon slot {weaponSlot} drifted {drift:F3} yalm from the hand");
         }
 
         [Theory]

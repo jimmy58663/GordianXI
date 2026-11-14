@@ -13,6 +13,10 @@ namespace Gordian.Core.Animation
     /// 20 ticks.</item>
     /// <item>Sitting (status 47): <c>sit0</c> plays <c>si0</c> (120 ticks), then loops <c>si1</c>; <c>sit1</c> is <c>si1</c>
     /// alone; <c>sit2</c> plays <c>si2</c> (120 ticks).</item>
+    /// <item>Sitting in a chair (statuses 63-73, <c>/sitchair</c>, #379): <c>chi0</c> plays <c>ci0</c>, then loops <c>ci1</c>;
+    /// <c>chi1</c> is <c>ci1</c> alone; <c>chi2</c> plays <c>ci2</c>. The routines and clips come from the race's chair pack
+    /// (<c>CharacterEquipmentResolver.GetChairPackFileIds</c>, read from the retail DATs 2026-11-13), and the chair itself is
+    /// drawn under the character (<see cref="ChairFileId"/>).</item>
     /// </list>
     /// Read from the retail race skeletons' Section 0x07 routines (2026-10-12, <c>RestPostureRealDataTests</c>): the same
     /// routines and clip names on all eight races, and on the fixed models that carry them (e.g. 24, 530, 1443-1445,
@@ -42,22 +46,46 @@ namespace Gordian.Core.Animation
         /// <summary>LandSandBoat <c>xi.animation.SYNTH</c>: synthesizing (#315); drawn with the Healing posture.</summary>
         public const byte StatusSynthesis = 44;
 
+        /// <summary>LandSandBoat <c>xi.animation.SITCHAIR_0</c>: sitting in chair 0 with /sitchair; chair n is this plus n.</summary>
+        public const byte StatusFirstChair = 63;
+
+        /// <summary>LandSandBoat <c>xi.animation.SITCHAIR_10</c>: the last chair status.</summary>
+        public const byte StatusLastChair = 73;
+
+        /// <summary>
+        /// The chair model DAT of chair 0, the plain chair; chair n is this plus n (#379): file ids 100507-100517 hold the plain
+        /// chair and, in the order of XiPackets' S2C 0x011A chair bits, the Imperial Chair, Decorative Chair, Ornate Stool,
+        /// Refined Chair, Portable Container, Chocobo Chair, Ephramadian Throne, Shadow Throne, Leaf Bench and Astral Cube
+        /// (xi-tools <c>mv/lists/npcs.json</c> "Chairs" names 100508-100516). Each is a 2-3 joint model with its own
+        /// <c>init</c> (fades it in over 86 ticks, op 0x29) and <c>chi2</c> (fades it out over 78 ticks), read from the retail
+        /// DATs 2026-11-13. Chair 11 (Chocobo Chair II) has no status of its own in LandSandBoat.
+        /// </summary>
+        public const int ChairFileIdBase = 100507;
+
+        /// <summary>The chair (0-10) a server status seats the entity in, or -1 for any other status.</summary>
+        public static int ChairFor(byte status) => status is >= StatusFirstChair and <= StatusLastChair ? status - StatusFirstChair : -1;
+
+        /// <summary>The model file id of chair <paramref name="chair"/> (0-10).</summary>
+        public static int ChairFileId(int chair) => ChairFileIdBase + chair;
+
         /// <summary>The seated category a server status puts the entity in, or null for any other status.</summary>
         public static AnimationCategory? CategoryFor(byte status) => status switch
         {
             StatusHealing or StatusSynthesis => AnimationCategory.Healing,
             StatusSitting => AnimationCategory.Sitting,
+            >= StatusFirstChair and <= StatusLastChair => AnimationCategory.ChairSitting,
             _ => null,
         };
 
         /// <summary>Whether the category is one of the seated postures.</summary>
-        public static bool IsSeated(AnimationCategory category) => category is AnimationCategory.Healing or AnimationCategory.Sitting;
+        public static bool IsSeated(AnimationCategory category) => category is AnimationCategory.Healing or AnimationCategory.Sitting or AnimationCategory.ChairSitting;
 
         /// <summary>The routine that sits down (then holds the loop) for a seated category, or null.</summary>
         public static string? EnterRoutine(AnimationCategory category) => category switch
         {
             AnimationCategory.Healing => "res0",
             AnimationCategory.Sitting => "sit0",
+            AnimationCategory.ChairSitting => "chi0",
             _ => null,
         };
 
@@ -66,6 +94,7 @@ namespace Gordian.Core.Animation
         {
             AnimationCategory.Healing => "res1",
             AnimationCategory.Sitting => "sit1",
+            AnimationCategory.ChairSitting => "chi1",
             _ => null,
         };
 
@@ -74,6 +103,7 @@ namespace Gordian.Core.Animation
         {
             AnimationCategory.Healing => "res2",
             AnimationCategory.Sitting => "sit2",
+            AnimationCategory.ChairSitting => "chi2",
             _ => null,
         };
 

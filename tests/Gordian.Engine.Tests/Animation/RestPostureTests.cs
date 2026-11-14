@@ -28,7 +28,7 @@ namespace Gordian.Engine.Tests.Animation
         private static EntityModel Model()
         {
             var model = new EntityModel { Name = "Race" };
-            foreach (var (name, frames) in new[] { ("idl", 31), ("wlk", 31), ("rx0", 31), ("rx1", 31), ("rx2", 16), ("si0", 31), ("si1", 31), ("si2", 31) })
+            foreach (var (name, frames) in new[] { ("idl", 31), ("wlk", 31), ("rx0", 31), ("rx1", 31), ("rx2", 16), ("si0", 31), ("si1", 31), ("si2", 31), ("ci0", 31), ("ci1", 31), ("ci2", 31) })
             {
                 model.Animations[name] = Clip(name, frames);
             }
@@ -38,12 +38,17 @@ namespace Gordian.Engine.Tests.Animation
             model.MotionRoutines["sit0"] = Routine("sit0", ("si0", 0, 120, 1), ("si1", 120, 150, 0));
             model.MotionRoutines["sit1"] = Routine("sit1", ("si1", 0, 150, 0));
             model.MotionRoutines["sit2"] = Routine("sit2", ("si2", 0, 120, 1));
+            model.MotionRoutines["chi0"] = Routine("chi0", ("ci0", 0, 60, 1), ("ci1", 60, 60, 0));
+            model.MotionRoutines["chi1"] = Routine("chi1", ("ci1", 0, 60, 0));
+            model.MotionRoutines["chi2"] = Routine("chi2", ("ci2", 0, 60, 1));
             return model;
         }
 
         [Theory]
         [InlineData(RestPosture.StatusHealing, AnimationCategory.Healing)]
         [InlineData(RestPosture.StatusSitting, AnimationCategory.Sitting)]
+        [InlineData(RestPosture.StatusFirstChair, AnimationCategory.ChairSitting)]
+        [InlineData(RestPosture.StatusLastChair, AnimationCategory.ChairSitting)]
         public void Classify_RestingStatus_StandingStill_IsSeated(byte status, AnimationCategory expected)
         {
             var entity = new WorldEntity(1, 100, EntityType.Player) { Hpp = 100, AnimationState = status };
@@ -139,6 +144,75 @@ namespace Gordian.Engine.Tests.Animation
             Assert.Same(model.Animations["si1"], state.CurrentClip);
             state.Advance(0.016f, AnimationCategory.Idle, 0, model);
             Assert.Same(model.Animations["si2"], state.CurrentClip);
+        }
+
+        /// <summary>#379: statuses 63-73 are chairs 0-10, files 100507-100517; 62 and 74 are not chairs.</summary>
+        [Theory]
+        [InlineData(62, -1)]
+        [InlineData(63, 0)]
+        [InlineData(68, 5)]
+        [InlineData(73, 10)]
+        [InlineData(74, -1)]
+        public void ChairFor_MapsTheSitchairStatuses(byte status, int chair)
+        {
+            Assert.Equal(chair, RestPosture.ChairFor(status));
+            if (chair >= 0) Assert.Equal(100507 + chair, RestPosture.ChairFileId(chair));
+            Assert.Equal(chair >= 0, RestPosture.CategoryFor(status) == AnimationCategory.ChairSitting);
+        }
+
+        [Fact]
+        public void SitChair_UsesTheChairRoutines()
+        {
+            var model = Model();
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.Advance(0.016f, AnimationCategory.ChairSitting, 0, model);
+            Assert.Same(model.Animations["ci0"], state.CurrentClip);
+            state.Advance(1.1f, AnimationCategory.ChairSitting, 0, model);
+            Assert.Same(model.Animations["ci1"], state.CurrentClip);
+            Assert.True(state.LoopsCurrentClip);
+            state.Advance(0.016f, AnimationCategory.Idle, 0, model);
+            Assert.Same(model.Animations["ci2"], state.CurrentClip);
+        }
+
+        [Fact]
+        public void Hold_RootsInAChair()
+        {
+            var hold = new Gordian.Engine.Input.SeatedMovementHold();
+            Assert.True(hold.IsRooted(RestPosture.StatusFirstChair + 3, new EntityAnimationState(), 0.0));
+        }
+
+        /// <summary>#379: the chair fades in over its init (86 ticks) as the character sits and out over chi2 (78) as it stands.</summary>
+        [Fact]
+        public void Chair_FadesInWhenSitting_AndOutWhenStanding()
+        {
+            long f = System.Diagnostics.Stopwatch.Frequency;
+            long Ticks(double t) => (long)(t / 60.0 * f);
+            var entity = new WorldEntity(1, 100, EntityType.Player) { Hpp = 100 };
+            Assert.False(ChairTransitions.Observe(entity, 0).IsShown);
+
+            entity.AnimationState = RestPosture.StatusFirstChair + 2;
+            var start = ChairTransitions.Observe(entity, Ticks(0));
+            Assert.Equal(2, start.Chair);
+            Assert.Equal(0f, start.Alpha, 3);
+            Assert.Equal(0.5f, ChairTransitions.Observe(entity, Ticks(43)).Alpha, 2);
+            Assert.Equal(1f, ChairTransitions.Observe(entity, Ticks(200)).Alpha, 3);
+
+            entity.AnimationState = 0;
+            var leaving = ChairTransitions.Observe(entity, Ticks(300));
+            Assert.Equal(2, leaving.Chair);
+            Assert.Equal(1f, leaving.Alpha, 3);
+            Assert.Equal(0.5f, ChairTransitions.Observe(entity, Ticks(339)).Alpha, 2);
+            Assert.False(ChairTransitions.Observe(entity, Ticks(380)).IsShown);
+        }
+
+        [Fact]
+        public void Chair_AlreadySeatedWhenFirstSeen_IsShownAtOnce()
+        {
+            var entity = new WorldEntity(1, 100, EntityType.Player) { Hpp = 100, AnimationState = RestPosture.StatusLastChair };
+            var frame = ChairTransitions.Observe(entity, 1000);
+            Assert.Equal(10, frame.Chair);
+            Assert.Equal(1f, frame.Alpha);
         }
 
         [Fact]

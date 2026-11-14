@@ -153,16 +153,49 @@ namespace Gordian.Core.Animation
         /// </summary>
         public int HiddenWeaponSlots => ActiveRoutine != null ? _actionHiddenWeapons : _lastModel?.DefaultHiddenWeaponSlots ?? 0;
 
-        /// <summary>The pose blended over the clips this frame (hit flinch or guard / parry flash), or null.</summary>
-        public SkeletonPoseEvaluator.PoseOverlay? Overlay
+        /// <summary>
+        /// The first reaction pose blended over the clips this frame (hit flinch or guard / parry flash), or null; a PC guard,
+        /// block or parry plays two at once (<see cref="OverlayLayers"/>).
+        /// </summary>
+        public SkeletonPoseEvaluator.PoseOverlay? Overlay => OverlayLayers is { Length: > 0 } layers ? layers[0] : null;
+
+        /// <summary>
+        /// The reaction poses blended over the clips this frame, in order, each with its own joint mask, weight and mode:
+        /// one for a hit flinch or a monster's guard; for a PC guard, block or parry the whole-body pose and the upper-body
+        /// pose over it (#546 round 6). Filled into a buffer the state keeps (no allocation per frame).
+        /// </summary>
+        public ReadOnlySpan<SkeletonPoseEvaluator.PoseOverlay> OverlayLayers
         {
             get
             {
-                if (_overlayClip == null || _overlayDuration <= 0f) return null;
-                float w = _overlayPeak * OverlayEnvelope(_overlayElapsed / _overlayDuration);
-                return w > 0.001f ? new SkeletonPoseEvaluator.PoseOverlay(_overlayClip, w, _overlayMask, _overlayReference) : null;
+                int count = 0;
+                for (int i = 0; i < _layerCount; i++)
+                {
+                    ref var layer = ref _layers[i];
+                    float w = layer.Weight;
+                    if (w > 0.001f) _layerBuffer[count++] = new SkeletonPoseEvaluator.PoseOverlay(layer.Clip!, w, layer.Mask, layer.Reference, layer.Translations);
+                }
+                return new ReadOnlySpan<SkeletonPoseEvaluator.PoseOverlay>(_layerBuffer, 0, count);
             }
         }
+
+        /// <summary>One reaction pose: its clip, the neutral twin it is measured from (null: absolute), the joints it moves, its peak and life.</summary>
+        private struct ReactionLayer
+        {
+            public AnimationClip? Clip;
+            public AnimationClip? Reference;
+            public bool[]? Mask;
+            public float Peak;
+            public float Elapsed;
+            public float Duration;
+            public bool Held;
+            public bool Translations;
+
+            public readonly float Weight => Clip == null || Duration <= 0f ? 0f
+                : Peak * (Held ? HeldEnvelope(Elapsed, Duration) : OverlayEnvelope(Elapsed / Duration));
+        }
+
+        private const int MaxReactionLayers = 2;
 
         /// <summary>The last cast chant routine the actor played (<c>cabk</c>, <c>cawh</c>...), which names its release.</summary>
         public string LastChantRoutine { get; private set; } = string.Empty;
@@ -229,12 +262,9 @@ namespace Gordian.Core.Animation
         /// </summary>
         public const byte WorkScheduleSubAnimation = 3;
 
-        private AnimationClip? _overlayClip;
-        private AnimationClip? _overlayReference;
-        private bool[]? _overlayMask;
-        private float _overlayPeak;
-        private float _overlayElapsed;
-        private float _overlayDuration;
+        private readonly ReactionLayer[] _layers = new ReactionLayer[MaxReactionLayers];
+        private readonly SkeletonPoseEvaluator.PoseOverlay[] _layerBuffer = new SkeletonPoseEvaluator.PoseOverlay[MaxReactionLayers];
+        private int _layerCount;
 
         private readonly object _controlLockSync = new();
         private readonly List<(long Start, long Until, ActionFreezeSource Source)> _controlLocks = new();
@@ -610,7 +640,7 @@ namespace Gordian.Core.Animation
             _isWorkSchedule = false;
             _weaponMotion = WeaponMotion.None;
             _actionSpeed = 1f;
-            _overlayClip = null;
+            ClearLayers();
         }
 
         private void AcceptIncoming(long now)
@@ -906,11 +936,11 @@ namespace Gordian.Core.Animation
         public SkeletonPoseEvaluator.EvaluatedPose EvaluatePose(Skeleton skeleton, IReadOnlyDictionary<int, int>? parentOverrides = null)
         {
             ArgumentNullException.ThrowIfNull(skeleton);
-            var overlay = Overlay;
+            var layers = OverlayLayers;
             var pose = IsBlending && PreviousClip != null
                 ? SkeletonPoseEvaluator.EvaluateBlendedPose(skeleton, PreviousClip, PreviousElapsedSeconds, PreviousClipLoops,
-                    CurrentClip, ElapsedSeconds, LoopsCurrentClip, BlendWeight, parentOverrides, overlay)
-                : SkeletonPoseEvaluator.EvaluatePose(skeleton, CurrentClip, ElapsedSeconds, LoopsCurrentClip, parentOverrides, overlay);
+                    CurrentClip, ElapsedSeconds, LoopsCurrentClip, BlendWeight, parentOverrides, layers: layers)
+                : SkeletonPoseEvaluator.EvaluatePose(skeleton, CurrentClip, ElapsedSeconds, LoopsCurrentClip, parentOverrides, layers: layers);
             if (LowerBodyClip is { } lowerBody)
             {
                 var lowerPose = SkeletonPoseEvaluator.EvaluatePose(skeleton, lowerBody, LowerBodyElapsedSeconds, true, parentOverrides);
@@ -1235,11 +1265,18 @@ namespace Gordian.Core.Animation
                 ApplyReaction(model, reaction, now);
             }
 
-            if (_overlayClip != null)
+            if (_layerCount > 0)
             {
-                _overlayElapsed += dt;
-                if (_overlayElapsed >= _overlayDuration) _overlayClip = null;
+                bool live = false;
+                for (int i = 0; i < _layerCount; i++)
+                {
+                    ref var layer = ref _layers[i];
+                    layer.Elapsed += dt;
+                    live |= layer.Clip != null && layer.Elapsed < layer.Duration;
+                }
+                if (!live) ClearLayers();
             }
+
         }
 
         private void ApplyReaction(EntityModel model, HitReaction reaction, long now)
@@ -1275,8 +1312,27 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>
-        /// Plays a guard / parry / block routine as a pose flash: the PC routines carry op 0x5A (pose 0 = guard <c>gdm</c>,
-        /// 1 = parry <c>pym</c>), the monster ones a two-tick guard pose clip that blends out over its blend-out time.
+        /// Plays a guard / parry / block routine as a pose flash. The PC routines (<c>gurd</c> guard, <c>gur1</c> block,
+        /// <c>pary</c> parry) carry op 0x5A, pose 0 or 1, for 16 ticks, and play no clip. Pose 0 is the weapon's whole-body
+        /// pose <c>gdi6</c>, pose 1 <c>pyi6</c>, from its battle waist pack (#546 round 6): CPU-skinned
+        /// side-on, the sword's (Hume male, battle waist pack <c>ROM/32/23</c>) are the two stills of the maintainer's retail
+        /// recording <c>Shield_Block_Retail.mp4</c>: the block a deep braced lunge, the front knee bent and the back leg
+        /// stretched, the shield held upright at arm's length in front of the left shoulder and the right fist in at the
+        /// chest; the parry a wide crouch with the sword raised and the shield dropped to the hip (the sword pack's blade points
+        /// up where retail's points down toward the attacker; the katana pack's points down). The upper-body <c>gdm</c> drawn
+        /// over <c>gdi6</c> lifts the sword over the head, which the still does not show, so the pose is the whole-body one alone,
+        /// absolute over the whole body, weapon arm and legs included, joint translations too (the lunge's crouch), when the
+        /// actor is engaged and standing. Not engaged and standing, a block is the same pose on every joint but the weapon arm
+        /// and the sheathed weapon, which stay on the idle stance (in-game round 8: the shield arm alone looked odd). Moving,
+        /// or sitting, a block moves the shield arm alone to
+        /// <c>gdi6</c>'s over whatever is playing (in-game round 7: <c>gdm</c> on the move brought both hands together, and the
+        /// whole body over the idle stance moved the sheathed sword; the race's only block routine is the base pack's
+        /// <c>gur1</c>, so there is no idle block of its own), and a parry plays the upper-body <c>pym</c> (upper-body clips
+        /// only, joints 3-93 on Hume male) over it, the weapon grips left alone. The routine's 16 ticks are held, coming in over 2
+        /// ticks and going out over 4 (<see cref="HeldEnvelope"/>; *inference* from the recording at 30 fps: the block held
+        /// 8-9 frames from 51.40 s, the parry at 1:09 about 10). A model without the whole-body pose (the dual-wield packs
+        /// of some races) plays the upper-body pose alone as an offset from its twin, as before; the monster routines play
+        /// a two-tick guard pose clip that blends out over its blend-out time.
         /// </summary>
         private void StartPoseRoutine(EntityModel model, string name, string fallbackName)
         {
@@ -1284,8 +1340,44 @@ namespace Gordian.Core.Animation
 
             if (routine.PoseFlashIndex >= 0)
             {
-                string pose = routine.PoseFlashIndex == 1 ? "pym" : "gdm";
-                StartOverlay(model, pose, 1f, routine.PoseFlashTicks > 0 ? routine.PoseFlashTicks : DefaultPoseFlashTicks);
+                bool parry = routine.PoseFlashIndex == 1;
+                string pose = parry ? "pym" : "gdm";
+                int ticks = routine.PoseFlashTicks > 0 ? routine.PoseFlashTicks : DefaultPoseFlashTicks;
+                int total = ticks + FlashInTicks + FlashOutTicks;
+                bool hasBody = model.Animations.TryGetValue(parry ? "pyi6" : "gdi6", out var body);
+                if (hasBody && Current == AnimationCategory.Combat)
+                {
+                    // Engaged and standing: the whole body.
+                    ClearLayers();
+                    AddLayer(body!, null, null, 1f, total, held: true, translations: true);
+                }
+                else if (hasBody && !parry && Current == AnimationCategory.Idle && model.Skeleton is { } idleSkeleton
+                    && ArmMask(idleSkeleton, model.ParentOverrides, RightHandReference, LeftHandReference) is { } weaponArm)
+                {
+                    // Not engaged and standing (in-game round 8): the engaged block's whole body, the weapon arm and the
+                    // sheathed weapon left on the idle stance.
+                    var mask = new bool[idleSkeleton.Count];
+                    for (int j = 0; j < mask.Length; j++) mask[j] = !weaponArm[j];
+                    ClearLayers();
+                    AddLayer(body!, null, WithoutGrips(model, mask), 1f, total, held: true, translations: true);
+                }
+                else if (hasBody && !parry && model.Skeleton is { } skeleton && ArmMask(skeleton, model.ParentOverrides, LeftHandReference, RightHandReference) is { } arm)
+                {
+                    // Moving, or not engaged (the weapon sheathed): the block pose's shield arm alone over what is playing.
+                    ClearLayers();
+                    AddLayer(body!, null, arm, 1f, total, held: true);
+                }
+                else if (hasBody && model.Animations.TryGetValue(pose, out var upper))
+                {
+                    // A parry on the move: the upper-body pose over the walk or run, the legs keep going; it never moves the
+                    // weapon grip, so a sheathed weapon stays sheathed.
+                    ClearLayers();
+                    AddLayer(upper, null, WithoutGrips(model, OverlayMask(model, upper) ?? AllJoints(upper)), 1f, total, held: true);
+                }
+                else
+                {
+                    StartOverlay(model, pose, 1f, ticks);
+                }
             }
             else if (routine.Segments.Count == 1)
             {
@@ -1294,24 +1386,105 @@ namespace Gordian.Core.Animation
             }
         }
 
+        /// <summary>Replaces the reaction poses with one, over the whole body (the joints its clip really drives).</summary>
         private void StartOverlay(EntityModel model, string clipName, float peak, int ticks)
         {
             if (!model.Animations.TryGetValue(clipName, out var clip) || ticks <= 0) return;
-            _overlayClip = clip;
-            _overlayReference = ReferencePose(model, clipName);
-            _overlayMask = OverlayMask(model, clip);
-            _overlayPeak = Math.Clamp(peak, 0f, 1f);
-            _overlayElapsed = 0f;
-            _overlayDuration = ticks / RoutineTicksPerSecond;
+            ClearLayers();
+            AddLayer(clip, ReferencePose(model, clipName), OverlayMask(model, clip), peak, ticks, held: false);
+        }
+
+        private const int LeftHandReference = 126, RightHandReference = 127;
+
+        /// <summary>
+        /// An arm: the first joint above the hand reference <paramref name="hand"/> that is not above the other hand's
+        /// <paramref name="otherHand"/>, and every joint below it in the skeleton, the weapon grips the loader re-parents into a
+        /// hand left out (the shield arm: 126 against 127; the weapon arm: 127 against 126). Null for a skeleton without the
+        /// hand references.
+        /// </summary>
+        private static bool[]? ArmMask(Skeleton skeleton, IReadOnlyDictionary<int, int>? overrides, int hand, int otherHand)
+        {
+            if (skeleton.References.Count <= Math.Max(hand, otherHand)) return null;
+            int own = skeleton.References[hand].Index, other = skeleton.References[otherHand].Index, n = skeleton.Count;
+            if (own >= n || other >= n) return null;
+            int Parent(int j) => skeleton.Joints[j].Parent is int p && p >= 0 && p < n && p != j ? p : -1;
+            var aboveOther = new HashSet<int>();
+            for (int j = other, g = 0; j >= 0 && g <= n; j = Parent(j), g++) aboveOther.Add(j);
+            int pivot = -1;
+            for (int j = own, g = 0; j >= 0 && g <= n; j = Parent(j), g++)
+            {
+                if (aboveOther.Contains(j)) break;
+                pivot = j;
+            }
+            if (pivot < 0) return null;
+            var mask = new bool[n];
+            for (int j = 0; j < n; j++)
+            {
+                if (overrides != null && overrides.ContainsKey(j)) continue;
+                for (int k = j, g = 0; k >= 0 && g <= n; k = Parent(k), g++)
+                {
+                    if (k == pivot) { mask[j] = true; break; }
+                }
+            }
+            return mask;
+        }
+
+        /// <summary>The mask with the weapon grips (the joints the loader re-parents into a hand) and the joints below them cleared.</summary>
+        private static bool[] WithoutGrips(EntityModel model, bool[] mask)
+        {
+            if (model.ParentOverrides is not { Count: > 0 } overrides || model.Skeleton is not { } skeleton) return mask;
+            int n = skeleton.Count;
+            for (int j = 0; j < mask.Length && j < n; j++)
+            {
+                for (int k = j, g = 0; k >= 0 && k < n && g <= n; g++)
+                {
+                    if (overrides.ContainsKey(k)) { mask[j] = false; break; }
+                    int p = skeleton.Joints[k].Parent;
+                    k = p == k ? -1 : p;
+                }
+            }
+            return mask;
+        }
+
+        private static bool[] AllJoints(AnimationClip clip)
+        {
+            int max = 0;
+            foreach (var joint in clip.Tracks.Keys) max = Math.Max(max, joint + 1);
+            var mask = new bool[max];
+            foreach (var joint in clip.Tracks.Keys) mask[joint] = true;
+            return mask;
+        }
+
+        private int AddLayer(AnimationClip clip, AnimationClip? reference, bool[]? mask, float peak, int ticks, bool held, bool translations = false)
+        {
+            if (_layerCount >= MaxReactionLayers || ticks <= 0) return -1;
+            _layers[_layerCount] = new ReactionLayer
+            {
+                Clip = clip,
+                Reference = reference,
+                Mask = mask,
+                Peak = Math.Clamp(peak, 0f, 1f),
+                Elapsed = 0f,
+                Duration = ticks / RoutineTicksPerSecond,
+                Held = held,
+                Translations = translations,
+            };
+            return _layerCount++;
+        }
+
+        private void ClearLayers()
+        {
+            for (int i = 0; i < _layerCount; i++) _layers[i] = default;
+            _layerCount = 0;
         }
 
         /// <summary>
         /// The neutral pose a reaction pose is authored against: the damage poses <c>dfm</c> / <c>dbm</c> and the guard pose
         /// <c>gdm</c> each have an <c>i</c> twin (<c>dfi</c>, <c>dbi</c>, <c>gdi</c>; <c>dfi6</c> etc. on the PC motion
         /// packs) that differs from them only on the joints the reaction bends, so the reaction is that difference added
-        /// on top of whatever the actor is doing. A pose without one (a monster's guard clip, the PC parry pose <c>pym</c>,
-        /// whose <c>pyi6</c> lives in the battle waist pack that is not loaded) is blended absolutely, as the routine that
-        /// plays it as a clip would. Checked by CPU-skinning Hume and monster 1600 poses (2026-09-29).
+        /// on top of whatever the actor is doing. A pose without one (a monster's guard clip) is blended absolutely, as the
+        /// routine that plays it as a clip would. Checked by CPU-skinning Hume and monster 1600 poses (2026-09-29). The PC
+        /// guard / parry / block flash draws the whole-body twin itself instead (<see cref="StartPoseRoutine"/>, #546 round 6).
         /// </summary>
         private static AnimationClip? ReferencePose(EntityModel model, string poseName)
         {
@@ -1340,6 +1513,24 @@ namespace Gordian.Core.Animation
                 mask[joint] = !(idle.Tracks.TryGetValue(joint, out var idleTrack) && ReferenceEquals(idleTrack, track));
             }
             return mask;
+        }
+
+        /// <summary>Ticks a PC guard / parry / block pose takes to come in, before the routine's held ticks.</summary>
+        internal const int FlashInTicks = 2;
+
+        /// <summary>Ticks a PC guard / parry / block pose takes to go out, after the routine's held ticks.</summary>
+        internal const int FlashOutTicks = 4;
+
+        /// <summary>
+        /// A held pose's weight (0-1) at <paramref name="elapsed"/> of <paramref name="duration"/> seconds: in over
+        /// <see cref="FlashInTicks"/>, held, out over the last <see cref="FlashOutTicks"/> (smoothstep at both ends).
+        /// </summary>
+        internal static float HeldEnvelope(float elapsed, float duration)
+        {
+            if (elapsed <= 0f || elapsed >= duration) return 0f;
+            float rise = FlashInTicks / RoutineTicksPerSecond, fall = FlashOutTicks / RoutineTicksPerSecond;
+            float x = Math.Min(1f, Math.Min(elapsed / rise, (duration - elapsed) / fall));
+            return x * x * (3f - (2f * x));
         }
 
         /// <summary>The overlay weight over its life (0-1): it rises over the first quarter and eases back over the rest.</summary>

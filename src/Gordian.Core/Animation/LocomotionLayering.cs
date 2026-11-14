@@ -175,7 +175,65 @@ namespace Gordian.Core.Animation
                 translations[j] = lower.Translations[chest] + Vector3.Transform(upper.Translations[j] - upper.Translations[chest], turn);
                 if (upper.Scales.Length == n) scales[j] = upper.Scales[j];
             }
+            TurnHeadWithTheBody(skeleton, split, upper, lower, turn, rotations, translations, n);
             return new SkeletonPoseEvaluator.EvaluatedPose(rotations, translations, scales);
+        }
+
+        /// <summary>Skeleton references of the neck and the head (the joint the face is bound to) on the PC skeletons.</summary>
+        private const int NeckReference = 3, HeadReference = 5;
+
+        /// <summary>
+        /// The head under a moving swing (#548 round 1): a moving swing twists the chest a long way (Elvaan male <c>amr</c> about
+        /// 140 degrees at the strike) while the head turns much less (under 45 degrees from the pelvis), so the head keeps looking
+        /// ahead. Placed on the locomotion's chest with the chest's turn, as the arms are, the head swung about 60 degrees off to
+        /// one side and back within a few frames: the maintainer saw the head look "parallel with my shoulder" for a couple of
+        /// frames while strafing and attacking. So the head, and everything below it, turns with the body instead (the turn
+        /// that puts the swing's pelvis on the locomotion's), and the neck halfway between the two. At the start and end of
+        /// the swing the two turns agree, so the head meets the locomotion's own. Measured on the real path
+        /// (<c>MovingSwingRealPathTests</c>, 2026-11-13).
+        /// </summary>
+        private static void TurnHeadWithTheBody(Skeleton skeleton, SplitInfo split, SkeletonPoseEvaluator.EvaluatedPose upper,
+            SkeletonPoseEvaluator.EvaluatedPose lower, Quaternion chestTurn, Quaternion[] rotations, Vector3[] translations, int n)
+        {
+            if (skeleton.References.Count <= HeadReference || split.Pelvis < 0 || split.Pelvis >= n) return;
+            int neck = skeleton.References[NeckReference].Index, head = skeleton.References[HeadReference].Index;
+            if (neck >= n || head >= n || split.Spine[neck] || split.Lower[neck] || !IsBelow(skeleton, head, neck)
+                || !IsBelow(skeleton, neck, split.Chest)) return;
+
+            var bodyTurn = Quaternion.Normalize(lower.Rotations[split.Pelvis] * Quaternion.Inverse(upper.Rotations[split.Pelvis]));
+            if (Quaternion.Dot(bodyTurn, chestTurn) < 0f) bodyTurn = -bodyTurn;
+            var neckTurn = Quaternion.Normalize(Quaternion.Slerp(chestTurn, bodyTurn, 0.5f));
+
+            // Parents before children: the neck keeps its place on the chest, each joint below it hangs from its parent as in
+            // the swing, turned by the parent's turn.
+            var turns = new Quaternion[n];
+            var done = new bool[n];
+            for (int pass = 0; pass < n; pass++)
+            {
+                bool progressed = false;
+                for (int j = 0; j < n; j++)
+                {
+                    if (done[j] || !IsBelow(skeleton, j, neck)) continue;
+                    int parent = ParentOf(skeleton, j);
+                    if (j != neck && (parent < 0 || !done[parent])) continue;
+                    turns[j] = j == neck ? neckTurn : IsBelow(skeleton, j, head) ? bodyTurn : neckTurn;
+                    rotations[j] = Quaternion.Normalize(turns[j] * upper.Rotations[j]);
+                    if (j != neck) translations[j] = translations[parent] + Vector3.Transform(upper.Translations[j] - upper.Translations[parent], turns[parent]);
+                    done[j] = progressed = true;
+                }
+                if (!progressed) break;
+            }
+        }
+
+        /// <summary>Whether <paramref name="joint"/> is <paramref name="ancestor"/> or below it.</summary>
+        private static bool IsBelow(Skeleton skeleton, int joint, int ancestor)
+        {
+            for (int guard = 0; joint >= 0 && guard <= skeleton.Count; guard++)
+            {
+                if (joint == ancestor) return true;
+                joint = ParentOf(skeleton, joint);
+            }
+            return false;
         }
     }
 }

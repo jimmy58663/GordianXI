@@ -138,6 +138,30 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// The chair <c>/sitchair</c> draws under a seated player (#379, <see cref="ChairTransitions"/>), posed with its own idle
+        /// and drawn as a mount is (<see cref="DrawMount"/>): at the entity's origin and heading, at the character's size, faded
+        /// in and out by its routines. The character keeps its own origin; its race's chair pack seats it on the chair
+        /// (<c>RestPosture</c>, <c>chi0</c>-<c>chi2</c>). Uses the mount's palette slot, as a mounted player sits in no chair.
+        /// Null (freeing the palette) when no chair is shown.
+        /// </summary>
+        private MountRide? PrepareChair(CommandList cl, WorldEntity entity, in ChairFrame frame, ResourceManager? resources, float frameSeconds)
+        {
+            uint key = MountPaletteKey(entity.ServerId);
+            if (!frame.IsShown || resources == null || !resources.TryLoadChairModel(frame.Chair, out var chair)
+                || chair?.Skeleton is not { Count: > 0 })
+            {
+                if (_jointPaletteByEntity.TryRemove(key, out var stale)) stale.Dispose();
+                return null;
+            }
+            var gpuModel = GetOrUploadGpuModel(chair);
+            if (gpuModel.Submeshes.Count == 0) return null;
+            entity.MountAnimation.Advance(frameSeconds, AnimationCategory.Idle, 0, chair);
+            var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
+            UpdateJointPalette(cl, palette.Buffer, chair, entity.MountAnimation, null, Vector2.Zero, null, out _);
+            return new MountRide(chair, gpuModel, palette, key, 1f, Matrix4x4.Identity, 0f, 0f, frame.Alpha);
+        }
+
+        /// <summary>
         /// Draws a prepared mount at the entity's origin and heading, scaled for its rider, with event fades, its shadow and
         /// its blur aura (only Fenrir has one). Returns the draw calls made.
         /// </summary>

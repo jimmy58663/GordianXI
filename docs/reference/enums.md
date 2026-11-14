@@ -199,7 +199,7 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 | 44 | synth | `RestPosture.StatusSynthesis`: drawn with the Healing posture (`res0` / `res2`), as a retail video shows the crafter sit and stand up (Tarutaru `rx2`'s roll onto the back); also S2C 0x030's `Status`, put on the crafter by `SynthesisAnimationController` ([#315](https://github.com/jimmy58663/GordianXI/issues/315)) |
 | 47 | sit | `RestPosture.StatusSitting`: the sitting posture (`sit0` / `sit1` / `sit2`, #343) |
 | 48 | ranged | |
-| 63-73 | sitchair_0-10 | |
+| 63-73 | sitchair_0-10 | `RestPosture.ChairFor`: chair 0-10, category `ChairSitting`: the race's chair pack (`chi0` / `chi1` / `chi2`) seats the character on chair model 100507 + n drawn under it (`ChairTransitions`, `EntityRenderer.PrepareChair`); moving sends /sitchair off ([#379](https://github.com/jimmy58663/GordianXI/issues/379)) |
 | 85 | mount | `MountAppearance.StatusMount`: riding mount (wire number - 1), drawn on its own model (#87) |
 | 90 | trust (spawn-in) | |
 

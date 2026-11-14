@@ -129,5 +129,48 @@ namespace Gordian.Engine.Tests.Resources
             float end = -SkeletonPoseEvaluator.EvaluatePose(skeleton, clip, clip.DurationSeconds, false).Translations[head].Y;
             Assert.True(end > 0.55f, $"standing head {end:F2}");
         }
+
+        /// <summary>
+        /// #379: every race carries its chair pack's routines: <c>chi0</c> sits down with <c>ci0</c> and holds <c>ci1</c>,
+        /// <c>chi2</c> stands up with <c>ci2</c>; and in <c>ci1</c> the race's seat (reference 107, just under the hips) is at
+        /// the seat of the chair, between 0.5 and 0.9 yalms up (chair seats are 0.51 up; Galka's thick seat the highest).
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(Races))]
+        public void RaceSkeleton_HasTheChairRoutines_AndSitsAtChairHeight(CharacterRace race)
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            var model = Assemble(rm, race);
+
+            Assert.Equal(["ci0", "ci1"], model.MotionRoutines["chi0"].Segments.Select(s => s.ClipName));
+            Assert.True(model.MotionRoutines["chi0"].HoldsLastClip);
+            Assert.Equal(["ci1"], model.MotionRoutines["chi1"].Segments.Select(s => s.ClipName));
+            Assert.Equal(["ci2"], model.MotionRoutines["chi2"].Segments.Select(s => s.ClipName));
+            Assert.Same(model.Animations["ci0"], RestPosture.EnterClip(model, AnimationCategory.ChairSitting));
+            Assert.Same(model.Animations["ci1"], RestPosture.LoopClip(model, AnimationCategory.ChairSitting));
+            Assert.Same(model.Animations["ci2"], RestPosture.ExitClip(model, AnimationCategory.ChairSitting));
+
+            var skeleton = model.Skeleton!;
+            int seat = skeleton.References[107].Index;
+            float Seat(string clip) => -SkeletonPoseEvaluator.EvaluatePose(skeleton, model.Animations[clip], 0.2f, true).Translations[seat].Y;
+            // Every race at the chair's seat, whatever its standing height: a Tarutaru is lifted up onto it (0.68 against 0.29 standing).
+            Assert.InRange(Seat("ci1"), 0.5f, 0.9f);
+        }
+
+        /// <summary>#379: chairs 0-10 load as models with meshes, a skeleton and an idle.</summary>
+        [Fact]
+        public void EveryChair_LoadsWithItsMeshes()
+        {
+            var rm = Retail();
+            if (rm == null) return;
+            for (int chair = 0; chair <= 10; chair++)
+            {
+                Assert.True(rm.TryLoadChairModel(chair, out var model), $"chair {chair}");
+                Assert.NotEmpty(model!.AnimatedMeshGroups);
+                Assert.True(model.Skeleton!.Count >= 2);
+                Assert.NotNull(NpcStanceResolver.ResolveTargetClip(model, AnimationCategory.Idle));
+            }
+        }
     }
 }

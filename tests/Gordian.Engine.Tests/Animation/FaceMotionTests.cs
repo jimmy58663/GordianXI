@@ -104,15 +104,16 @@ namespace Gordian.Engine.Tests.Animation
 
         [Theory]
         [InlineData(10, 1)]   // Deraquien: "Intruders!"
+        [InlineData(34, 2)]   // Joachim: "What're ye called, if I might ask?" (recounted 2, #218)
         [InlineData(45, 3)]   // Joachim, Port Jeuno 324
         [InlineData(97, 5)]
-        [InlineData(98, 6)]
+        [InlineData(98, 6)]   // the line with the player's name, counted after substitution
         [InlineData(141, 8)]
         [InlineData(220, 12)] // Deraquien's long line
         [InlineData(0, 1)]
         public void FlapsFor_MatchesTheRetailCounts(int characters, int flaps)
         {
-            // Flaps counted by eye in retail (2026-10-03, #198).
+            // Flaps counted by eye in retail (2026-10-03, #198; the 34-character line recounted 2026-10-17, #218).
             Assert.Equal(flaps, FaceMotion.FlapsFor(characters));
         }
 

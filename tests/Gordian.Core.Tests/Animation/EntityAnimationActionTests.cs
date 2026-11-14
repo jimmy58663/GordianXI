@@ -429,6 +429,68 @@ namespace Gordian.Core.Tests.Animation
         }
 
         [Fact]
+        public void Block_WithoutTheWholeBodyPose_FlashesTheGuardPoseAlone()
+        {
+            // A monster (no whole-body guard pose gdi6): the block routine's guard pose alone, one pose.
+            var model = Model([("gdm", 0f), ("pym", 0f), ("dfm", 0f)],
+                ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))));
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Combat, 0, model);
+
+            state.EnqueueReaction(new HitReaction(ActionResolution.Block, 1f, 0, true, ActionReactKind.None, 1, 0f, 0f, Stopwatch.GetTimestamp()));
+            Run(state, model, AnimationCategory.Combat, 4);
+
+            Assert.Equal(1, state.OverlayLayers.Length);
+            Assert.Equal("gdm", state.Overlay!.Value.Clip.Name);
+        }
+
+        [Theory]
+        [InlineData(ActionResolution.Block, "gdi6", "gdm")]
+        [InlineData(ActionResolution.Guard, "gdi6", "gdm")]
+        [InlineData(ActionResolution.Parry, "pyi6", "pym")]
+        public void PoseFlash_DrawsTheWholeBodyPose_OrAParrysUpperBodyOneWhileMoving(ActionResolution resolution, string body, string upper)
+        {
+            // #546 rounds 6-7: engaged and standing, pose 0 is gdi6 and pose 1 pyi6, absolute with the joint translations;
+            // a parry on the move, pym over the walk or run.
+            var model = Model([("gdm", 0f), ("gdi6", 0f), ("pym", 0f), ("pyi6", 0f), ("run", 0f)],
+                ("gur1", MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PoseFlash(0, 16))),
+                ("gurd", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(0, 16))),
+                ("pary", MotionRoutineBuilder.Routine(0, MotionRoutineBuilder.PoseFlash(1, 16))));
+            // (A block on the move moves the shield arm alone, which needs a skeleton: ShieldBlockRealPathTests.)
+            var cases = resolution == ActionResolution.Parry
+                ? new[] { (AnimationCategory.Combat, body, true), (AnimationCategory.Run, upper, false) }
+                : new[] { (AnimationCategory.Combat, body, true) };
+            foreach (var (category, clip, translations) in cases)
+            {
+                var state = new EntityAnimationState();
+                state.Advance(0f, category, 0, model);
+                state.EnqueueReaction(new HitReaction(resolution, 0.5f, 0, true, ActionReactKind.None, 1, 0f, 0f, Stopwatch.GetTimestamp()));
+                Run(state, model, category, 8);
+
+                var layers = state.OverlayLayers.ToArray();
+                Assert.Single(layers);
+                Assert.Equal(clip, layers[0].Clip.Name);
+                Assert.Equal(translations, layers[0].Translations);
+                Assert.Null(layers[0].Reference);
+                Assert.Equal(1f, layers[0].Weight, 3); // held
+            }
+        }
+
+        [Fact]
+        public void HeldEnvelope_HoldsTheFlashBetweenAShortInAndOut()
+        {
+            // A PC guard / block / parry pose (#546 round 6): in over 2 ticks, the routine's 16 held, out over 4.
+            const float tick = 1f / 60f;
+            float duration = (16 + EntityAnimationState.FlashInTicks + EntityAnimationState.FlashOutTicks) * tick;
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(0f, duration));
+            Assert.InRange(EntityAnimationState.HeldEnvelope(tick, duration), 0.1f, 0.9f);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(2 * tick, duration), 3);
+            Assert.Equal(1f, EntityAnimationState.HeldEnvelope(18 * tick, duration), 3);
+            Assert.InRange(EntityAnimationState.HeldEnvelope(20 * tick, duration), 0.1f, 0.9f);
+            Assert.Equal(0f, EntityAnimationState.HeldEnvelope(duration, duration));
+        }
+
+        [Fact]
         public void Parry_FlashesTheParryPose()
         {
             var model = Model([("gdm", 0f), ("pym", 0f)],

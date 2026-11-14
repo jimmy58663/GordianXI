@@ -48,9 +48,9 @@ namespace Gordian.Engine.Animation
         /// <summary>
         /// The characters of a line per mouth flap: the least-squares fit, through the origin, of the flaps counted by eye
         /// in retail (2026-10-03, #198) on Joachim's six lines in Port Jeuno 324 and Deraquien's two (12 for his 220
-        /// characters). Every count comes out as seen but one (34 characters: 2, counted 3), which no rate from length
-        /// alone can match together with 97 characters = 5 flaps; 97 = 5 and 98 = 6 put the rate at 17.6-17.8. 18 missed
-        /// 98 = 6 as well.
+        /// characters). Every count comes out as seen: the 34-character line, first counted 3, was recounted 2 in the
+        /// 2026-10-17 recording (#218), and the line with the player's name counts 6 for its 98 characters after the
+        /// name is substituted. 97 = 5 and 98 = 6 put the rate at 17.6-17.8; 18 missed 98 = 6.
         /// </summary>
         public const float CharactersPerFlap = 17.8f;
 

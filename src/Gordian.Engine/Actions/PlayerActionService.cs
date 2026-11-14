@@ -1993,7 +1993,7 @@ namespace Gordian.Engine.Actions
 
         /// <summary><c>/sitchair [n]</c> (C2S 0x113): sits in chair <paramref name="chairId"/> (0 is the plain chair).</summary>
         public Task<PlayerActionResult> SitChairAsync(uint chairId, RestMode mode = RestMode.Toggle)
-            => SendCommandAsync(ChatCommandResultKind.SitChair, "sitchair", $"Sit in chair {chairId} requested.", m => m.SendSitChairAsync(chairId, mode));
+            => SendCommandAsync(ChatCommandResultKind.SitChair, "sitchair", string.Empty, m => m.SendSitChairAsync(chairId, mode));
 
         /// <summary><c>/random</c> (C2S 0x0A2): the server rolls 0 to 999 and tells everyone near (S2C 0x009 message 88).</summary>
         public Task<PlayerActionResult> RandomAsync(string args = "")
