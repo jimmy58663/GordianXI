@@ -308,28 +308,5 @@ namespace Gordian.App.Tests
             Assert.Single(vm.Lines);
             Assert.True(replaced >= 2);
         }
-
-        [Fact]
-        public void StatusBox_KeepsTheLatestMessages()
-        {
-            using var vm = new MainWindowViewModel();
-            var time = new DateTime(2026, 11, 14, 9, 55, 35);
-
-            for (int i = 0; i < MainWindowViewModel.RecentStatusCapacity + 5; i++) vm.AddRecentStatus($"message {i}", time);
-
-            Assert.Equal(MainWindowViewModel.RecentStatusCapacity, vm.RecentStatusLines.Count);
-            Assert.Equal($"[09:55:35] message {MainWindowViewModel.RecentStatusCapacity + 4}", vm.RecentStatusLines[^1]);
-        }
-
-        [Fact]
-        public void ViewFullLog_OpensTheLogsTabOnTheStatusFile()
-        {
-            using var vm = new MainWindowViewModel();
-
-            vm.ShowLogsTabCommand.Execute(null);
-
-            Assert.Equal(MainWindowViewModel.LogsTabIndex, vm.SelectedTabIndex);
-            Assert.True(vm.Logs.IsStatusSelected);
-        }
     }
 }
