@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -221,6 +222,9 @@ namespace Gordian.App.Graphics
             public Vector3 MaxBounds { get; init; } = Vector3.One;
             public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
             public bool IsSkinned { get; init; }
+
+            /// <summary>When the model was last drawn or worn by a live entity (<see cref="Stopwatch"/> timestamp, #572).</summary>
+            public long LastUsed { get; set; } = Stopwatch.GetTimestamp();
 
             public void Dispose()
             {
@@ -1016,6 +1020,7 @@ namespace Gordian.App.Graphics
         {
             if (_gpuModelCache.TryGetValue(model, out var cached))
             {
+                cached.LastUsed = Stopwatch.GetTimestamp();
                 return cached;
             }
 
