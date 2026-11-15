@@ -28,6 +28,8 @@ namespace Gordian.App.Graphics
             Device = device;
             RequestedPreference = requested;
             Resources = new GpuSharedResources(device, Lock);
+            // The app's one device is the only one zones are uploaded to, so a zone's CPU copy can go after its upload (#576).
+            Resources.Zones.ReleaseCpuCopies = true;
         }
 
         public GraphicsDevice Device { get; }

@@ -505,6 +505,7 @@ namespace Gordian.Core.Resources
         /// </summary>
         public World.Collision.ZoneCollisionMesh? TryLoadZoneCollision(int zoneId)
         {
+            MarkZoneUsed(zoneId);
             if (_collisionCache.TryGetValue(zoneId, out var cached)) return cached;
             if (_zoneCache.TryGetValue(zoneId, out var zone)) return _collisionCache.GetOrAdd(zoneId, zone.Geometry.Collision);
 
@@ -601,6 +602,7 @@ namespace Gordian.Core.Resources
         /// </summary>
         public bool TryLoadSubAreaInterior(int subAreaId, [NotNullWhen(true)] out ZoneGeometry? interior, out Dictionary<string, DecodedTexture> textures)
         {
+            MarkInteriorUsed(subAreaId);
             var entry = _interiorCache.GetOrAdd(subAreaId, id =>
             {
                 EnsureKeyTables();
@@ -622,6 +624,7 @@ namespace Gordian.Core.Resources
         /// <summary>A building interior's collision mesh alone (headless sessions walk into shops too, #68); null when none.</summary>
         public World.Collision.ZoneCollisionMesh? TryLoadSubAreaCollision(int subAreaId)
         {
+            MarkInteriorUsed(subAreaId);
             if (_interiorCollisionCache.TryGetValue(subAreaId, out var cached)) return cached;
             EnsureKeyTables();
             World.Collision.ZoneCollisionMesh? collision = null;
@@ -643,13 +646,22 @@ namespace Gordian.Core.Resources
         /// </summary>
         public bool TryLoadZone(int zoneId, [NotNullWhen(true)] out ZoneGeometry? zone, out Dictionary<string, DecodedTexture> textures)
         {
+            MarkZoneUsed(zoneId);
             if (_zoneCache.TryGetValue(zoneId, out var cached))
             {
                 zone = cached.Geometry;
                 textures = cached.Textures;
                 return true;
             }
+            return TryParseZone(zoneId, replacing: null, out zone, out textures);
+        }
 
+        /// <summary>
+        /// Reads a zone's DAT and caches the result: when <paramref name="replacing"/> is given, only in place of that
+        /// geometry (a copy whose render data was released, #576); a geometry cached meanwhile by another reader wins.
+        /// </summary>
+        private bool TryParseZone(int zoneId, ZoneGeometry? replacing, [NotNullWhen(true)] out ZoneGeometry? zone, out Dictionary<string, DecodedTexture> textures)
+        {
             textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
 
             // Diagnostic: warn if FTABLE is empty (init failed or game dir not found)
@@ -676,8 +688,23 @@ namespace Gordian.Core.Resources
                 if (_collisionCache.TryGetValue(zoneId, out var sharedCollision) && sharedCollision != null) zone.Collision = sharedCollision;
                 else _collisionCache[zoneId] = zone.Collision;
 
-                _zoneCache[zoneId] = (zone, textures);
-                GordianLog.Info(LogCategories.Res, $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures).");
+                if (replacing == null)
+                {
+                    _zoneCache[zoneId] = (zone, textures);
+                }
+                else if (!_zoneCache.TryGetValue(zoneId, out var current) || !ReferenceEquals(current.Geometry, replacing) ||
+                         !_zoneCache.TryUpdate(zoneId, (zone, textures), current))
+                {
+                    // Another reader replaced it first (or the purge dropped it): use what is cached, else this copy.
+                    if (_zoneCache.TryGetValue(zoneId, out var winner) && !winner.Geometry.IsRenderDataReleased)
+                    {
+                        zone = winner.Geometry;
+                        textures = winner.Textures;
+                        return true;
+                    }
+                    _zoneCache[zoneId] = (zone, textures);
+                }
+                GordianLog.Info(LogCategories.Res, $"Loaded zone {zoneId} ({zone.MeshGroups.Count} submeshes, {textures.Count} textures){(replacing != null ? " again for the GPU (#576)" : string.Empty)}.");
 
                 if (zone.MeshGroups.Count == 0)
                 {
@@ -882,6 +909,8 @@ namespace Gordian.Core.Resources
             _collisionCache.Clear();
             _interiorCache.Clear();
             _interiorCollisionCache.Clear();
+            _zoneLastUse.Clear();
+            _interiorLastUse.Clear();
             _entityModelCache.Clear();
             ClearEntityModelCaches();
             ClearMountCaches();

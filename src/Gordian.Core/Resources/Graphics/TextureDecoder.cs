@@ -27,7 +27,23 @@ namespace Gordian.Core.Resources.Graphics
 
         public int Width { get; }
         public int Height { get; }
-        public byte[] RgbaPixels { get; }
+        public byte[] RgbaPixels { get; private set; }
+
+        /// <summary>
+        /// True once <see cref="ReleasePixels"/> has run: the GPU holds the texture and <see cref="RgbaPixels"/> is empty,
+        /// so it cannot be uploaded again (#576).
+        /// </summary>
+        public bool PixelsReleased { get; private set; }
+
+        /// <summary>
+        /// Drops the pixels once the texture is on the GPU (a resident zone's own textures, #576). <see cref="Width"/>,
+        /// <see cref="Height"/>, <see cref="Name"/> and <see cref="Source"/> stay, so lookups by name still find the upload.
+        /// </summary>
+        public void ReleasePixels()
+        {
+            RgbaPixels = Array.Empty<byte>();
+            PixelsReleased = true;
+        }
 
         /// <summary>
         /// True when <see cref="TextureDecoder"/> doubled the alpha of a paletted (8 / 16 bpp) texture (0x80 -> 0xFF,

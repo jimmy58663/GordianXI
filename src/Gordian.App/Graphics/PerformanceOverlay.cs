@@ -96,7 +96,7 @@ namespace Gordian.App.Graphics
             ImGui.PopStyleColor();
 
             ImGui.Separator();
-            Line(buffer, Inv, $"Heap {stats.HeapBytes / (1024.0 * 1024.0):0} MB   alloc {stats.AllocatedBytesPerSecond / (1024.0 * 1024.0):0.00} MB/s");
+            Line(buffer, Inv, $"Heap {stats.HeapBytes / (1024.0 * 1024.0):0} MB   live {stats.LiveHeapBytes / (1024.0 * 1024.0):0} MB   alloc {stats.AllocatedBytesPerSecond / (1024.0 * 1024.0):0.00} MB/s");
             Line(buffer, Inv, $"GC   gen0 {stats.Gen0Collections}  gen1 {stats.Gen1Collections}  gen2 {stats.Gen2Collections}");
             // Shared character gear parts against the Settings limit (#573), models cached and builds in flight.
             var models = stats.EntityModels;
@@ -104,6 +104,9 @@ namespace Gordian.App.Graphics
             Line(buffer, Inv, $"Parts {models.PartBytes / (1024.0 * 1024.0):0} / {models.PartBudgetBytes / (1024.0 * 1024.0):0} MB   {models.Parts} parts, {stats.GpuEntityPieces} on GPU");
             ImGui.PopStyleColor();
             Line(buffer, Inv, $"Models {models.CharacterModels} PC  {models.MonsterModels} NPC   {models.MotionSets} motion sets   building {models.PendingBuilds}");
+            // Zones cached on the CPU and on the GPU, and the interiors (#576).
+            var zones = stats.ZoneCache;
+            Line(buffer, Inv, $"Zones {zones.Zones} cached ({zones.Collisions} collision)  {stats.GpuZones} on GPU   interiors {zones.Interiors}");
             ImGui.PushStyleColor(ImGuiCol.Text, Dim);
             Line(buffer, Inv, $"{info.Backend}  {info.Width}x{info.Height}  vsync {(info.Vsync ? "on" : "off")}");
             Line(buffer, Inv, $"{info.Device}");

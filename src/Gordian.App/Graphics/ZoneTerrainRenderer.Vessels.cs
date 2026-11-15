@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Engine.Graphics;
@@ -27,6 +28,13 @@ namespace Gordian.App.Graphics
         }
 
         private readonly Dictionary<int, TransportVessel?> _transportVessels = new();
+        private int[] _vesselZoneIds = Array.Empty<int>();
+
+        /// <summary>
+        /// The ship zones this renderer read for their vessel models (read from any thread): in use while it lives, so the
+        /// zone cache purge keeps them (#576).
+        /// </summary>
+        internal IReadOnlyList<int> VesselZoneIds => Volatile.Read(ref _vesselZoneIds);
         private readonly Dictionary<int, Task<(Gordian.Core.Resources.Models.ZoneVessel? Vessel, IReadOnlyDictionary<string, DecodedTexture>? Textures)>> _transportLoads = new();
 
         /// <summary>Ship entities drawn with a vessel model this frame (tests and diagnostics).</summary>
@@ -124,6 +132,7 @@ namespace Gordian.App.Graphics
             if (_transportVessels.TryGetValue(zoneId, out var ready)) return ready;
             if (!_transportLoads.TryGetValue(zoneId, out var load))
             {
+                if (Array.IndexOf(_vesselZoneIds, zoneId) < 0) Volatile.Write(ref _vesselZoneIds, [.. _vesselZoneIds, zoneId]);
                 _transportLoads[zoneId] = load = Task.Run(() =>
                 {
                     if (!resourceManager.TryLoadZone(zoneId, out var zone, out var textures) || zone.Vessel == null)
@@ -161,6 +170,7 @@ namespace Gordian.App.Graphics
                 foreach (var submesh in vessel.Submeshes) submesh.Dispose();
             }
             _transportVessels.Clear();
+            Volatile.Write(ref _vesselZoneIds, Array.Empty<int>());
         }
     }
 }

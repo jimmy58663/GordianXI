@@ -26,12 +26,26 @@ namespace Gordian.Engine.Graphics
 
                 var vertices = group.Vertices;
                 var indices = group.Indices;
-                for (int i = 0; i + 2 < indices.Length; i += 3)
+                if (vertices.Length > 0 && indices.Length > 0)
                 {
-                    if (RayHitsTriangle(origin, direction, vertices[indices[i]].Position, vertices[indices[i + 1]].Position,
-                                        vertices[indices[i + 2]].Position, maxDistance))
+                    for (int i = 0; i + 2 < indices.Length; i += 3)
                     {
-                        return true;
+                        if (RayHitsTriangle(origin, direction, vertices[indices[i]].Position, vertices[indices[i + 1]].Position,
+                                            vertices[indices[i + 2]].Position, maxDistance))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                else if (group.RayPositions is { } positions && group.RayIndices is { } rayIndices)
+                {
+                    // The zone is on the GPU and its CPU meshes were released (#576): the positions kept for ray queries.
+                    for (int i = 0; i + 2 < rayIndices.Length; i += 3)
+                    {
+                        if (RayHitsTriangle(origin, direction, positions[rayIndices[i]], positions[rayIndices[i + 1]], positions[rayIndices[i + 2]], maxDistance))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -58,14 +72,30 @@ namespace Gordian.Engine.Graphics
 
                 var vertices = group.Vertices;
                 var indices = group.Indices;
-                for (int i = 0; i + 2 < indices.Length; i += 3)
+                if (vertices.Length > 0 && indices.Length > 0)
                 {
-                    float t = RayTriangleDistance(origin, down, vertices[indices[i]].Position, vertices[indices[i + 1]].Position,
-                                                  vertices[indices[i + 2]].Position);
-                    if (t > 1e-3f && t < nearest)
+                    for (int i = 0; i + 2 < indices.Length; i += 3)
                     {
-                        nearest = t;
-                        floor = group;
+                        float t = RayTriangleDistance(origin, down, vertices[indices[i]].Position, vertices[indices[i + 1]].Position,
+                                                      vertices[indices[i + 2]].Position);
+                        if (t > 1e-3f && t < nearest)
+                        {
+                            nearest = t;
+                            floor = group;
+                        }
+                    }
+                }
+                else if (group.RayPositions is { } positions && group.RayIndices is { } rayIndices)
+                {
+                    // Released CPU meshes (#576): the positions kept for ray queries.
+                    for (int i = 0; i + 2 < rayIndices.Length; i += 3)
+                    {
+                        float t = RayTriangleDistance(origin, down, positions[rayIndices[i]], positions[rayIndices[i + 1]], positions[rayIndices[i + 2]]);
+                        if (t > 1e-3f && t < nearest)
+                        {
+                            nearest = t;
+                            floor = group;
+                        }
                     }
                 }
             }
