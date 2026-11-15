@@ -2,12 +2,12 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading;
 using System.Threading.Tasks;
 using Gordian.Core.Diagnostics;
 using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
+using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 using NeoVeldrid;
 
@@ -20,22 +20,9 @@ namespace Gordian.App.Graphics
     /// </summary>
     public sealed partial class ZoneTerrainRenderer
     {
-        /// <summary>A ship model: the vessel of a ship zone, uploaded once for this renderer.</summary>
-        private sealed class TransportVessel
-        {
-            public List<GpuSubmesh> Submeshes { get; } = new();
-            public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
-        }
-
-        private readonly Dictionary<int, TransportVessel?> _transportVessels = new();
-        private int[] _vesselZoneIds = Array.Empty<int>();
-
-        /// <summary>
-        /// The ship zones this renderer read for their vessel models (read from any thread): in use while it lives, so the
-        /// zone cache purge keeps them (#576).
-        /// </summary>
-        internal IReadOnlyList<int> VesselZoneIds => Volatile.Read(ref _vesselZoneIds);
-        private readonly Dictionary<int, Task<(Gordian.Core.Resources.Models.ZoneVessel? Vessel, IReadOnlyDictionary<string, DecodedTexture>? Textures)>> _transportLoads = new();
+        // The ship models this renderer holds a reference to (ZoneModelCache, #585), by ship zone; null when the zone has no vessel.
+        private readonly Dictionary<int, ZoneModelCache.SharedModel?> _transportVessels = new();
+        private readonly Dictionary<int, Task<(ZoneModelCache.ModelKey Key, IReadOnlyList<MeshGroup>? Groups, IReadOnlyDictionary<string, DecodedTexture>? Textures)>> _transportLoads = new();
 
         /// <summary>Ship entities drawn with a vessel model this frame (tests and diagnostics).</summary>
         internal int TransportVesselsDrawn { get; private set; }
@@ -127,50 +114,68 @@ namespace Gordian.App.Graphics
             }
         }
 
-        private TransportVessel? GetTransportVessel(int zoneId, ResourceManager resourceManager)
+        /// <summary>
+        /// A ship zone's vessel on the GPU with this renderer's reference, from the device's shared copy (#585). The first
+        /// time any window needs it, the vessel is read in the background from a copy of the ship zone of its own
+        /// (<see cref="ResourceManager.TryReadZoneVessel"/>), uploaded once, and that copy dropped.
+        /// </summary>
+        private ZoneModelCache.SharedModel? GetTransportVessel(int zoneId, ResourceManager resourceManager)
         {
             if (_transportVessels.TryGetValue(zoneId, out var ready)) return ready;
+            var models = _shared.ZoneModels;
             if (!_transportLoads.TryGetValue(zoneId, out var load))
             {
-                if (Array.IndexOf(_vesselZoneIds, zoneId) < 0) Volatile.Write(ref _vesselZoneIds, [.. _vesselZoneIds, zoneId]);
-                _transportLoads[zoneId] = load = Task.Run(() =>
+                var key = new ZoneModelCache.ModelKey(ZoneModelCache.ModelKind.Vessel, zoneId, resourceManager.CacheGeneration);
+                if (models.TryAcquire(key, out var shared))
                 {
-                    if (!resourceManager.TryLoadZone(zoneId, out var zone, out var textures) || zone.Vessel == null)
+                    _transportVessels[zoneId] = shared;
+                    return shared;
+                }
+                _transportLoads[zoneId] = Task.Run(() =>
+                {
+                    if (!resourceManager.TryReadZoneVessel(zoneId, out var vessel, out var textures))
                     {
                         GordianLog.Warn(LogCategories.Graphics, $"Ship model: zone {zoneId} has no vessel.");
-                        return ((Gordian.Core.Resources.Models.ZoneVessel?)null, (IReadOnlyDictionary<string, DecodedTexture>?)null);
+                        return (key, (IReadOnlyList<MeshGroup>?)null, (IReadOnlyDictionary<string, DecodedTexture>?)null);
                     }
-                    return (zone.Vessel, (IReadOnlyDictionary<string, DecodedTexture>?)textures);
+                    return (key, vessel.MeshGroups, VesselTextures(vessel.MeshGroups, textures));
                 });
                 return null;
             }
             if (!load.IsCompleted) return null;
             _transportLoads.Remove(zoneId);
 
-            TransportVessel? vessel = null;
-            if (load.IsCompletedSuccessfully && load.Result.Vessel is { } data)
+            ZoneModelCache.SharedModel? model = null;
+            if (load.IsCompletedSuccessfully && load.Result is { Groups: { } groups, Textures: { } vesselTextures } result)
             {
-                vessel = new TransportVessel { Textures = load.Result.Textures };
-                foreach (var group in data.MeshGroups)
-                {
-                    if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
-                    vessel.Submeshes.Add(UploadSubmesh(_shared, group));
-                }
-                GordianLog.Info(LogCategories.Graphics, $"Ship model: the vessel of zone {zoneId} ({vessel.Submeshes.Count} submeshes) is ready.");
+                // Its own copy of the ship zone: nothing else holds it, so it needs no release after the upload.
+                model = models.Acquire(result.Key, zoneId, groups, vesselTextures);
+                if (model == null) return null;
+                GordianLog.Info(LogCategories.Graphics, $"Ship model: the vessel of zone {zoneId} ({model.Submeshes.Count} submeshes) is ready.");
             }
-            _transportVessels[zoneId] = vessel;
-            return vessel;
+            _transportVessels[zoneId] = model;
+            return model;
         }
 
+        /// <summary>The textures a vessel's submeshes name, as <see cref="GpuTextureCache.Resolve"/> finds them in the ship zone's table.</summary>
+        internal static Dictionary<string, DecodedTexture> VesselTextures(IEnumerable<MeshGroup> groups, IReadOnlyDictionary<string, DecodedTexture> zoneTextures)
+        {
+            var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            foreach (var group in groups)
+            {
+                string name = group.TextureName.Trim();
+                if (name.Length == 0 || textures.ContainsKey(name)) continue;
+                if (GpuTextureCache.Resolve(name, zoneTextures) is { } texture) textures[name] = texture;
+            }
+            return textures;
+        }
+
+        /// <summary>Gives back this renderer's ship model references (the models stay on the GPU for other windows).</summary>
         private void DisposeTransportVessels()
         {
-            foreach (var vessel in _transportVessels.Values)
-            {
-                if (vessel == null) continue;
-                foreach (var submesh in vessel.Submeshes) submesh.Dispose();
-            }
+            foreach (var vessel in _transportVessels.Values) _shared.ZoneModels.Release(vessel);
             _transportVessels.Clear();
-            Volatile.Write(ref _vesselZoneIds, Array.Empty<int>());
+            _transportLoads.Clear();
         }
     }
 }

@@ -46,7 +46,6 @@ namespace Gordian.App.Tests.Graphics
                 using var shared = new GpuSharedResources(gd);
                 shared.Zones.ReleaseCpuCopies = true;
                 var renderer = new ZoneTerrainRenderer(shared, gd.SwapchainFramebuffer.OutputDescription);
-                Assert.Contains(renderer, shared.Renderers);
                 var a = SyntheticZone(7);
                 var b = SyntheticZone(8);
 
@@ -73,7 +72,6 @@ namespace Gordian.App.Tests.Graphics
                 Assert.Throws<InvalidOperationException>(() => shared.Zones.Acquire(a.Zone, a.Textures));
 
                 renderer.Dispose();
-                Assert.DoesNotContain(renderer, shared.Renderers);
             }
             finally
             {

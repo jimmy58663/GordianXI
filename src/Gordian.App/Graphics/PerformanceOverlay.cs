@@ -107,6 +107,9 @@ namespace Gordian.App.Graphics
             // Zones cached on the CPU and on the GPU, and the interiors (#576).
             var zones = stats.ZoneCache;
             Line(buffer, Inv, $"Zones {zones.Zones} cached ({zones.Collisions} collision)  {stats.GpuZones} on GPU   interiors {zones.Interiors}");
+            // Ships, interiors and furniture shared by every window (#585): one upload each.
+            var shared = stats.GpuZoneModels;
+            Line(buffer, Inv, $"Ships/interiors/furniture {shared.Count} on GPU ({shared.Bytes / (1024.0 * 1024.0):0.0} MB)   {shared.Uploads} uploads");
             ImGui.PushStyleColor(ImGuiCol.Text, Dim);
             Line(buffer, Inv, $"{info.Backend}  {info.Width}x{info.Height}  vsync {(info.Vsync ? "on" : "off")}");
             Line(buffer, Inv, $"{info.Device}");
