@@ -69,16 +69,17 @@ namespace Gordian.App.Graphics
         public const float ShadowEyePull = 0.4f;
 
         /// <summary>
-        /// The pull at the feet (yalms), where the ground meets the shadow's plane (#559). Small, so a wall or prop beside the
-        /// actor stays in front of its shadow; just enough to keep flat ground under the feet from depth-fighting it.
+        /// The pull at the feet (yalms), where the ground meets the shadow's plane (#559): enough to keep flat ground under the
+        /// feet from depth-fighting the shadow, small enough that a wall or prop touching the actor stays in front of it.
         /// </summary>
-        public const float ShadowFeetPull = 0.05f;
+        public const float ShadowFeetPull = 0.1f;
 
         /// <summary>
-        /// How much the pull grows per yalm from the feet (#559), up to <see cref="ShadowEyePull"/> 0.55 yalm out: ground
-        /// sloping up to about 31° (rise 0.6 per yalm) stays under the shadow seen from above, as the constant pull kept it.
+        /// How much the pull grows per yalm from the feet (#559), reaching <see cref="ShadowEyePull"/> 0.3 yalm out. Offscreen
+        /// on a 30° Valkurm slope a gentler 0.6 per yalm let the shadow sink into the ground falling away just downhill of the
+        /// feet; at 1.0 the shadow covers the same ground as the constant pull did (within 1%).
         /// </summary>
-        public const float ShadowPullPerYalm = 0.6f;
+        public const float ShadowPullPerYalm = 1.0f;
 
         /// <summary>
         /// How far (yalms) a caster's body is nudged toward the eye in the unmask pass so it passes the depth test against
