@@ -42,16 +42,21 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void ShadowPull_IsSmallAtTheFeet_AndGrowsToTheEyePullAwayFromThem()
+        public void ShadowGround_FitsTheSlopeAroundTheFeet_AndCapsLedges()
         {
-            // #559: a chair or wall beside the feet stays in front of the shadow; ground a third of a yalm out already gets the full pull.
-            Assert.Equal(EntityRenderer.ShadowFeetPull, EntityRenderer.ShadowPullAt(0f), 5);
-            Assert.True(EntityRenderer.ShadowPullAt(0.2f) < EntityRenderer.ShadowEyePull);
-            Assert.True(EntityRenderer.ShadowPullAt(0.2f) > EntityRenderer.ShadowPullAt(0.1f));
-            Assert.Equal(EntityRenderer.ShadowEyePull, EntityRenderer.ShadowPullAt(0.6f), 5);
-            Assert.Equal(EntityRenderer.ShadowEyePull, EntityRenderer.ShadowPullAt(3f), 5);
-            // The caster's own nudge is far smaller than any ground pull.
-            Assert.True(EntityRenderer.ShadowCasterPull < EntityRenderer.ShadowFeetPull);
+            // #559: flat (or no collision samples) is level.
+            Assert.Equal(Vector3.UnitY, EntityRenderer.ShadowGroundNormal(5f, 5f, 5f, 5f, 5f));
+            Assert.Equal(Vector3.UnitY, EntityRenderer.ShadowGroundNormal(5f, null, null, null, null));
+            // Ground rising 0.5 per yalm to the east tilts the normal west.
+            float r = EntityRenderer.ShadowGroundSampleRadius;
+            var east = EntityRenderer.ShadowGroundNormal(0f, 0.5f * r, -0.5f * r, 0f, 0f);
+            Assert.Equal(Vector3.Normalize(new Vector3(-0.5f, 1f, 0f)).X, east.X, 4);
+            Assert.Equal(0f, east.Z, 4);
+            // A sample on a 3-yalm ledge to the north is capped at the steepest slope.
+            var ledge = EntityRenderer.ShadowGroundNormal(0f, 0f, 0f, 3f, 0f);
+            Assert.Equal(Vector3.Normalize(new Vector3(0f, 1f, -EntityRenderer.ShadowMaxGroundGradient)).Z, ledge.Z, 4);
+            // The caster's own nudge is far smaller than the ground pull.
+            Assert.True(EntityRenderer.ShadowCasterPull < EntityRenderer.ShadowEyePull / 10f);
         }
 
         [Theory]

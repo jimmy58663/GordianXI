@@ -6,12 +6,12 @@ namespace Gordian.App.Graphics
     /// under the actor along the light (silhouette), or a soft disc at the feet (blob). Both write only the colour target's
     /// alpha or multiply by it (see <c>EntityRenderer.Shadow.cs</c>), so their colour output is black. Every input and
     /// varying is consumed (D3D11 stage interface).
-    /// Scene uniform use: SunDirection.xyz = direction toward the light (display space), SunDirection.w = ground height;
-    /// WeatherParams.x = shadow opacity, .y = the most the shadow is pulled toward the eye (yalms), .z = the pass (0 reset
+    /// Scene uniform use: SunDirection.xyz = direction toward the light (display space), SunDirection.w = the feet's height;
+    /// WeatherParams.x = shadow opacity, .y = the pull toward the eye (yalms), .z = the pass (0 reset
     /// or apply: output alpha 1; 1 mask: output alpha = light left; 2 unmask: the caster's own body, unflattened, writing
     /// alpha 1 where it is the nearest surface), .w = disc radius in yalms (blob only; World holds the disc centre);
-    /// SkyTextureFactor.xy = the feet (display X, Z), .z = the pull at the feet, .w = how much the pull grows per yalm
-    /// from the feet (up to WeatherParams.y).
+    /// SkyTextureFactor = the ground plane the shadow lies on (display space): .xyz its up-facing unit normal, .w its
+    /// offset (dot(normal, p) = w on the plane).
     /// </summary>
     public static class ActorShadowShaders
     {
@@ -32,10 +32,8 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 };
 ";
 
-        // Pulled toward the eye so the flat shadow stays over ground that rises or dips around the feet; a wall thicker
-        // than the pull still hides it. The pull grows with the distance from the feet (#559): the ground meets the plane
-        // at the feet, so it can only have risen or fallen in proportion to how far away it is, and a small pull there
-        // leaves the chair, the mount's legs and a wall beside the actor in front of the shadow.
+        // Pulled toward the eye so the flat shadow stays over ground that bulges above the plane it lies on; a wall thicker
+        // than the pull still hides it.
         private const string PullTowardEye = @"
 vec4 PullTowardEye(vec3 worldPos, float pull)
 {
@@ -43,12 +41,6 @@ vec4 PullTowardEye(vec3 worldPos, float pull)
     float eyeDistance = length(toEye);
     worldPos += toEye / max(eyeDistance, 1e-4) * min(pull, 0.5 * eyeDistance);
     return Projection * View * vec4(worldPos, 1.0);
-}
-
-float GroundPull(vec3 worldPos)
-{
-    float fromFeet = length(worldPos.xz - SkyTextureFactor.xy);
-    return min(WeatherParams.y, SkyTextureFactor.z + SkyTextureFactor.w * fromFeet);
 }
 ";
 
@@ -111,12 +103,14 @@ void main()
         gl_Position = PullTowardEye(worldPos.xyz, WeatherParams.y);
         return;
     }
-    // Flatten onto the ground plane along the light: p - L * (height above the plane / L.y).
+    // Flatten onto the ground plane along the light: p - L * (distance above the plane / cos(L, normal)), the cosine kept
+    // from vanishing on ground tilted away from the light; anything below the plane is lifted onto it.
     vec3 L = SunDirection.xyz;
-    float above = max(worldPos.y - SunDirection.w, 0.0);
-    worldPos.xyz -= L * (above / L.y);
-    worldPos.y = SunDirection.w;
-    gl_Position = PullTowardEye(worldPos.xyz, GroundPull(worldPos.xyz));
+    vec3 n = SkyTextureFactor.xyz;
+    float above = max(dot(n, worldPos.xyz) - SkyTextureFactor.w, 0.0);
+    worldPos.xyz -= L * (above / max(dot(n, L), 0.35));
+    worldPos.xyz -= n * (dot(n, worldPos.xyz) - SkyTextureFactor.w);
+    gl_Position = PullTowardEye(worldPos.xyz, WeatherParams.y);
 }
 ";
 
@@ -158,11 +152,12 @@ layout(location = 0) out vec2 fsin_Disc;
 " + SceneUniforms + PullTowardEye + @"
 void main()
 {
-    // A disc of radius WeatherParams.w at the feet (World's translation), on the ground plane.
+    // A disc of radius WeatherParams.w at the feet (World's translation), dropped onto the ground plane.
     vec4 worldPos = World * vec4(Corner.x * WeatherParams.w, 0.0, Corner.y * WeatherParams.w, 1.0);
-    worldPos.y = SunDirection.w;
+    vec3 n = SkyTextureFactor.xyz;
+    worldPos.y = (SkyTextureFactor.w - n.x * worldPos.x - n.z * worldPos.z) / max(n.y, 0.1);
     fsin_Disc = Corner;
-    gl_Position = PullTowardEye(worldPos.xyz, GroundPull(worldPos.xyz));
+    gl_Position = PullTowardEye(worldPos.xyz, WeatherParams.y);
 }
 ";
 
