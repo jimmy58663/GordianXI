@@ -50,7 +50,11 @@ namespace Gordian.Core.Tests.Resources
 
             Assert.Same(a!.Skeleton, b!.Skeleton);
             Assert.Same(a.Animations, b.Animations);
-            Assert.Same(a.MotionRoutines, b.MotionRoutines);
+            // The routines are each model's: the face's voice routines (vded, vdam...) and the body's damage sound lie over the
+            // race's and the packs' (faces, bodies and weapons all carry some).
+            Assert.NotEmpty(PartIn(a, CharacterSlot.Face).Routines);
+            Assert.All(PartIn(a, CharacterSlot.Face).Routines, r => Assert.True(a.RawMotionRoutines.ContainsKey(r.Name), r.Name));
+            Assert.Equal(a.MotionRoutines.Keys.Order(), b.MotionRoutines.Keys.Order());
             foreach (var slot in new[] { CharacterSlot.Face, CharacterSlot.Body, CharacterSlot.Legs, CharacterSlot.Feet })
             {
                 Assert.Same(PartIn(a, slot), PartIn(b, slot));
@@ -63,26 +67,28 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void AnotherWeaponType_PlaysAnotherMotionSet_OnTheSameParts()
+        public void WeaponsOfOneType_ShareAMotionSet_AndAnotherTypePlaysAnother()
         {
             if (Resources() is not { } rm) return;
-            Assert.True(rm.TryLoadEntityModel(Player(1), out var unarmed));
-            ushort weapon = 0;
-            EntityModel? armed = null;
-            for (ushort id = 1; id < 200 && armed == null; id++)
+            // Main weapons by their Info type (the battle pack they pick).
+            var byType = new Dictionary<byte, List<EntityModel>>();
+            for (ushort id = 1; id < 300; id++)
             {
-                if (rm.TryLoadEntityModel(Player(100u + id, main: id), out var model) && model!.Parts.Any(p => p.Key.Slot == CharacterSlot.Main))
-                {
-                    weapon = id;
-                    armed = model;
-                }
+                if (!rm.TryLoadEntityModel(Player(100u + id, main: id), out var model)) continue;
+                if (model!.Parts.FirstOrDefault(p => p.Key.Slot == CharacterSlot.Main)?.WeaponInfo is not { Type: not 0xFF } info) continue;
+                if (!byType.TryGetValue(info.Type, out var list)) byType[info.Type] = list = new List<EntityModel>();
+                list.Add(model);
             }
-            Assert.NotNull(armed);
+            var shared = byType.Values.First(l => l.Count >= 2);
+            var other = byType.Values.First(l => !ReferenceEquals(l, shared));
 
-            Assert.NotSame(unarmed!.Animations, armed!.Animations);
-            Assert.Same(unarmed.Skeleton, armed.Skeleton);
-            Assert.Same(PartIn(unarmed, CharacterSlot.Body), PartIn(armed, CharacterSlot.Body));
-            Assert.True(rm.EntityModelStats.MotionSets >= 2, $"main {weapon}");
+            // Two different weapons of one type: different models, one set of clips.
+            Assert.NotSame(shared[0], shared[1]);
+            Assert.Same(shared[0].Animations, shared[1].Animations);
+            Assert.NotSame(shared[0].Animations, other[0].Animations);
+            Assert.Same(shared[0].Skeleton, other[0].Skeleton);
+            Assert.Same(PartIn(shared[0], CharacterSlot.Body), PartIn(other[0], CharacterSlot.Body));
+            Assert.True(rm.EntityModelStats.MotionSets < byType.Values.Sum(l => l.Count), "weapons of a type share their motion set");
         }
 
         [Fact]
@@ -146,6 +152,7 @@ namespace Gordian.Core.Tests.Resources
             Assert.Equal(1, rm.EvictIdleEntityModels([], idleSeconds: 0));
             Assert.Equal(0, rm.EntityModelStats.Parts);
             Assert.Equal(0, rm.EntityModelStats.PartBytes);
+            Assert.Equal(0, rm.EntityModelStats.MotionSets);
         }
 
         [Fact]

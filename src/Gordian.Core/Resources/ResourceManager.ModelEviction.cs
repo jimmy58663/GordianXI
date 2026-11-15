@@ -107,9 +107,6 @@ namespace Gordian.Core.Resources
             /// <summary>Whether the model is built (or found missing).</summary>
             public bool IsReady => _model.IsValueCreated;
 
-            /// <summary>Whether a worker is building it.</summary>
-            public bool IsBuilding => Volatile.Read(ref _started) != 0 && !_model.IsValueCreated;
-
             /// <summary>The model, built now on this thread if no one has (waits for a worker already building it).</summary>
             public EntityModel? Model => _model.Value;
 

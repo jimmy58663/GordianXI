@@ -63,6 +63,48 @@ namespace Gordian.Core.Resources.Models
         }
 
         /// <summary>
+        /// On a motion set: its routines from the race DAT alone, before any part's or pack's (#573).
+        /// </summary>
+        internal IReadOnlyDictionary<string, RawMotionRoutine>? BaseRoutines { get; set; }
+
+        /// <summary>
+        /// On a motion set: the routines its motion packs added or replaced over <see cref="BaseRoutines"/> (battle, dual
+        /// wield, chair; #573), which win over a part's routines of the same name as they always did.
+        /// </summary>
+        internal IReadOnlyDictionary<string, RawMotionRoutine>? PackRoutines { get; set; }
+
+        /// <summary>
+        /// Plays <paramref name="motionSet"/>'s clips with routines of its own (#573): a face's voice routines, a body's
+        /// damage sound and a weapon's swing and draw sounds make nearly every character's routines different, while
+        /// its clips are the set's. <paramref name="routines"/> is the race's routines, then the parts', then the set's pack
+        /// routines; <paramref name="hiddenWeaponSlots"/> what <c>init</c> hides with the parts' routines.
+        /// </summary>
+        internal void ShareClipsFrom(EntityModel motionSet, Dictionary<string, RawMotionRoutine> routines, int hiddenWeaponSlots, int rangedType)
+        {
+            MotionSet = motionSet;
+            Animations = motionSet.Animations;
+            RawMotionRoutines = routines;
+            IsDualWielding = motionSet.IsDualWielding;
+            DefaultHiddenWeaponSlots = hiddenWeaponSlots;
+            RangedType = rangedType;
+            RebuildMotionRoutines();
+        }
+
+        /// <summary>
+        /// <paramref name="motionSet"/> for a character with a ranged weapon of RangeType <paramref name="rangedType"/> (#158,
+        /// #573): the same clips, routines and caches, with the routines flattened for that type (its <c>calg</c> / <c>shlg</c>
+        /// reach <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c>).
+        /// </summary>
+        internal static EntityModel WithRangedType(EntityModel motionSet, int rangedType)
+        {
+            var variant = new EntityModel { Name = $"{motionSet.Name}_Ranged{rangedType}", Skeleton = motionSet.Skeleton, IsCharacter = motionSet.IsCharacter };
+            variant.ShareMotionsFrom(motionSet);
+            variant.RangedType = rangedType;
+            variant.MotionRoutines = MotionRoutineDecoder.BuildAll(variant.RawMotionRoutines, clip => variant.Animations.ContainsKey(clip), rangedType);
+            return variant;
+        }
+
+        /// <summary>
         /// Set when the resource manager drops the model from its cache (#573): holders of copies built from it (the GPU
         /// cache) free them at once instead of waiting for them to idle out.
         /// </summary>

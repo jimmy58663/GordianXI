@@ -45,14 +45,16 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The occludeType of each of the part's meshes (<see cref="SkeletonMeshGroup.OccludeType"/>).</summary>
         public IReadOnlyList<byte> OccludeTypes { get; init; } = Array.Empty<byte>();
 
-        /// <summary>Clips the part's DAT carries itself (most gear carries none); they join the wearer's motion set.</summary>
+        /// <summary>Clips the part's DAT carries itself (no retail gear DAT carries any); they join the wearer's motion set.</summary>
         public IReadOnlyList<AnimationClip> Animations { get; init; } = Array.Empty<AnimationClip>();
 
-        /// <summary>Motion routines the part's DAT carries itself; they join the wearer's motion set.</summary>
+        /// <summary>
+        /// Motion routines the part's DAT carries itself, laid over the race's routines of each wearer's model (#573): a
+        /// face's voice routines (<c>vded</c>, <c>vdam</c>, <c>vatk</c>...), a body's damage sound (<c>sdam</c>), a weapon's
+        /// swing, draw and sheathe sounds (<c>skaz</c>, <c>sinr</c>, <c>sotr</c>; off hand <c>skal</c>, <c>sinl</c>...), a
+        /// ranged weapon's (<c>kalg</c>, <c>lgin</c>, <c>lgot</c>...).
+        /// </summary>
         public IReadOnlyList<RawMotionRoutine> Routines { get; init; } = Array.Empty<RawMotionRoutine>();
-
-        /// <summary>Whether the part brings clips or routines of its own, so the wearer's motion set depends on it.</summary>
-        public bool HasMotions => Animations.Count > 0 || Routines.Count > 0;
 
         /// <summary>A ranged weapon's RangeType (<c>EntityModelLoader.ReadRangedType</c>), else -1.</summary>
         public int RangedType { get; init; } = -1;
@@ -65,9 +67,6 @@ namespace Gordian.Core.Resources.Models
 
         /// <summary>The joint re-parenting a main or sub weapon asks for (grip joint to hand joint), in order.</summary>
         public IReadOnlyList<KeyValuePair<int, int>> ParentOverrides { get; init; } = Array.Empty<KeyValuePair<int, int>>();
-
-        /// <summary>Whether <see cref="ParentOverrides"/> was resolved (a main or sub weapon on a skeleton with hand references).</summary>
-        public bool ResolvesParentOverrides { get; init; }
 
         /// <summary>
         /// About how many bytes the part holds: its vertices and indices (the size of its GPU copy, with 32-bit indices) and

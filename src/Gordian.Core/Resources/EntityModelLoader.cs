@@ -342,15 +342,17 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// A character motion set (#573): a model with no meshes holding the merged clips and routines of a race, its worn
-        /// weapons' battle packs, its body's waist set, its ranged weapon's type and the mannequin pose, which every model
-        /// that matches shares (<see cref="EntityModel.ShareMotionsFrom"/>). Built the way a whole character always was: the
-        /// race DAT's own clips and routines, then those of any part that carries some, then the locomotion, battle and waist
-        /// packs, the reaction poses, the chair pack and the mannequin pose.
+        /// weapons' battle packs, its body's waist set and the mannequin pose, which every model that matches shares
+        /// (<see cref="EntityModel.ShareMotionsFrom"/>, <see cref="EntityModel.ShareClipsFrom"/>). Built the way a whole
+        /// character always was: the race DAT's own clips and routines, then the clips of any part that carries some, then
+        /// the locomotion, battle and waist packs, the reaction poses, the chair pack and the mannequin pose. The parts'
+        /// routines are each model's (<see cref="EntityModel.BaseRoutines"/> and <see cref="EntityModel.PackRoutines"/>
+        /// say where they go).
         /// </summary>
         internal static EntityModel BuildMotionSet(
             CharacterModelBuilder.MotionSetKey key,
             CharacterModelBuilder.RaceBase raceBase,
-            IReadOnlyList<CharacterPart> motionParts,
+            IReadOnlyList<CharacterPart> clipParts,
             Func<string, RawDatContainer?> packByPath,
             Func<int, RawDatContainer?> packByFileId)
         {
@@ -361,10 +363,10 @@ namespace Gordian.Core.Resources
             AddClipsWithStems(model, primary.Animations);
             MergeBodyRegionParts(model, primary.Animations);
             AddRoutines(model, primary.Routines);
-            foreach (var part in motionParts)
+            var baseRoutines = new Dictionary<string, RawMotionRoutine>(model.RawMotionRoutines, StringComparer.Ordinal);
+            foreach (var part in clipParts)
             {
                 foreach (var clip in part.Animations) model.Animations[clip.Name] = clip;
-                AddRoutines(model, part.Routines);
             }
 
             // Weapons the model's init hides (a PC's init links hwpc: the ranged weapon) stay out of sight until a routine shows them.
@@ -373,10 +375,6 @@ namespace Gordian.Core.Resources
                 if (slot is >= 0 and < 32) model.DefaultHiddenWeaponSlots |= 1 << slot;
             }
             model.RebuildMotionRoutines();
-
-            int rangedType = key.RangedType;
-            model.RangedType = rangedType;
-            if (rangedType >= 0 && !key.MotionPacks) model.RebuildMotionRoutines(); // calg / shlg now reach lc / ls<NN>
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
             // on top of the base skeleton's own (lower-body) clips.
@@ -389,17 +387,15 @@ namespace Gordian.Core.Resources
                 if (packByPath(upperPath) is { } upper) overlaySources.Add(upper.Animations);
                 if (packByPath(waistPath) is { } locomotionWaist) overlaySources.Add(locomotionWaist.Animations);
 
-                // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
-                // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138).
-                int weaponAnimType = CharacterEquipmentResolver.GetUnarmedWeaponType(race);
-                WeaponInfo? mainInfo = key.Main, subInfo = key.Sub;
-                if (mainInfo is { Type: not 0xFF } main) weaponAnimType = main.Type;
+                // The weapon animation type: the equipped main weapon's Info section (0x45 byte 3), or the race's hand-to-hand
+                // type unarmed (the key resolves it, CharacterModelBuilder.Build).
+                int weaponAnimType = key.WeaponType;
 
                 // Dual wield (#308): a sub weapon that is a weapon (not a shield or grip) swaps the battle pack for the
                 // dual-wield pair, the main hand's (stance, ati*, moving swings, counters) and the off hand's (bti*, btf0...).
                 string dualMainPath = string.Empty, dualSubPath = string.Empty;
-                bool dualWield = mainInfo is { Type: not 0xFF } && subInfo is { IsHeldWeapon: true }
-                    && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, mainInfo.Value.Type, subInfo.Value.Type, out dualMainPath, out dualSubPath);
+                bool dualWield = key.DualWield
+                    && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, weaponAnimType, key.DualSubType, out dualMainPath, out dualSubPath);
 
                 // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
                 // number (folder * 1000 + file, 32013 for Hume male club and staff) as a file id, which names no file or an
@@ -428,7 +424,7 @@ namespace Gordian.Core.Resources
                     var off = dualSub!.Value;
                     battleAnims = [.. battleAnims, .. off.Animations];
                     AddRoutines(model, off.Routines);
-                    AddDualWieldDrawRoutines(model, mainInfo!.Value.SubType, subInfo!.Value.SubType);
+                    AddDualWieldDrawRoutines(model, key.DualMainSubType, key.DualSubSubType);
                     model.IsDualWielding = true;
                 }
 
@@ -439,7 +435,7 @@ namespace Gordian.Core.Resources
                 if (battleAnims != null)
                 {
                     battleWaist = LoadBattleWaist(packByPath, set => dualWield
-                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, mainInfo!.Value.Type, set)
+                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, weaponAnimType, set)
                         : CharacterEquipmentResolver.GetBattleWaistPackPath(race, weaponAnimType, set), secondWaistSet);
                     if (battleWaist != null) battleAnims = [.. battleAnims, .. BattleWaistParts(battleWaist, battleAnims)];
                 }
@@ -457,6 +453,14 @@ namespace Gordian.Core.Resources
             // Last, as the motion packs above regroup the clips.
             ApplyChairPack(model, race, packByFileId);
             if (key.Mannequin) ApplyMannequinPose(model, race, packByPath);
+
+            var packRoutines = new Dictionary<string, RawMotionRoutine>(StringComparer.Ordinal);
+            foreach (var (name, routine) in model.RawMotionRoutines)
+            {
+                if (!baseRoutines.TryGetValue(name, out var own) || !ReferenceEquals(own, routine)) packRoutines[name] = routine;
+            }
+            model.BaseRoutines = baseRoutines;
+            model.PackRoutines = packRoutines;
             return model;
         }
 

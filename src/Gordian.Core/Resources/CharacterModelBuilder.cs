@@ -17,8 +17,9 @@ namespace Gordian.Core.Resources
     /// <list type="bullet">
     /// <item>a <b>race base</b> per race: the skeleton, its bind pose and the race DAT's own clips and routines, kept for the
     /// session;</item>
-    /// <item>the <b>motion packs</b> (locomotion, battle, waist, chair, mannequin) parsed once per file, kept for the session;</item>
-    /// <item>a <b>motion set</b> per race, battle pack, waist set, ranged type and mannequin pose: the merged clips and
+    /// <item>the <b>motion packs</b> (locomotion, battle, waist, chair, mannequin) parsed once per file, freed when no motion
+    /// set build has read them for a while (the sets built from them keep the clips they use);</item>
+    /// <item>a <b>motion set</b> per race, battle pack, waist set and mannequin pose: the merged clips and
     /// routines, immutable and shared by every model that matches;</item>
     /// <item>a <b>part</b> per gear piece (<see cref="CharacterPart"/>), shared by everyone wearing it and freed when no
     /// cached model uses it (<see cref="EvictParts"/>).</item>
@@ -34,9 +35,9 @@ namespace Gordian.Core.Resources
         private readonly ICharacterPartSource _partSource;
 
         private readonly ConcurrentDictionary<CharacterRace, Lazy<RaceBase?>> _raceBases = new();
-        private readonly ConcurrentDictionary<string, Lazy<EntityModelLoader.RawDatContainer?>> _packsByPath = new(StringComparer.OrdinalIgnoreCase);
-        private readonly ConcurrentDictionary<int, Lazy<EntityModelLoader.RawDatContainer?>> _packsByFileId = new();
-        private readonly ConcurrentDictionary<MotionSetKey, Lazy<EntityModel>> _motionSets = new();
+        private readonly ConcurrentDictionary<string, CachedPack> _packsByPath = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<int, CachedPack> _packsByFileId = new();
+        private readonly ConcurrentDictionary<MotionVariantKey, Lazy<EntityModel>> _motionSets = new();
         private readonly ConcurrentDictionary<CharacterPartKey, Lazy<CharacterPart?>> _parts = new();
 
         public CharacterModelBuilder(Func<string, byte[]?> datByPath, Func<int, byte[]?> datByFileId, ICharacterPartSource? partSource = null)
@@ -60,19 +61,32 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// What picks a model's motions: the race, the body's waist set, the ranged weapon's type, the weapons' Info fields
-        /// (battle pack, dual wield, draw routines), the mannequin pose, whether the motion packs load at all, and the parts
-        /// that bring clips or routines of their own (rare; their keys, comma-separated, else null).
+        /// What picks a model's clips and pack routines: the race, the body's waist set, the battle pack's weapon type (the
+        /// main weapon's Info type, or the race's hand-to-hand type unarmed), for dual wield the sub weapon's type and both
+        /// weapons' sub-types (the draw routines; -1 otherwise), the mannequin pose, whether the motion packs load at all,
+        /// and the parts that bring clips of their own (none in the retail gear DATs; their keys, comma-separated, else
+        /// null). Only what the build reads, so characters with different weapons of one type share a set. The parts'
+        /// routines are not in it: each model lays them in (<see cref="EntityModel.ShareClipsFrom"/>).
         /// </summary>
         internal readonly record struct MotionSetKey(
             CharacterRace Race,
             bool SecondWaistSet,
-            int RangedType,
-            EntityModelLoader.WeaponInfo? Main,
-            EntityModelLoader.WeaponInfo? Sub,
+            int WeaponType,
+            int DualSubType,
+            int DualMainSubType,
+            int DualSubSubType,
             bool Mannequin,
             bool MotionPacks,
-            string? PartMotions);
+            string? PartMotions)
+        {
+            public bool DualWield => DualSubType >= 0;
+        }
+
+        /// <summary>
+        /// A motion set with the ranged weapon's type (#158), which only picks how the routines flatten (the
+        /// <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c> a ranged attack plays); -1, the set itself, without one.
+        /// </summary>
+        private readonly record struct MotionVariantKey(MotionSetKey Set, int RangedType);
 
         /// <summary>Distinct motion sets built so far.</summary>
         public int MotionSetCount => _motionSets.Count;
@@ -123,8 +137,9 @@ namespace Gordian.Core.Resources
             int rangedType = -1;
             bool secondWaistSet = false;
             EntityModelLoader.WeaponInfo? main = null, sub = null;
-            StringBuilder? partMotions = null;
+            StringBuilder? partClips = null;
             bool hasWeapon = false;
+            bool partRoutines = false;
             foreach (var part in parts)
             {
                 switch (part.Key.Slot)
@@ -134,16 +149,22 @@ namespace Gordian.Core.Resources
                     case CharacterSlot.Main: main = part.WeaponInfo; hasWeapon = true; break;
                     case CharacterSlot.Sub: sub = part.WeaponInfo; hasWeapon = true; break;
                 }
-                if (part.HasMotions)
+                if (part.Animations.Count > 0)
                 {
-                    partMotions ??= new StringBuilder();
-                    partMotions.Append(part.Key.Slot).Append(':').Append(part.Key.FileId).Append(',');
+                    partClips ??= new StringBuilder();
+                    partClips.Append(part.Key.Slot).Append(':').Append(part.Key.FileId).Append(',');
                 }
+                partRoutines |= part.Routines.Count > 0;
             }
 
-            var key = new MotionSetKey(race, secondWaistSet, rangedType, main, sub,
-                faceId == CharacterEquipmentResolver.MannequinFace, EntityModelLoader.EnableSpeculativeMotionPacks, partMotions?.ToString());
-            var motionSet = _motionSets.GetOrAdd(key, k => new Lazy<EntityModel>(() => BuildMotionSet(k, raceBase, parts), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138). A sub
+            // weapon held in the left hand (not a shield or grip) of a type with a dual-wield pack swaps in the pair (#308).
+            int weaponType = main is { Type: not 0xFF } m ? m.Type : CharacterEquipmentResolver.GetUnarmedWeaponType(race);
+            bool dualWield = main is { Type: not 0xFF } && sub is { IsHeldWeapon: true }
+                && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, weaponType, sub.Value.Type, out _, out _);
+            var key = new MotionSetKey(race, secondWaistSet, weaponType,
+                dualWield ? sub!.Value.Type : -1, dualWield ? main!.Value.SubType : -1, dualWield ? sub!.Value.SubType : -1,
+                faceId == CharacterEquipmentResolver.MannequinFace, EntityModelLoader.EnableSpeculativeMotionPacks, partClips?.ToString());
 
             var model = new EntityModel
             {
@@ -152,7 +173,28 @@ namespace Gordian.Core.Resources
                 BlurAura = raceBase.BlurAura,
                 IsCharacter = true,
             };
-            model.ShareMotionsFrom(motionSet);
+            if (!partRoutines)
+            {
+                model.ShareMotionsFrom(GetMotionSet(key, rangedType, raceBase, parts));
+            }
+            else
+            {
+                // A face's voice, a body's damage sound, a weapon's swing and draw sounds (#573): the race's routines, then the
+                // parts' in order, then the packs', which win, as when the whole model was built in that order.
+                var set = GetMotionSet(key, -1, raceBase, parts);
+                var routines = new Dictionary<string, RawMotionRoutine>(set.BaseRoutines!, StringComparer.Ordinal);
+                foreach (var part in parts)
+                {
+                    foreach (var routine in part.Routines) if (routine.Name.Length > 0) routines[routine.Name] = routine;
+                }
+                int hiddenSlots = 0;
+                foreach (int slot in EntityModelLoader.InitialHiddenWeaponSlots(routines))
+                {
+                    if (slot is >= 0 and < 32) hiddenSlots |= 1 << slot;
+                }
+                foreach (var (name, routine) in set.PackRoutines!) routines[name] = routine;
+                model.ShareClipsFrom(set, routines, hiddenSlots, rangedType);
+            }
 
             foreach (var (name, texture) in raceBase.Container.Textures) model.Textures[name] = texture;
             foreach (var part in parts)
@@ -260,36 +302,61 @@ namespace Gordian.Core.Resources
             return part;
         }
 
-        private EntityModel BuildMotionSet(MotionSetKey key, RaceBase raceBase, IReadOnlyList<CharacterPart> parts)
+        /// <summary>The motion set of <paramref name="key"/> with ranged type <paramref name="rangedType"/>, built once.</summary>
+        private EntityModel GetMotionSet(MotionSetKey key, int rangedType, RaceBase raceBase, IReadOnlyList<CharacterPart> parts)
         {
-            var motionParts = new List<CharacterPart>();
-            foreach (var part in parts) if (part.HasMotions) motionParts.Add(part);
-            return EntityModelLoader.BuildMotionSet(key, raceBase, motionParts, Pack, PackByFileId);
+            var baseSet = _motionSets.GetOrAdd(new MotionVariantKey(key, -1), k => new Lazy<EntityModel>(
+                () => BuildMotionSet(k.Set, raceBase, parts), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            if (rangedType < 0) return baseSet;
+            return _motionSets.GetOrAdd(new MotionVariantKey(key, rangedType), k => new Lazy<EntityModel>(
+                () => EntityModel.WithRangedType(baseSet, k.RangedType), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         }
 
-        /// <summary>A motion pack by path, parsed once (null when missing).</summary>
+        private EntityModel BuildMotionSet(MotionSetKey key, RaceBase raceBase, IReadOnlyList<CharacterPart> parts)
+        {
+            var clipParts = new List<CharacterPart>();
+            foreach (var part in parts) if (part.Animations.Count > 0) clipParts.Add(part);
+            return EntityModelLoader.BuildMotionSet(key, raceBase, clipParts, Pack, PackByFileId);
+        }
+
+        /// <summary>A parsed motion pack and when a motion set build last read it.</summary>
+        private sealed class CachedPack(Func<EntityModelLoader.RawDatContainer?> parse)
+        {
+            private readonly Lazy<EntityModelLoader.RawDatContainer?> _container = new(parse, LazyThreadSafetyMode.ExecutionAndPublication);
+            private long _lastUsed = Stopwatch.GetTimestamp();
+
+            public bool IsReady => _container.IsValueCreated;
+            public long LastUsed => Volatile.Read(ref _lastUsed);
+
+            public EntityModelLoader.RawDatContainer? Read()
+            {
+                Volatile.Write(ref _lastUsed, Stopwatch.GetTimestamp());
+                return _container.Value;
+            }
+        }
+
+        /// <summary>A motion pack by path, parsed once while motion sets keep being built from it (null when missing).</summary>
         internal EntityModelLoader.RawDatContainer? Pack(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
-            return _packsByPath.GetOrAdd(path, p => new Lazy<EntityModelLoader.RawDatContainer?>(() =>
-                _datByPath(p) is { Length: > 0 } dat ? EntityModelLoader.ParseDatContainer(dat, p) : null,
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            return _packsByPath.GetOrAdd(path, p => new CachedPack(() =>
+                _datByPath(p) is { Length: > 0 } dat ? EntityModelLoader.ParseDatContainer(dat, p) : null)).Read();
         }
 
-        /// <summary>A motion pack by file id, parsed once (null when missing).</summary>
+        /// <summary>A motion pack by file id, parsed once while motion sets keep being built from it (null when missing).</summary>
         internal EntityModelLoader.RawDatContainer? PackByFileId(int fileId)
         {
             if (fileId < 0) return null;
-            return _packsByFileId.GetOrAdd(fileId, id => new Lazy<EntityModelLoader.RawDatContainer?>(() =>
-                _datByFileId(id) is { Length: > 0 } dat ? EntityModelLoader.ParseDatContainer(dat, DecodedTexture.FileLabel(id)) : null,
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            return _packsByFileId.GetOrAdd(fileId, id => new CachedPack(() =>
+                _datByFileId(id) is { Length: > 0 } dat ? EntityModelLoader.ParseDatContainer(dat, DecodedTexture.FileLabel(id)) : null)).Read();
         }
 
         /// <summary>
         /// Frees the parts no model in <paramref name="models"/> uses (#573): first those unused for
         /// <paramref name="idleSeconds"/>, then, while the parts hold more than <paramref name="budgetBytes"/>, any unused
-        /// part, least recently used first. The motion sets no model plays are dropped too. A part a listed model uses is
-        /// never freed, so a budget set too low costs rebuilds, never missing models. Returns how many parts were freed.
+        /// part, least recently used first. The motion sets no model plays are dropped too, and the motion packs no build has
+        /// read for <paramref name="idleSeconds"/> (the sets built from them hold the clips they use). A part a listed model
+        /// uses is never freed, so a budget set too low costs rebuilds, never missing models. Returns how many parts were freed.
         /// </summary>
         public int EvictParts(IEnumerable<EntityModel> models, double idleSeconds, long budgetBytes)
         {
@@ -298,7 +365,8 @@ namespace Gordian.Core.Resources
             foreach (var model in models)
             {
                 foreach (var part in model.Parts) used.Add(part);
-                if (model.MotionSet != null) usedMotionSets.Add(model.MotionSet);
+                // The set the model plays and, for a ranged variant, the set it shares its clips with.
+                for (var set = model.MotionSet; set != null && usedMotionSets.Add(set); set = set.MotionSet) { }
             }
 
             long now = Stopwatch.GetTimestamp();
@@ -344,7 +412,17 @@ namespace Gordian.Core.Resources
             {
                 if (pair.Value.IsValueCreated && !usedMotionSets.Contains(pair.Value.Value)) _motionSets.TryRemove(pair);
             }
+            EvictIdlePacks(_packsByPath, now, idleTicks);
+            EvictIdlePacks(_packsByFileId, now, idleTicks);
             return freed;
+        }
+
+        private static void EvictIdlePacks<TKey>(ConcurrentDictionary<TKey, CachedPack> packs, long now, long idleTicks) where TKey : notnull
+        {
+            foreach (var pair in packs)
+            {
+                if (pair.Value.IsReady && now - pair.Value.LastUsed > idleTicks) packs.TryRemove(pair);
+            }
         }
     }
 
@@ -386,11 +464,9 @@ namespace Gordian.Core.Resources
             }
 
             IReadOnlyList<KeyValuePair<int, int>> overrides = Array.Empty<KeyValuePair<int, int>>();
-            bool resolves = false;
             if (slot is CharacterSlot.Main or CharacterSlot.Sub && skeleton is { References.Count: > 127 })
             {
                 overrides = [.. EntityModelLoader.ResolveWeaponParentOverrides(skeleton, [(slot, dat)])];
-                resolves = true;
             }
 
             return new CharacterPart(key, groups, container.Textures)
@@ -403,7 +479,6 @@ namespace Gordian.Core.Resources
                 SecondWaistSet = slot == CharacterSlot.Body && CharacterEquipmentResolver.UsesSecondWaistSet(dat),
                 WeaponInfo = slot is CharacterSlot.Main or CharacterSlot.Sub ? EntityModelLoader.ReadWeaponInfo(dat) : null,
                 ParentOverrides = overrides,
-                ResolvesParentOverrides = resolves,
                 ApproximateBytes = CharacterPart.MeasureBytes(groups, container.Textures),
             };
         }
