@@ -19,8 +19,8 @@ namespace Gordian.App.Graphics
     /// </summary>
     public sealed class ZoneCachePurger : IDisposable
     {
-        /// <summary>How often the purge runs (a zone goes between 60 and 70 s after its last use).</summary>
-        public static readonly TimeSpan Interval = TimeSpan.FromSeconds(10);
+        /// <summary>How often the purge runs (a zone goes between 60 and 90 s after its last use).</summary>
+        public static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
 
         private readonly SessionRegistry _registry;
         private readonly Timer _timer;
