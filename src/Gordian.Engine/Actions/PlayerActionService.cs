@@ -852,6 +852,8 @@ namespace Gordian.Engine.Actions
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
                 case StockUiMenuCommand.Check:
                     var check = await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    // A monster's check leaves the menu open (#580), so this only re-opens the engaged list after a
+                    // player's check closed it (it does not open over a menu).
                     if (Combat is { IsEngaged: true }) OpenTargetCommandMenu();
                     return check;
                 case StockUiMenuCommand.ReleaseTrust:

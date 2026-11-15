@@ -2176,6 +2176,13 @@ namespace Gordian.Engine.Ui
                     else NoticePosted?.Invoke("Back to Home Point is not available in this session.");
                     break;
 
+                case StockUiMenuCommand.Check when CommandMenuTarget is { } checkTarget && !StockUiCheck.OpensWindow(checkTarget.Kind):
+                    // Checking a monster prints the check lines and leaves the command menu open with the cursor
+                    // still on Check, so it can check again or Attack at once (retail, #580). A player's check window
+                    // (S2C 0x0C9) closes the menus itself when it opens.
+                    _ = RunTargetCommandAsync(entry, checkTarget);
+                    break;
+
                 case StockUiMenuCommand.Attack:
                 case StockUiMenuCommand.Disengage:
                 case StockUiMenuCommand.CallForHelp:

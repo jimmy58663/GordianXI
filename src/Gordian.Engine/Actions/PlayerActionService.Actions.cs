@@ -474,8 +474,9 @@ namespace Gordian.Engine.Actions
         /// callback that sends the use). <paramref name="allowed"/> filters what the cursor may land on;
         /// <paramref name="onConfirm"/> runs on the picked entity. The cursor starts on <paramref name="preferred"/> (a
         /// command menu's target) when allowed, else on the current target, else on yourself, else on the nearest allowed
-        /// entity. With <paramref name="resumeMenus"/> the open menus step aside (<see cref="StockUiMenuController.Suspended"/>)
-        /// and come back when the cursor ends, as retail's do; otherwise they close. Warns when nothing around may be the
+        /// entity; a monster is passed over when the action may land on yourself (#562). With <paramref name="resumeMenus"/>
+        /// the open menus step aside (<see cref="StockUiMenuController.Suspended"/>) and come back when the cursor ends, as
+        /// retail's do; otherwise they close. Warns when nothing around may be the
         /// target.
         /// </summary>
         public PlayerActionResult BeginSubTarget(string name, ActionTargetFlags allowed, Func<WorldEntity, Task<PlayerActionResult>> onConfirm,
@@ -487,10 +488,11 @@ namespace Gordian.Engine.Actions
         {
             ArgumentNullException.ThrowIfNull(onConfirm);
             var self = LocalEntity();
+            bool selfAllowed = self != null && AcceptsTarget(allowed, self);
             WorldEntity? start = null;
-            if (preferred != null && AcceptsTarget(allowed, preferred)) start = preferred;
-            else if (CurrentTarget is { } current && AcceptsTarget(allowed, current) && TargetCycling.IsTargetable(current)) start = current;
-            else if (self != null && AcceptsTarget(allowed, self)) start = self;
+            if (preferred != null && StartsOn(preferred)) start = preferred;
+            else if (CurrentTarget is { } current && StartsOn(current) && TargetCycling.IsTargetable(current)) start = current;
+            else if (selfAllowed) start = self;
             else if (self != null)
             {
                 float best = float.MaxValue;
@@ -506,6 +508,13 @@ namespace Gordian.Engine.Actions
                 }
             }
             if (start == null) return PlayerActionResult.Warn($"{name}: there is no one here it can be used on.");
+
+            // A monster is not where an action that may land on yourself starts, even one that may land on monsters too
+            // (Cure, which hurts the undead): retail starts Cure on yourself with a mob targeted, also from that mob's
+            // command menu (local LSB 2026-11-15, #562).
+            bool StartsOn(WorldEntity entity) =>
+                AcceptsTarget(allowed, entity) && !(selfAllowed && entity.Type == EntityType.Monster && entity.ServerId != _localPlayer.ServerId);
+
             CancelSubTarget();
             if (resumeMenus && Menus.IsOpen) Menus.Suspended = true;
             else Menus.CloseAll();
