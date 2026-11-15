@@ -281,3 +281,15 @@ A finish packet's result carries the presentation to play in its 12-bit `sub_kin
   - [ ] *Monster moves above animation 1791* (the ranges at 60729 and 86791) and *item uses* (`cmd_no` 5, whose animation is the use motion, not an effect file).
   - [ ] *Waist companion B*: the body's Info byte 9 picks it (2 takes B, as for the battle and locomotion waist packs, *Battle skirt* above), but weapon skills still always use A.
   - [ ] *In-game check* against retail captures: a weapon skill, a job ability and a spell (start, interrupt, finish), and a monster TP move.
+
+### Level up and level down effects (#581)
+
+The server sends no effect packet for a level change: LandSandBoat's `charutils.cpp` sends S2C 0x02D message 9 ("attains level", its comment: "Level up animation and message") or 11 ("falls to level") to the character and everyone in range, with the character as the caster (for 9 the target is the defeated monster). The client plays a fixed effect file on the caster. `LevelChangeEffectController` (Engine, attached by `CharacterSession`) resolves the file with `ActionMotionLibrary.ResolveEffectFile` (kind `ActionAssetKind.Effect`) and queues it as an action presentation, as the synthesis effect is, so its particles run through the effect routines and its sounds through `ActionSoundTracker`'s presentation cues ([audio.md](../design/audio.md#combat-and-action-sounds-41)).
+
+| Message | File | Retail (local LSB, 2026-11-15) |
+|---|---|---|
+| 9 level up | 3310 `ROM/13/35` (`lvup` textures) | an orange "Level Up !!" text over the character rises in with a streaky reveal and sparkles (about 1 s), holds about 2 s and fades; plays se 7 "Level-Up" and generator sound 12094 at its start (`581-retail-level-up.mp4`) |
+| 11 level down | 3309 `ROM/13/34` (`lvdw` textures) | a blue "Level Down..." text; the 0x29 actor colour darkens the character to black and back; generator sound 12099 (`581-retail-level-down.mp4`) |
+| 811 / 813 master level up / down | the same files, **provisional** | not seen: LandSandBoat never sends them |
+
+Played for every character the message arrives for, since the server sends it to all in range; a party member's or another player's level up was not checked on retail (it needs a second retail client). File 3704 (`ROM/306/49`, xi-tools "Level Up!") is the same effect with `mnp_lvup` textures, the Monstrosity level up; nothing plays it. On LandSandBoat the message 9 line (and the effect) arrived about 15 s after `!givexp`. Tests: `LevelChangeEffectControllerTests` (the retail file is read when the install is present).

@@ -137,7 +137,7 @@ System sounds live in `se000` (ids and names from the Windower pol-utils list bu
 | Target Switch | 10 | `TargetChanged` from one target to another |
 | Tell (`TellArrival`) | 40 | an incoming tell (`ChatMessageType.Tell` not from the player), on the Notification bus. Confirmed as the retail tell sound by the maintainer's retail check, 2026-10-08 (via `/playsound 40`); it is entry `0040` of the client's system sound table (`ROM/0/0` `/syst/soun`). Until round 2 this played 39, "Message Arrival", which the maintainer identified in game (2026-10-07) as PlayOnline's message sound (a friend's message through POL), not the tell sound; nothing plays 39 now |
 
-Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), level-up (7) and quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
+Level-Up (7) is not a cue: the level up effect file (3310) plays it with its own sound command 0x4A `0007` at the character, with the effect's generator sound 12094 ([#581](https://github.com/jimmy58663/GordianXI/issues/581), [entities-and-animation.md](../world/entities-and-animation.md#level-up-and-level-down-effects-581)). Not wired yet: Dialog Confirmation (3) and Unavailable Action (4), the target menu open (11), quest complete (8), the `<call>` sounds (17-38), and mouse clicks in menus. Which action plays which id is our reading of the names (provisional until compared with retail).
 
 ## Footsteps (#40)
 
@@ -272,6 +272,10 @@ Implementation: `MotionRoutineDecoder` also records these commands in `RawMotion
 
 Provisional: a random choice is uniform; reactions play their routine from its start when applied; the 0x0B "at the target" sounds play at the actor. Not done:
 - Ranged attack sounds (`ldad`).
+
+## Zone change (#579)
+
+Zoning played the local player's death cry on the loading screen. Each zone-in creates the local player entity again from S2C 0x00A, and its HP percent came only from S2C 0x0DF, about a second later (the maintainer's log, 2026-11-15: 0x00A then a second of zone data before the vitals). At 0% the classifier (`AnimationStateClassifier`: `Hpp == 0`) drew the player dead, and with the model already cached (#573) the death motion started and `ActionSoundTracker` played its `dead` routine (`vded`). This is the same symptom as the home point and survival guide warps (S2C 0x037 status 3 at 100% HP, `LocalPlayerState.IsVanishing`, #481), by another path: a zone line sets LandSandBoat's status to `Disappear`, but its 0x037 animation stays 0, so the vanishing guard did not apply. Now the new entity starts at the last known HP (`SessionNetworkManager.LocalEntitySeedHpp`: full before a login's first vitals, 0 only when the server has said the character is dead) and S2C 0x037 also writes the entity's HP percent. `GameAudioService` also forgets the action and footstep trackers on a zone change, as on a session switch (#377). Tests: `WorldStateTests.LocalEntitySeedHpp_KeepsTheLivingAlive`.
 
 ## Phase 5H plan
 

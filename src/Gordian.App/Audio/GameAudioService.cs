@@ -228,6 +228,9 @@ namespace Gordian.App.Audio
                 _emitters.SetEmitters(Array.Empty<ZoneSoundEmitter>());
                 _zoneSoundSources = Array.Empty<ZoneSoundEmitter>();
                 _doorStatuses.Clear();
+                // A new zone is a new set of actors (#579), as a session switch is (#377): nothing carries over from the last one.
+                _actionSounds.Clear();
+                _footsteps.Clear();
             }
 
             float hour = world.GetTimeOfDayHours(DateTime.UtcNow);

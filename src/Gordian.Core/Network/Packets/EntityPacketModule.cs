@@ -712,6 +712,8 @@ namespace Gordian.Core.Network.Packets
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 if (!_localPlayer.IsVanishing) localEnt.AnimationState = charStatus.ServerStatus;
+                // Its HP percent too (#579): before, only 0x0DF set it, so a fresh zone-in entity stayed at 0% (dead) until then.
+                localEnt.Hpp = charStatus.Hpp;
                 localEnt.Mount = _localPlayer.Mount;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a

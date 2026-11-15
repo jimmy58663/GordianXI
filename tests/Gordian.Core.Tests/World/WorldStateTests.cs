@@ -207,6 +207,28 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(vanishing, state.IsVanishing);
         }
 
+        /// <summary>
+        /// #579: the local player entity a zone-in creates (S2C 0x00A) starts with the last known HP, or full before the first
+        /// vitals, not 0% (which drew it dead and played its death cry on the loading screen). A really dead one starts at 0.
+        /// </summary>
+        [Theory]
+        [InlineData(null, 0, (byte)100)]   // first login: nothing known yet
+        [InlineData((byte)0, 64, (byte)64)] // zoning alive at 64%
+        [InlineData((byte)3, 100, (byte)100)] // vanishing (status 3 with HP): alive
+        [InlineData((byte)3, 0, (byte)0)]   // dead
+        public void LocalEntitySeedHpp_KeepsTheLivingAlive(byte? status, byte hpp, byte expected)
+        {
+            var state = new LocalPlayerState();
+            if (status is { } s)
+            {
+                byte[] payload = new byte[0x60];
+                payload[36 + 2] = hpp;
+                payload[44] = s;
+                state.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+            }
+            Assert.Equal(expected, Gordian.Core.Network.SessionNetworkManager.LocalEntitySeedHpp(state));
+        }
+
         [Fact]
         public async Task EntityPacketModule_CoordinatesInboundAndOutboundPackets()
         {

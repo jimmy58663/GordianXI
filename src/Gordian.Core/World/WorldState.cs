@@ -226,6 +226,17 @@ namespace Gordian.Core.World
         public event Action<ushort>? MapZoneChanged;
 
         /// <summary>
+        /// Raised with the zone id on every zone-in (each S2C 0x00A login, after <see cref="ZoneChanged"/> and
+        /// <see cref="MapZoneChanged"/>): the first login, a zone change, a zone back into the same zone, into or out of the
+        /// Mog House. Unlike <see cref="ZoneChanged"/> it is raised even when the zone id stays the same (#579: retail prints its
+        /// <c>=== Area: ... ===</c> line for a <c>!zone</c> into the zone the character is in).
+        /// </summary>
+        public event Action<ushort>? ZoneEntered;
+
+        /// <summary>Raises <see cref="ZoneEntered"/>; the network thread calls it once per S2C 0x00A.</summary>
+        internal void NotifyZoneEntered(ushort zoneId) => ZoneEntered?.Invoke(zoneId);
+
+        /// <summary>
         /// Raises <see cref="MapZoneChanged"/> when <see cref="MapZoneId"/> differs from the last one raised; a change into or
         /// out of the Mog House within one zone drops the collision as a zone change does. The network thread calls it after
         /// S2C 0x00A's login info and zone are both in.

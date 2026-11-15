@@ -26,7 +26,10 @@ namespace Gordian.Core.Animation
         Spell,
 
         /// <summary>A synthesis (S2C 0x030, #315): the crystal's element file, its <c>main</c> built from <c>frst</c> and the result's ending.</summary>
-        Synthesis
+        Synthesis,
+
+        /// <summary>A fixed effect file the client plays for a message, not an action (the level up and level down, #581).</summary>
+        Effect
     }
 
     /// <summary>
@@ -213,6 +216,43 @@ namespace Gordian.Core.Animation
         {
             _cache.Clear();
             _synthesisCache.Clear();
+            _effectCache.Clear();
+        }
+
+        private readonly ConcurrentDictionary<int, ActionAsset?> _effectCache = new();
+
+        /// <summary>
+        /// A fixed effect file played on an actor as a presentation (#581: the level up <c>ROM/13/35</c>, the level down
+        /// <c>ROM/13/34</c>), read once: its <c>main</c> on the body and as effect timelines. Null when it cannot be read.
+        /// </summary>
+        public ActionAsset? ResolveEffectFile(int fileId)
+        {
+            if (fileId <= 0) return null;
+            var loader = Loader;
+            if (loader == null) return null;
+            if (_effectCache.TryGetValue(fileId, out var cached)) return cached;
+            var asset = _effectCache.GetOrAdd(fileId, id => LoadFile(ActionAssetKind.Effect, 0, id, loader));
+            if (asset?.Effects != null && _loader == null && EffectsPreloader is { } preload) Preload(preload, asset.FileId, asset.ToString());
+            return asset;
+        }
+
+        private static ActionAsset? LoadFile(ActionAssetKind kind, int animation, int fileId, Func<int, byte[]?> loader)
+        {
+            try
+            {
+                var bytes = loader(fileId);
+                if (bytes == null || bytes.Length == 0) return null;
+                var container = EntityModelLoader.ParseDatContainer(bytes, $"Effect_{fileId}");
+                var motion = container.Routines.Count > 0 ? new EventMotionBank(fileId, container.Animations, container.Routines) : null;
+                var effects = EventSceneResource.Parse(bytes);
+                if (motion == null && effects.Routines.Count == 0) return null;
+                return new ActionAsset(kind, animation, fileId, motion, effects);
+            }
+            catch (Exception ex)
+            {
+                Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Anim, $"Effect file {fileId} could not be read: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>

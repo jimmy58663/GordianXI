@@ -101,6 +101,7 @@ namespace Gordian.Core.Network
                 _localPlayer.RequestGroundSettle();
                 // Into or out of the Mog House within the same city changes what is drawn and walked, not the zone (#354).
                 _world.RefreshMapZone();
+                _world.NotifyZoneEntered(zoneId);
             };
             _lifecycleModule.ZonesVisitedReceived += table => _progression.UpdateZonesVisited(table);
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
