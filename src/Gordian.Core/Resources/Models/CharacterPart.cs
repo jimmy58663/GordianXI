@@ -45,7 +45,7 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The occludeType of each of the part's meshes (<see cref="SkeletonMeshGroup.OccludeType"/>).</summary>
         public IReadOnlyList<byte> OccludeTypes { get; init; } = Array.Empty<byte>();
 
-        /// <summary>Clips the part's DAT carries itself (no retail gear DAT carries any); they join the wearer's motion set.</summary>
+        /// <summary>Clips the part's DAT carries itself (none of the sampled retail gear DATs carries any); they join the wearer's motion set.</summary>
         public IReadOnlyList<AnimationClip> Animations { get; init; } = Array.Empty<AnimationClip>();
 
         /// <summary>
