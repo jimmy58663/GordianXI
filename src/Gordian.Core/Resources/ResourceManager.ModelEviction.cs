@@ -55,8 +55,9 @@ namespace Gordian.Core.Resources
         public const double EntityModelIdleSeconds = 60.0;
 
         /// <summary>
-        /// The default <see cref="EntityPartBudgetBytes"/>. Provisional: to be set from the part memory measured in a busy
-        /// retail city (#573).
+        /// The default <see cref="EntityPartBudgetBytes"/> (#573): a busy retail city (89 players, 19 NPCs, 2026-11-14) held
+        /// 66 MB of parts, and 600 random looks with almost no shared gear about 411 MB, so the limit only bites far past a
+        /// crowded city.
         /// </summary>
         public const long DefaultEntityPartBudgetBytes = 512L * 1024 * 1024;
 
