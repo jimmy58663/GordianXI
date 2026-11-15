@@ -10,7 +10,7 @@ Sources: XiPackets `world/server/0x000D`, `0x000E`, `0x0037` (bit names and docu
 |---|---|---|---|---|
 | 0 | Position | position, heading, speed fields are valid | `EntityUpdateFlags.Position`; `EntityPacketModule` moves the entity only with it, and reads GroundFlag only then | XiPackets 0x000D / 0x000E |
 | 1 | ClaimStatus | the claim / battle target field is valid | `ClaimServerId` taken only with it | same |
-| 2 | General | HP, status and the flag words are valid | name plate flags and linkshell colour are read only with it (a position-only update made a running player's pearl vanish) | same |
+| 2 | General | HP, status and the flag words are valid | 0x00D: every Flags1-6 field is read only with it: name plate flags, linkshell colour, GraphSize, HideFlag, SleepFlag, InvisFlag, CharmFlag, the non-blocking bit (a position-only update made a running player's pearl vanish, and drew Medium and Large players at the Small size until the next General update, #577). LandSandBoat `char_update.cpp` fills Flags1-3 only under `SendFlg.General`. 0x00E: the flag words are read with it, except HideFlag and SleepFlag, which are also read with Position (below) | same |
 | 3 | Name | the name is present | `GetName` | same |
 | 4 | Model | 0x00D: the grap id table is present. 0x00E: a gear look (SubKind 1 / 7) carries its look; without the flag the look bytes are not data | `TryGetGrapIdTable`; 0x00E `HasModel`: `TryGetEquippedLook` reads the look only with it (#532). Retail sends gear-look NPCs updates with no send flags whose look is zero but for SubKind 1 (Port Windurst, 2026-11-12); read as a look, race 0 drew a Hume male. **Beyond LandSandBoat**, which writes the look into every update and never sends send flags 0. A fixed model id (SubKind 0 / 5 / 6) is read whatever the flags, as XiPackets' SubKind 0 handler does (LandSandBoat spawns those with 0x0F, no Model flag); id 0 is ignored | same |
 | 5 | Despawn | the entity leaves | `WorldState.RemoveEntity`; 0x00E: `EntityPacketModule` keeps the entity's last state until the zone changes, and a later update with send flags but no Position flag brings it back as it was (#533). Retail sends a same-zone Home Point warp's destination Home Point a full update, a despawn, the 0x065 move and then a name-only update (Windurst Waters, 2026-11-12), and draws it at once; the next full update came a minute later. **Beyond XiPackets** (*inferred* from that sequence). An update with no send flags makes no entity | same |
@@ -34,13 +34,13 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | Bit | XiPackets name | Meaning (XiPackets; 0x00D unless noted) | GordianXI use |
 |---|---|---|---|
 | 0 | MonsterFlag | monster: yellow name, attackable (else NPC, green) | 0x00E `IsMonster` makes a 0-1023 index a monster, kept once seen (`EntityPacketModule`) |
-| 1 | HideFlag | fully hidden and untargetable | `IsHidden`: not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), skipped by targeting (`TargetCycling`) and entity bump (`EntityBumpCollision`), no name plate |
-| 2 | SleepFlag | the entity's scheduler is suspended; not rendered, not targetable | `IsSleeping` (both packets; read with HideFlag, from every 0x00E update, since it sits in LandSandBoat's status byte): not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), no name plate, skipped by targeting (`WorldEntity.IsServerTargetable`) and entity bump; a selected target that turns it on is dropped (#334) |
+| 1 | HideFlag | fully hidden and untargetable | `IsHidden` (0x00D General updates; 0x00E Position or General updates, see SleepFlag): not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), skipped by targeting (`TargetCycling`) and entity bump (`EntityBumpCollision`), no name plate |
+| 2 | SleepFlag | the entity's scheduler is suspended; not rendered, not targetable | `IsSleeping` (0x00D: General updates only, #577. 0x00E: read with HideFlag from Position or General updates, since it sits in the status byte LandSandBoat writes into every 0x00E update and XiPackets lists Flags1 under Position for 0x000E; the rest of Flags1 is LandSandBoat's database flag word, written only with General): not drawn unless the entity takes part in the running event (`WorldEntity.IsDrawn`), no name plate, skipped by targeting (`WorldEntity.IsServerTargetable`) and entity bump; a selected target that turns it on is dropped (#334) |
 | 3 | (PS2 MonStat) | unused | |
 | 4 | | unknown | |
 | 5-7 | ChocoboIndex | special chocobo type | 0x00D decoded (`ChocoboIndex`), not used |
 | 8 | CliPosInitFlag | position being initialised | not decoded |
-| 9-10 | GraphSize | model size 0 small, 1 medium, 2 large | `GraphSize`: entity bump radius 0.35 / 0.7 / 1.4 (`EntityBumpCollision.RadiusOf`) |
+| 9-10 | GraphSize | model size 0 small, 1 medium, 2 large | `GraphSize` (both packets, General updates only, #577): entity bump radius 0.35 / 0.7 / 1.4 (`EntityBumpCollision.RadiusOf`) |
 | 11 | LfgFlag | 0x00D: seeking party. 0x00E: language-specific use | 0x00D `NamePlateFlags.SeekingParty` |
 | 12 | AnonymousFlag | 0x00D: `/anon`. 0x00E: language-specific | 0x00D `NamePlateFlags.Anonymous` |
 | 13 | YellFlag | called for help: orange name | `NamePlateFlags.CalledForHelp` (both packets) |
@@ -55,7 +55,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 24-26 | GmLevel | 1-2 trial arrow, 3 PlayOnline icon, 4-7 GM icons | 0x00D `GmLevel` → `NamePlateStyle.Icon` |
 | 27 | HackMove | unused | |
 | 28 | (PS2 GMInvisFlag) | unknown | |
-| 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible`: still drawn, but no name plate and skipped by targeting and entity bump |
+| 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible` (both packets, General updates only, #577): still drawn, but no name plate and skipped by targeting and entity bump |
 | 30 | TurnFlag | ease the heading over time instead of snapping | `EasesHeading` (both packets, General updates), not used: GordianXI always eases the heading (15 per second, `WorldEntity.UpdateHeading`). LandSandBoat never sets it ("get the lerp values from retail", `char_update.cpp`). Snapping a standing entity's turn while the flag is clear, as XiPackets reads, was tried for #334 and rejected in the maintainer's in-game test (2026-10-10): the snap did not look right and the eased turns looked better. Retail's turn behaviour and rate are not measured |
 | 31 | BazaarFlag | bazaar icon | 0x00D `NamePlateFlags.Bazaar` |
 

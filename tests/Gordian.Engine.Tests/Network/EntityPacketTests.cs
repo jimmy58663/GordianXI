@@ -1382,6 +1382,97 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(0xDEADBEEFu, entity.ClaimServerId);
         }
 
+        /// <summary>
+        /// #577: LandSandBoat (char_update.cpp) and XiPackets (0x000D sendflags_t) fill Flags1-3 only with the General send
+        /// flag. A position-only update after a full one must keep the size class and the hidden / invisible / sleep /
+        /// charm / non-blocking flags (a Large player was drawn Small while running).
+        /// </summary>
+        [Fact]
+        public void EntityPacketModule_CharPc_PositionOnlyUpdate_KeepsGeneralOnlyFlags()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] full = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(0, 4), 0x01020305);
+            BinaryPrimitives.WriteUInt16LittleEndian(full.AsSpan(4, 2), 0x0124);
+            full[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.ClaimStatus | EntityUpdateFlags.Model | EntityUpdateFlags.Name);
+            full[26] = 100;
+            // Flags1: HideFlag (1), SleepFlag (2), GraphSize 2 (bits 9-10), InvisFlag (29). Flags2: CharmFlag (27).
+            // Flags3: NewCharacterFlag (23), MentorFlag (24), non-blocking (28).
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(28, 4), (1u << 1) | (1u << 2) | (2u << 9) | (1u << 29));
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(32, 4), 1u << 27);
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(36, 4), (1u << 23) | (1u << 24) | (1u << 28));
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(full.Length + 4), 1), full);
+
+            Assert.True(world.TryGetByServerId(0x01020305, out var entity));
+            var player = Assert.IsType<PlayerEntity>(entity);
+            Assert.Equal(2, player.GraphSize);
+            Assert.True(player.IsHidden && player.IsSleeping && player.IsInvisible && player.IsCharmed && player.IsNonBlocking);
+            Assert.True(player.IsNewPlayer && player.IsMentor);
+
+            byte[] moved = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(moved.AsSpan(0, 4), 0x01020305);
+            BinaryPrimitives.WriteUInt16LittleEndian(moved.AsSpan(4, 2), 0x0124);
+            moved[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteSingleLittleEndian(moved.AsSpan(8, 4), 3f);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(moved.Length + 4), 2), moved);
+
+            Assert.Equal(2, player.GraphSize);
+            Assert.True(player.IsHidden && player.IsSleeping && player.IsInvisible && player.IsCharmed && player.IsNonBlocking);
+            Assert.True(player.IsNewPlayer && player.IsMentor);
+
+            // The next General update is the one that changes them.
+            byte[] general = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(general.AsSpan(0, 4), 0x01020305);
+            BinaryPrimitives.WriteUInt16LittleEndian(general.AsSpan(4, 2), 0x0124);
+            general[6] = (byte)EntityUpdateFlags.General;
+            general[26] = 100;
+            BinaryPrimitives.WriteUInt32LittleEndian(general.AsSpan(28, 4), 1u << 9);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(general.Length + 4), 3), general);
+
+            Assert.Equal(1, player.GraphSize);
+            Assert.False(player.IsHidden || player.IsSleeping || player.IsInvisible || player.IsCharmed || player.IsNonBlocking);
+            Assert.False(player.IsNewPlayer || player.IsMentor);
+        }
+
+        /// <summary>
+        /// #577: on 0x00E LandSandBoat writes the status into Flags1's low byte (HideFlag, SleepFlag) in every update, but
+        /// the rest of Flags1 (GraphSize, InvisFlag) only with General (entity_update.cpp, UPDATE_HP).
+        /// </summary>
+        [Fact]
+        public void EntityPacketModule_CharNpc_PositionOnlyUpdate_KeepsSizeAndInvisibility()
+        {
+            var world = new WorldState();
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, new LocalPlayerState(), (c, e) => Task.CompletedTask).Register(dispatcher);
+
+            byte[] full = new byte[0x48];
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(0, 4), 0x01004009);
+            BinaryPrimitives.WriteUInt16LittleEndian(full.AsSpan(4, 2), 306);
+            full[6] = (byte)(EntityUpdateFlags.Position | EntityUpdateFlags.General | EntityUpdateFlags.Name);
+            full[26] = 100;
+            BinaryPrimitives.WriteUInt32LittleEndian(full.AsSpan(28, 4), 1u | (2u << 9) | (1u << 29));
+            System.Text.Encoding.ASCII.GetBytes("Goblin").CopyTo(full.AsSpan(0x30));
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(full.Length + 4), 1), full);
+
+            Assert.True(world.TryGetByServerId(0x01004009, out var mob));
+            Assert.Equal(2, mob.GraphSize);
+            Assert.True(mob.IsInvisible);
+
+            byte[] moved = new byte[0x48];
+            BinaryPrimitives.WriteUInt32LittleEndian(moved.AsSpan(0, 4), 0x01004009);
+            BinaryPrimitives.WriteUInt16LittleEndian(moved.AsSpan(4, 2), 306);
+            moved[6] = (byte)EntityUpdateFlags.Position;
+            BinaryPrimitives.WriteUInt32LittleEndian(moved.AsSpan(28, 4), 1u | (1u << 1)); // status byte only: Disappear
+            dispatcher.Dispatch(new PacketHeader(S2C_0x00E_CharNpc.PacketId, (ushort)(moved.Length + 4), 2), moved);
+
+            Assert.Equal(2, mob.GraphSize);
+            Assert.True(mob.IsInvisible);
+            Assert.True(mob.IsHidden); // the status byte is read from a position update
+        }
+
         [Fact]
         public void EntityPacketModule_CharNpc_PositionOnlyUpdate_PreservesAnimationStateAndClaimServerId()
         {

@@ -220,7 +220,7 @@ namespace Gordian.Core.Network.Packets
                         player.RenderHeadingRadians = player.HeadingRadians;
                     }
                 }
-                else if (pc.IsCharmed)
+                else if ((pc.UpdateFlags & EntityUpdateFlags.General) != 0 ? pc.IsCharmed : player.IsCharmed)
                 {
                     // Charmed: the server moves the local player and ignores the client's reported position.
                     _localPlayer.RequestPositionCorrection(new Vector3(pc.X, pc.Y, pc.Z), pc.Direction);
@@ -282,16 +282,20 @@ namespace Gordian.Core.Network.Packets
                 player.HidesShadow = pc.HidesShadow;
                 player.IsMotionStopped = pc.IsMotionStopped;
                 player.IsPriorityDrawn = pc.IsPriorityDrawn;
+                // Flags1-3 carry these too: a position-only update leaves them zero (LandSandBoat char_update.cpp fills
+                // Flags1-3 only under SendFlg.General), so reading them from every update drew Medium and Large players
+                // at the Small size between General updates and flashed invisible players visible while they ran (#577).
+                // Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D, sendflags_t General.
+                player.IsSleeping = pc.IsSleeping;
+                player.IsInvisible = pc.IsInvisible;
+                player.GraphSize = pc.GraphSize;
+                player.IsHidden = pc.IsHidden;
+                player.IsNonBlocking = pc.IsNonBlocking;
+                player.IsCharmed = pc.IsCharmed;
             }
-            player.IsSleeping = pc.IsSleeping;
             // facetarget is written with the position (LandSandBoat char_update.cpp); the local player's own head is left alone.
             if (pc.HasPosition) player.FaceTargetIndex = pc.UniqueNo == _localPlayer.ServerId ? (ushort)0 : pc.FaceTargetIndex;
-            player.IsInvisible = pc.IsInvisible;
-            player.GraphSize = pc.GraphSize;
-            player.IsHidden = pc.IsHidden;
-            player.IsNonBlocking = pc.IsNonBlocking;
             if (pc.HasPosition) player.IgnoresWorldCollision = pc.IgnoresWorldCollision;
-            player.IsCharmed = pc.IsCharmed;
 
             player.PetActorIndex = pc.PetActorIndex;
             player.Appearance.CostumeId = pc.CostumeId;
@@ -460,10 +464,11 @@ namespace Gordian.Core.Network.Packets
 
             if (isNew || (npcPacket.UpdateFlags & (EntityUpdateFlags.Position | EntityUpdateFlags.General)) != 0)
             {
-                entity.GraphSize = npcPacket.GraphSize;
+                // HideFlag and SleepFlag sit in Flags1's low byte (packet 0x20), which LandSandBoat fills with the entity's
+                // status in every update, and the client reads Flags1 with the Position flag too (XiPackets 0x000E
+                // sendflags_t). The rest of Flags1 (packet 0x21-0x23: GraphSize, InvisFlag) is the database flag word,
+                // written only with General (LandSandBoat entity_update.cpp, UPDATE_HP), so those are read below (#577).
                 entity.IsHidden = npcPacket.IsHidden;
-                entity.IsInvisible = npcPacket.IsInvisible;
-                // SleepFlag sits in the status byte LandSandBoat writes in every update, with HideFlag.
                 entity.IsSleeping = npcPacket.IsSleeping;
                 if (npcPacket.HasPosition)
                 {
@@ -475,6 +480,8 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (npcPacket.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 // The rest of the flag words are valid with the General send flag (XiPackets 0x000E SendFlg).
+                entity.GraphSize = npcPacket.GraphSize;
+                entity.IsInvisible = npcPacket.IsInvisible;
                 entity.IsTargetOff = npcPacket.IsTargetOff;
                 entity.EasesHeading = npcPacket.EasesHeading;
                 entity.ModelHitboxRadius = npcPacket.ModelHitboxRadius;
