@@ -23,8 +23,9 @@ namespace Gordian.Engine.Actions
     /// </para>
     /// <para>
     /// Retail on local LSB 2026-11-15 (#562): with a mob targeted, Cure chosen from that mob's command menu starts the
-    /// cursor on yourself, and Cancel brings the Magic list back with its cursor on Cure. PROVISIONAL: the start with
-    /// another player or a party member targeted (not captured; it starts on them), and the screen-order cycling.
+    /// cursor on yourself, and Cancel brings the Magic list back with its cursor on Cure. With another player or a party
+    /// member targeted, a beneficial spell starts on them (the maintainer's retail check, 2026-11-15 test round).
+    /// PROVISIONAL: the screen-order cycling.
     /// </para>
     /// </summary>
     public sealed class SubTargetSelection

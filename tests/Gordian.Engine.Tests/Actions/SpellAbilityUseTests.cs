@@ -206,7 +206,7 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
             _service.CancelSubTarget();
 
-            // Another player targeted: the cursor starts on them (PROVISIONAL, not yet checked in retail).
+            // Another player targeted: the cursor starts on them (the maintainer's retail check, 2026-11-15 test round).
             _service.SetTargetByName("Tarudrake");
             Assert.True(_service.BeginSubTarget("Cure", cure, Run).Success);
             Assert.Equal(FriendId, _service.SubTargeting!.Current.ServerId);
