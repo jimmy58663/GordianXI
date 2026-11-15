@@ -844,6 +844,12 @@ namespace Gordian.Core.World
         public void NotifyJump() => Interlocked.Increment(ref _jumpCount);
 
         public EntityAppearance Appearance { get; } = new EntityAppearance();
+
+        /// <summary>
+        /// The model the resource manager last gave the entity (#573), so a frame finds it again without building a key or
+        /// looking it up; replaced when the entity's model id or look changes.
+        /// </summary>
+        internal Gordian.Core.Resources.EntityModelBinding? ModelBinding { get; set; }
         public EntityAnimationState Animation { get; } = new EntityAnimationState();
 
         /// <summary>What the player rides (#87; S2C 0x00D, or 0x037 for the local player); <see cref="MountAppearance.None"/> on foot.</summary>

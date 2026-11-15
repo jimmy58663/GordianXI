@@ -728,7 +728,8 @@ namespace Gordian.Core.Resources.Graphics
                         Indices = outIndices.ToArray(),
                         MinBounds = minBounds,
                         MaxBounds = maxBounds,
-                        AmbientMultiplier = piece.AmbientMultiplier
+                        AmbientMultiplier = piece.AmbientMultiplier,
+                        DisplayType = piece.DisplayType
                     });
                 }
             }
