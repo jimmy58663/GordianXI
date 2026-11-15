@@ -1,6 +1,5 @@
 // src/Gordian.Engine/Animation/LevelChangeEffectController.cs
 using System;
-using System.Diagnostics;
 using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
@@ -43,6 +42,12 @@ namespace Gordian.Engine.Animation
 
         private WorldState? _world;
 
+        /// <summary>
+        /// An effect started on an actor: the actor, the effect file and the start (<see cref="ActorColorTrack.Now"/>
+        /// seconds). The audio service plays its sounds from it (raised on the network thread).
+        /// </summary>
+        public event Action<WorldEntity, ActionAsset, double>? EffectStarted;
+
         /// <summary>The library the effect files come from (the shared one by default; tests set their own).</summary>
         public ActionMotionLibrary Library { get; set; } = ActionMotionLibrary.Shared;
 
@@ -83,14 +88,28 @@ namespace Gordian.Engine.Animation
                 return;
             }
             GordianLog.Debug(LogCategories.Anim, $"Message {record.MessageId} on {entity.ServerId:X8}: {asset}.");
-            entity.Animation.EnqueueAction(new ActionRequest
+            Play(entity, asset);
+        }
+
+        /// <summary>
+        /// Plays the effect on <paramref name="entity"/> at once, beside whatever its body is doing: the file's generators
+        /// through the viewport (<see cref="WorldState.PostActorEffect"/>, as S2C 0x03A presentations), its 0x29 colour fades
+        /// (level down's darkening) on the actor's colour track, and its sounds through <see cref="EffectStarted"/>. Queued
+        /// as a body action (round 1) it waited behind the killing blow's finish (a Stone's finish, retail log 2026-11-15),
+        /// went stale after <see cref="EntityAnimationState.StaleActionSeconds"/> and never played.
+        /// </summary>
+        private void Play(WorldEntity entity, ActionAsset asset)
+        {
+            double now = ActorColorTrack.Now;
+            if (asset.Effects is { } effects)
             {
-                ActorId = entity.ServerId,
-                Category = ActionCategory.None,
-                Motion = ActionMotion.Routine,
-                Asset = asset,
-                ReceivedTimestamp = Stopwatch.GetTimestamp(),
-            });
+                _world!.PostActorEffect(new ActorEffectRequest(entity.ServerId, entity.ServerId, string.Empty, asset));
+                if (effects.TryGetRoutine(ActionAsset.MainRoutine, out var main))
+                {
+                    entity.ActorColor.Schedule(main, now, name => effects.TryGetRoutine(name, out var r) ? r : null);
+                }
+            }
+            EffectStarted?.Invoke(entity, asset, now);
         }
     }
 }

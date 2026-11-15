@@ -6,11 +6,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Gordian.App.Services;
 using Gordian.Engine.Audio;
+using Gordian.Core.Animation;
 using Gordian.Core.Diagnostics;
 using Gordian.Engine.Graphics;
 using Gordian.Core.Network;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Containers;
+using Gordian.Core.Resources.Models;
 using Gordian.Engine.Sessions;
 using Gordian.Engine.Ui;
 using Gordian.Core.World;
@@ -606,10 +608,27 @@ namespace Gordian.App.Audio
             _resources?.GetSharedHitRoutines()?.MeleeHitSounds(reaction.Result) ?? Array.Empty<int>());
         private readonly List<ActionSoundEvent> _actionEvents = new();
 
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(uint Actor, IReadOnlyList<RoutineSoundCue> Cues, double Start)> _startedEffects = new();
+
+        /// <summary>
+        /// A level up or level down effect started on an actor (#581, network thread): its sounds (the file's sound commands
+        /// through the actor's routines, and its audio generators) play from its start, apart from the body's routine.
+        /// </summary>
+        private void OnEffectStarted(WorldEntity entity, ActionAsset asset, double start)
+        {
+            IReadOnlyList<RoutineSoundCue> cues = entity.Animation.Model is { } model ? asset.GetSoundsOnModel(model) : asset.GeneratorSounds;
+            _startedEffects.Enqueue((entity.ServerId, cues, start));
+        }
+
         /// <summary>Combat and action sounds of the actors near the listener (#41), on the Effects bus.</summary>
         private void UpdateActionSounds(WorldState world)
         {
             _actionEvents.Clear();
+            while (_startedEffects.TryDequeue(out var started))
+            {
+                _actionSounds.StartDetached(started.Actor, started.Cues, started.Start);
+            }
+
             _actionSounds.Update(world.Entities, _listenerPosition,
                 id => world.TryGetByServerId(id, out WorldEntity? e) ? ActionSoundTracker.Snapshot(e) : null, _actionEvents);
             foreach (ActionSoundEvent sound in _actionEvents)
@@ -689,6 +708,7 @@ namespace Gordian.App.Audio
             session.ActionService.Menus.SoundCue += PlayCue;
             session.ActionService.DebugAudioCommand = HandleDebugCommand;
             session.ActionService.TargetChanged += OnTargetChanged;
+            session.LevelChangeEffects.EffectStarted += OnEffectStarted;
         }
 
         private void DetachSession(CharacterSession? session)
@@ -701,6 +721,8 @@ namespace Gordian.App.Audio
             session.ActionService.Menus.SoundCue -= PlayCue;
             session.ActionService.DebugAudioCommand = null;
             session.ActionService.TargetChanged -= OnTargetChanged;
+            session.LevelChangeEffects.EffectStarted -= OnEffectStarted;
+            _startedEffects.Clear();
         }
 
         private void WatchTells(CharacterSession session)

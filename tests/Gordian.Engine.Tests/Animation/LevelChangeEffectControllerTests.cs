@@ -32,15 +32,22 @@ namespace Gordian.Engine.Tests.Animation
             var world = new WorldState();
             var me = new WorldEntity(0x01000001, 5, EntityType.Player) { Name = "Me" };
             world.UpsertEntity(me);
-            new LevelChangeEffectController { Library = new ActionMotionLibrary(_ => null) }.Attach(combat, world);
+            var controller = new LevelChangeEffectController { Library = new ActionMotionLibrary(_ => null) };
+            int started = 0;
+            controller.EffectStarted += (_, _, _) => started++;
+            controller.Attach(combat, world);
 
             combat.RecordBattleMessage(new CombatMessageRecord { CasterId = me.ServerId, TargetId = 0x01100002, MessageId = 38, Param = 1 });
-            Assert.False(me.Animation.HasQueuedActions);
+            Assert.Equal(0, started);
+            var effects = new System.Collections.Generic.List<ActorEffectRequest>();
+            world.TakeActorEffects(world.CurrentZoneId, effects);
+            Assert.Empty(effects);
         }
 
         /// <summary>
         /// Message 9 plays the retail level up file on its caster (the character, not the defeated monster the target names),
-        /// with the Level-Up sound (se 7) at its start. Skipped without the game install.
+        /// with the Level-Up sound (se 7) at its start, at once and beside the body: the killing blow's finish is still
+        /// playing when it arrives (round 1 queued it behind that and it went stale). Skipped without the game install.
         /// </summary>
         [Fact]
         public void LevelUp_PlaysTheLevelUpFileOnTheCaster_WithItsSound()
@@ -56,10 +63,19 @@ namespace Gordian.Engine.Tests.Animation
             var mob = new WorldEntity(0x01100002, 2, EntityType.Monster) { Name = "Mandragora" };
             world.UpsertEntity(me);
             world.UpsertEntity(mob);
-            new LevelChangeEffectController { Library = library }.Attach(combat, world);
+            var controller = new LevelChangeEffectController { Library = library };
+            WorldEntity? soundOn = null;
+            controller.EffectStarted += (entity, _, _) => soundOn = entity;
+            controller.Attach(combat, world);
 
             combat.RecordBattleMessage(new CombatMessageRecord { CasterId = me.ServerId, TargetId = mob.ServerId, MessageId = 9, Param = 12 });
-            Assert.True(me.Animation.HasQueuedActions);
+            var effects = new System.Collections.Generic.List<ActorEffectRequest>();
+            world.TakeActorEffects(world.CurrentZoneId, effects);
+            var posted = Assert.Single(effects);
+            Assert.Equal(me.ServerId, posted.ActorServerId);
+            Assert.Equal(LevelChangeEffectController.LevelUpFileId, posted.Asset!.FileId);
+            Assert.Same(me, soundOn);
+            Assert.False(me.Animation.HasQueuedActions);
             Assert.False(mob.Animation.HasQueuedActions);
 
             var asset = library.ResolveEffectFile(LevelChangeEffectController.LevelUpFileId)!;
@@ -69,6 +85,30 @@ namespace Gordian.Engine.Tests.Animation
             Assert.Contains(container.Routines.Single(r => r.Name == ActionAsset.MainRoutine).SoundCommands,
                 s => s.Op == 0x4A && s.SoundId == (int)Gordian.Engine.Ui.StockUiSoundCue.LevelUp);
             Assert.Contains(asset.GeneratorSounds, c => c.Choices.Contains(12094));
+        }
+
+        /// <summary>
+        /// Level down (message 11) darkens the character with its 0x29 fades (to black at full alpha and back), so its alpha,
+        /// the part the renderer draws, stays opaque. Skipped without the game install.
+        /// </summary>
+        [Fact]
+        public void LevelDown_SchedulesItsColourFades_WithoutHidingTheCharacter()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var combat = new CombatState();
+            var world = new WorldState();
+            var me = new WorldEntity(0x01000001, 5, EntityType.Player) { Name = "Me" };
+            world.UpsertEntity(me);
+            new LevelChangeEffectController { Library = new ActionMotionLibrary(rm.LoadDatBytesByFileId) }.Attach(combat, world);
+
+            double start = ActorColorTrack.Now;
+            combat.RecordBattleMessage(new CombatMessageRecord { CasterId = me.ServerId, TargetId = me.ServerId, MessageId = 11, Param = 11 });
+            Assert.True(me.ActorColor.IsActive);
+            var dark = me.ActorColor.Sample(start + 60 / 60.0);
+            Assert.True(dark.X < 0.1f && dark.Y < 0.1f && dark.Z < 0.1f);
+            Assert.Equal(1f, dark.W, 3);
         }
     }
 }

@@ -112,6 +112,41 @@ namespace Gordian.App.Tests.Audio
             Assert.Empty(Step(tracker, Actor(1, Fighter, serial: 1)));
         }
 
+        /// <summary>
+        /// #581 round 2: the level up effect's sounds play from its start on wall time, apart from the body (whose queue
+        /// holds the killing blow's finish), each once, where the actor is; an actor gone drops the rest.
+        /// </summary>
+        [Fact]
+        public void Detached_PlaysEachCueOnce_OnWallTime()
+        {
+            double now = 10;
+            var tracker = new ActionSoundTracker(_ => 0, (_, _, _) => System.Array.Empty<RoutineSoundCue>(), clock: () => now);
+            var cues = new[] { new RoutineSoundCue(0, new[] { 7 }, 0x4A), new RoutineSoundCue(0, new[] { 12094 }, 0x02), new RoutineSoundCue(90, new[] { 500 }, 0x02) };
+            ActorSoundState? me = Actor(1, Fighter) with { Position = new Vector3(3, 0, 4) };
+            tracker.StartDetached(1, cues, 10);
+
+            var into = new List<ActionSoundEvent>();
+            tracker.PlayDetached(_ => me, into);
+            Assert.Equal(new[] { 7, 12094 }, into.Select(e => e.SoundId));
+            Assert.All(into, e => Assert.Equal(new Vector3(3, 0, 4), e.Position));
+
+            into.Clear();
+            now = 11; // tick 60
+            tracker.PlayDetached(_ => me, into);
+            Assert.Empty(into);
+            now = 11.6; // tick 96
+            tracker.PlayDetached(_ => me, into);
+            Assert.Equal(new[] { 500 }, into.Select(e => e.SoundId));
+            into.Clear();
+            now = 20;
+            tracker.PlayDetached(_ => me, into);
+            Assert.Empty(into);
+
+            tracker.StartDetached(1, cues, 20);
+            tracker.PlayDetached(_ => null, into);
+            Assert.Empty(into);
+        }
+
         [Fact]
         public void AttackRound_AddsTheAttackCry()
         {
