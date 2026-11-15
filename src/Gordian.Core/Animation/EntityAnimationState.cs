@@ -530,7 +530,7 @@ namespace Gordian.Core.Animation
                 AnimationClip? transClip = null;
                 if (stanceChanged && !isLocomotionOrDeath)
                 {
-                    transClip = NpcStanceResolver.ResolveTransitionClip(model, fromStance, targetStance);
+                    transClip = NpcStanceResolver.ResolveTransitionClip(model, fromStance, targetStance, subAnimation);
                 }
 
                 // Sitting down into /heal or /sit, or standing up out of it (#343), plays once, then the new stance.

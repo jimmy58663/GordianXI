@@ -31,5 +31,58 @@ namespace Gordian.Core.Tests.Animation
             var homePoint = EntityModelLoader.LoadMonsterModel(51, rm.LoadDatBytesByFileId)!;
             Assert.False(NpcStanceResolver.IsStateDriven(homePoint));
         }
+
+        /// <summary>
+        /// #582: a dropped casket (blue 965, brown 966) spawns with sub-animation 4 and rests closed on <c>idl</c>; LandSandBoat's
+        /// 1 once opened plays <c>sp00</c>'s opening clip <c>op0</c> into the open <c>1dl</c>; 5 (state 1 with the spawn bit, a
+        /// casket already open when it comes into range) rests open without the opening.
+        /// </summary>
+        [Theory]
+        [InlineData(965u)]
+        [InlineData(966u)]
+        public void Casket_SpawnsClosed_AndOpensThroughItsOpeningClip(uint modelId)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var casket = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            Assert.True(NpcStanceResolver.IsStateDriven(casket));
+
+            Assert.Equal(0, NpcStanceResolver.ResolveEffectiveStance(casket, 4));
+            Assert.Equal(0, NpcStanceResolver.ResolveEffectiveStance(casket, 0));
+            Assert.Same(casket.Animations["idl0"], NpcStanceResolver.ResolveTargetClip(casket, AnimationCategory.Idle, 0));
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(casket, 1));
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(casket, 5));
+            Assert.Same(casket.Animations["1dl0"], NpcStanceResolver.ResolveTargetClip(casket, AnimationCategory.Idle, 1));
+
+            var opening = NpcStanceResolver.ResolveTransitionClip(casket, 0, 1, 1);
+            Assert.NotNull(opening);
+            Assert.StartsWith("op0", opening!.Name);
+            Assert.Null(NpcStanceResolver.ResolveTransitionClip(casket, 0, 1, 5));
+
+            // Played through the animation state: closed at spawn, the opening clip on 1, then open.
+            var state = new EntityAnimationState();
+            state.Advance(1f / 60f, AnimationCategory.Idle, 4, casket);
+            Assert.Equal(0, state.CurrentStance);
+            state.Advance(1f / 60f, AnimationCategory.Idle, 1, casket);
+            Assert.True(state.IsPlayingTransition);
+            Assert.Same(opening, state.TransitionClip);
+            for (int i = 0; i < 120; i++) state.Advance(1f / 60f, AnimationCategory.Idle, 1, casket);
+            Assert.False(state.IsPlayingTransition);
+            Assert.Equal(1, state.CurrentStance);
+            Assert.Same(casket.Animations["1dl0"], state.CurrentClip);
+        }
+
+        /// <summary>The furnace names its transitions by previous and new state: 0 to 1 is <c>sp01</c>, its appearance clip <c>pop</c>.</summary>
+        [Fact]
+        public void SynergyFurnace_TransitionIsNamedByBothStates()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var furnace = EntityModelLoader.LoadMonsterModel(2348, rm.LoadDatBytesByFileId)!;
+            Assert.StartsWith("pop", NpcStanceResolver.ResolveTransitionClip(furnace, 0, 1, 1)!.Name);
+            Assert.Null(NpcStanceResolver.ResolveTransitionClip(furnace, 0, 1, 5));
+        }
     }
 }
