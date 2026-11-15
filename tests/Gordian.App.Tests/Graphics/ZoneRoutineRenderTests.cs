@@ -127,7 +127,8 @@ namespace Gordian.App.Tests.Graphics
                 var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
                 var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(640, 480, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
                 var fb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
-                void Run(int frames) { for (int i = 0; i < frames; i++) renderer.Render(camera, env, 1 / 60f, 640, 480, entities: world.GetAllEntities(), resourceManager: rm, present: false, targetFramebuffer: fb); }
+                // Other players' models build on a worker in the live renderer (#573); build them here first.
+                void Run(int frames) { foreach (var e in world.GetAllEntities()) rm.TryLoadEntityModel(e, out _); for (int i = 0; i < frames; i++) renderer.Render(camera, env, 1 / 60f, 640, 480, entities: world.GetAllEntities(), resourceManager: rm, present: false, targetFramebuffer: fb); }
 
                 Run(20);
                 int bound = renderer.BoundAttachedEmitters;

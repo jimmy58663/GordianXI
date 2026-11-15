@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Models;
@@ -79,11 +80,14 @@ namespace Gordian.Core.Resources
         internal sealed class CachedEntityModel
         {
             private readonly Lazy<EntityModel?> _model;
+            private readonly StrongBox<int>? _pendingBuilds;
             private long _lastUsed = Stopwatch.GetTimestamp();
             private int _started;
 
-            public CachedEntityModel(Func<EntityModel?> build, string label)
+            /// <param name="pendingBuilds">Counts this entry while a worker builds it (<see cref="EntityModelCacheStats.PendingBuilds"/>).</param>
+            public CachedEntityModel(Func<EntityModel?> build, string label, StrongBox<int>? pendingBuilds = null)
             {
+                _pendingBuilds = pendingBuilds;
                 _model = new Lazy<EntityModel?>(() =>
                 {
                     try
@@ -118,7 +122,12 @@ namespace Gordian.Core.Resources
             public void StartBuild()
             {
                 if (_model.IsValueCreated || Interlocked.Exchange(ref _started, 1) != 0) return;
-                ThreadPool.UnsafeQueueUserWorkItem(static entry => _ = entry._model.Value, this, preferLocal: false);
+                if (_pendingBuilds != null) Interlocked.Increment(ref _pendingBuilds.Value);
+                ThreadPool.UnsafeQueueUserWorkItem(static entry =>
+                {
+                    _ = entry._model.Value;
+                    if (entry._pendingBuilds != null) Interlocked.Decrement(ref entry._pendingBuilds.Value);
+                }, this, preferLocal: false);
             }
         }
 
@@ -152,6 +161,7 @@ namespace Gordian.Core.Resources
         private volatile CharacterModelBuilder? _characterBuilder;
         private readonly ConcurrentDictionary<CharacterLookKey, CachedEntityModel> _characterModels = new();
         private readonly ConcurrentDictionary<uint, CachedEntityModel> _monsterModels = new();
+        private readonly StrongBox<int> _pendingBuilds = new();
 
         private CharacterModelBuilder CharacterBuilder
         {
@@ -178,7 +188,7 @@ namespace Gordian.Core.Resources
             if (_characterModels.TryGetValue(look, out var entry)) return entry;
             var builder = CharacterBuilder;
             return _characterModels.GetOrAdd(look, k => new CachedEntityModel(() =>
-                builder.Build(k.Race, k.Face, k.ToGrapTable()), k.ToString()));
+                builder.Build(k.Race, k.Face, k.ToGrapTable()), k.ToString(), _pendingBuilds));
         }
 
         private CachedEntityModel MonsterEntry(uint modelId)
@@ -194,7 +204,7 @@ namespace Gordian.Core.Resources
                     GordianLog.Debug(LogCategories.Res, $"TryLoadEntityModel: Monster modelId={id}, fileId={fileId}, ftable={_fileTable.Count} entries, resolved={resolved}, relPath='{relPath}'");
                 }
                 return model;
-            }, $"Monster_{id}"));
+            }, $"Monster_{id}", _pendingBuilds));
         }
 
         /// <summary>
@@ -333,11 +343,8 @@ namespace Gordian.Core.Resources
             get
             {
                 var builder = _characterBuilder;
-                int pending = 0;
-                foreach (var entry in _characterModels.Values) if (entry.IsBuilding) pending++;
-                foreach (var entry in _monsterModels.Values) if (entry.IsBuilding) pending++;
                 return new EntityModelCacheStats(_characterModels.Count, _monsterModels.Count, builder?.PartCount ?? 0,
-                    builder?.PartBytes ?? 0, EntityPartBudgetBytes, builder?.MotionSetCount ?? 0, pending);
+                    builder?.PartBytes ?? 0, EntityPartBudgetBytes, builder?.MotionSetCount ?? 0, Volatile.Read(ref _pendingBuilds.Value));
             }
         }
 

@@ -22,6 +22,11 @@ namespace Gordian.App.Graphics
 
         private static volatile int s_pipThumbnailFrameRate = DefaultPipThumbnailFrameRate;
         private static volatile int s_zoneCacheBudgetMb = DefaultZoneCacheBudgetMb;
+
+        /// <summary>Default memory budget for shared entity gear parts, in megabytes (#573).</summary>
+        public const int DefaultEntityPartBudgetMb = (int)(Gordian.Core.Resources.ResourceManager.DefaultEntityPartBudgetBytes >> 20);
+
+        private static volatile int s_entityPartBudgetMb = DefaultEntityPartBudgetMb;
         private static volatile bool s_vsync = true;
         private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
         private static volatile bool s_softTerrainHighlights;
@@ -67,6 +72,16 @@ namespace Gordian.App.Graphics
             set => s_zoneCacheBudgetMb = Math.Clamp(value, 0, 65536);
         }
 
+        /// <summary>
+        /// Memory (megabytes) the shared character gear parts may hold (#573, <c>ResourceManager.EntityPartBudgetBytes</c>);
+        /// parts worn by live entities are never freed, so a limit set too low costs rebuilds, never missing models.
+        /// </summary>
+        public static int EntityPartBudgetMb
+        {
+            get => s_entityPartBudgetMb;
+            set => s_entityPartBudgetMb = Math.Clamp(value, 0, 65536);
+        }
+
         /// <summary>Whether the focused viewport window presents on the vertical blank (background ones never do).</summary>
         public static bool VsyncEnabled
         {
@@ -93,6 +108,7 @@ namespace Gordian.App.Graphics
             BackgroundFrameRate = settings.BackgroundFrameRate;
             PipThumbnailFrameRate = settings.PipThumbnailFrameRate;
             ZoneCacheBudgetMb = settings.ZoneCacheBudgetMb;
+            EntityPartBudgetMb = settings.EntityPartBudgetMb;
             VsyncEnabled = settings.IsVsyncEnabled;
             PerformanceOverlay = settings.PerformanceOverlay;
             SoftTerrainHighlights = settings.SoftTerrainHighlights;

@@ -42,6 +42,9 @@ namespace Gordian.App.Graphics
         /// <summary>GPU memory (MB) for zones kept loaded for characters in other zones (#322); 0 keeps only zones on screen.</summary>
         public int ZoneCacheBudgetMb { get; set; } = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
 
+        /// <summary>Memory (MB) the shared character gear parts may hold before unused ones are freed (#573).</summary>
+        public int EntityPartBudgetMb { get; set; } = ViewportRenderSettings.DefaultEntityPartBudgetMb;
+
         /// <summary>What the viewport performance overlay shows (#30): hidden by default, like the retail client.</summary>
         public PerformanceOverlayMode PerformanceOverlay { get; set; } = PerformanceOverlayMode.Hidden;
 

@@ -2131,6 +2131,16 @@
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
+                                <!-- Character part memory (#573) -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Character gear memory limit (MB):" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableEntityPartBudgets}"
+                                              SelectedItem="{Binding Viewport.EntityPartBudgetMb, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="How much memory the gear pieces of characters you have seen may keep. Pieces worn by characters around you always stay; above the limit, pieces nobody wears are freed first. Lower it on a machine with little memory, raise it for high-quality asset packs. The Detailed performance overlay shows the memory in use against the limit."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
                                 <!-- Character Tab Style -->
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="Character Tab Switcher Style:" Foreground="#A0A0A0" FontSize="12"/>

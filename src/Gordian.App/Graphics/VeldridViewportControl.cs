@@ -981,6 +981,8 @@ namespace Gordian.App.Graphics
                     if (_renderer != null)
                     {
                         // Drops the entity models nobody has used for a minute (#572), every 10 seconds across all windows.
+                        // The gear part memory limit from Settings (#573) applies at that sweep.
+                        if (ResourceManager is { } partBudgetResources) partBudgetResources.EntityPartBudgetBytes = (long)ViewportRenderSettings.EntityPartBudgetMb << 20;
                         _renderer.SharedResources.SweepEntityModels(ResourceManager, LiveEntities);
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;

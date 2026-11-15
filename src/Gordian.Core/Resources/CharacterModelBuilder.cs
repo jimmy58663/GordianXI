@@ -80,24 +80,10 @@ namespace Gordian.Core.Resources
         /// <summary>Gear parts cached (missing files included).</summary>
         public int PartCount => _parts.Count;
 
-        /// <summary>The <see cref="CharacterPart.ApproximateBytes"/> of every cached part.</summary>
-        public long PartBytes
-        {
-            get
-            {
-                long bytes = 0;
-                foreach (var part in LoadedParts()) bytes += part.ApproximateBytes;
-                return bytes;
-            }
-        }
+        private long _partBytes;
 
-        private IEnumerable<CharacterPart> LoadedParts()
-        {
-            foreach (var lazy in _parts.Values)
-            {
-                if (lazy.IsValueCreated && lazy.Value is { } part) yield return part;
-            }
-        }
+        /// <summary>The <see cref="CharacterPart.ApproximateBytes"/> of every cached part (kept as a running total).</summary>
+        public long PartBytes => Interlocked.Read(ref _partBytes);
 
         /// <summary>
         /// The model of a character of <paramref name="race"/> with face <paramref name="faceModel"/> (low byte) wearing the
@@ -263,7 +249,13 @@ namespace Gordian.Core.Resources
 
         private CharacterPart? GetPart(CharacterPartKey key, RaceBase raceBase)
         {
-            var part = _parts.GetOrAdd(key, k => new Lazy<CharacterPart?>(() => _partSource.LoadPart(k, raceBase.Skeleton), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            var part = _parts.GetOrAdd(key, k => new Lazy<CharacterPart?>(() =>
+            {
+                // Only the stored Lazy is ever evaluated, so each cached part is counted once.
+                var loaded = _partSource.LoadPart(k, raceBase.Skeleton);
+                if (loaded != null) Interlocked.Add(ref _partBytes, loaded.ApproximateBytes);
+                return loaded;
+            }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
             part?.Touch(Stopwatch.GetTimestamp());
             return part;
         }
@@ -322,7 +314,11 @@ namespace Gordian.Core.Resources
                 if (used.Contains(part)) { bytes += part.ApproximateBytes; continue; }
                 if (now - part.LastUsed > idleTicks)
                 {
-                    if (_parts.TryRemove(pair)) freed++;
+                    if (_parts.TryRemove(pair))
+                    {
+                        Interlocked.Add(ref _partBytes, -part.ApproximateBytes);
+                        freed++;
+                    }
                     continue;
                 }
                 bytes += part.ApproximateBytes;
@@ -338,6 +334,7 @@ namespace Gordian.Core.Resources
                     if (_parts.TryRemove(pair))
                     {
                         bytes -= pair.Value.Value!.ApproximateBytes;
+                        Interlocked.Add(ref _partBytes, -pair.Value.Value!.ApproximateBytes);
                         freed++;
                     }
                 }
