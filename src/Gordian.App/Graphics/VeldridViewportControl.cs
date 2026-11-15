@@ -980,6 +980,8 @@ namespace Gordian.App.Graphics
                 {
                     if (_renderer != null)
                     {
+                        // Drops the entity models nobody has used for a minute (#572), every 10 seconds across all windows.
+                        _renderer.SharedResources.SweepEntityModels(ResourceManager, LiveEntities);
                         _renderer.World = _activeSession?.World ?? WorldState;
                         _renderer.EventPresentation = _activeSession?.Events.Presentation;
                         _renderer.LocalPlayerRidingPlatformId = _activeSession?.Locomotion?.RidingPlatformId ?? string.Empty;
@@ -1600,6 +1602,15 @@ namespace Gordian.App.Graphics
             catch (Exception ex)
             {
                 GordianLog.Warn(LogCategories.Audio, $"Audio update failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>The entities of every logged-in character's world, whose models the entity model sweep keeps (#572).</summary>
+        private static System.Collections.Generic.IEnumerable<WorldEntity> LiveEntities()
+        {
+            foreach (var session in SessionRegistry.Default.ActiveSessions)
+            {
+                foreach (var entity in session.World.GetAllEntities()) yield return entity;
             }
         }
 

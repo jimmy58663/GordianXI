@@ -27,10 +27,10 @@ namespace Gordian.Core.Resources
             model = null;
             if (!mount.IsMounted) return false;
             string key = MountModels.CacheKey(mount);
-            if (_entityModelCache.TryGetValue(key, out model)) return model != null;
+            if (TryGetCachedModel(key, out model)) return model != null;
             model = MountModels.LoadMount(mount, LoadDatBytes, LoadDatBytesByFileId);
             if (model == null) return false;
-            _entityModelCache[key] = model;
+            CacheModel(key, model);
             return true;
         }
 
@@ -45,10 +45,10 @@ namespace Gordian.Core.Resources
             if (chair < 0) return false;
             int fileId = Gordian.Core.Animation.RestPosture.ChairFileId(chair);
             string key = $"Chair_{fileId}";
-            if (_entityModelCache.TryGetValue(key, out model)) return true;
+            if (TryGetCachedModel(key, out model)) return true;
             if (LoadDatBytesByFileId(fileId) is not { Length: > 0 } dat) return false;
             model = EntityModelLoader.AssembleModel(dat, null, key, gearOcclusion: new GearOcclusion(), primarySource: DecodedTexture.FileLabel(fileId));
-            _entityModelCache[key] = model;
+            CacheModel(key, model);
             return true;
         }
 

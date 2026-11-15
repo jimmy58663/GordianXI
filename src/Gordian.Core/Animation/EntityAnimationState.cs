@@ -37,6 +37,14 @@ namespace Gordian.Core.Animation
         /// <summary>At most this many actions wait behind the playing one; older ones are skipped.</summary>
         public const int MaxQueuedActions = 3;
 
+        /// <summary>
+        /// At most this many actions or reactions wait for the actor's next <c>Advance</c>; the oldest are dropped. Only the
+        /// renderer advances an actor, so one off screen or in a character not on screen never takes its queue, and without a
+        /// cap it grew for the life of the session (#572). Dropped actions still show their hits: the playback queue
+        /// delivers overdue hits itself. By the time the actor is drawn again the dropped entries are stale anyway.
+        /// </summary>
+        public const int MaxIncoming = 16;
+
         /// <summary>A sustained action (a chant) ends by itself after this long if nothing replaces it.</summary>
         public const float MaxSustainedSeconds = 30f;
 
@@ -314,7 +322,14 @@ namespace Gordian.Core.Animation
         {
             ArgumentNullException.ThrowIfNull(request);
             _incomingActions.Enqueue(request);
+            while (_incomingActions.Count > MaxIncoming && _incomingActions.TryDequeue(out _)) { }
         }
+
+        /// <summary>Actions waiting for the next <c>Advance</c> (at most <see cref="MaxIncoming"/>).</summary>
+        internal int IncomingActionCount => _incomingActions.Count;
+
+        /// <summary>Reactions waiting for the next <c>Advance</c> (at most <see cref="MaxIncoming"/>).</summary>
+        internal int IncomingReactionCount => _incomingReactions.Count;
 
         /// <summary>Whether an action is queued and not yet taken by <c>Advance</c>.</summary>
         internal bool HasQueuedActions => !_incomingActions.IsEmpty;
@@ -385,7 +400,11 @@ namespace Gordian.Core.Animation
         }
 
         /// <summary>Queues a hit reaction for the target (thread-safe).</summary>
-        public void EnqueueReaction(HitReaction reaction) => _incomingReactions.Enqueue(reaction);
+        public void EnqueueReaction(HitReaction reaction)
+        {
+            _incomingReactions.Enqueue(reaction);
+            while (_incomingReactions.Count > MaxIncoming && _incomingReactions.TryDequeue(out _)) { }
+        }
 
         private long _lastFrameClaim;
 

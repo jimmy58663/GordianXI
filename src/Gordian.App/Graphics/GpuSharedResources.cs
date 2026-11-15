@@ -2,7 +2,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using Gordian.Core.Diagnostics;
+using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
+using Gordian.Core.World;
 using NeoVeldrid;
 
 namespace Gordian.App.Graphics
@@ -99,6 +103,54 @@ namespace Gordian.App.Graphics
             var buffer = Device.ResourceFactory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
             Device.UpdateBuffer(buffer, 0, refs);
             return buffer;
+        }
+
+        /// <summary>How often <see cref="SweepEntityModels"/> runs.</summary>
+        internal static readonly TimeSpan EntityModelSweepInterval = TimeSpan.FromSeconds(10);
+
+        private long _lastEntityModelSweep;
+        private readonly HashSet<EntityModel> _liveModels = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>
+        /// Drops entity models no entity has used for <see cref="ResourceManager.EntityModelIdleSeconds"/> (#572), at most every
+        /// <see cref="EntityModelSweepInterval"/> whichever window calls it: first from the resource manager's cache, then the
+        /// GPU copies, disposing their buffers. A GPU copy counts as used when drawn or when its model is worn by one of the entities
+        /// <paramref name="liveEntities"/> lists (every logged-in character's world, so actors off screen or in a character not
+        /// on screen keep theirs). Rider and chair copies are not in the resource manager's cache and go when not drawn.
+        /// Call under <see cref="GpuLock"/>, from a render loop.
+        /// </summary>
+        internal void SweepEntityModels(ResourceManager? resources, Func<IEnumerable<WorldEntity>> liveEntities)
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (_lastEntityModelSweep != 0 && Stopwatch.GetElapsedTime(_lastEntityModelSweep, now) < EntityModelSweepInterval) return;
+            _lastEntityModelSweep = now;
+
+            _liveModels.Clear();
+            int evicted = resources?.EvictIdleEntityModels(liveEntities(), ResourceManager.EntityModelIdleSeconds, _liveModels) ?? 0;
+
+            long idleTicks = (long)(ResourceManager.EntityModelIdleSeconds * Stopwatch.Frequency);
+            int released = 0;
+            foreach (var pair in EntityModels)
+            {
+                if (_liveModels.Contains(pair.Key))
+                {
+                    pair.Value.LastUsed = now;
+                    continue;
+                }
+                if (now - pair.Value.LastUsed <= idleTicks) continue;
+                if (EntityModels.TryRemove(pair))
+                {
+                    pair.Value.Dispose();
+                    released++;
+                }
+            }
+            _liveModels.Clear();
+
+            if (evicted > 0 || released > 0)
+            {
+                GordianLog.Debug(LogCategories.Graphics,
+                    $"Entity model sweep: dropped {evicted} cached models and {released} GPU copies; {resources?.CachedEntityModelCount ?? 0} cached, {EntityModels.Count} on the GPU.");
+            }
         }
 
         /// <summary>Frees the GPU copies of every entity model (a VFS reload rebuilt the models from the new files).</summary>

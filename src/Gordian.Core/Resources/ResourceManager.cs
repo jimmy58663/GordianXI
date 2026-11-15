@@ -37,7 +37,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<string, Lazy<int>> _loadedItemTables = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
-        private readonly ConcurrentDictionary<string, EntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, CachedEntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<uint, Gordian.Core.Resources.Graphics.ActorEffectSet?> _actorEffectCache = new();
         private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _sceneEffectCache = new();
         private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _gearEffectCache = new();
@@ -776,8 +776,8 @@ namespace Gordian.Core.Resources
                     return false;
                 }
 
-                string cacheKey = $"Monster_{entity.Appearance.ModelId}";
-                if (_entityModelCache.TryGetValue(cacheKey, out model))
+                string cacheKey = MonsterModelKey(entity.Appearance.ModelId);
+                if (TryGetCachedModel(cacheKey, out model))
                 {
                     return true;
                 }
@@ -785,7 +785,7 @@ namespace Gordian.Core.Resources
                 model = EntityModelLoader.LoadMonsterModel(entity.Appearance.ModelId, LoadDatBytesByFileId);
                 if (model != null)
                 {
-                    _entityModelCache[cacheKey] = model;
+                    CacheModel(cacheKey, model);
                     return true;
                 }
 
@@ -795,16 +795,13 @@ namespace Gordian.Core.Resources
             }
 
             // 2. Player or Equipped NPC with GrapIdTable
-            var grap = entity.Appearance.GrapIdTable;
-            byte rawRace = (byte)((entity.Appearance.FaceModel >> 8) & 0xFF);
-            var race = (CharacterRace)rawRace;
-
-            if (race != CharacterRace.Unknown && grap != null && grap.Length > 0)
+            if (CharacterModelKey(entity) is { } characterKey)
             {
+                var grap = entity.Appearance.GrapIdTable!;
+                var race = (CharacterRace)(byte)((entity.Appearance.FaceModel >> 8) & 0xFF);
                 ushort face = (ushort)(entity.Appearance.FaceModel & 0xFF);
-                string cacheKey = $"PC_{race}_{face}_{string.Join('-', grap)}";
 
-                if (_entityModelCache.TryGetValue(cacheKey, out model))
+                if (TryGetCachedModel(characterKey, out model))
                 {
                     return true;
                 }
@@ -818,7 +815,7 @@ namespace Gordian.Core.Resources
 
                 if (model != null)
                 {
-                    _entityModelCache[cacheKey] = model;
+                    CacheModel(characterKey, model);
                     return true;
                 }
             }
