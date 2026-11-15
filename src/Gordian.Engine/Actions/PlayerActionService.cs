@@ -1636,6 +1636,8 @@ namespace Gordian.Engine.Actions
                         return "Usage: /widescan - List monsters and NPCs around you (Rangers and Beastmasters).";
                     case "track" or "untrack":
                         return "Usage: /track [index|name|off] - Track a Wide Scan target (your target without an argument); /untrack stops.";
+                    case "mentor":
+                        return "Usage: /mentor [on|off] - Turn the mentor icon by your name on or off (registered mentors only); no option toggles it.";
                     case "jobmasterdisp":
                         return "Usage: /jobmasterdisp on|off - Show or hide the job mastery mark next to your name.";
                     case "lockstyle":
@@ -1715,6 +1717,7 @@ namespace Gordian.Engine.Actions
             sb.AppendLine("  /widescan, /track [target|off] - Wide Scan (Ranger, Beastmaster) and tracking");
             sb.AppendLine("  /conquest                 - Conquest points and Imperial Standing (/cq)");
             sb.AppendLine("  /jobmasterdisp on|off     - Show or hide the job mastery mark");
+            sb.AppendLine("  /mentor [on|off]          - Show or hide the mentor icon by your name (registered mentors)");
             sb.AppendLine("  /logout [on|off]          - Log out to the character select screen (30 seconds)");
             sb.AppendLine("  /shutdown [on|off]        - Shut down and close the session (30 seconds)");
             sb.AppendLine("[Communication]");
@@ -2069,6 +2072,35 @@ namespace Gordian.Engine.Actions
             {
                 GordianLog.Error(LogCategories.Action, $"/jobmasterdisp failed: {ex.Message}", ex);
                 return PlayerActionResult.Fail($"/jobmasterdisp failed: {ex.Message}", Kind);
+            }
+        }
+
+        /// <summary>
+        /// <c>/mentor [on|off]</c> (#557): sets the mentor flag with C2S 0x0DC. LandSandBoat changes it only for a character with
+        /// mentor status unlocked (0x0B4 <c>MentorUnlocked</c>), then answers with S2C 0x0B4, 0x037 (the player's own plate) and a
+        /// General entity update (everyone else's), so the "M" follows the server. Without the unlock nothing is sent.
+        /// </summary>
+        public async Task<PlayerActionResult> MentorAsync(RestMode mode)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.Mentor;
+            var module = _configModule;
+            if (module == null || !module.State.Received) return PlayerActionResult.Fail("/mentor is unavailable: the character configuration has not arrived.", Kind);
+            if (!module.State.IsSet(PlayerConfigFlags.MentorUnlocked)) return PlayerActionResult.Fail("You are not a registered mentor.", Kind);
+            bool on = mode switch
+            {
+                RestMode.On => true,
+                RestMode.Off => false,
+                _ => !module.State.IsSet(PlayerConfigFlags.Mentor),
+            };
+            try
+            {
+                await module.SetFlagAsync(PlayerConfigFlags.Mentor, on).ConfigureAwait(false);
+                return PlayerActionResult.Ok($"Mentor icon {(on ? "on" : "off")} requested.", Kind);
+            }
+            catch (Exception ex)
+            {
+                GordianLog.Error(LogCategories.Action, $"/mentor failed: {ex.Message}", ex);
+                return PlayerActionResult.Fail($"/mentor failed: {ex.Message}", Kind);
             }
         }
 
@@ -3147,6 +3179,9 @@ namespace Gordian.Engine.Actions
 
                 case ChatCommandResultKind.JobMasterDisplay:
                     return await JobMasterDisplayAsync(cmd.Rest == RestMode.On).ConfigureAwait(false);
+
+                case ChatCommandResultKind.Mentor:
+                    return await MentorAsync(cmd.Rest).ConfigureAwait(false);
 
                 case ChatCommandResultKind.Lockstyle:
                     return await LockstyleAsync(cmd.Message ?? string.Empty).ConfigureAwait(false);

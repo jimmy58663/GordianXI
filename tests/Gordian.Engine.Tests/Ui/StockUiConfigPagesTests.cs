@@ -363,5 +363,42 @@ namespace Gordian.Engine.Tests.Ui
             await Task.Delay(10, TestContext.Current.CancellationToken);
             Assert.Equal(2, sent.Count);
         }
+
+        /// <summary>
+        /// #557: <c>/mentor [on|off]</c> sets 0x0DC MentorFlg (bit 25) for a registered mentor, toggling without a mode, and
+        /// sends nothing for a character without mentor status unlocked.
+        /// </summary>
+        [Fact]
+        public async Task Mentor_SetsTheMentorFlag_OnlyForARegisteredMentor()
+        {
+            var profile = new SessionProfile();
+            var world = new WorldState();
+            var localPlayer = new LocalPlayerState { ServerId = 0x01020304 };
+            var sent = new List<byte[]>();
+            Task Send(ReadOnlyMemory<byte> chunk, bool urgent) { sent.Add(chunk.ToArray()); return Task.CompletedTask; }
+            var service = new PlayerActionService(profile, world, localPlayer,
+                new CombatPacketModule(new CombatState(), localPlayer, Send), new ChatPacketModule(Send),
+                new PartyPacketModule(new PartyState(), Send), new EntityPacketModule(world, localPlayer, Send),
+                new LifecyclePacketModule(profile, Send), Send);
+            var state = new PlayerConfigState();
+            service.ConfigModule = new ConfigPacketModule(state, Send);
+
+            Assert.Equal(ChatCommandResultKind.Mentor, ChatCommandRouter.Parse("/mentor").Kind);
+            Assert.Equal(RestMode.Off, ChatCommandRouter.Parse("/mentor off").Rest);
+            Assert.Equal(ChatCommandResultKind.LocalNotice, ChatCommandRouter.Parse("/mentor maybe").Kind);
+
+            var payload = new byte[20];
+            state.Apply(new S2C_0x0B4_Config(payload));
+            Assert.False((await service.ExecuteCommandAsync("/mentor on")).Success);
+            Assert.Empty(sent);
+
+            BitConverter.GetBytes((uint)PlayerConfigFlags.MentorUnlocked).CopyTo(payload, 0);
+            state.Apply(new S2C_0x0B4_Config(payload));
+            Assert.True((await service.ExecuteCommandAsync("/mentor")).Success);
+            var packet = Assert.Single(sent);
+            Assert.Equal(0x0DC, BitConverter.ToUInt16(packet, 0) & 0x1FF);
+            Assert.Equal((uint)PlayerConfigFlags.Mentor, BitConverter.ToUInt32(packet, 4));
+            Assert.Equal(1, packet[16]); // on
+        }
     }
 }

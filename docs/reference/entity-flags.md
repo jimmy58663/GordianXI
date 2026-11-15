@@ -95,8 +95,8 @@ LandSandBoat writes packet 0x27 (bits 24-31) from the NPC's or mob's name prefix
 | 20 | | unused | | |
 | 21 | SilenceFlag | no footstep sounds | | 0x00D decodes this bit as `IsSneak`, not used. **Differs from XiPackets:** XiPackets names it SilenceFlag (footsteps), not sneak |
 | 22 | | unknown | | |
-| 23 | NewCharacterFlag | 0x00D: new player "?" | | 0x00D `NamePlateFlags.NewPlayer` |
-| 24 | MentorFlag | 0x00D: mentor "M". 0x00E: A.M.A.N. Liaison "i" | name visibility 0x01 (icon) lands here | 0x00D `NamePlateFlags.Mentor`, 0x00E `NamePlateFlags.InfoNpc` |
+| 23 | NewCharacterFlag | 0x00D: new player "?" | `!NewAdventurerOffFlg` (`char_update.cpp`, General updates only) | 0x00D `NamePlateFlags.NewPlayer`, read only from General updates (#577) → `fontshp` 129 (#557). The mark goes when the player turns it off (C2S 0x0DC `NewAdventurerOffFlg`; LandSandBoat takes it only from on to off, saves it, and answers with 0x037 and a General update) or after `main.NEW_ADVENTURER_PLAYTIME_LIMIT` hours played (`charutils.cpp`). Retail has no text command for it (the client's command help, `ROM/119/65.DAT`, has none); GordianXI has no way to send it yet (its main menu Help Desk is not built) |
+| 24 | MentorFlag | 0x00D: mentor "M". 0x00E: A.M.A.N. Liaison "i" | 0x00D: `playerConfig.MentorFlg` (General updates only). 0x00E: name visibility 0x01 (icon) lands here | 0x00D `NamePlateFlags.Mentor` → `fontshp` 130, 0x00E `NamePlateFlags.InfoNpc` → 145. `/mentor [on|off]` (retail's command, help text in `ROM/119/65.DAT`) sends C2S 0x0DC `MentorFlg` when 0x0B4 says mentor status is unlocked (#557) |
 | 25 | | alternative animations (for example how the entity sits) | | |
 | 26 | | sub-animation is 3 bits; also used at spawn | | |
 | 27 | | entity-dependent: untargetable, off the compass, name hidden | name visibility 0x08 (`hide_name`) lands here | not applied ([ui/stock-ui.md](../ui/stock-ui.md#name-plates-28) lists it as open) |
@@ -133,7 +133,7 @@ The local player's own flags use other bit positions than 0x00D. GordianXI decod
 | | 29 / 30 / 31 | BazaarFlag / CharmFlag / GmIconFlag | `HasBazaar`, `IsCharmed`, `NamePlate` |
 | Flags2 (48) | 2 | AutoPartyFlag | `NamePlate` |
 | | 3-18 | PetIndex | `PetActorIndex` |
-| Flags3 (52) | 0 / 1 / 3 / 4 | LfgMasterFlag / TrialFlag / NewCharacterFlag / MentorFlag | `NamePlate` |
+| Flags3 (52) | 0 / 1 / 3 / 4 | LfgMasterFlag / TrialFlag / NewCharacterFlag / MentorFlag | `NamePlate`. The player's own "?" and "M" come from here (LandSandBoat `char_status.cpp`: `isNewPlayer()`, `aman().isMentor()`); the server sends no 0x00D for the player itself, and answers every C2S 0x0DC with a 0x037, so the plate follows a change at once (`LocalPlate_DropsTheNewPlayerMark_WithTheNext0x037`, #557) |
 | Flags4 (0x54) | 7 | JobMasterFlag | `NamePlate` |
 
 XiPackets' 0x0037 flags0 also starts with HideFlag (bit 0), SleepFlag (1) and GroundFlag (2); GordianXI does not read them for the local player.
