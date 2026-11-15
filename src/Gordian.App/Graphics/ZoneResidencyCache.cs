@@ -37,7 +37,8 @@ namespace Gordian.App.Graphics
         private readonly GpuSharedResources _shared;
         private readonly object _gate = new();
         private readonly Dictionary<ZoneGeometry, Entry> _entries = new(ReferenceEqualityComparer.Instance);
-        private readonly HashSet<ZoneGeometry> _building = new(ReferenceEqualityComparer.Instance);
+        // Zones being uploaded, with how many threads upload each (two at once only when one holds the device lock).
+        private readonly Dictionary<ZoneGeometry, int> _building = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> _preloading = new();
         private readonly ConcurrentDictionary<int, object> _readLocks = new();
         private HashSet<int> _pinned = new();
@@ -53,6 +54,13 @@ namespace Gordian.App.Graphics
         /// <see cref="ViewportRenderSettings.ZoneCacheBudgetMb"/>.
         /// </summary>
         public long BudgetBytes { get; set; } = (long)ViewportRenderSettings.DefaultZoneCacheBudgetMb << 20;
+
+        /// <summary>
+        /// Whether a zone's CPU copy of its meshes and textures is freed once it is uploaded (#576,
+        /// <see cref="ZoneGeometry.ReleaseRenderData"/>): on for the app's shared device, whose cache is the only one a
+        /// zone is uploaded to. Off for a private device (offscreen tests), which may share a ResourceManager with another.
+        /// </summary>
+        public bool ReleaseCpuCopies { get; set; }
 
         /// <summary>Most zones kept resident, whatever their size.</summary>
         public int MaxResidentZones { get; set; } = 12;
@@ -108,11 +116,17 @@ namespace Gordian.App.Graphics
                         entry.LastUse = ++_useClock;
                         return entry.Zone;
                     }
+                    // Its meshes and textures were freed after an upload that has left the GPU since (#576): the caller
+                    // reads the zone again (TryReadZone does) and retries.
+                    if (zone.IsRenderDataReleased)
+                    {
+                        throw new InvalidOperationException($"Zone {zone.ZoneId} left the GPU and its CPU copy was released; read it again.");
+                    }
                     // Another thread is uploading it: wait for that rather than uploading twice, unless this thread holds
                     // the device lock the upload needs (then upload here; the slower copy is dropped below).
-                    if (!_building.Contains(zone) || Monitor.IsEntered(_shared.GpuLock))
+                    if (!_building.ContainsKey(zone) || Monitor.IsEntered(_shared.GpuLock))
                     {
-                        _building.Add(zone);
+                        _building[zone] = _building.GetValueOrDefault(zone) + 1;
                         break;
                     }
                 }
@@ -126,15 +140,18 @@ namespace Gordian.App.Graphics
             }
             catch
             {
-                lock (_gate) _building.Remove(zone);
+                lock (_gate) FinishBuilding(zone);
                 throw;
             }
 
             ZoneTerrainRenderer.ResidentZone result;
             bool duplicate = false;
+            bool release;
             lock (_gate)
             {
-                _building.Remove(zone);
+                FinishBuilding(zone);
+                // The CPU copy goes once no other thread is still uploading from it.
+                release = ReleaseCpuCopies && !_building.ContainsKey(zone);
                 if (_entries.TryGetValue(zone, out var existing))
                 {
                     existing.References++;
@@ -152,8 +169,16 @@ namespace Gordian.App.Graphics
             {
                 lock (_shared.GpuLock) built.Dispose();
             }
+            if (release) zone.ReleaseRenderData(result.Textures);
             Trim();
             return result;
+        }
+
+        private void FinishBuilding(ZoneGeometry zone)
+        {
+            int left = _building.GetValueOrDefault(zone) - 1;
+            if (left > 0) _building[zone] = left;
+            else _building.Remove(zone);
         }
 
         /// <summary>
@@ -166,7 +191,14 @@ namespace Gordian.App.Graphics
             ArgumentNullException.ThrowIfNull(resources);
             lock (_readLocks.GetOrAdd(zoneId, _ => new object()))
             {
-                return resources.TryLoadZone(zoneId, out zone, out textures);
+                if (!resources.TryLoadZone(zoneId, out zone, out textures)) return false;
+                // A copy whose meshes and textures went after its upload (#576) can be shown only while that upload is
+                // resident; otherwise the zone is read from its DAT again.
+                if (zone.IsRenderDataReleased && !IsResident(zone))
+                {
+                    return resources.TryReloadZoneRenderData(zoneId, zone, out zone, out textures);
+                }
+                return true;
             }
         }
 
@@ -357,7 +389,59 @@ namespace Gordian.App.Graphics
                 foreach (var zone in dropped) _entries.Remove(zone.Zone);
                 kept = _entries.Values.Select(e => e.Zone).ToList();
             }
+            Free(dropped, kept, $"zone cache budget {BudgetBytes >> 20} MB");
+        }
 
+        /// <summary>
+        /// Drops the GPU copies made from these zone geometries (#576: the ResourceManager purged them, so no window shows
+        /// them and no logged-in character is in them). A copy a window still holds stays (the budget frees it once
+        /// released, as it does a zone read before a VFS reload). Returns how many were dropped.
+        /// </summary>
+        public int Drop(IEnumerable<ZoneGeometry> zones)
+        {
+            ArgumentNullException.ThrowIfNull(zones);
+            var dropped = new List<ZoneTerrainRenderer.ResidentZone>();
+            List<ZoneTerrainRenderer.ResidentZone> kept;
+            lock (_gate)
+            {
+                if (_disposed) return 0;
+                foreach (var zone in zones)
+                {
+                    if (zone == null || !_entries.TryGetValue(zone, out var entry)) continue;
+                    if (entry.References > 0)
+                    {
+                        GordianLog.Warn(LogCategories.Graphics, $"Zone {zone.ZoneId} was purged from the zone cache while a window holds it; its GPU copy stays until released.");
+                        continue;
+                    }
+                    _entries.Remove(zone);
+                    dropped.Add(entry.Zone);
+                }
+                if (dropped.Count == 0) return 0;
+                kept = _entries.Values.Select(e => e.Zone).ToList();
+            }
+            Free(dropped, kept, "no character or window uses it");
+            return dropped.Count;
+        }
+
+        /// <summary>
+        /// The zones a window holds (shown, prepared for a switch or waiting for a fade) or that are being uploaded: in use
+        /// for <c>ZoneCachePurger</c> (#576).
+        /// </summary>
+        public IReadOnlyList<int> ZonesInUse
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    var ids = _entries.Values.Where(e => e.References > 0).Select(e => e.Zone.ZoneId).ToList();
+                    ids.AddRange(_building.Keys.Select(z => z.ZoneId));
+                    return ids;
+                }
+            }
+        }
+
+        private void Free(List<ZoneTerrainRenderer.ResidentZone> dropped, List<ZoneTerrainRenderer.ResidentZone> kept, string reason)
+        {
             // Uploads a kept zone draws with stay (zones share uploads by DAT source; after a VFS reload a stale zone and
             // its reread copy have different uploads for one source, #374).
             var keepTextures = new List<DecodedTexture>();
@@ -371,7 +455,7 @@ namespace Gordian.App.Graphics
                 {
                     int textures = zone.Textures != null ? _shared.ZoneTextures.Evict(zone.Textures.Values, keepTextures) : 0;
                     zone.Dispose();
-                    GordianLog.Info(LogCategories.Graphics, $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; zone cache budget {BudgetBytes >> 20} MB).");
+                    GordianLog.Info(LogCategories.Graphics, $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; {reason}).");
                 }
             }
         }

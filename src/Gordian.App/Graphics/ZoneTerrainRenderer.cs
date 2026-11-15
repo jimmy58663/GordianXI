@@ -480,6 +480,7 @@ namespace Gordian.App.Graphics
             _entityRenderer = new EntityRenderer(_shared, _outputs);
             BuildFallbackScene();
             BuildOceanWaterPlane();
+            _shared.RegisterRenderer(this);
         }
 
         /// <summary>The GPU resources this renderer draws with (shared with the other windows on the device).</summary>
@@ -3054,6 +3055,7 @@ namespace Gordian.App.Graphics
         {
             if (_disposed) return;
             _disposed = true;
+            _shared.UnregisterRenderer(this);
 
             // The zone's GPU copy belongs to the device's zone cache: only the reference is given back.
             var resident = _resident;

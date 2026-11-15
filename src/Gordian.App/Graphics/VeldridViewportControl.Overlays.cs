@@ -94,8 +94,16 @@ namespace Gordian.App.Graphics
             if (_frameOverlayMode == PerformanceOverlayMode.Detailed)
             {
                 _perfStats.SampleMemory(now);
-                if (ResourceManager is { } resources) _perfStats.EntityModels = resources.EntityModelStats;
-                if (_renderer != null) _perfStats.GpuEntityPieces = _renderer.SharedResources.EntityMeshes.Count;
+                if (ResourceManager is { } resources)
+                {
+                    _perfStats.EntityModels = resources.EntityModelStats;
+                    _perfStats.ZoneCache = resources.GetZoneCacheStats();
+                }
+                if (_renderer != null)
+                {
+                    _perfStats.GpuEntityPieces = _renderer.SharedResources.EntityMeshes.Count;
+                    _perfStats.GpuZones = _renderer.SharedResources.Zones.Count;
+                }
             }
         }
 

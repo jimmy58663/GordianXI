@@ -579,7 +579,7 @@ namespace Gordian.Core.Resources
             bool cameraEffects = false,
             bool interior = false)
         {
-            var zone = new ZoneGeometry { ZoneId = zoneId };
+            var zone = new ZoneGeometry { ZoneId = zoneId, DatSource = datSource ?? string.Empty };
             var headers = DatSectionWalker.ReadHeaders(datBytes);
 
             int texCount = 0, meshSectionCount = 0;

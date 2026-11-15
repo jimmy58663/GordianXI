@@ -206,6 +206,16 @@ namespace Gordian.App.Graphics
 
         private (Texture Tex, TextureView View, ResourceSet Set)? Upload(DecodedTexture decoded)
         {
+            if (decoded.PixelsReleased)
+            {
+                // A resident zone's texture whose pixels went after its upload (#576), asked for after that upload was
+                // evicted: drawn with the checkerboard rather than uploading nothing.
+                if (_missing.TryAdd("released:" + decoded.Source, 0))
+                {
+                    GordianLog.Warn(LogCategories.GpuTex, $"Texture '{decoded.Name}' from '{decoded.Source}' was released after its upload and is no longer on the GPU.");
+                }
+                return null;
+            }
             try
             {
                 var factory = _gd.ResourceFactory;

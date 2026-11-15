@@ -58,7 +58,20 @@ namespace Gordian.App.Graphics
         public int StockUiQuads { get; set; }
         public int OverlayDrawCalls { get; set; }
 
+        /// <summary>The managed heap now (<see cref="GC.GetTotalMemory"/>), garbage not collected yet included.</summary>
         public long HeapBytes { get; private set; }
+
+        /// <summary>
+        /// What the last full collection (else the last collection of any kind) left alive: its heap size less its free
+        /// fragments (#576), so collectable garbage in <see cref="HeapBytes"/> is not mistaken for a leak. 0 before any GC.
+        /// </summary>
+        public long LiveHeapBytes { get; private set; }
+
+        /// <summary>The zone caches (#576), sampled with the memory.</summary>
+        public Gordian.Core.Resources.ZoneCacheStats ZoneCache { get; set; }
+
+        /// <summary>Zones resident on the GPU (#576), sampled with the memory.</summary>
+        public int GpuZones { get; set; }
 
         /// <summary>The entity model caches (#573), sampled with the memory.</summary>
         public Gordian.Core.Resources.EntityModelCacheStats EntityModels { get; set; }
@@ -145,6 +158,15 @@ namespace Gordian.App.Graphics
         /// Samples the managed heap, allocation rate and GC counts at most every <paramref name="intervalSeconds"/>
         /// (timestamps in <see cref="System.Diagnostics.Stopwatch"/> ticks).
         /// </summary>
+        internal static long LiveHeapAfterLastGc()
+        {
+            var info = GC.GetGCMemoryInfo(GCKind.FullBlocking);
+            var background = GC.GetGCMemoryInfo(GCKind.Background);
+            if (background.Index > info.Index) info = background;
+            if (info.Index == 0) info = GC.GetGCMemoryInfo(GCKind.Any);
+            return info.Index == 0 ? 0 : Math.Max(0, info.HeapSizeBytes - info.FragmentedBytes);
+        }
+
         public void SampleMemory(long timestamp, double intervalSeconds = 0.5)
         {
             if (_lastMemorySample != 0 && (timestamp - _lastMemorySample) < intervalSeconds * System.Diagnostics.Stopwatch.Frequency) return;
@@ -157,6 +179,7 @@ namespace Gordian.App.Graphics
             _lastAllocated = allocated;
             _lastMemorySample = timestamp;
             HeapBytes = GC.GetTotalMemory(false);
+            LiveHeapBytes = LiveHeapAfterLastGc();
             Gen0Collections = GC.CollectionCount(0);
             Gen1Collections = GC.CollectionCount(1);
             Gen2Collections = GC.CollectionCount(2);

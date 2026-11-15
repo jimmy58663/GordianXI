@@ -37,6 +37,24 @@ namespace Gordian.Engine.Tests.Graphics
         };
 
         [Fact]
+        public void ReleasedMeshes_AreRayTestedThroughTheKeptPositions()
+        {
+            // #576: once a zone is on the GPU its vertex arrays go; sun occlusion and floor tests read the kept positions.
+            var zone = new ZoneGeometry();
+            var wall = Wall(5f);
+            var floor = Floor(-2f, string.Empty);
+            zone.MeshGroups.Add(wall);
+            zone.MeshGroups.Add(floor);
+            wall.ReleaseRenderData(keepRayMesh: true);
+            floor.ReleaseRenderData(keepRayMesh: true);
+            Assert.Empty(wall.Vertices);
+
+            Assert.True(ZoneRaycaster.IsOccluded(zone, Vector3.Zero, Vector3.UnitX, 100f));
+            Assert.False(ZoneRaycaster.IsOccluded(zone, Vector3.Zero, -Vector3.UnitX, 100f));
+            Assert.Same(floor, ZoneRaycaster.FindFloor(zone, Vector3.Zero, 10f));
+        }
+
+        [Fact]
         public void FindFloor_ReturnsTheNearestSurfaceBelow()
         {
             var zone = new ZoneGeometry();

@@ -61,6 +61,15 @@ namespace Gordian.App.Graphics
 
         public GraphicsDevice Device { get; }
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<ZoneTerrainRenderer, byte> _renderers = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The zone renderers (windows) drawing on this device (#576: the zones they read count as in use).</summary>
+        internal IReadOnlyCollection<ZoneTerrainRenderer> Renderers => (IReadOnlyCollection<ZoneTerrainRenderer>)_renderers.Keys;
+
+        internal void RegisterRenderer(ZoneTerrainRenderer renderer) => _renderers.TryAdd(renderer, 0);
+
+        internal void UnregisterRenderer(ZoneTerrainRenderer renderer) => _renderers.TryRemove(renderer, out _);
+
         /// <summary>The lock every use of the device's immediate context and of these shared objects is made under.</summary>
         public object GpuLock { get; }
 

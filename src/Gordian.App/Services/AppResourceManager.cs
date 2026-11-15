@@ -39,6 +39,15 @@ namespace Gordian.App.Services
             }
         }
 
+        /// <summary>The ResourceManager when one has been created, without loading an install (housekeeping such as #576's purge).</summary>
+        public static ResourceManager? Loaded
+        {
+            get
+            {
+                lock (Gate) return _instance;
+            }
+        }
+
         /// <summary>
         /// Makes sure the install a profile plays with is the loaded one, loading it if nothing is loaded yet. Returns null
         /// when the launch can go ahead, or why it cannot: the profile names a different install than the one loaded.
