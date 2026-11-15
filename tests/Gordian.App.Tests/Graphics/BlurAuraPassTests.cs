@@ -41,6 +41,19 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(night.X < 0f);
         }
 
+        [Fact]
+        public void ShadowPull_IsSmallAtTheFeet_AndGrowsToTheEyePullAwayFromThem()
+        {
+            // #559: a chair or wall beside the feet stays in front of the shadow; ground half a yalm out still gets the full pull.
+            Assert.Equal(EntityRenderer.ShadowFeetPull, EntityRenderer.ShadowPullAt(0f), 5);
+            Assert.True(EntityRenderer.ShadowPullAt(0.3f) < EntityRenderer.ShadowEyePull);
+            Assert.True(EntityRenderer.ShadowPullAt(0.3f) > EntityRenderer.ShadowPullAt(0.1f));
+            Assert.Equal(EntityRenderer.ShadowEyePull, EntityRenderer.ShadowPullAt(0.6f), 5);
+            Assert.Equal(EntityRenderer.ShadowEyePull, EntityRenderer.ShadowPullAt(3f), 5);
+            // The caster's own nudge is far smaller than any ground pull.
+            Assert.True(EntityRenderer.ShadowCasterPull < EntityRenderer.ShadowFeetPull);
+        }
+
         [Theory]
         [InlineData(ActorShadowMode.High, true, true)]
         [InlineData(ActorShadowMode.High, false, true)]
