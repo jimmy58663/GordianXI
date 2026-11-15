@@ -316,7 +316,7 @@ namespace Gordian.Core.Resources
         /// Adds a DAT's motion routines to the model, replacing any same-named routine from an earlier source (a PC's
         /// weapon battle pack overrides its race base).
         /// </summary>
-        private static void AddRoutines(EntityModel model, List<RawMotionRoutine>? routines)
+        private static void AddRoutines(EntityModel model, IReadOnlyList<RawMotionRoutine>? routines)
         {
             if (routines == null) return;
             foreach (var routine in routines)
@@ -327,7 +327,9 @@ namespace Gordian.Core.Resources
 
         /// <summary>
         /// Modular character assembler stitching Race base skeleton, Face, and Armor/Weapon slots into a unified model.
-        /// Automatically re-parents drawn weapon grip joints onto hand attach sockets.
+        /// Automatically re-parents drawn weapon grip joints onto hand attach sockets. Builds the model from a fresh
+        /// <see cref="CharacterModelBuilder"/>, sharing nothing with other calls; the resource manager keeps one builder so
+        /// models share their race base, motion set and gear parts (#573).
         /// Clean-room implementation referencing FFXI weapon grip attach specifications in xi-model-viewer (https://github.com/vekien/xi-model-viewer).
         /// </summary>
         public static EntityModel? AssembleCharacter(
@@ -335,173 +337,94 @@ namespace Gordian.Core.Resources
             ushort faceModel,
             ReadOnlySpan<ushort> grapTable,
             Func<string, byte[]?> datByPath,
-            Func<int, byte[]?> datByFileId)
+            Func<int, byte[]?> datByFileId) =>
+            new CharacterModelBuilder(datByPath, datByFileId).Build(race, faceModel, grapTable);
+
+        /// <summary>
+        /// A character motion set (#573): a model with no meshes holding the merged clips and routines of a race, its worn
+        /// weapons' battle packs, its body's waist set and the mannequin pose, which every model that matches shares
+        /// (<see cref="EntityModel.ShareMotionsFrom"/>, <see cref="EntityModel.ShareClipsFrom"/>). Built the way a whole
+        /// character always was: the race DAT's own clips and routines, then the clips of any part that carries some, then
+        /// the locomotion, battle and waist packs, the reaction poses, the chair pack and the mannequin pose. The parts'
+        /// routines are each model's (<see cref="EntityModel.BaseRoutines"/> and <see cref="EntityModel.PackRoutines"/>
+        /// say where they go).
+        /// </summary>
+        internal static EntityModel BuildMotionSet(
+            CharacterModelBuilder.MotionSetKey key,
+            CharacterModelBuilder.RaceBase raceBase,
+            IReadOnlyList<CharacterPart> clipParts,
+            Func<string, RawDatContainer?> packByPath,
+            Func<int, RawDatContainer?> packByFileId)
         {
-            if (race == CharacterRace.Unknown)
+            var race = key.Race;
+            bool secondWaistSet = key.SecondWaistSet;
+            var model = new EntityModel { Name = $"{race}_Motions", Skeleton = raceBase.Skeleton, IsCharacter = true };
+            var primary = raceBase.Container;
+            AddClipsWithStems(model, primary.Animations);
+            MergeBodyRegionParts(model, primary.Animations);
+            AddRoutines(model, primary.Routines);
+            var baseRoutines = new Dictionary<string, RawMotionRoutine>(model.RawMotionRoutines, StringComparer.Ordinal);
+            foreach (var part in clipParts)
             {
-                return null;
+                foreach (var clip in part.Animations) model.Animations[clip.Name] = clip;
             }
 
-            string baseSkelPath = CharacterEquipmentResolver.GetBaseSkeletonPath(race);
-            if (string.IsNullOrEmpty(baseSkelPath)) return null;
-
-            byte[]? baseDat = datByPath(baseSkelPath);
-            if (baseDat == null || baseDat.Length == 0)
+            // Weapons the model's init hides (a PC's init links hwpc: the ranged weapon) stay out of sight until a routine shows them.
+            foreach (int slot in InitialHiddenWeaponSlots(model.RawMotionRoutines))
             {
-                GordianLog.Warn(LogCategories.Res, $"Could not load base skeleton DAT for {race} at '{baseSkelPath}'");
-                return null;
+                if (slot is >= 0 and < 32) model.DefaultHiddenWeaponSlots |= 1 << slot;
             }
-
-            var extraDats = new List<ReadOnlyMemory<byte>>();
-            var extraSources = new List<string?>();
-            var weaponDats = new List<(CharacterSlot Slot, ReadOnlyMemory<byte> Dat)>();
-            var extraWeaponSlots = new List<int>();
-            int rangedType = -1;
-            bool secondWaistSet = false;
-            var occlusion = new GearOcclusion();
-
-            // 1. Face slot (from GrapIdTable[0] & 0xFF)
-            ushort faceId = (ushort)(faceModel & 0xFF);
-            if (CharacterEquipmentResolver.TryResolveGearFileId(race, CharacterSlot.Face, faceId, out int faceFid))
-            {
-                byte[]? faceDat = datByFileId(faceFid);
-                if (faceDat != null && faceDat.Length > 0)
-                {
-                    extraDats.Add(faceDat);
-                    extraSources.Add(DecodedTexture.FileLabel(faceFid));
-                    extraWeaponSlots.Add(-1);
-                }
-            }
-
-            // 2. Armor and Weapon slots (Head through Ranged)
-            // Slot indices: 1:Head, 2:Body, 3:Hands, 4:Legs, 5:Feet, 6:Main, 7:Sub, 8:Ranged
-            for (int slotIdx = 1; slotIdx < 9; slotIdx++)
-            {
-                var slot = (CharacterSlot)slotIdx;
-                ushort rawVal = slotIdx < grapTable.Length ? grapTable[slotIdx] : (ushort)0;
-                ushort modelId = (ushort)(rawVal & 0x0FFF);
-
-                // Head, Main, Sub, and Ranged slots are optional/empty when modelId == 0 (no helmet / unarmed).
-                // Body, Hands, Legs, and Feet slots always require a model (modelId 0 is the default/naked race armor).
-                bool isRequiredArmorSlot = slot is CharacterSlot.Body or CharacterSlot.Hands or CharacterSlot.Legs or CharacterSlot.Feet;
-                if (modelId == 0 && !isRequiredArmorSlot)
-                {
-                    continue;
-                }
-
-                if (CharacterEquipmentResolver.TryResolveGearFileId(race, slot, modelId, out int gearFid))
-                {
-                    byte[]? gearDat = datByFileId(gearFid);
-                    if (gearDat != null && gearDat.Length > 0)
-                    {
-                        if (slot == CharacterSlot.Ranged)
-                        {
-                            // The ranged weapon is part of the model as weapon slot 2, hidden until a ranged attack shows it
-                            // (the race base's init hides it, its calg / shlg show it, #158). Its mesh binds to a mount bone
-                            // that the ranged clips (yu?, gu?, na?...) carry into the bow or gun hand at scale 1 and the
-                            // stances hold at scale 0 or at the feet. Its RangeType picks those clips' routines.
-                            rangedType = ReadRangedType(gearDat);
-                        }
-                        else if (slot == CharacterSlot.Body)
-                        {
-                            // Long skirts and robes take the second waist set of every waist pack (body Info byte 9 = 2).
-                            secondWaistSet = CharacterEquipmentResolver.UsesSecondWaistSet(gearDat);
-                        }
-
-                        extraDats.Add(gearDat);
-                        extraSources.Add(DecodedTexture.FileLabel(gearFid));
-                        extraWeaponSlots.Add(slot switch { CharacterSlot.Main => 0, CharacterSlot.Sub => 1, CharacterSlot.Ranged => 2, _ => -1 });
-                        if (slot is CharacterSlot.Main or CharacterSlot.Sub)
-                        {
-                            weaponDats.Add((slot, gearDat));
-                        }
-                    }
-                }
-            }
-
-            Dictionary<int, int>? parentOverrides = null;
-            if (weaponDats.Count > 0)
-            {
-                var baseContainer = ParseDatContainer(baseDat, "BaseSkeleton");
-                if (baseContainer.Skeleton != null && baseContainer.Skeleton.References.Count > 127)
-                {
-                    parentOverrides = ResolveWeaponParentOverrides(baseContainer.Skeleton, weaponDats);
-                }
-            }
-
-            var model = AssembleModel(baseDat, extraDats, $"{race}_Face{faceId}", parentOverrides, occlusion, baseSkelPath, extraSources, extraWeaponSlots);
-            model.RangedType = rangedType;
-            model.IsCharacter = true;
-            if (rangedType >= 0 && !EnableSpeculativeMotionPacks) model.RebuildMotionRoutines(); // calg / shlg now reach lc / ls<NN>
+            model.RebuildMotionRoutines();
 
             // Layer upper-body (+1) and waist/skirt (+3) locomotion packs, plus weapon-specific battle pack,
-            // on top of the base skeleton's own (lower-body) clips already captured by AssembleModel.
+            // on top of the base skeleton's own (lower-body) clips.
             // Format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) ui/js/pclists.js.
             // Gated off by default - see EnableSpeculativeMotionPacks.
-            if (EnableSpeculativeMotionPacks)
+            if (key.MotionPacks)
             {
                 var (_, upperPath, waistPath) = CharacterEquipmentResolver.GetLocomotionPackPaths(race, secondWaistSet);
                 var overlaySources = new List<List<AnimationClip>>();
+                if (packByPath(upperPath) is { } upper) overlaySources.Add(upper.Animations);
+                if (packByPath(waistPath) is { } locomotionWaist) overlaySources.Add(locomotionWaist.Animations);
 
-                byte[]? upperDat = string.IsNullOrEmpty(upperPath) ? null : datByPath(upperPath);
-                if (upperDat != null && upperDat.Length > 0)
-                {
-                    overlaySources.Add(ParseDatContainer(upperDat, "LocomotionUpper").Animations);
-                }
-
-                byte[]? waistDat = string.IsNullOrEmpty(waistPath) ? null : datByPath(waistPath);
-                if (waistDat != null && waistDat.Length > 0)
-                {
-                    overlaySources.Add(ParseDatContainer(waistDat, "LocomotionWaist").Animations);
-                }
-
-                // Resolve weapon animation type from equipped Main weapon Info section (0x45 byte 3)
-                // Unarmed fights hand-to-hand: the race's hand-to-hand type (not index 0, the club pack on Hume male, #138).
-                int weaponAnimType = CharacterEquipmentResolver.GetUnarmedWeaponType(race);
-                WeaponInfo? mainInfo = null, subInfo = null;
-                foreach (var (slot, dat) in weaponDats)
-                {
-                    if (ReadWeaponInfo(dat.Span) is not { } info) continue;
-                    if (slot == CharacterSlot.Main) mainInfo = info;
-                    else if (slot == CharacterSlot.Sub) subInfo = info;
-                }
-                if (mainInfo is { Type: not 0xFF } main) weaponAnimType = main.Type;
+                // The weapon animation type: the equipped main weapon's Info section (0x45 byte 3), or the race's hand-to-hand
+                // type unarmed (the key resolves it, CharacterModelBuilder.Build).
+                int weaponAnimType = key.WeaponType;
 
                 // Dual wield (#308): a sub weapon that is a weapon (not a shield or grip) swaps the battle pack for the
                 // dual-wield pair, the main hand's (stance, ati*, moving swings, counters) and the off hand's (bti*, btf0...).
                 string dualMainPath = string.Empty, dualSubPath = string.Empty;
-                bool dualWield = mainInfo is { Type: not 0xFF } && subInfo is { IsHeldWeapon: true }
-                    && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, mainInfo.Value.Type, subInfo.Value.Type, out dualMainPath, out dualSubPath);
+                bool dualWield = key.DualWield
+                    && CharacterEquipmentResolver.TryGetDualWieldPackPaths(race, weaponAnimType, key.DualSubType, out dualMainPath, out dualSubPath);
 
                 // The battle pack loads by path only. A fallback through datByFileId once passed the pack's motion file
                 // number (folder * 1000 + file, 32013 for Hume male club and staff) as a file id, which names no file or an
                 // unrelated one (#203); the path already goes through the VFS and the game directory.
                 string battlePath = dualWield ? dualMainPath : CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
-                byte[]? battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
-                byte[]? dualSubDat = dualWield ? datByPath(dualSubPath) : null;
-                if (dualWield && (battleDat == null || battleDat.Length == 0 || dualSubDat == null || dualSubDat.Length == 0))
+                var battle = packByPath(battlePath);
+                var dualSub = dualWield ? packByPath(dualSubPath) : null;
+                if (dualWield && (battle == null || dualSub == null))
                 {
                     // A missing dual-wield pack falls back to the main weapon's own battle pack.
                     dualWield = false;
                     battlePath = CharacterEquipmentResolver.GetBattlePackPath(race, weaponAnimType);
-                    battleDat = string.IsNullOrEmpty(battlePath) ? null : datByPath(battlePath);
+                    battle = packByPath(battlePath);
                 }
 
                 List<AnimationClip>? battleAnims = null;
-                if (battleDat != null && battleDat.Length > 0)
+                if (battle != null)
                 {
-                    var battle = ParseDatContainer(battleDat, "BattlePack");
-                    battleAnims = battle.Animations;
+                    battleAnims = battle.Value.Animations;
                     // The weapon's swings, draw and sheathe (ati0-ati2, atf0, out0, in 0...) live in its battle pack.
-                    AddRoutines(model, battle.Routines);
+                    AddRoutines(model, battle.Value.Routines);
                 }
 
                 if (dualWield && battleAnims != null)
                 {
-                    var off = ParseDatContainer(dualSubDat!, "DualWieldSubPack");
+                    var off = dualSub!.Value;
                     battleAnims = [.. battleAnims, .. off.Animations];
                     AddRoutines(model, off.Routines);
-                    AddDualWieldDrawRoutines(model, mainInfo!.Value.SubType, subInfo!.Value.SubType);
+                    AddDualWieldDrawRoutines(model, key.DualMainSubType, key.DualSubSubType);
                     model.IsDualWielding = true;
                 }
 
@@ -511,8 +434,8 @@ namespace Gordian.Core.Resources
                 List<AnimationClip>? battleWaist = null;
                 if (battleAnims != null)
                 {
-                    battleWaist = LoadBattleWaist(datByPath, set => dualWield
-                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, mainInfo!.Value.Type, set)
+                    battleWaist = LoadBattleWaist(packByPath, set => dualWield
+                        ? CharacterEquipmentResolver.GetDualWieldWaistPackPath(race, weaponAnimType, set)
                         : CharacterEquipmentResolver.GetBattleWaistPackPath(race, weaponAnimType, set), secondWaistSet);
                     if (battleWaist != null) battleAnims = [.. battleAnims, .. BattleWaistParts(battleWaist, battleAnims)];
                 }
@@ -528,8 +451,16 @@ namespace Gordian.Core.Resources
             }
 
             // Last, as the motion packs above regroup the clips.
-            ApplyChairPack(model, race, datByFileId);
-            if (faceId == CharacterEquipmentResolver.MannequinFace) ApplyMannequinPose(model, race, datByPath);
+            ApplyChairPack(model, race, packByFileId);
+            if (key.Mannequin) ApplyMannequinPose(model, race, packByPath);
+
+            var packRoutines = new Dictionary<string, RawMotionRoutine>(StringComparer.Ordinal);
+            foreach (var (name, routine) in model.RawMotionRoutines)
+            {
+                if (!baseRoutines.TryGetValue(name, out var own) || !ReferenceEquals(own, routine)) packRoutines[name] = routine;
+            }
+            model.BaseRoutines = baseRoutines;
+            model.PackRoutines = packRoutines;
             return model;
         }
 
@@ -556,10 +487,9 @@ namespace Gordian.Core.Resources
         /// <c>pyi6</c>, Mithra <c>56/33</c> no <c>gdi6</c> / <c>dfi6</c> / <c>dbi6</c>; <c>BattleWaistPackRealDataTests</c>).
         /// Null when the pack is missing.
         /// </summary>
-        private static List<AnimationClip>? LoadBattleWaist(Func<string, byte[]?> datByPath, Func<bool, string> pathOf, bool secondWaistSet)
+        private static List<AnimationClip>? LoadBattleWaist(Func<string, RawDatContainer?> packByPath, Func<bool, string> pathOf, bool secondWaistSet)
         {
-            List<AnimationClip>? Load(bool set) =>
-                pathOf(set) is { Length: > 0 } path && datByPath(path) is { Length: > 0 } dat ? ParseDatContainer(dat, "BattleWaist").Animations : null;
+            List<AnimationClip>? Load(bool set) => packByPath(pathOf(set))?.Animations;
             var first = Load(false);
             if (!secondWaistSet) return first;
             var second = Load(true);
@@ -595,13 +525,12 @@ namespace Gordian.Core.Resources
         /// the same three routines and clips in each race's pack, every track within that race's skeleton. No reference names
         /// the files. <b>Beyond xi-tools / XiPackets.</b>
         /// </summary>
-        internal static void ApplyChairPack(EntityModel model, CharacterRace race, Func<int, byte[]?> datByFileId)
+        internal static void ApplyChairPack(EntityModel model, CharacterRace race, Func<int, RawDatContainer?> packByFileId)
         {
             var (packId, waistId) = CharacterEquipmentResolver.GetChairPackFileIds(race);
-            if (packId < 0 || datByFileId(packId) is not { Length: > 0 } packDat) return;
-            var pack = ParseDatContainer(packDat, "ChairPack");
+            if (packId < 0 || packByFileId(packId) is not { } pack) return;
             var clips = new List<AnimationClip>(pack.Animations);
-            if (datByFileId(waistId) is { Length: > 0 } waistDat) clips.AddRange(ParseDatContainer(waistDat, "ChairPackWaist").Animations);
+            if (packByFileId(waistId) is { } waist) clips.AddRange(waist.Animations);
             int count = model.Skeleton?.Count ?? 0;
             foreach (var joined in JoinBodyRegionParts(clips))
             {
@@ -619,12 +548,15 @@ namespace Gordian.Core.Resources
         /// its window spins it). The pose byte of the item's extra data (LandSandBoat <c>Exdata::Mannequin::Pose</c>) would pick
         /// <c>mq1</c>-<c>mq4</c>; it is not read yet, as no retail mannequin was seen in another pose.
         /// </summary>
-        public static void ApplyMannequinPose(EntityModel model, CharacterRace race, Func<string, byte[]?> datByPath, int pose = 0)
+        public static void ApplyMannequinPose(EntityModel model, CharacterRace race, Func<string, byte[]?> datByPath, int pose = 0) =>
+            ApplyMannequinPose(model, race, path => datByPath(path) is { Length: > 0 } dat ? ParseDatContainer(dat, path) : null, pose);
+
+        internal static void ApplyMannequinPose(EntityModel model, CharacterRace race, Func<string, RawDatContainer?> packByPath, int pose = 0)
         {
             var (partsPath, waistPath) = CharacterEquipmentResolver.GetMannequinPosePaths(race);
-            if (partsPath.Length == 0 || datByPath(partsPath) is not { Length: > 0 } parts) return;
-            var clips = new List<AnimationClip>(ParseDatContainer(parts, "MannequinPose").Animations);
-            if (datByPath(waistPath) is { Length: > 0 } waist) clips.AddRange(ParseDatContainer(waist, "MannequinPoseWaist").Animations);
+            if (partsPath.Length == 0 || packByPath(partsPath) is not { } parts) return;
+            var clips = new List<AnimationClip>(parts.Animations);
+            if (packByPath(waistPath) is { } waist) clips.AddRange(waist.Animations);
             string stem = $"mq{pose}";
             clips.RemoveAll(c => !c.Name.StartsWith(stem, StringComparison.OrdinalIgnoreCase) || c.Name.Length != stem.Length + 1);
             var joined = JoinBodyRegionParts(clips).Find(c => c.Name.Equals(stem, StringComparison.OrdinalIgnoreCase));

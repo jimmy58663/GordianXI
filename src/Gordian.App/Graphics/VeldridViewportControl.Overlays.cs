@@ -91,7 +91,12 @@ namespace Gordian.App.Graphics
                 if (_gpuTimer.TryReadLatest(_gpuPassScratch)) _perfStats.RecordGpuPasses(_gpuPassScratch);
             }
             _perfStats.RecordCpuFrame((float)((now - _perfFrameStart) * 1000.0 / Stopwatch.Frequency));
-            if (_frameOverlayMode == PerformanceOverlayMode.Detailed) _perfStats.SampleMemory(now);
+            if (_frameOverlayMode == PerformanceOverlayMode.Detailed)
+            {
+                _perfStats.SampleMemory(now);
+                if (ResourceManager is { } resources) _perfStats.EntityModels = resources.EntityModelStats;
+                if (_renderer != null) _perfStats.GpuEntityPieces = _renderer.SharedResources.EntityMeshes.Count;
+            }
         }
 
         /// <summary>

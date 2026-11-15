@@ -17,7 +17,11 @@ namespace Gordian.Core.Resources.Models
         public Skeleton? Skeleton { get; set; }
         public List<AnimatedMeshGroup> AnimatedMeshGroups { get; } = new();
         public Dictionary<string, DecodedTexture> Textures { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public Dictionary<string, AnimationClip> Animations { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// The actor's clips by name. A player model shares its motion set's dictionary with every model of the same race
+        /// and weapons (#573, <see cref="ShareMotionsFrom"/>), so it is not changed once the model is built.
+        /// </summary>
+        public Dictionary<string, AnimationClip> Animations { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
         public IReadOnlyDictionary<int, int>? ParentOverrides { get; set; }
 
 
@@ -28,7 +32,83 @@ namespace Gordian.Core.Resources.Models
         public Dictionary<string, MotionRoutine> MotionRoutines { get; private set; } = new(StringComparer.Ordinal);
 
         /// <summary>The raw routines <see cref="MotionRoutines"/> is built from; a later source replaces a same-named one.</summary>
-        internal Dictionary<string, RawMotionRoutine> RawMotionRoutines { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, RawMotionRoutine> RawMotionRoutines { get; private set; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The shared gear parts a player model is drawn from (#573): its <see cref="AnimatedMeshGroups"/> are theirs, less
+        /// the pieces its gear hides. Empty for a model built from one DAT.
+        /// </summary>
+        public IReadOnlyList<CharacterPart> Parts { get; internal set; } = Array.Empty<CharacterPart>();
+
+        /// <summary>The shared motion set the model plays (#573, <see cref="ShareMotionsFrom"/>), or null when it has its own.</summary>
+        internal EntityModel? MotionSet { get; private set; }
+
+        /// <summary>
+        /// Plays <paramref name="motionSet"/>'s clips and routines instead of its own (#573): the dictionaries and the routine
+        /// sound and effect caches are shared, not copied, along with the fields the motions decide (ranged type, dual wield,
+        /// the weapon slots <c>init</c> hides).
+        /// </summary>
+        internal void ShareMotionsFrom(EntityModel motionSet)
+        {
+            MotionSet = motionSet;
+            Animations = motionSet.Animations;
+            RawMotionRoutines = motionSet.RawMotionRoutines;
+            MotionRoutines = motionSet.MotionRoutines;
+            _routineEffects = motionSet._routineEffects;
+            _routineSounds = motionSet._routineSounds;
+            _offHandSounds = motionSet._offHandSounds;
+            RangedType = motionSet.RangedType;
+            IsDualWielding = motionSet.IsDualWielding;
+            DefaultHiddenWeaponSlots = motionSet.DefaultHiddenWeaponSlots;
+        }
+
+        /// <summary>
+        /// On a motion set: its routines from the race DAT alone, before any part's or pack's (#573).
+        /// </summary>
+        internal IReadOnlyDictionary<string, RawMotionRoutine>? BaseRoutines { get; set; }
+
+        /// <summary>
+        /// On a motion set: the routines its motion packs added or replaced over <see cref="BaseRoutines"/> (battle, dual
+        /// wield, chair; #573), which win over a part's routines of the same name as they always did.
+        /// </summary>
+        internal IReadOnlyDictionary<string, RawMotionRoutine>? PackRoutines { get; set; }
+
+        /// <summary>
+        /// Plays <paramref name="motionSet"/>'s clips with routines of its own (#573): a face's voice routines, a body's
+        /// damage sound and a weapon's swing and draw sounds make nearly every character's routines different, while
+        /// its clips are the set's. <paramref name="routines"/> is the race's routines, then the parts', then the set's pack
+        /// routines; <paramref name="hiddenWeaponSlots"/> what <c>init</c> hides with the parts' routines.
+        /// </summary>
+        internal void ShareClipsFrom(EntityModel motionSet, Dictionary<string, RawMotionRoutine> routines, int hiddenWeaponSlots, int rangedType)
+        {
+            MotionSet = motionSet;
+            Animations = motionSet.Animations;
+            RawMotionRoutines = routines;
+            IsDualWielding = motionSet.IsDualWielding;
+            DefaultHiddenWeaponSlots = hiddenWeaponSlots;
+            RangedType = rangedType;
+            RebuildMotionRoutines();
+        }
+
+        /// <summary>
+        /// <paramref name="motionSet"/> for a character with a ranged weapon of RangeType <paramref name="rangedType"/> (#158,
+        /// #573): the same clips, routines and caches, with the routines flattened for that type (its <c>calg</c> / <c>shlg</c>
+        /// reach <c>lc&lt;NN&gt;</c> / <c>ls&lt;NN&gt;</c>).
+        /// </summary>
+        internal static EntityModel WithRangedType(EntityModel motionSet, int rangedType)
+        {
+            var variant = new EntityModel { Name = $"{motionSet.Name}_Ranged{rangedType}", Skeleton = motionSet.Skeleton, IsCharacter = motionSet.IsCharacter };
+            variant.ShareMotionsFrom(motionSet);
+            variant.RangedType = rangedType;
+            variant.MotionRoutines = MotionRoutineDecoder.BuildAll(variant.RawMotionRoutines, clip => variant.Animations.ContainsKey(clip), rangedType);
+            return variant;
+        }
+
+        /// <summary>
+        /// Set when the resource manager drops the model from its cache (#573): holders of copies built from it (the GPU
+        /// cache) free them at once instead of waiting for them to idle out.
+        /// </summary>
+        public bool IsReleased { get; internal set; }
 
         /// <summary>
         /// The equipped ranged weapon's RangeType (its DAT's Info byte 14: 1 wind instrument, 2 string instrument,
@@ -69,7 +149,7 @@ namespace Gordian.Core.Resources.Models
             _routineEffects.Clear();
         }
 
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineEffectCue>> _routineEffects = new(StringComparer.Ordinal);
+        private System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineEffectCue>> _routineEffects = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The shared effect routines and spell effects routine <paramref name="name"/> starts on the actor, through its own
@@ -78,8 +158,8 @@ namespace Gordian.Core.Resources.Models
         public IReadOnlyList<RoutineEffectCue> GetRoutineEffects(string name) =>
             _routineEffects.GetOrAdd(name, n => RoutineEffectCollector.Collect(RawMotionRoutines, n));
 
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _routineSounds = new(StringComparer.Ordinal);
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _offHandSounds = new(StringComparer.Ordinal);
+        private System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _routineSounds = new(StringComparer.Ordinal);
+        private System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<RoutineSoundCue>> _offHandSounds = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The sounds routine <paramref name="name"/> plays, through the actor's own links (#41,

@@ -37,6 +37,7 @@ namespace Gordian.Core.Resources
         private readonly ConcurrentDictionary<string, Lazy<int>> _loadedItemTables = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<DMsgCategory, DMsgStringTable> _dmsgCache = new();
         private readonly ConcurrentDictionary<int, (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)> _zoneCache = new();
+        // Mount and chair models by name; player and monster models are in ResourceManager.ModelEviction.cs.
         private readonly ConcurrentDictionary<string, CachedEntityModel> _entityModelCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<uint, Gordian.Core.Resources.Graphics.ActorEffectSet?> _actorEffectCache = new();
         private readonly ConcurrentDictionary<int, Gordian.Core.Resources.Graphics.ActorEffectSet?> _sceneEffectCache = new();
@@ -755,76 +756,6 @@ namespace Gordian.Core.Resources
         }
 
         /// <summary>
-        /// Attempts to load or stitch an EntityModel for a WorldEntity (Player, NPC, Monster, Trust).
-        /// Caches assembled models to minimize redundant DAT parsing.
-        /// </summary>
-        public bool TryLoadEntityModel(WorldEntity entity, out EntityModel? model)
-        {
-            if (entity == null)
-            {
-                model = null;
-                return false;
-            }
-
-            // 1. Monster / NPC with numeric ModelId
-            if (entity.Appearance.ModelId > 0)
-            {
-                // Unregistered ids (3193-3499) draw nothing in retail, a costumed player included (#83).
-                if (CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId) == CharacterEquipmentResolver.NoModelFileId)
-                {
-                    model = null;
-                    return false;
-                }
-
-                string cacheKey = MonsterModelKey(entity.Appearance.ModelId);
-                if (TryGetCachedModel(cacheKey, out model))
-                {
-                    return true;
-                }
-
-                model = EntityModelLoader.LoadMonsterModel(entity.Appearance.ModelId, LoadDatBytesByFileId);
-                if (model != null)
-                {
-                    CacheModel(cacheKey, model);
-                    return true;
-                }
-
-                int monsterFileId = CharacterEquipmentResolver.GetMonsterFileId(entity.Appearance.ModelId);
-                bool ftableHasEntry = _fileTable.TryResolve(monsterFileId, out string monsterRelPath);
-                GordianLog.Debug(LogCategories.Res, $"TryLoadEntityModel: Monster modelId={entity.Appearance.ModelId}, fileId={monsterFileId}, ftable={_fileTable.Count} entries, resolved={ftableHasEntry}, relPath='{monsterRelPath}'");
-            }
-
-            // 2. Player or Equipped NPC with GrapIdTable
-            if (CharacterModelKey(entity) is { } characterKey)
-            {
-                var grap = entity.Appearance.GrapIdTable!;
-                var race = (CharacterRace)(byte)((entity.Appearance.FaceModel >> 8) & 0xFF);
-                ushort face = (ushort)(entity.Appearance.FaceModel & 0xFF);
-
-                if (TryGetCachedModel(characterKey, out model))
-                {
-                    return true;
-                }
-
-                model = EntityModelLoader.AssembleCharacter(
-                    race,
-                    face,
-                    grap,
-                    LoadDatBytes,
-                    LoadDatBytesByFileId);
-
-                if (model != null)
-                {
-                    CacheModel(characterKey, model);
-                    return true;
-                }
-            }
-
-            model = null;
-            return false;
-        }
-
-        /// <summary>
         /// The particle effects an NPC or monster model's DAT carries for its actor (e.g. the Home Point crystal, model 51),
         /// or null when the model has none. Cached per model id, including models without effects.
         /// </summary>
@@ -952,6 +883,7 @@ namespace Gordian.Core.Resources
             _interiorCache.Clear();
             _interiorCollisionCache.Clear();
             _entityModelCache.Clear();
+            ClearEntityModelCaches();
             ClearMountCaches();
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();

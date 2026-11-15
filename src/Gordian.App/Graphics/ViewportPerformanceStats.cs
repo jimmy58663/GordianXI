@@ -59,6 +59,12 @@ namespace Gordian.App.Graphics
         public int OverlayDrawCalls { get; set; }
 
         public long HeapBytes { get; private set; }
+
+        /// <summary>The entity model caches (#573), sampled with the memory.</summary>
+        public Gordian.Core.Resources.EntityModelCacheStats EntityModels { get; set; }
+
+        /// <summary>GPU copies of entity mesh pieces (#573), sampled with the memory.</summary>
+        public int GpuEntityPieces { get; set; }
         public double AllocatedBytesPerSecond { get; private set; }
         public int Gen0Collections { get; private set; }
         public int Gen1Collections { get; private set; }

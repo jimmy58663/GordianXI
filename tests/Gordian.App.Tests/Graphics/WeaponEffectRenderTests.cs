@@ -78,6 +78,8 @@ namespace Gordian.App.Tests.Graphics
                 var cl = gd.ResourceFactory.CreateCommandList();
                 byte[] Frame(WorldEntity[] drawn, int frames)
                 {
+                    // Other players' models build on a worker in the live renderer (#573); build them here first.
+                    foreach (var e in drawn) rm.TryLoadEntityModel(e, out _);
                     for (int i = 0; i < frames; i++) renderer.Render(camera, env, 1 / 60f, Width, Height, entities: drawn, resourceManager: rm, present: false, targetFramebuffer: fb);
                     cl.Begin(); cl.CopyTexture(rtColor, staging); cl.End(); gd.SubmitCommands(cl); gd.WaitForIdle();
                     var map = gd.Map(staging, NeoVeldrid.MapMode.Read);

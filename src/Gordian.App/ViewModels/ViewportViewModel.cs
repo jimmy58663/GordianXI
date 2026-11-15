@@ -32,6 +32,7 @@ namespace Gordian.App.ViewModels
         private bool _isVsyncEnabled = true;
         private int _backgroundFrameRate = ViewportRenderSettings.DefaultBackgroundFrameRate;
         private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
+        private int _entityPartBudgetMb = ViewportRenderSettings.DefaultEntityPartBudgetMb;
         private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
         private readonly object _saveLock = new();
 
@@ -68,6 +69,7 @@ namespace Gordian.App.ViewModels
                 _settings.IsVsyncEnabled = _isVsyncEnabled;
                 _settings.BackgroundFrameRate = _backgroundFrameRate;
                 _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
+                _settings.EntityPartBudgetMb = _entityPartBudgetMb;
                 _settings.PerformanceOverlay = _performanceOverlay;
                 // The overlay mode can change on a viewport's render or key thread (Ctrl+F12, /perf).
                 lock (_saveLock) _settings.SaveToFile(_settingsPath);
@@ -116,6 +118,7 @@ namespace Gordian.App.ViewModels
             _isVsyncEnabled = _settings.IsVsyncEnabled;
             _backgroundFrameRate = ViewportRenderSettings.ClampFrameRate(_settings.BackgroundFrameRate);
             _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
+            _entityPartBudgetMb = Math.Max(0, _settings.EntityPartBudgetMb);
             _performanceOverlay = _settings.PerformanceOverlay;
             // Every viewport window reads these each frame (#301, #322).
             ViewportRenderSettings.Apply(_settings);
@@ -487,6 +490,25 @@ namespace Gordian.App.ViewModels
                 }
             }
         }
+
+        /// <summary>
+        /// Memory (MB) the shared character gear parts may hold (#573); applies at the next sweep (within 10 seconds).
+        /// </summary>
+        public int EntityPartBudgetMb
+        {
+            get => _entityPartBudgetMb;
+            set
+            {
+                if (SetProperty(ref _entityPartBudgetMb, Math.Max(0, value)))
+                {
+                    ViewportRenderSettings.EntityPartBudgetMb = _entityPartBudgetMb;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The character part memory limits offered in Settings (MB).</summary>
+        public ObservableCollection<int> AvailableEntityPartBudgets { get; } = new() { 128, 256, 512, 1024, 2048, 4096 };
 
         private string _datReloadStatus = string.Empty;
 

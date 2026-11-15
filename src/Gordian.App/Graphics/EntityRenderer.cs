@@ -202,6 +202,12 @@ namespace Gordian.App.Graphics
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public uint IndexCount { get; init; }
 
+            /// <summary>
+            /// 16-bit indices, or 32-bit when the piece has more than 65,535 vertices (#573: an HD asset pack's piece would
+            /// otherwise draw scrambled; retail pieces all fit in 16 bits).
+            /// </summary>
+            public IndexFormat IndexFormat { get; init; } = IndexFormat.UInt16;
+
             /// <summary>The weapon slot of the mesh (<see cref="AnimatedMeshGroup.WeaponSlot"/>), or -1.</summary>
             public int WeaponSlot { get; init; } = -1;
 
@@ -215,9 +221,17 @@ namespace Gordian.App.Graphics
             }
         }
 
+        /// <summary>
+        /// The GPU side of an entity model: its pieces' buffers, in draw order. A model built from the resource manager's
+        /// pieces refers to the shared per-piece buffers (<see cref="GpuSharedResources.EntityMeshes"/>, #573), so two
+        /// characters wearing the same gloves draw the same buffers; only the fallback proxies own theirs.
+        /// </summary>
         internal sealed class GpuEntityModel : IDisposable
         {
             public List<GpuSubmesh> Submeshes { get; } = new();
+
+            /// <summary>Whether <see cref="Submeshes"/> are this model's own (the fallback proxies), freed with it.</summary>
+            public bool OwnsSubmeshes { get; init; }
             public Vector3 MinBounds { get; init; } = -Vector3.One;
             public Vector3 MaxBounds { get; init; } = Vector3.One;
             public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
@@ -228,9 +242,9 @@ namespace Gordian.App.Graphics
 
             public void Dispose()
             {
-                for (int i = 0; i < Submeshes.Count; i++)
+                if (OwnsSubmeshes)
                 {
-                    Submeshes[i].Dispose();
+                    for (int i = 0; i < Submeshes.Count; i++) Submeshes[i].Dispose();
                 }
                 Submeshes.Clear();
             }
@@ -571,12 +585,17 @@ namespace Gordian.App.Graphics
                 if (entity.IsHalfTransparent) eventAlpha = Math.Min(eventAlpha, WorldEntity.OpaqueEventAlpha / 2);
                 bool faded = eventAlpha < WorldEntity.OpaqueEventAlpha;
 
-                // Resolve or build GPU model
+                // Resolve the model, then its GPU copy. The local player's model is built here if it has to be; everyone
+                // else's is built on a worker (#573), so a newly seen player appears a few frames later instead of
+                // stalling the frame, and one changing gear keeps the old look until the new one is ready.
                 GpuEntityModel? gpuModel = null;
                 EntityModel? entityModel = null;
-                if (resourceManager != null && resourceManager.TryLoadEntityModel(entity, out entityModel) && entityModel != null)
+                bool modelPending = false;
+                if (resourceManager != null)
                 {
-                    gpuModel = GetOrUploadGpuModel(entityModel);
+                    if (entity.ServerId == localPlayerServerId) resourceManager.TryLoadEntityModel(entity, out entityModel);
+                    else modelPending = resourceManager.RequestEntityModel(entity, out entityModel) == EntityModelRequest.Pending;
+                    if (entityModel != null) gpuModel = GetOrUploadGpuModel(entityModel);
                 }
 
                 if (gpuModel == null || gpuModel.Submeshes.Count == 0)
@@ -593,8 +612,9 @@ namespace Gordian.App.Graphics
                         continue;
                     }
 
-                    // While the loading screen is fading, a model still on its way is drawn as nothing, not the placeholder.
-                    if (HideFallbackProxies) continue;
+                    // A model still being built, or any model while the loading screen is fading, is drawn as nothing, not
+                    // the placeholder.
+                    if (modelPending || HideFallbackProxies) continue;
                     gpuModel = entity.Type switch
                     {
                         EntityType.Player => _fallbackPlayerProxy,
@@ -791,7 +811,7 @@ namespace Gordian.App.Graphics
 
                 cl.SetGraphicsResourceSet(1, texSet);
                 cl.SetVertexBuffer(0, submesh.VertexBuffer);
-                cl.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
+                cl.SetIndexBuffer(submesh.IndexBuffer, submesh.IndexFormat);
                 cl.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
             }
@@ -1024,7 +1044,6 @@ namespace Gordian.App.Graphics
                 return cached;
             }
 
-            var factory = _gd.ResourceFactory;
             var gpuModel = new GpuEntityModel
             {
                 MinBounds = model.MinBounds,
@@ -1037,55 +1056,77 @@ namespace Gordian.App.Graphics
             {
                 var mg = model.AnimatedMeshGroups[i];
                 if (mg.Vertices.Length == 0 || mg.Indices.Length == 0) continue;
-
-                var gpuVerts = new SkinnedGpuVertex[mg.Vertices.Length];
-                for (int v = 0; v < mg.Vertices.Length; v++)
+                // One GPU copy per piece, shared by every model that draws it (#573: a gear part worn by many characters,
+                // a rider and the character it sits on).
+                if (!_shared.EntityMeshes.TryGetValue(mg, out var submesh))
                 {
-                    var sv = mg.Vertices[v];
-                    gpuVerts[v] = new SkinnedGpuVertex
-                    {
-                        Position0 = sv.Position0,
-                        Position1 = sv.Position1,
-                        Normal0 = sv.Normal0,
-                        Normal1 = sv.Normal1,
-                        Weight0 = sv.Weight0,
-                        Weight1 = sv.Weight1,
-                        Joint0 = sv.Joint0,
-                        Joint1 = sv.Joint1,
-                        TexCoord = sv.TexCoord,
-                        ColorRgba = sv.ColorRgba
-                    };
+                    submesh = UploadSubmesh(mg);
+                    _shared.EntityMeshes[mg] = submesh;
                 }
-
-                var vb = factory.CreateBuffer(new BufferDescription(
-                    (uint)(gpuVerts.Length * Marshal.SizeOf<SkinnedGpuVertex>()),
-                    BufferUsage.VertexBuffer));
-                _gd.UpdateBuffer(vb, 0, gpuVerts);
-
-                var ushortIndices = new ushort[mg.Indices.Length];
-                for (int k = 0; k < mg.Indices.Length; k++)
-                {
-                    ushortIndices[k] = (ushort)mg.Indices[k];
-                }
-
-                var ib = factory.CreateBuffer(new BufferDescription(
-                    (uint)(ushortIndices.Length * sizeof(ushort)),
-                    BufferUsage.IndexBuffer));
-                _gd.UpdateBuffer(ib, 0, ushortIndices);
-
-                gpuModel.Submeshes.Add(new GpuSubmesh
-                {
-                    TextureName = mg.TextureName,
-                    VertexBuffer = vb,
-                    IndexBuffer = ib,
-                    IndexCount = (uint)ushortIndices.Length,
-                    WeaponSlot = mg.WeaponSlot,
-                    AmbientMultiplier = mg.AmbientMultiplier
-                });
+                gpuModel.Submeshes.Add(submesh);
             }
 
             _gpuModelCache[model] = gpuModel;
             return gpuModel;
+        }
+
+        /// <summary>Uploads one mesh piece: its skinned vertices and its indices (32-bit when it needs them).</summary>
+        private GpuSubmesh UploadSubmesh(AnimatedMeshGroup mg)
+        {
+            var factory = _gd.ResourceFactory;
+            var gpuVerts = new SkinnedGpuVertex[mg.Vertices.Length];
+            for (int v = 0; v < mg.Vertices.Length; v++)
+            {
+                var sv = mg.Vertices[v];
+                gpuVerts[v] = new SkinnedGpuVertex
+                {
+                    Position0 = sv.Position0,
+                    Position1 = sv.Position1,
+                    Normal0 = sv.Normal0,
+                    Normal1 = sv.Normal1,
+                    Weight0 = sv.Weight0,
+                    Weight1 = sv.Weight1,
+                    Joint0 = sv.Joint0,
+                    Joint1 = sv.Joint1,
+                    TexCoord = sv.TexCoord,
+                    ColorRgba = sv.ColorRgba
+                };
+            }
+
+            var vb = factory.CreateBuffer(new BufferDescription(
+                (uint)(gpuVerts.Length * Marshal.SizeOf<SkinnedGpuVertex>()),
+                BufferUsage.VertexBuffer));
+            _gd.UpdateBuffer(vb, 0, gpuVerts);
+
+            DeviceBuffer ib;
+            IndexFormat format;
+            if (mg.Vertices.Length <= ushort.MaxValue + 1)
+            {
+                var ushortIndices = new ushort[mg.Indices.Length];
+                for (int k = 0; k < mg.Indices.Length; k++) ushortIndices[k] = (ushort)mg.Indices[k];
+                ib = factory.CreateBuffer(new BufferDescription((uint)(ushortIndices.Length * sizeof(ushort)), BufferUsage.IndexBuffer));
+                _gd.UpdateBuffer(ib, 0, ushortIndices);
+                format = IndexFormat.UInt16;
+            }
+            else
+            {
+                var uintIndices = new uint[mg.Indices.Length];
+                for (int k = 0; k < mg.Indices.Length; k++) uintIndices[k] = (uint)mg.Indices[k];
+                ib = factory.CreateBuffer(new BufferDescription((uint)(uintIndices.Length * sizeof(uint)), BufferUsage.IndexBuffer));
+                _gd.UpdateBuffer(ib, 0, uintIndices);
+                format = IndexFormat.UInt32;
+            }
+
+            return new GpuSubmesh
+            {
+                TextureName = mg.TextureName,
+                VertexBuffer = vb,
+                IndexBuffer = ib,
+                IndexCount = (uint)mg.Indices.Length,
+                IndexFormat = format,
+                WeaponSlot = mg.WeaponSlot,
+                AmbientMultiplier = mg.AmbientMultiplier
+            };
         }
 
         private static bool HasOwnModelReference(WorldEntity entity)
@@ -1185,7 +1226,8 @@ namespace Gordian.App.Graphics
             {
                 MinBounds = new Vector3(-halfW, 0, -halfD),
                 MaxBounds = new Vector3(halfW, hHead, halfD),
-                IsSkinned = false
+                IsSkinned = false,
+                OwnsSubmeshes = true
             };
             model.Submeshes.Add(new GpuSubmesh
             {

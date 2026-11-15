@@ -45,6 +45,13 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The piece's ambient multiplier (<see cref="SkeletonMeshPiece.AmbientMultiplier"/>).</summary>
         public float AmbientMultiplier { get; set; } = 1.0f;
 
+        /// <summary>
+        /// The displayType of the mesh piece the group was built from (<see cref="SkeletonMeshPiece.DisplayType"/>): what the
+        /// worn set's occludeTypes may hide (<see cref="GearOcclusion.Hides"/>). A shared gear part keeps every piece and each
+        /// character leaves out the ones its own gear hides (#573).
+        /// </summary>
+        public byte DisplayType { get; init; }
+
         public int TriangleCount => Indices.Length / 3;
 
         public override string ToString() => $"AnimatedSubMesh [{Name}] Tex: '{TextureName}' (Verts: {Vertices.Length}, Tris: {TriangleCount})";

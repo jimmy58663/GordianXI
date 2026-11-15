@@ -90,6 +90,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         internal ConcurrentDictionary<EntityModel, EntityRenderer.GpuEntityModel> EntityModels { get; } = new(ReferenceEqualityComparer.Instance);
 
+        /// <summary>
+        /// GPU copies of entity mesh pieces, keyed by the piece (#573): a gear part's pieces are shared by every character
+        /// wearing it, so each is uploaded once; <see cref="EntityModels"/> refer to them. Freed by
+        /// <see cref="SweepEntityModels"/> once no GPU model draws them.
+        /// </summary>
+        internal ConcurrentDictionary<AnimatedMeshGroup, EntityRenderer.GpuSubmesh> EntityMeshes { get; } = new(ReferenceEqualityComparer.Instance);
+
         /// <summary>ResourceManager.CacheGeneration <see cref="EntityModels"/> was filled under.</summary>
         internal int EntityModelGeneration { get; set; }
 
@@ -137,7 +144,9 @@ namespace Gordian.App.Graphics
                     pair.Value.LastUsed = now;
                     continue;
                 }
-                if (now - pair.Value.LastUsed <= idleTicks) continue;
+                // A model the resource manager dropped goes at once (#573: under the part budget it may drop models sooner
+                // than the idle time); others (riders, mounts, chairs) when not drawn for the idle time.
+                if (!pair.Key.IsReleased && now - pair.Value.LastUsed <= idleTicks) continue;
                 if (EntityModels.TryRemove(pair))
                 {
                     pair.Value.Dispose();
@@ -146,10 +155,27 @@ namespace Gordian.App.Graphics
             }
             _liveModels.Clear();
 
+            // The pieces no remaining GPU model draws.
+            int freedPieces = 0;
+            if (released > 0)
+            {
+                var drawn = new HashSet<EntityRenderer.GpuSubmesh>(ReferenceEqualityComparer.Instance);
+                foreach (var model in EntityModels.Values)
+                {
+                    foreach (var submesh in model.Submeshes) drawn.Add(submesh);
+                }
+                foreach (var pair in EntityMeshes)
+                {
+                    if (drawn.Contains(pair.Value) || !EntityMeshes.TryRemove(pair)) continue;
+                    pair.Value.Dispose();
+                    freedPieces++;
+                }
+            }
+
             if (evicted > 0 || released > 0)
             {
                 GordianLog.Debug(LogCategories.Graphics,
-                    $"Entity model sweep: dropped {evicted} cached models and {released} GPU copies; {resources?.CachedEntityModelCount ?? 0} cached, {EntityModels.Count} on the GPU.");
+                    $"Entity model sweep: dropped {evicted} cached models, {released} GPU models and {freedPieces} GPU pieces; {resources?.CachedEntityModelCount ?? 0} cached, {EntityModels.Count} GPU models, {EntityMeshes.Count} GPU pieces.");
             }
         }
 
@@ -158,6 +184,8 @@ namespace Gordian.App.Graphics
         {
             foreach (var model in EntityModels.Values) model.Dispose();
             EntityModels.Clear();
+            foreach (var submesh in EntityMeshes.Values) submesh.Dispose();
+            EntityMeshes.Clear();
         }
 
         /// <summary>
