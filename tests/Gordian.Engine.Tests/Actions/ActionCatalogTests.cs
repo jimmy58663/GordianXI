@@ -39,12 +39,13 @@ namespace Gordian.Engine.Tests.Actions
             // Cure: white, MP 8, anyone (0x3F), WHM 1 / RDM 3, menu slot 1. Fire: black, MP 7, enemies, BLM 13 / RDM 19.
             Spell(spells, Cure, kind: 1, flags: 0x3F, mp: 8, menu: 1, (3, 1), (5, 3));
             SetSpellIcon(spells, Cure, 6);
+            SetSpellRange(spells, Cure, 12); // 20 yalms
             Spell(spells, Fire, kind: 2, flags: 0x20, mp: 7, menu: 197, (4, 13), (5, 19));
             Spell(spells, Shantotto, kind: 8, flags: 0x01, mp: 0, menu: 918, Enumerable.Range(1, 22).Select(j => (j, 1)).ToArray());
             var commands = new byte[SpellCommandTables.CommandRecordSize * 2816];
-            Command(commands, FastBlade, type: 3, flags: 0x20, recastId: 900, tp: -1);
+            Command(commands, FastBlade, type: 3, flags: 0x20, recastId: 900, tp: -1, range: 2); // melee reach, 3 yalms
             Command(commands, 512 + Berserk, type: 1, flags: 0x01, recastId: 1, tp: -1, icon: 40, icon2: 361);
-            Command(commands, 512 + Provoke, type: 1, flags: 0x20, recastId: 5, tp: -1);
+            Command(commands, 512 + Provoke, type: 1, flags: 0x20, recastId: 5, tp: -1, range: 9); // 12 yalms
             Command(commands, 512 + CuringWaltz, type: 12, flags: 0x3F, recastId: 217, tp: 200);
             Command(commands, 512 + 1, type: 4, flags: 0x01, recastId: 0, tp: -1);
             Command(commands, 512 + Fight, type: 2, flags: 0x20, recastId: 100, tp: -1);
@@ -79,7 +80,15 @@ namespace Gordian.Engine.Tests.Actions
             SpellCommandTables.Scramble(r);
         }
 
-        private static void Command(byte[] table, int id, int type, int flags, int recastId, int tp, int icon = 46, int icon2 = -1)
+        private static void SetSpellRange(byte[] table, int id, int range)
+        {
+            var r = table.AsSpan(id * SpellCommandTables.SpellRecordSize, SpellCommandTables.SpellRecordSize);
+            SpellCommandTables.Unscramble(r);
+            r[0x45] = (byte)range;
+            SpellCommandTables.Scramble(r);
+        }
+
+        private static void Command(byte[] table, int id, int type, int flags, int recastId, int tp, int icon = 46, int icon2 = -1, int range = 0)
         {
             var r = table.AsSpan(id * SpellCommandTables.CommandRecordSize, SpellCommandTables.CommandRecordSize);
             BinaryPrimitives.WriteUInt16LittleEndian(r, (ushort)id);
@@ -89,6 +98,7 @@ namespace Gordian.Engine.Tests.Actions
             BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x08), (ushort)recastId);
             BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x0A), (ushort)flags);
             BinaryPrimitives.WriteInt16LittleEndian(r.Slice(0x0C), (short)tp);
+            r[0x10] = (byte)range;
             SpellCommandTables.Scramble(r);
         }
 

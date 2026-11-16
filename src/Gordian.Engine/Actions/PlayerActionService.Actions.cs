@@ -385,6 +385,9 @@ namespace Gordian.Engine.Actions
         /// <summary>The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none.</summary>
         public AreaOfEffectGuide? AreaOfEffect => AreaOfEffectGuide.For(SubTargeting, Catalog);
 
+        /// <summary>The sub-target cursor's range colour band now (#589); in range when there is no cursor. Read every frame.</summary>
+        public SubTargetRangeBand SubTargetBand => _subTarget is { } selection ? SubTargetRange.For(selection, Catalog, LocalEntity()) : SubTargetRangeBand.InRange;
+
         /// <summary>
         /// The entities inside the sub-target cursor's AoE circle that its action would affect (#356, the maintainer's retail
         /// checks: their name plates show at twice the size, and the characters among them flash like the sub-target): for an
