@@ -130,8 +130,8 @@ namespace Gordian.Engine.Actions
                 StockUiActionType.JobAbility => ActionKind.JobAbility,
                 _ => ActionKind.WeaponSkill,
             };
-            var allowed = request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags;
             ushort id = request.Id;
+            var allowed = WithPianissimo(kind, id, request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags);
             return Task.FromResult(StartSubTarget(request.Name, allowed, entity => UseActionAsync(kind, id, entity), preferred, true, kind, id, default, 0));
         }
 
@@ -170,7 +170,7 @@ namespace Gordian.Engine.Actions
             }
             ushort actionId = (ushort)id.Value;
             string label = catalog?.Name(kind, actionId) ?? $"{Describe(kind)} #{actionId}";
-            var flags = TargetFlagsOf(catalog, kind, actionId);
+            var flags = WithPianissimo(kind, actionId, TargetFlagsOf(catalog, kind, actionId));
 
             // An explicit target: resolved by the router (a name), or a placeholder.
             if (cmd.TargetServerId != 0)
@@ -382,8 +382,22 @@ namespace Gordian.Engine.Actions
             return _world.TryGetByServerId(others[slot - 1].ServerId, out var entity) ? entity : null;
         }
 
-        /// <summary>The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none.</summary>
+        /// <summary>
+        /// The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none. A party song
+        /// keeps its circle under Pianissimo too, around the member under the cursor (the maintainer's retail check,
+        /// 2026-11-15 test round 3), though the song then lands on that member alone.
+        /// </summary>
         public AreaOfEffectGuide? AreaOfEffect => AreaOfEffectGuide.For(SubTargeting, Catalog);
+
+        /// <summary>Whether Pianissimo (status effect 409) is on you.</summary>
+        private bool PianissimoActive => Pianissimo.IsActive(_localPlayer.GetStatusEffectIds());
+
+        /// <summary>An action's target bits as they stand now: a party song under Pianissimo also takes party members (<see cref="Pianissimo"/>).</summary>
+        private ActionTargetFlags WithPianissimo(ActionKind kind, ushort id, ActionTargetFlags flags) =>
+            kind == ActionKind.Spell && Pianissimo.IsPartySong(Catalog?.GetSpell(id)) ? Pianissimo.Targets(flags, Catalog?.GetSpell(id), PianissimoActive) : flags;
+
+        /// <summary>The sub-target cursor's range colour band now (#589); in range when there is no cursor. Read every frame.</summary>
+        public SubTargetRangeBand SubTargetBand => _subTarget is { } selection ? SubTargetRange.For(selection, Catalog, LocalEntity()) : SubTargetRangeBand.InRange;
 
         /// <summary>
         /// The entities inside the sub-target cursor's AoE circle that its action would affect (#356, the maintainer's retail
@@ -474,8 +488,9 @@ namespace Gordian.Engine.Actions
         /// callback that sends the use). <paramref name="allowed"/> filters what the cursor may land on;
         /// <paramref name="onConfirm"/> runs on the picked entity. The cursor starts on <paramref name="preferred"/> (a
         /// command menu's target) when allowed, else on the current target, else on yourself, else on the nearest allowed
-        /// entity. With <paramref name="resumeMenus"/> the open menus step aside (<see cref="StockUiMenuController.Suspended"/>)
-        /// and come back when the cursor ends, as retail's do; otherwise they close. Warns when nothing around may be the
+        /// entity; a monster is passed over when the action may land on yourself (#562). With <paramref name="resumeMenus"/>
+        /// the open menus step aside (<see cref="StockUiMenuController.Suspended"/>) and come back when the cursor ends, as
+        /// retail's do; otherwise they close. Warns when nothing around may be the
         /// target.
         /// </summary>
         public PlayerActionResult BeginSubTarget(string name, ActionTargetFlags allowed, Func<WorldEntity, Task<PlayerActionResult>> onConfirm,
@@ -487,10 +502,11 @@ namespace Gordian.Engine.Actions
         {
             ArgumentNullException.ThrowIfNull(onConfirm);
             var self = LocalEntity();
+            bool selfAllowed = self != null && AcceptsTarget(allowed, self);
             WorldEntity? start = null;
-            if (preferred != null && AcceptsTarget(allowed, preferred)) start = preferred;
-            else if (CurrentTarget is { } current && AcceptsTarget(allowed, current) && TargetCycling.IsTargetable(current)) start = current;
-            else if (self != null && AcceptsTarget(allowed, self)) start = self;
+            if (preferred != null && StartsOn(preferred)) start = preferred;
+            else if (CurrentTarget is { } current && StartsOn(current) && TargetCycling.IsTargetable(current)) start = current;
+            else if (selfAllowed) start = self;
             else if (self != null)
             {
                 float best = float.MaxValue;
@@ -506,6 +522,13 @@ namespace Gordian.Engine.Actions
                 }
             }
             if (start == null) return PlayerActionResult.Warn($"{name}: there is no one here it can be used on.");
+
+            // A monster is not where an action that may land on yourself starts, even one that may land on monsters too
+            // (Cure, which hurts the undead): retail starts Cure on yourself with a mob targeted, also from that mob's
+            // command menu (local LSB 2026-11-15, #562).
+            bool StartsOn(WorldEntity entity) =>
+                AcceptsTarget(allowed, entity) && !(selfAllowed && entity.Type == EntityType.Monster && entity.ServerId != _localPlayer.ServerId);
+
             CancelSubTarget();
             if (resumeMenus && Menus.IsOpen) Menus.Suspended = true;
             else Menus.CloseAll();

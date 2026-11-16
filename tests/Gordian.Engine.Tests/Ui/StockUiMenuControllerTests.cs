@@ -410,6 +410,40 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void CommandMenu_CheckOnAMonster_LeavesTheMenuOpenOnCheck()
+        {
+            const StockUiTargetKind kind = StockUiTargetKind.Monster;
+            // Retail (local LSB, 2026-11-15, #580): Check on a mob prints the check, the command menu stays with the cursor
+            // on Check, a second Check at once prints again, and Attack works from the same menu.
+            var menus = Controller();
+            var ran = new List<StockUiMenuCommand>();
+            menus.TargetCommand = (command, _) =>
+            {
+                ran.Add(command);
+                return Task.FromResult(Gordian.Engine.Actions.PlayerActionResult.Ok("Checking Target."));
+            };
+
+            Assert.True(menus.OpenCommandMenu(Target(kind)));
+            var root = menus.Top!;
+            menus.Move(InputAction.MenuUp); // Check (the last row)
+            int check = root.SelectedButtonId;
+            Assert.Equal("Check", root.CommandRows![check - 1].Label.Text);
+
+            menus.Activate();
+            Assert.True(menus.IsOpen);
+            Assert.Same(root, menus.Top);
+            Assert.Equal(check, menus.Top!.SelectedButtonId);
+            menus.Activate(); // again at once
+            Assert.Equal(new[] { StockUiMenuCommand.Check, StockUiMenuCommand.Check }, ran);
+            Assert.True(menus.IsOpen);
+
+            menus.Move(InputAction.MenuDown); // wraps to Attack
+            menus.Activate();
+            Assert.Equal(StockUiMenuCommand.Attack, ran[^1]);
+            Assert.False(menus.IsOpen);
+        }
+
+        [Fact]
         public void CommandMenu_TargetCommandsCloseTheMenu_AndPostWarnings()
         {
             var menus = Controller();
@@ -435,6 +469,7 @@ namespace Gordian.Engine.Tests.Ui
             menus.Activate();
             Assert.Equal(StockUiMenuCommand.Check, ran[1].Item1);
             Assert.Single(notices); // a success posts nothing
+            menus.CloseAll();
 
             // The cursor starts on the top entry every time (the maintainer's round 2 note, 2026-10-12).
             menus.OpenCommandMenu(Target(StockUiTargetKind.Player));
