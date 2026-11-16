@@ -299,12 +299,26 @@ namespace Gordian.Core.World
             lock (_syncRoot)
             {
                 if (_actorEffects.Count >= MaxPendingMapSchedulers) _actorEffects.RemoveAt(0);
-                _actorEffects.Add(request with { ZoneId = _currentZoneId });
+                _actorEffects.Add(request with { ZoneId = _currentZoneId, PostedAt = ActorColorTrack.Now });
             }
         }
 
-        /// <summary>Moves the queued actor effects of <paramref name="zoneId"/> into <paramref name="into"/> and drops those of other zones.</summary>
-        public void TakeActorEffects(ushort zoneId, List<ActorEffectRequest> into)
+        /// <summary>
+        /// How long a queued actor effect waits for a viewport before it is dropped, in seconds: as long as a queued body
+        /// action (<see cref="Animation.EntityAnimationState.StaleActionSeconds"/>). A session that is not shown has no
+        /// viewport taking its effects, so without this they piled up and all played at once when it was switched to: a
+        /// level up and a level down minutes old together (#581 round 2).
+        /// </summary>
+        public const double MaxActorEffectAgeSeconds = Animation.EntityAnimationState.StaleActionSeconds;
+
+        /// <summary>
+        /// Moves the queued actor effects of <paramref name="zoneId"/> into <paramref name="into"/> and drops those of other
+        /// zones and those older than <see cref="MaxActorEffectAgeSeconds"/>.
+        /// </summary>
+        public void TakeActorEffects(ushort zoneId, List<ActorEffectRequest> into) => TakeActorEffects(zoneId, into, ActorColorTrack.Now);
+
+        /// <summary>As <see cref="TakeActorEffects(ushort, List{ActorEffectRequest})"/> at <paramref name="now"/> (<see cref="ActorColorTrack.Now"/> seconds).</summary>
+        internal void TakeActorEffects(ushort zoneId, List<ActorEffectRequest> into, double now)
         {
             ArgumentNullException.ThrowIfNull(into);
             lock (_syncRoot)
@@ -312,7 +326,7 @@ namespace Gordian.Core.World
                 if (_actorEffects.Count == 0) return;
                 foreach (var request in _actorEffects)
                 {
-                    if (request.ZoneId == zoneId) into.Add(request);
+                    if (request.ZoneId == zoneId && now - request.PostedAt <= MaxActorEffectAgeSeconds) into.Add(request);
                 }
                 _actorEffects.Clear();
             }
@@ -860,5 +874,8 @@ namespace Gordian.Core.World
     {
         /// <summary>The zone the request was queued in (set by <see cref="WorldState.PostActorEffect"/>).</summary>
         public ushort ZoneId { get; init; }
+
+        /// <summary>When it was queued (<see cref="ActorColorTrack.Now"/> seconds, set by <see cref="WorldState.PostActorEffect"/>).</summary>
+        public double PostedAt { get; init; }
     }
 }

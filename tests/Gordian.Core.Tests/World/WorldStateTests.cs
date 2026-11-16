@@ -497,6 +497,25 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(LocomotionDirection.Right, entity.LocomotionDirection);
         }
 
+        /// <summary>
+        /// An actor effect no viewport took in time (a session that is not shown) is dropped, not played when the session is
+        /// switched to (#581 round 2: a minutes-old level up and level down played together on a switch).
+        /// </summary>
+        [Fact]
+        public void ActorEffects_NotTakenInTime_AreDropped()
+        {
+            var world = new WorldState { CurrentZoneId = 100 };
+            world.PostActorEffect(new ActorEffectRequest(0x01000001, 0x01000001, "kesu"));
+            var taken = new List<ActorEffectRequest>();
+            double posted = ActorColorTrack.Now;
+            world.TakeActorEffects(100, taken, posted + WorldState.MaxActorEffectAgeSeconds + 60);
+            Assert.Empty(taken);
+
+            world.PostActorEffect(new ActorEffectRequest(0x01000001, 0x01000001, "kesu"));
+            world.TakeActorEffects(100, taken, ActorColorTrack.Now);
+            Assert.Single(taken);
+        }
+
         [Fact]
         public void WorldEntity_Stationary_DoesNotOverwriteWireDirection()
         {

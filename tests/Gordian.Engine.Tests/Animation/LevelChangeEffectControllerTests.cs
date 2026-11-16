@@ -110,5 +110,31 @@ namespace Gordian.Engine.Tests.Animation
             Assert.True(dark.X < 0.1f && dark.Y < 0.1f && dark.Z < 0.1f);
             Assert.Equal(1f, dark.W, 3);
         }
+
+        /// <summary>
+        /// The level up text's trail (<c>g004</c>, a child of the text <c>g000</c> that names no attach) is placed by its
+        /// parent's attachment, joint reference 1, not at the model origin: placed by its own, it drew a second "Level Up !!"
+        /// at the character's feet (#581 round 2). Same for level down's <c>g001</c> under <c>g000</c>. Skipped without the
+        /// game install.
+        /// </summary>
+        [Theory]
+        [InlineData(LevelChangeEffectController.LevelUpFileId, "g000", "g004")]
+        [InlineData(LevelChangeEffectController.LevelDownFileId, "g000", "g001")]
+        public void TheTextsChildGenerator_RidesItsParentsAttachment(int fileId, string parent, string child)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var effects = rm.GetSceneEffects(fileId)!;
+            var instance = new Gordian.Engine.Graphics.ActorEffectInstance(effects);
+            var parentLayer = effects.Layers.First(l => l.Name == parent && !l.Emitter!.ChildOnly);
+            var childLayer = effects.Layers.First(l => l.Name == child && l.Emitter!.ChildOnly);
+
+            var placement = instance.PlacementOf(childLayer.Emitter!);
+            Assert.Same(parentLayer.Emitter!.Definition, placement);
+            Assert.Equal(Gordian.Core.Resources.Graphics.ParticleAttachType.SourceActor, placement.AttachType);
+            // A generator a routine spawns keeps its own.
+            Assert.Same(parentLayer.Emitter!.Definition, instance.PlacementOf(parentLayer.Emitter!));
+        }
     }
 }

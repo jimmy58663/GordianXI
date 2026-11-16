@@ -258,7 +258,8 @@ namespace Gordian.App.Graphics
             foreach (var (layer, emitter) in player.Player.Instance.Emitters)
             {
                 if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
-                var definition = emitter.Template.Definition;
+                // A child generator rides its parent's attachment (the level up text's trail, #581 round 2).
+                var definition = player.Player.Instance.PlacementOf(emitter.Template);
                 Matrix4x4 frame;
                 float distance;
                 if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
@@ -275,7 +276,7 @@ namespace Gordian.App.Graphics
                     frame = DisplayFlip * JointFrame(definition, anchor) * placement;
                     distance = Vector3.Distance(camera.Position, placement.Translation);
                 }
-                foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame));
+                foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame, PullDepth: true));
             }
         }
     }
