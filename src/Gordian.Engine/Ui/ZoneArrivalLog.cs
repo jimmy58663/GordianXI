@@ -7,7 +7,7 @@ namespace Gordian.Engine.Ui
     /// The zone-name line the client prints in the chat log on every zone-in (#579). Retail (local LSB capture 2026-11-15,
     /// <c>579-zone-arrival.png</c>): <c>=== Area: La Theine Plateau ===</c>, white like the other system text, printed with the
     /// zone-in itself (within 4 s of a <c>!zone</c>, while "Downloading data..." is still up and before any NPC spawns); a
-    /// <c>!zone</c> into the zone the character is already in prints it again. The server sends no such line (LandSandBoat has
+    /// <c>!zone</c> into the zone the character is already in prints it again, and entering the Mog House prints <c>=== Area: Mog House 1F ===</c> (<c>579-mog-house-1f-area-line.png</c>). The server sends no such line (LandSandBoat has
     /// none), so it is the client's, from the zone name table (<c>ROM/165/84</c>).
     /// <para>One per S2C 0x00A (<c>WorldState.ZoneEntered</c>), first login included. Each session has its own log, so a
     /// Ctrl+Tab session switch prints nothing. The zone name table is the app's: a zone-in before the app has attached it (the
