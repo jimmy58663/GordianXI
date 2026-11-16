@@ -784,7 +784,8 @@ namespace Gordian.App.Graphics
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
-                if (castsShadow && !isFallback && !entity.HidesShadow)
+                // A model with no body (a Home Point, an invisible event NPC) casts no shadow (#577 round 2).
+                if (castsShadow && !isFallback && !entity.HidesShadow && entityModel?.HasNoBody != true)
                     QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y, entity.ServerId, deltaSeconds);
                 if (faded)
                 {

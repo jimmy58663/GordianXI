@@ -171,6 +171,16 @@ namespace Gordian.Core.Resources.Models
             ? _offHandSounds.GetOrAdd(name, n => RoutineSoundCollector.Collect(RawMotionRoutines, n, offHand: true))
             : _routineSounds.GetOrAdd(name, n => RoutineSoundCollector.Collect(RawMotionRoutines, n));
 
+        /// <summary>
+        /// Whether the model has no body: at most one mesh group with at most one triangle. Many fixed NPC models are only
+        /// that placeholder (3 vertices, 1 triangle, bounds under a hundredth of a yalm), drawn by their effects if at all:
+        /// the Home Point crystal (model 51, its crystal from the <c>bind</c> / <c>aper</c> effects), the invisible event
+        /// and "???" NPCs (models 50 and 52, over 10,000 NPCs in LandSandBoat's <c>data/zones/*/npcs.yaml</c>), the Yahse
+        /// campfire (2411) and models 1525 and 2326 (read 2026-11-15, #577 round 2). Such a model casts no shadow:
+        /// retail draws none under a Home Point, whose NPC data carries no ShadowFlag.
+        /// </summary>
+        public bool HasNoBody => AnimatedMeshGroups.Count <= 1 && TotalTriangles <= 1;
+
         public Vector3 MinBounds { get; private set; } = new(float.MaxValue);
         public Vector3 MaxBounds { get; private set; } = new(float.MinValue);
 
