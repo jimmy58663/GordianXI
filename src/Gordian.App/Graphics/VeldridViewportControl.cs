@@ -390,7 +390,10 @@ namespace Gordian.App.Graphics
             if (zone?.Collision == null || loaded == 0) return;
             foreach (var world in new[] { _activeSession?.World, _worldState })
             {
-                if (world != null && world.MapZoneId == loaded) world.Collision = zone.Collision;
+                // Only when it changes: setting it drops the interiors near the player (WorldState.Collision), so a character
+                // switch, or a thumbnail showing a character, would hide a shop's interior until the next locomotion tick found
+                // it again (#585 round 1: the Lower Jeuno tavern flashed empty on each switch, every character in it).
+                if (world != null && world.MapZoneId == loaded && !ReferenceEquals(world.ZoneCollision, zone.Collision)) world.Collision = zone.Collision;
             }
         }
 

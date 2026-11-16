@@ -20,14 +20,25 @@ namespace Gordian.App.Graphics
     /// the facade but a plug filling the room behind it (Lower Jeuno's <c>r_syoku</c>: hiding it changes nothing seen from the
     /// street, and from inside it is a dark block where the tavern is; offscreen, 2026-10-20), so hiding it as soon as the
     /// interior is near shows the lit room through the open door, as the retail capture does. Interior DATs are read in the
-    /// background the first time they come near and uploaded for this renderer.
+    /// background the first time they come near; their meshes and textures are uploaded once per device and shared by every
+    /// window (<see cref="ZoneModelCache"/>, #585), each window binding its own light slots, sub-environments and effects.
     /// </summary>
     public sealed partial class ZoneTerrainRenderer
     {
-        /// <summary>A building interior on the GPU: its submeshes and its textures, the parent zone's behind them.</summary>
+        /// <summary>
+        /// A building interior as this renderer draws it: the device's shared copy (<see cref="Model"/>), its textures with
+        /// the parent zone's behind them, and this window's light slots, sub-environment scenes and effect generators.
+        /// </summary>
         private sealed class SubAreaInterior
         {
+            /// <summary>The shared GPU copy this renderer holds a reference to.</summary>
+            public required ZoneModelCache.SharedModel Model { get; init; }
+
+            /// <summary>The submeshes drawn: the shared ones, or copies of them with this window's light slots (<see cref="Borrowed"/>).</summary>
             public List<GpuSubmesh> Submeshes { get; } = new();
+
+            /// <summary>The copies made for this window's light slots (their light sets are this renderer's to free).</summary>
+            public List<GpuSubmesh> Borrowed { get; } = new();
             public IReadOnlyDictionary<string, DecodedTexture>? Textures { get; init; }
 
             /// <summary>The interior DAT's own environment: its sub-environments (Lower Jeuno's taverns: <c>ev10</c>) light it.</summary>
@@ -73,7 +84,7 @@ namespace Gordian.App.Graphics
         }
 
         private readonly Dictionary<int, SubAreaInterior?> _interiors = new();
-        private readonly Dictionary<int, Task<(ZoneGeometry? Interior, Dictionary<string, DecodedTexture>? Textures)>> _interiorLoads = new();
+        private readonly Dictionary<int, Task<(ZoneModelCache.ModelKey Key, ZoneGeometry? Interior, Dictionary<string, DecodedTexture>? Textures)>> _interiorLoads = new();
 
         /// <summary>The interiors drawn this frame, whose closed-exterior plugs are hidden.</summary>
         private IReadOnlyList<int> _shownSubAreas = Array.Empty<int>();
@@ -122,21 +133,38 @@ namespace Gordian.App.Graphics
         private SubAreaInterior? GetInterior(int subAreaId, ResourceManager resourceManager)
         {
             if (_interiors.TryGetValue(subAreaId, out var ready)) return ready;
+            var models = _shared.ZoneModels;
             if (!_interiorLoads.TryGetValue(subAreaId, out var load))
             {
-                _interiorLoads[subAreaId] = Task.Run(() => resourceManager.TryLoadSubAreaInterior(subAreaId, out var geometry, out var textures)
-                    ? (geometry, textures)
-                    : ((ZoneGeometry?)null, (Dictionary<string, DecodedTexture>?)null));
+                var key = new ZoneModelCache.ModelKey(ZoneModelCache.ModelKind.Interior, subAreaId, resourceManager.CacheGeneration);
+                _interiorLoads[subAreaId] = Task.Run(() =>
+                {
+                    if (!resourceManager.TryLoadSubAreaInterior(subAreaId, out var geometry, out var textures)) return (key, (ZoneGeometry?)null, (Dictionary<string, DecodedTexture>?)null);
+                    // Its meshes and textures went after an upload that has left the GPU since (#585): read it again.
+                    if (geometry.IsRenderDataReleased && !models.IsResident(key) &&
+                        !resourceManager.TryReloadSubAreaInterior(subAreaId, geometry, out geometry, out textures))
+                    {
+                        return (key, null, null);
+                    }
+                    return (key, geometry, textures);
+                });
                 return null;
             }
             if (!load.IsCompleted) return null;
             _interiorLoads.Remove(subAreaId);
 
             SubAreaInterior? interior = null;
-            if (load.IsCompletedSuccessfully && load.Result.Interior is { } geometry)
+            if (load.IsCompletedSuccessfully && load.Result is { Interior: { } geometry } result)
             {
+                var own = result.Textures ?? new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+                // One copy per device, uploaded without light slots: each window moves them past its zone's lights below.
+                var model = models.Acquire(result.Key, LoadedZone?.ZoneId ?? 0, geometry.MeshGroups, own, ownLightSlots: false,
+                    releaseCpu: () => geometry.ReleaseRenderData(own, keepRayMesh: false));
+                // Released by another window meanwhile and gone from the GPU since: read again next frame.
+                if (model == null) return null;
+
                 // The interior's own textures first, then the zone's.
-                var textures = new Dictionary<string, DecodedTexture>(load.Result.Textures ?? new Dictionary<string, DecodedTexture>(), StringComparer.OrdinalIgnoreCase);
+                var textures = new Dictionary<string, DecodedTexture>(own, StringComparer.OrdinalIgnoreCase);
                 if (_activeDecodedTextures != null)
                 {
                     foreach (var (name, texture) in _activeDecodedTextures) textures.TryAdd(name, texture);
@@ -150,19 +178,25 @@ namespace Gordian.App.Graphics
                 var effectLayers = geometry.EffectLayers.FindAll(layer => layer.PointLightSlot < 0 && layer.Emitter != null);
                 interior = new SubAreaInterior
                 {
-                    Textures = textures, Environment = geometry.EnvironmentData, Scenes = CreateSubEnvironmentScenes(geometry), SlotOffset = offset,
+                    Model = model, Textures = textures, Environment = geometry.EnvironmentData, Scenes = CreateSubEnvironmentScenes(geometry), SlotOffset = offset,
                     Effects = effectLayers.Count > 0 ? new ActorEffectSet(effectLayers, Array.Empty<WeatherRoutineVariant>(), textures) : null
                 };
-                foreach (var group in geometry.MeshGroups)
+                lock (_shared.GpuLock)
                 {
-                    if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
-                    int[] slots = Array.Empty<int>();
-                    if (lit && group.PointLightSlots.Length > 0)
+                    for (int i = 0; i < model.Submeshes.Count; i++)
                     {
-                        slots = new int[group.PointLightSlots.Length];
-                        for (int i = 0; i < slots.Length; i++) slots[i] = group.PointLightSlots[i] + offset;
+                        var ownSlots = model.PointLightSlots[i];
+                        if (!lit || ownSlots.Length == 0)
+                        {
+                            interior.Submeshes.Add(model.Submeshes[i]);
+                            continue;
+                        }
+                        var slots = new int[ownSlots.Length];
+                        for (int j = 0; j < slots.Length; j++) slots[j] = ownSlots[j] + offset;
+                        var borrowed = model.Submeshes[i].WithLightSlots(_shared, slots);
+                        interior.Borrowed.Add(borrowed);
+                        interior.Submeshes.Add(borrowed);
                     }
-                    interior.Submeshes.Add(UploadSubmesh(_shared, group, pointLightSlots: slots));
                 }
                 if (lit)
                 {
@@ -184,7 +218,7 @@ namespace Gordian.App.Graphics
                         interior.EffectEmitters.Add((layer, emitter));
                     }
                 }
-                GordianLog.Info(LogCategories.Graphics, $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes, {interior.EffectEmitters.Count} effect generators uploaded.");
+                GordianLog.Info(LogCategories.Graphics, $"Sub-area {subAreaId} interior: {interior.Submeshes.Count} submeshes ({interior.Borrowed.Count} with this window's lights), {interior.EffectEmitters.Count} effect generators.");
             }
             else
             {
@@ -251,7 +285,9 @@ namespace Gordian.App.Graphics
             foreach (var interior in _interiors.Values)
             {
                 if (interior == null) continue;
-                foreach (var submesh in interior.Submeshes) submesh.Dispose();
+                // The shared copy stays on the GPU for other windows (and a switch back); only this window's light sets go.
+                foreach (var submesh in interior.Borrowed) submesh.Dispose();
+                _shared.ZoneModels.Release(interior.Model);
                 DisposeSubEnvironmentScenes(interior.Scenes);
                 if (interior.Effects != null && _actorEffectMeshes.Remove(interior.Effects, out var meshes))
                 {

@@ -376,7 +376,6 @@ namespace Gordian.App.Graphics
         public void Trim()
         {
             List<ZoneTerrainRenderer.ResidentZone> dropped;
-            List<ZoneTerrainRenderer.ResidentZone> kept;
             lock (_gate)
             {
                 if (_disposed) return;
@@ -387,9 +386,8 @@ namespace Gordian.App.Graphics
                 if (victims.Count == 0) return;
                 dropped = victims.Select(i => entries[i].Zone).ToList();
                 foreach (var zone in dropped) _entries.Remove(zone.Zone);
-                kept = _entries.Values.Select(e => e.Zone).ToList();
             }
-            Free(dropped, kept, $"zone cache budget {BudgetBytes >> 20} MB");
+            Free(dropped, $"zone cache budget {BudgetBytes >> 20} MB");
         }
 
         /// <summary>
@@ -401,7 +399,6 @@ namespace Gordian.App.Graphics
         {
             ArgumentNullException.ThrowIfNull(zones);
             var dropped = new List<ZoneTerrainRenderer.ResidentZone>();
-            List<ZoneTerrainRenderer.ResidentZone> kept;
             lock (_gate)
             {
                 if (_disposed) return 0;
@@ -417,9 +414,8 @@ namespace Gordian.App.Graphics
                     dropped.Add(entry.Zone);
                 }
                 if (dropped.Count == 0) return 0;
-                kept = _entries.Values.Select(e => e.Zone).ToList();
             }
-            Free(dropped, kept, "no character or window uses it");
+            Free(dropped, "no character or window uses it");
             return dropped.Count;
         }
 
@@ -440,22 +436,33 @@ namespace Gordian.App.Graphics
             }
         }
 
-        private void Free(List<ZoneTerrainRenderer.ResidentZone> dropped, List<ZoneTerrainRenderer.ResidentZone> kept, string reason)
+        private void Free(List<ZoneTerrainRenderer.ResidentZone> dropped, string reason)
         {
-            // Uploads a kept zone draws with stay (zones share uploads by DAT source; after a VFS reload a stale zone and
-            // its reread copy have different uploads for one source, #374).
-            var keepTextures = new List<DecodedTexture>();
-            foreach (var zone in kept)
-            {
-                if (zone.Textures != null) keepTextures.AddRange(zone.Textures.Values);
-            }
             lock (_shared.GpuLock)
             {
+                // Uploads a kept zone or a shared model (#585: a ship, an interior, a furnishing) draws with stay: zones share
+                // uploads by DAT source, and after a VFS reload a stale zone and its reread copy have different uploads for
+                // one source (#374). Picked under the device lock, which every model upload holds throughout.
+                var keepTextures = new List<DecodedTexture>();
+                CollectTextures(keepTextures);
+                _shared.ZoneModels.CollectTextures(keepTextures);
                 foreach (var zone in dropped)
                 {
                     int textures = zone.Textures != null ? _shared.ZoneTextures.Evict(zone.Textures.Values, keepTextures) : 0;
                     zone.Dispose();
                     GordianLog.Info(LogCategories.Graphics, $"Unloaded Zone {zone.ZoneId} from the GPU ({zone.Bytes >> 20} MB, {textures} textures; {reason}).");
+                }
+            }
+        }
+
+        /// <summary>Adds the textures of the resident zones (kept when a shared model leaves the GPU).</summary>
+        internal void CollectTextures(List<DecodedTexture> textures)
+        {
+            lock (_gate)
+            {
+                foreach (var entry in _entries.Values)
+                {
+                    if (entry.Zone.Textures != null) textures.AddRange(entry.Zone.Textures.Values);
                 }
             }
         }

@@ -57,18 +57,10 @@ namespace Gordian.App.Graphics
             ZoneTextures = new GpuTextureCache(gd, TextureLayout);
             EntityTextures = new GpuTextureCache(gd, TextureLayout);
             Zones = new ZoneResidencyCache(this);
+            ZoneModels = new ZoneModelCache(this);
         }
 
         public GraphicsDevice Device { get; }
-
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<ZoneTerrainRenderer, byte> _renderers = new(ReferenceEqualityComparer.Instance);
-
-        /// <summary>The zone renderers (windows) drawing on this device (#576: the zones they read count as in use).</summary>
-        internal IReadOnlyCollection<ZoneTerrainRenderer> Renderers => (IReadOnlyCollection<ZoneTerrainRenderer>)_renderers.Keys;
-
-        internal void RegisterRenderer(ZoneTerrainRenderer renderer) => _renderers.TryAdd(renderer, 0);
-
-        internal void UnregisterRenderer(ZoneTerrainRenderer renderer) => _renderers.TryRemove(renderer, out _);
 
         /// <summary>The lock every use of the device's immediate context and of these shared objects is made under.</summary>
         public object GpuLock { get; }
@@ -93,6 +85,9 @@ namespace Gordian.App.Graphics
 
         /// <summary>The GPU zones resident on this device (#322).</summary>
         public ZoneResidencyCache Zones { get; }
+
+        /// <summary>Ship models, building interiors and Mog House furniture on this device, one copy each (#585).</summary>
+        public ZoneModelCache ZoneModels { get; }
 
         /// <summary>
         /// GPU copies of entity models, keyed by the model instance (<see cref="EntityRenderer"/>), shared by every window.
@@ -215,6 +210,7 @@ namespace Gordian.App.Graphics
             lock (GpuLock)
             {
                 Zones.Dispose();
+                ZoneModels.Dispose();
                 ClearEntityModels();
                 ZoneTextures.Dispose();
                 EntityTextures.Dispose();

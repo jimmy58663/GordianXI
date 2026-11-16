@@ -288,78 +288,43 @@ namespace Gordian.Core.Resources.Models
 
         /// <summary>
         /// Frees what only the GPU upload needed once the zone is resident (#576): the vertex and index arrays of the zone's
-        /// meshes, moving platforms and doors, and the pixels of the zone's own textures (those whose source is this zone's
-        /// DAT; shared effect textures stay). Kept: everything the per-frame runtime reads (placements, collision, routines,
-        /// generator layers, environment), the positions of opaque zone meshes for CPU ray queries, and the vessel's meshes
-        /// and textures, which every renderer uploads on its own (a ship drawn at a dock zone). Building interiors are never
-        /// released (each renderer uploads them on its own too).
+        /// meshes, moving platforms, doors and vessel, and the pixels of the zone's own textures (those whose source is this
+        /// zone's DAT; shared effect textures stay). Kept: everything the per-frame runtime reads (placements, collision,
+        /// routines, generator layers, environment) and, when <paramref name="keepRayMesh"/>, the positions of opaque zone
+        /// meshes for CPU ray queries. A ship drawn at a dock zone and a building interior have their own shared GPU copies
+        /// (the App's <c>ZoneModelCache</c>, #585): a ship model reads its vessel from its own copy of the ship zone when this
+        /// one is released, and an interior is released through this method too (without the ray mesh, as nothing ray-tests it).
         /// </summary>
-        public void ReleaseRenderData(IReadOnlyDictionary<string, Graphics.DecodedTexture>? textures)
+        public void ReleaseRenderData(IReadOnlyDictionary<string, Graphics.DecodedTexture>? textures, bool keepRayMesh = true)
         {
             if (IsRenderDataReleased) return;
             IsRenderDataReleased = true;
 
-            var vesselGroups = new HashSet<MeshGroup>(ReferenceEqualityComparer.Instance);
-            var vesselTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (Vessel != null)
-            {
-                foreach (var group in Vessel.MeshGroups)
-                {
-                    vesselGroups.Add(group);
-                    if (group.TextureName.Length > 0) vesselTextures.Add(group.TextureName.Trim());
-                }
-                foreach (var leaves in Vessel.DoorLeaves.Values)
-                {
-                    foreach (var leaf in leaves)
-                    {
-                        foreach (var group in leaf.Submeshes) vesselGroups.Add(group);
-                    }
-                }
-            }
-
-            foreach (var group in MeshGroups)
-            {
-                if (!vesselGroups.Contains(group)) group.ReleaseRenderData(keepRayMesh: !group.IsWater && !group.IsBlend);
-            }
+            foreach (var group in MeshGroups) group.ReleaseRenderData(keepRayMesh: keepRayMesh && !group.IsWater && !group.IsBlend);
             foreach (var parts in MovingPlatformGroups.Values)
             {
-                foreach (var group in parts)
-                {
-                    if (!vesselGroups.Contains(group)) group.ReleaseRenderData(keepRayMesh: false);
-                }
+                foreach (var group in parts) group.ReleaseRenderData(keepRayMesh: false);
             }
             foreach (var leaves in DoorLeaves.Values)
             {
                 foreach (var leaf in leaves)
                 {
-                    foreach (var group in leaf.Submeshes)
-                    {
-                        if (!vesselGroups.Contains(group)) group.ReleaseRenderData(keepRayMesh: false);
-                    }
+                    foreach (var group in leaf.Submeshes) group.ReleaseRenderData(keepRayMesh: false);
                 }
+            }
+            if (Vessel != null)
+            {
+                foreach (var group in Vessel.MeshGroups) group.ReleaseRenderData(keepRayMesh: false);
             }
 
             if (textures == null || DatSource.Length == 0) return;
             string ownPrefix = DatSource + "@";
-            foreach (var (name, texture) in textures)
+            foreach (var texture in textures.Values)
             {
-                if (texture == null || !texture.Source.StartsWith(ownPrefix, StringComparison.Ordinal)) continue;
-                if (IsVesselTexture(name, vesselTextures)) continue;
-                texture.ReleasePixels();
+                if (texture != null && texture.Source.StartsWith(ownPrefix, StringComparison.Ordinal)) texture.ReleasePixels();
             }
         }
 
-        // A vessel submesh names its texture as GpuTextureCache.Resolve finds it: the exact name or one ending in the other.
-        private static bool IsVesselTexture(string name, HashSet<string> vesselTextures)
-        {
-            if (vesselTextures.Count == 0) return false;
-            if (vesselTextures.Contains(name)) return true;
-            foreach (var used in vesselTextures)
-            {
-                if (name.EndsWith(used, StringComparison.OrdinalIgnoreCase) || used.EndsWith(name, StringComparison.OrdinalIgnoreCase)) return true;
-            }
-            return false;
-        }
         public List<MeshGroup> MeshGroups { get; } = new();
         public List<ZonePlacement> Placements { get; } = new();
 
