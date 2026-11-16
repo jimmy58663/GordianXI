@@ -130,8 +130,8 @@ namespace Gordian.Engine.Actions
                 StockUiActionType.JobAbility => ActionKind.JobAbility,
                 _ => ActionKind.WeaponSkill,
             };
-            var allowed = request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags;
             ushort id = request.Id;
+            var allowed = WithPianissimo(kind, id, request.TargetFlags == ActionTargetFlags.None ? ActionTargetFlags.Self : request.TargetFlags);
             return Task.FromResult(StartSubTarget(request.Name, allowed, entity => UseActionAsync(kind, id, entity), preferred, true, kind, id, default, 0));
         }
 
@@ -170,7 +170,7 @@ namespace Gordian.Engine.Actions
             }
             ushort actionId = (ushort)id.Value;
             string label = catalog?.Name(kind, actionId) ?? $"{Describe(kind)} #{actionId}";
-            var flags = TargetFlagsOf(catalog, kind, actionId);
+            var flags = WithPianissimo(kind, actionId, TargetFlagsOf(catalog, kind, actionId));
 
             // An explicit target: resolved by the router (a name), or a placeholder.
             if (cmd.TargetServerId != 0)
@@ -382,8 +382,22 @@ namespace Gordian.Engine.Actions
             return _world.TryGetByServerId(others[slot - 1].ServerId, out var entity) ? entity : null;
         }
 
-        /// <summary>The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none.</summary>
-        public AreaOfEffectGuide? AreaOfEffect => AreaOfEffectGuide.For(SubTargeting, Catalog);
+        /// <summary>
+        /// The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none. A party song
+        /// under Pianissimo lands on one member, so it has none (LandSandBoat's <c>SPELLAOE_PIANISSIMO</c>; PROVISIONAL
+        /// until retail shows whether the client still draws the circle).
+        /// </summary>
+        public AreaOfEffectGuide? AreaOfEffect =>
+            SubTargeting is { Kind: ActionKind.Spell } song && Pianissimo.IsPartySong(Catalog?.GetSpell(song.Id)) && PianissimoActive
+                ? null
+                : AreaOfEffectGuide.For(SubTargeting, Catalog);
+
+        /// <summary>Whether Pianissimo (status effect 409) is on you.</summary>
+        private bool PianissimoActive => Pianissimo.IsActive(_localPlayer.GetStatusEffectIds());
+
+        /// <summary>An action's target bits as they stand now: a party song under Pianissimo also takes party members (<see cref="Pianissimo"/>).</summary>
+        private ActionTargetFlags WithPianissimo(ActionKind kind, ushort id, ActionTargetFlags flags) =>
+            kind == ActionKind.Spell && Pianissimo.IsPartySong(Catalog?.GetSpell(id)) ? Pianissimo.Targets(flags, Catalog?.GetSpell(id), PianissimoActive) : flags;
 
         /// <summary>The sub-target cursor's range colour band now (#589); in range when there is no cursor. Read every frame.</summary>
         public SubTargetRangeBand SubTargetBand => _subTarget is { } selection ? SubTargetRange.For(selection, Catalog, LocalEntity()) : SubTargetRangeBand.InRange;

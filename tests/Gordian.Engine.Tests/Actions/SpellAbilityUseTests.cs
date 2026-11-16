@@ -214,6 +214,47 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
+        public async Task Pianissimo_LetsAPartySongsCursorOntoPartyMembers_At20Yalms()
+        {
+            _party.UpsertMember(new PartyMember { ServerId = SelfId, TargetIndex = SelfIndex, Name = "Gemini", MemberNumber = 0 });
+            _party.UpsertMember(new PartyMember { ServerId = FriendId, TargetIndex = FriendIndex, Name = "Tarudrake", MemberNumber = 1 });
+            _service.SetTargetByName("Tarudrake");
+
+            // Without Pianissimo a song lands only on yourself: no target given casts it at once, and <st> stays on you
+            // with the area guide drawn.
+            Assert.True((await _service.ExecuteCommandAsync("/ma \"Valor Minuet\"")).Success);
+            Assert.Equal((SelfId, SelfIndex, CliActionId.CastMagic, (uint)TestCatalog.ValorMinuet), LastAction());
+            await _service.ExecuteCommandAsync("/ma \"Valor Minuet\" <st>");
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            Assert.False(_service.MoveSubTarget(FriendId));
+            Assert.NotNull(_service.AreaOfEffect);
+            _service.CancelSubTarget();
+
+            // Pianissimo (status effect 409: low byte 0x99, high bits 1) on: the cursor starts on the targeted party
+            // member, a single-target song has no area guide, and the colour uses the song's 20 yalms.
+            _localPlayer.BuffIcons[0] = 0x99;
+            _localPlayer.BuffStatusBits[0] = 0x01;
+            await _service.ExecuteCommandAsync("/ma \"Valor Minuet\" <st>");
+            Assert.Equal(FriendId, _service.SubTargeting!.Current.ServerId);
+            Assert.Null(_service.AreaOfEffect);
+            Assert.Equal(SubTargetRangeBand.InRange, _service.SubTargetBand);
+            Assert.True(_world.TryGetByServerId(FriendId, out var friend) && friend != null);
+            friend.Position = new Vector3(10, 5, 40.7f); // 20.7 yalms
+            Assert.Equal(SubTargetRangeBand.JustOutOfRange, _service.SubTargetBand);
+            friend.Position = new Vector3(10, 5, 45); // 25 yalms
+            Assert.Equal(SubTargetRangeBand.OutOfRange, _service.SubTargetBand);
+            Assert.True(_service.MoveSubTarget(SelfId));
+            Assert.Equal(SubTargetRangeBand.InRange, _service.SubTargetBand);
+            _service.CancelSubTarget();
+
+            // A monster is still not a song's target, and spells that are not party songs keep their bits.
+            Assert.False(_service.AcceptsTarget(Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.ValorMinuet), true),
+                _world.TryGetByServerId(HareId, out var hare) ? hare! : throw new InvalidOperationException()));
+            Assert.Equal(ActionTargetFlags.Self, Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.Shantotto), true));
+            Assert.Equal(ActionTargetFlags.Self, Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.ValorMinuet), false));
+        }
+
+        [Fact]
         public void SubTargetStep_FollowsScreenOrderAndWraps()
         {
             var candidates = new List<TargetCycling.Candidate>

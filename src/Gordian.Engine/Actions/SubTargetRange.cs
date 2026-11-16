@@ -65,23 +65,20 @@ namespace Gordian.Engine.Actions
             index > 0 && index < Yalms.Length && index != SelfOnlyIndex ? Yalms[index] : null;
 
         /// <summary>
-        /// The range an item's use reaches. Items carry no range in the item DAT that the client reads here, and LandSandBoat
-        /// checks none; PROVISIONAL at a spell's 20 yalms until retail shows otherwise.
+        /// The range in yalms of the action the cursor is for, or null when it has none to check. An item has none: the
+        /// maintainer knows of no item in the game that can be used on anyone but yourself (2026-11-15 test round, D2.6), so
+        /// there is no distance to colour, and the item DAT carries no range to read.
         /// </summary>
-        public const float ItemRangeYalms = 20f;
-
-        /// <summary>The range in yalms of the action the cursor is for, or null when it has none to check.</summary>
         public static float? RangeOf(SubTargetSelection selection, ActionCatalog? catalog)
         {
             ArgumentNullException.ThrowIfNull(selection);
-            if (selection.Kind == ActionKind.Item) return ItemRangeYalms;
             if (catalog == null) return null;
             int? index = selection.Kind switch
             {
                 ActionKind.Spell => catalog.GetSpell(selection.Id)?.Range,
                 ActionKind.JobAbility => catalog.GetJobAbility(selection.Id)?.Range,
                 ActionKind.WeaponSkill => catalog.GetWeaponSkill(selection.Id)?.Range,
-                _ => null,
+                _ => null, // an item
             };
             return index is { } i ? RangeYalms(i) : null;
         }

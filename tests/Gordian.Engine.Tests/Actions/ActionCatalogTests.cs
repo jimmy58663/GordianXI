@@ -16,14 +16,14 @@ namespace Gordian.Engine.Tests.Actions
     /// <summary>A small spell and command table with names, scrambled as the retail file is (#240, #353).</summary>
     internal static class TestCatalog
     {
-        public const ushort Cure = 1, Fire = 144, Shantotto = 896;
+        public const ushort Cure = 1, Fire = 144, Shantotto = 896, ValorMinuet = 394;
         public const ushort Berserk = 31, Provoke = 35, CuringWaltz = 190;
         public const ushort FastBlade = 32;
         public const ushort Fight = 69, MagicDefBonus = 6;
 
         public static readonly Dictionary<int, string> SpellNames = new()
         {
-            [Cure] = "Cure", [Fire] = "Fire", [Shantotto] = "Shantotto",
+            [Cure] = "Cure", [Fire] = "Fire", [Shantotto] = "Shantotto", [ValorMinuet] = "Valor Minuet",
         };
 
         public static readonly Dictionary<int, string> CommandNames = new()
@@ -41,6 +41,9 @@ namespace Gordian.Engine.Tests.Actions
             SetSpellIcon(spells, Cure, 6);
             SetSpellRange(spells, Cure, 12); // 20 yalms
             Spell(spells, Fire, kind: 2, flags: 0x20, mp: 7, menu: 197, (4, 13), (5, 19));
+            // Valor Minuet as the retail table has it: a party song (singing, self only, an area around the target, 20 yalms).
+            Spell(spells, ValorMinuet, kind: 4, flags: 0x01, mp: 0, menu: 300, (10, 3));
+            SetSpellArea(spells, ValorMinuet, skill: Pianissimo.SingingSkill, range: 12, radius: 8, AreaOfEffectShape.AroundTarget);
             Spell(spells, Shantotto, kind: 8, flags: 0x01, mp: 0, menu: 918, Enumerable.Range(1, 22).Select(j => (j, 1)).ToArray());
             var commands = new byte[SpellCommandTables.CommandRecordSize * 2816];
             Command(commands, FastBlade, type: 3, flags: 0x20, recastId: 900, tp: -1, range: 2); // melee reach, 3 yalms
@@ -85,6 +88,17 @@ namespace Gordian.Engine.Tests.Actions
             var r = table.AsSpan(id * SpellCommandTables.SpellRecordSize, SpellCommandTables.SpellRecordSize);
             SpellCommandTables.Unscramble(r);
             r[0x45] = (byte)range;
+            SpellCommandTables.Scramble(r);
+        }
+
+        private static void SetSpellArea(byte[] table, int id, int skill, int range, int radius, AreaOfEffectShape shape)
+        {
+            var r = table.AsSpan(id * SpellCommandTables.SpellRecordSize, SpellCommandTables.SpellRecordSize);
+            SpellCommandTables.Unscramble(r);
+            BinaryPrimitives.WriteUInt16LittleEndian(r.Slice(0x08), (ushort)skill);
+            r[0x45] = (byte)range;
+            r[0x46] = (byte)radius;
+            r[0x47] = (byte)shape;
             SpellCommandTables.Scramble(r);
         }
 

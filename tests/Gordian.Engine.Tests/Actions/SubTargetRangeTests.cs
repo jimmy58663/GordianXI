@@ -61,8 +61,8 @@ namespace Gordian.Engine.Tests.Actions
             // Provoke (index 9, 12 yalms), Fast Blade (index 2, melee reach 3 yalms).
             Assert.Equal(SubTargetRangeBand.OutOfRange, SubTargetRange.For(Cursor(MobAt(15), ActionKind.JobAbility, TestCatalog.Provoke), catalog, Me));
             Assert.Equal(SubTargetRangeBand.JustOutOfRange, SubTargetRange.For(Cursor(MobAt(3.7f), ActionKind.WeaponSkill, TestCatalog.FastBlade), catalog, Me));
-            // Items: 20 yalms (PROVISIONAL).
-            Assert.Equal(SubTargetRangeBand.OutOfRange, SubTargetRange.For(Cursor(MobAt(25), ActionKind.Item, 4112), catalog, Me));
+            // Items: no range, so no colour band (no item is used on anyone but yourself: maintainer, 2026-11-15 round).
+            Assert.Equal(SubTargetRangeBand.InRange, SubTargetRange.For(Cursor(MobAt(25), ActionKind.Item, 4112), catalog, Me));
             // Yourself, an action with no range in the tables (Fire here), and no catalog: in range.
             Assert.Equal(SubTargetRangeBand.InRange, SubTargetRange.For(Cursor(Me, ActionKind.Spell, TestCatalog.Cure), catalog, Me));
             Assert.Equal(SubTargetRangeBand.InRange, SubTargetRange.For(Cursor(MobAt(50), ActionKind.Spell, TestCatalog.Fire), catalog, Me));
