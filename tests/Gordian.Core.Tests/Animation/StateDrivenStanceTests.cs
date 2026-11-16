@@ -82,6 +82,34 @@ namespace Gordian.Core.Tests.Animation
             }
         }
 
+        /// <summary>
+        /// #582 round 3: retail sends a casket 4 as it appears, 5 as it is opened and 6 once that event ends. The casket's
+        /// <c>ids2</c> sets the open stance like <c>ids1</c>, so it stays open on 6 (the first rule shut the lid there).
+        /// </summary>
+        [Theory]
+        [InlineData(965u)]
+        [InlineData(966u)]
+        public void Casket_StaysOpenThroughRetailsSequence(uint modelId)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var casket = EntityModelLoader.LoadMonsterModel(modelId, rm.LoadDatBytesByFileId)!;
+            Assert.Equal(0, casket.RawMotionRoutines["ids0"].Stance);
+            Assert.Equal(1, casket.RawMotionRoutines["ids1"].Stance);
+            Assert.Equal(1, casket.RawMotionRoutines["ids2"].Stance);
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(casket, 6));
+            Assert.Equal(1, NpcStanceResolver.ResolveEffectiveStance(casket, 2));
+
+            var state = new EntityAnimationState();
+            foreach (byte sub in new byte[] { 4, 5, 6 })
+            {
+                for (int i = 0; i < 120; i++) state.Advance(1f / 60f, AnimationCategory.Idle, sub, casket);
+            }
+            Assert.Equal(1, state.CurrentStance);
+            Assert.Same(casket.Animations["1dl0"], state.CurrentClip);
+        }
+
         /// <summary>The furnace names its transitions by previous and new state: 0 to 1 is <c>sp01</c>, its appearance clip <c>pop</c>.</summary>
         [Fact]
         public void SynergyFurnace_TransitionIsNamedByBothStates()

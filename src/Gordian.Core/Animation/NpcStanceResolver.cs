@@ -31,32 +31,38 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// A state-driven model's stance: the state is the sub-animation's low two bits (<see cref="StateWithoutTransitionBit"/>
-        /// aside), and 1 or 2 picks <c>1dl</c> / <c>2dl</c> when the model has them; anything else is the default stance
-        /// <c>idl</c>.
+        /// aside), and the stance is the one the model's idle-state routine for that state (<c>ids&lt;state&gt;</c>) sets with
+        /// op 0x8C (<see cref="Resources.Models.RawMotionRoutine.Stance"/>). Stance 1 or 2 is kept when the model has its
+        /// <c>1dl</c> / <c>2dl</c>; anything else is the default stance <c>idl</c>. A model whose routines set no stance falls back
+        /// to the state itself (1 or 2, with the same check).
         /// <para>
         /// Treasure caskets (#582): the blue and brown caskets (models 965 / 966, files 2265 / 2266) rest closed on <c>idl</c>
-        /// (the lid, joint 2, shut) and open on <c>1dl</c> (the lid turned -120 degrees about X); <c>mse1</c> reaches <c>1dl</c>
-        /// through <c>sp00</c>, which plays the 15-key opening clip <c>op0</c> for 93 ticks with the glow <c>ef00</c>.
-        /// LandSandBoat (scripts/globals/caskets.lua) spawns one with sub-animation 4 (state 0, closed: sent as 4), sets 1 when
-        /// it is opened and 0 as it despawns. The old rule rested every state-driven model with a <c>1dl</c> on it whatever the
-        /// state, so a dropped casket appeared open.
+        /// (the lid, joint 2, shut) and open on <c>1dl</c> (the lid turned -120 degrees about X). Their <c>ids0</c> sets stance 0
+        /// and both <c>ids1</c> and <c>ids2</c> set stance 1, so states 1 and 2 rest open; <c>mse1</c> reaches <c>ids1</c>
+        /// through <c>sp00</c>, which plays the 15-key opening clip <c>op0</c> for 93 ticks with the glow <c>ef00</c>, while
+        /// <c>mse2</c> goes straight to <c>ids2</c>. Retail (the maintainer's log, 2026-11-15, Valkurm casket 0x01073201) sends
+        /// 4 as the casket appears, 5 as it is first opened and 6 once that event ends, and the casket stays open for the
+        /// next event. LandSandBoat (scripts/globals/caskets.lua) sends 4, then 1 when it is opened and 0 as it despawns: its
+        /// casket never reaches state 2. The first rule (state 2 without a <c>2dl</c> rests closed) shut the lid at 6.
         /// </para>
         /// <para>
         /// The Synergy Furnace (model 2348, file 52643) rests with its cap raised in retail (the maintainer's Whitegate capture,
         /// 2026-10-17: lid open at rest, closed while in use), which is <c>1dl0</c> (joint 3, the cap, 0.74 yalms higher and
-        /// tilted 0.61 rad against <c>idl0</c> / <c>2dl0</c> / <c>3dl0</c>; its appearance clip <c>pop0</c> ends there).
-        /// LandSandBoat's captured NPC data sends every furnace with sub-animation 5: state 1 with the spawn bit. Nyzul Isle's
-        /// Armoury Crates (model 965 too) get 13 after their 0x038 opening routine (scripts/globals/nyzul/armoury_crate.lua),
-        /// which is state 1 with the bit set: open, without playing the opening again.
+        /// tilted 0.61 rad against <c>idl0</c> / <c>2dl0</c> / <c>3dl0</c>; its appearance clip <c>pop0</c> ends there). Its
+        /// <c>ids0</c>-<c>ids3</c> set stances 0-3; LandSandBoat's captured NPC data sends every furnace with sub-animation 5
+        /// (state 1), so it rests on <c>1dl0</c>. Nyzul Isle's Armoury Crates (model 965 too) get 13 after their 0x038 opening
+        /// routine (scripts/globals/nyzul/armoury_crate.lua): state 1, open.
         /// </para>
-        /// *Inference* from those three uses and the spawn code: the client's own reading of MonStat is not documented
-        /// (XiPackets names the field only), and which actor field the state routines read (+0x3A / +0x3C) is not known.
+        /// *Inference*: that the client picks the idle-state routine by the low two bits of MonStat (XiPackets names the field
+        /// only), and which actor field the state routines read (+0x3A / +0x3C) is not known.
         /// </summary>
-        internal static byte ResolveStateDrivenStance(IReadOnlyDictionary<string, AnimationClip> anims, byte animationSub)
+        internal static byte ResolveStateDrivenStance(EntityModel model, byte animationSub)
         {
+            var anims = model.Animations;
             int state = animationSub & 0x03;
-            if (state == 2 && (anims.ContainsKey("2dl0") || anims.ContainsKey("2dl"))) return 2;
-            if (state == 1 && (anims.ContainsKey("1dl0") || anims.ContainsKey("1dl"))) return 1;
+            int stance = model.RawMotionRoutines.TryGetValue($"ids{state}", out var idle) && idle.Stance is int set ? set : state;
+            if (stance == 2 && (anims.ContainsKey("2dl0") || anims.ContainsKey("2dl"))) return 2;
+            if (stance == 1 && (anims.ContainsKey("1dl0") || anims.ContainsKey("1dl"))) return 1;
             return 0;
         }
 
@@ -108,7 +114,7 @@ namespace Gordian.Core.Animation
             var anims = model.Animations;
 
             // 0. State-driven models (the crafting furnaces): their state routines pick the stance, not a family pattern.
-            if (IsStateDriven(model)) return ResolveStateDrivenStance(anims, animationSub);
+            if (IsStateDriven(model)) return ResolveStateDrivenStance(model, animationSub);
 
             // 1. Check for Uragnite and defense/shell sub-animation 5 pattern: inShell = 5, outOfShell = 4
             // Protocol specification referenced from LandSandBoat scripts/mixins/families/uragnite.lua
