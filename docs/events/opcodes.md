@@ -133,7 +133,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x6E | `CodeEMOT` | 7 | runs | 5,216 | An actor plays an emote; it waits while that actor still plays an action. |
 | 0x6F |  | 1 | runs | 23,520 | Sleeps for 16 frames unless a wait is already running on the stack. |
 | 0x70 |  | 1 | runs | 8,350 | Waits while the event's own entity is still turning. |
-| 0x71 | `CodeOPENPASSWIN` | by sub | stepped | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. |
+| 0x71 | `CodeOPENPASSWIN` | by sub | partial | 2,163 | Text and number input windows (passwords, counts), the linkshell concierge window and a few unknown menus. Number subs 0x10-0x13 run (#582). |
 | 0x72 | `CodeGETWEATER` | by sub | runs | 244 | Reads the weather forecast file and writes a zone's forecast for a day into zone work values 2-4 ([#125](https://github.com/jimmy58663/GordianXI/issues/125)). |
 | 0x73 | `CodeMAGICSCHEDULOR` | 11 | stepped | 947 | Starts a spell-casting task (tag `main`) from one actor toward another. |
 | 0x74 |  | 2 | stepped | 12 | Sets or clears bit 31 of the event entity's `Render.Flags1`. |
@@ -557,10 +557,10 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x01 | 2 | 23 | Wait for the text, then send it with C2S 0x060 | stepped |
 | 0x02 | 2 | 17 | Wait for the server's answer | stepped |
 | 0x03 | 4 | 5 | Run the text through the vulgar-word filter, store the result | stepped |
-| 0x10 | 4 | 254 | Open the number window (digits from a work value) | stepped |
-| 0x11 | 4 | 254 | Wait for the number, store it | stepped |
-| 0x12 | 6 | 1,855 | Open the number window with a size and type | stepped |
-| 0x13 | 4 | 1,855 | As 0x11 | stepped |
+| 0x10 | 4 | 254 | Open the number window (digits from a work value) | runs: up to 8 digits (`IEventVmHost.OpenNumberInput`) |
+| 0x11 | 4 | 254 | Wait for the number, store it | runs: yields while the window is open, stores the number, 0 when cancelled |
+| 0x12 | 6 | 1,855 | Open the number window with a size and type | runs: digits from the second work value (a treasure casket's combination: 2) |
+| 0x13 | 4 | 1,855 | As 0x11 | runs |
 | 0x20 | 16 | 22 | Open an input menu from seven work values (Moblin Maze Mongers) | stepped |
 | 0x21 | 2 | 22 | Send that menu's choice (C2S 0x0D8) | stepped |
 | 0x30 | 4 | 3 | Open a text window (quill count) | stepped |
@@ -574,6 +574,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - The open and wait subs come in pairs in the corpus (0x10 / 0x11 and 0x12 / 0x13 have equal counts).
 - Stepping means no input window opens and no 0x060 / 0x0D8 packet is sent, so the server never receives the player's input.
+- The number subs (#582 round 2, 2026-11-15) open the stock quantity window (`itemctrl`) with no item, from 0 to the largest number of the digits (`StockUiMenuController.OpenNumberEntry`): up / down step by one, left / right by ten (PROVISIONAL: retail's number window is a typed entry box, not compared), Confirm answers, Cancel reads as 0. Retail reads an empty input buffer as 0 (XiEvents: `atoi`). A treasure casket's event 1002 (Valkurm Dunes, actor 0x01073201) then ends with the number in the top 16 bits (`0x002A0101` for 42), which LandSandBoat `scripts/globals/caskets.lua` reads as `option >> 16`; stepped over, the work value stayed 0, the script turned it into 9999 (`0x270F0101` in the maintainer's retail log) and the server answered "You were unable to enter a combination". The window opens at 10 for two digits. Test: `MultiEntityEventTests.TreasureCasketCombination_SendsTheNumberEntered`.
 - `EventOpcodeTable` has XiEvents' 0x54 = 10 and 0x55 = 4 bytes ([#201](https://github.com/jimmy58663/GordianXI/issues/201), 2026-10-03); before, the one 0x54 event ended at that opcode. The corpus walk lands one more entry with them (207,658 of 209,144).
 
 ### 0x72 `CodeGETWEATER`
