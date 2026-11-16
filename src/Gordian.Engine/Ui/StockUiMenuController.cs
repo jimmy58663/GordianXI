@@ -255,18 +255,6 @@ namespace Gordian.Engine.Ui
 
         public bool IsQuery => QueryCompleted != null;
 
-        /// <summary>
-        /// Receives an event number input's answer (opcode 0x71, <see cref="StockUiMenuController.OpenNumberEntry"/>): the
-        /// number confirmed, or -1 when cancelled. Set only on that prompt, which is a quantity prompt with no item.
-        /// </summary>
-        internal Action<int>? NumberEntered { get; init; }
-
-        /// <summary>Whether this is an event number input (a quantity prompt that answers the event, not a shop or the items).</summary>
-        public bool IsNumberEntry => NumberEntered != null;
-
-        /// <summary>The lowest number a quantity prompt takes: 1 for a count, 0 for an event number input.</summary>
-        public uint QuantityMin { get; init; } = 1;
-
         /// <summary>The number of the option a row button shows, or 0 past the end.</summary>
         public int QueryOptionNumber(int buttonId)
         {
@@ -703,7 +691,6 @@ namespace Gordian.Engine.Ui
             closed.Cancelled = true;
             closed.Prompt?.TrySetResult(false);
             closed.QueryCompleted?.Invoke(255);
-            closed.NumberEntered?.Invoke(-1);
             if (IsFontColorEditor(closed)) _fontColorEditing = null;
             if (closed.IsQuantity && closed.Parent is { } list) list.ShowsQuantity = false;
             if (closed.BlueMagicView == StockUiBlueMagicView.Learned && closed.Parent is { } slots) slots.BlueLearnedOpen = false;
@@ -730,7 +717,6 @@ namespace Gordian.Engine.Ui
                 menu.Cancelled = true;
                 menu.Prompt?.TrySetResult(false);
                 menu.QueryCompleted?.Invoke(255);
-                menu.NumberEntered?.Invoke(-1);
                 shop |= menu.IsShopMenu;
             }
             if (shop) EndShopSession();
@@ -806,7 +792,6 @@ namespace Gordian.Engine.Ui
                 m.Cancelled = true;
                 m.Prompt?.TrySetResult(false);
                 m.QueryCompleted?.Invoke(255);
-                m.NumberEntered?.Invoke(-1);
                 shop |= m.IsShopMenu;
             }
             if (shop) EndShopSession();
@@ -835,7 +820,6 @@ namespace Gordian.Engine.Ui
                 m.Cancelled = true;
                 m.Prompt?.TrySetResult(false);
                 m.QueryCompleted?.Invoke(255);
-                m.NumberEntered?.Invoke(-1);
                 shop |= m.IsShopMenu;
             }
             if (shop) EndShopSession();
@@ -918,40 +902,6 @@ namespace Gordian.Engine.Ui
             menu.FirstRow = Math.Clamp(cursor - visible + 1, 0, Math.Max(0, options.Count - visible));
             menu.ScrollFrom = menu.FirstRow;
             menu.SelectedButtonId = cursor - menu.FirstRow + 1;
-            lock (_sync)
-            {
-                var open = new StockUiOpenMenu[_open.Length + 1];
-                Array.Copy(_open, open, _open.Length);
-                open[^1] = menu;
-                _open = open;
-            }
-            Changed?.Invoke();
-            return menu;
-        }
-
-        /// <summary>
-        /// Opens an event number input (opcode 0x71 subs 0x10 / 0x12, XiEvents OpCodes/0x0071): the quantity prompt
-        /// ("itemctrl") with no item, from 0 to the largest number of <paramref name="maxDigits"/> digits, starting at
-        /// <paramref name="start"/>. Confirm answers with the number, Cancel with -1, through <paramref name="completed"/>.
-        /// Null when the UI is not loaded (the caller then treats the input as cancelled).
-        /// </summary>
-        public StockUiOpenMenu? OpenNumberEntry(int maxDigits, uint start, Action<int> completed)
-        {
-            var library = _library;
-            if (library == null || !library.TryGetMenu(StockUiShop.QuantityMenu, out var definition)) return null;
-            uint max = 1;
-            for (int i = 0; i < Math.Clamp(maxDigits, 1, 9); i++) max *= 10;
-            max -= 1;
-            var menu = new StockUiOpenMenu(definition, Top, Array.Empty<string>(), null)
-            {
-                IsQuantity = true,
-                NumberEntered = completed,
-                QuantityMin = 0,
-                QuantityMax = max,
-                QuantityTotal = max,
-            };
-            menu.Quantity = Math.Min(start, max);
-            menu.SelectedButtonId = StockUiShop.QuantityField;
             lock (_sync)
             {
                 var open = new StockUiOpenMenu[_open.Length + 1];
@@ -1688,17 +1638,6 @@ namespace Gordian.Engine.Ui
                     if (ReferenceEquals(Top, top)) _open = _open[..^1];
                 }
                 top.QueryCompleted!.Invoke(number);
-                Changed?.Invoke();
-                return;
-            }
-
-            if (top.NumberEntered is { } entered)
-            {
-                lock (_sync)
-                {
-                    if (ReferenceEquals(Top, top)) _open = _open[..^1];
-                }
-                entered((int)top.Quantity);
                 Changed?.Invoke();
                 return;
             }
@@ -2582,17 +2521,15 @@ namespace Gordian.Engine.Ui
         /// <summary>Applies one of the quantity control's buttons: + / - step by one, "All" and "1" jump to the ends.</summary>
         private static bool AdjustQuantity(StockUiOpenMenu menu, int buttonId)
         {
-            // An event number input steps the tens with left / right instead of jumping to the ends (PROVISIONAL: retail's
-            // number window is a typed entry box; this keeps a two-digit combination a few presses away).
             uint value = buttonId switch
             {
                 StockUiShop.QuantityUpButton => menu.Quantity + 1,
                 StockUiShop.QuantityDownButton => menu.Quantity == 0 ? 0 : menu.Quantity - 1,
-                StockUiShop.QuantityAllButton => menu.IsNumberEntry ? (menu.Quantity >= 10 ? menu.Quantity - 10 : 0) : menu.QuantityMax,
-                StockUiShop.QuantityOneButton => menu.IsNumberEntry ? menu.Quantity + 10 : 1,
+                StockUiShop.QuantityAllButton => menu.QuantityMax,
+                StockUiShop.QuantityOneButton => 1,
                 _ => menu.Quantity,
             };
-            value = Math.Clamp(value, menu.QuantityMin, menu.QuantityMax);
+            value = Math.Clamp(value, 1, menu.QuantityMax);
             if (value == menu.Quantity) return false;
             menu.Quantity = value;
             return true;

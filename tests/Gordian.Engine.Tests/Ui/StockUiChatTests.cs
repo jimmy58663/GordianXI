@@ -142,6 +142,47 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(new[] { ("!ell", ChatInputMode.Say) }, sent);
         }
 
+        /// <summary>
+        /// #582 round 3: an event's number (a casket's combination) is typed into the chat line, digits only, and answers
+        /// the event instead of being sent as chat or kept in the history.
+        /// </summary>
+        [Fact]
+        public void Input_TakesAnEventNumber()
+        {
+            var input = new StockUiChatInput();
+            var sent = new List<string>();
+            input.Submitted += (line, _) => sent.Add(line);
+            var answers = new List<int>();
+
+            input.OpenNumber(2, answers.Add);
+            Assert.True(input.IsOpen);
+            Assert.True(input.IsNumberEntry);
+            input.InsertText("4a2 7");
+            Assert.Equal("42", input.Text);
+            input.HandleKey(GordianKey.Up, InputModifiers.None); // no history recall
+            Assert.Equal("42", input.Text);
+            input.HandleKey(GordianKey.Enter, InputModifiers.None);
+            Assert.False(input.IsOpen);
+            Assert.False(input.IsNumberEntry);
+            Assert.Equal(new[] { 42 }, answers);
+            Assert.Empty(sent);
+
+            input.OpenNumber(2, answers.Add);
+            input.HandleKey(GordianKey.Escape, InputModifiers.None);
+            input.OpenNumber(2, answers.Add);
+            input.HandleKey(GordianKey.Enter, InputModifiers.None);
+            Assert.Equal(new[] { 42, -1, 0 }, answers);
+
+            // The next line is chat again, and the number never reached the history.
+            input.Open();
+            input.HandleKey(GordianKey.Up, InputModifiers.None);
+            Assert.Equal(string.Empty, input.Text);
+            input.InsertText("hi");
+            input.HandleKey(GordianKey.Enter, InputModifiers.None);
+            Assert.Equal(new[] { "hi" }, sent);
+            Assert.Equal(3, answers.Count);
+        }
+
         [Fact]
         public void Input_SwallowsTheOpeningSpaceAndLimitsLength()
         {

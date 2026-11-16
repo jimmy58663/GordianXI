@@ -557,8 +557,8 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x01 | 2 | 23 | Wait for the text, then send it with C2S 0x060 | stepped |
 | 0x02 | 2 | 17 | Wait for the server's answer | stepped |
 | 0x03 | 4 | 5 | Run the text through the vulgar-word filter, store the result | stepped |
-| 0x10 | 4 | 254 | Open the number window (digits from a work value) | runs: up to 8 digits (`IEventVmHost.OpenNumberInput`) |
-| 0x11 | 4 | 254 | Wait for the number, store it | runs: yields while the window is open, stores the number, 0 when cancelled |
+| 0x10 | 4 | 254 | Open the number window (digits from a work value) | runs: up to 8 digits typed in the chat input line (`IEventVmHost.OpenNumberInput`) |
+| 0x11 | 4 | 254 | Wait for the number, store it | runs: yields while the line is open, stores the number, 0 when cancelled |
 | 0x12 | 6 | 1,855 | Open the number window with a size and type | runs: digits from the second work value (a treasure casket's combination: 2) |
 | 0x13 | 4 | 1,855 | As 0x11 | runs |
 | 0x20 | 16 | 22 | Open an input menu from seven work values (Moblin Maze Mongers) | stepped |
@@ -574,7 +574,7 @@ When a change makes an opcode run, update its row and detail section in the same
 
 - The open and wait subs come in pairs in the corpus (0x10 / 0x11 and 0x12 / 0x13 have equal counts).
 - Stepping means no input window opens and no 0x060 / 0x0D8 packet is sent, so the server never receives the player's input.
-- The number subs (#582 round 2, 2026-11-15) open the stock quantity window (`itemctrl`) with no item, from 0 to the largest number of the digits (`StockUiMenuController.OpenNumberEntry`): up / down step by one, left / right by ten (PROVISIONAL: retail's number window is a typed entry box, not compared), Confirm answers, Cancel reads as 0. Retail reads an empty input buffer as 0 (XiEvents: `atoi`). A treasure casket's event 1002 (Valkurm Dunes, actor 0x01073201) then ends with the number in the top 16 bits (`0x002A0101` for 42), which LandSandBoat `scripts/globals/caskets.lua` reads as `option >> 16`; stepped over, the work value stayed 0, the script turned it into 9999 (`0x270F0101` in the maintainer's retail log) and the server answered "You were unable to enter a combination". The window opens at 10 for two digits. Test: `MultiEntityEventTests.TreasureCasketCombination_SendsTheNumberEntered`.
+- The number subs (#582 rounds 2-3, 2026-11-15) open the chat input line for a number (`StockUiChatInput.OpenNumber`): retail takes a casket's combination typed into the chat input line, not in a window (the maintainer's retail check, round 3). Only digits are typed, up to the subs' digit count; Enter answers (an empty line reads as 0, as retail's `atoi` reads an empty buffer, XiEvents), and Escape, or anything else closing the line, cancels, which also stores 0. The line is not sent as chat and is kept out of the Up / Down history. Round 2's stand-in (the quantity window `itemctrl` with no item) is gone. A treasure casket's event 1002 (Valkurm Dunes, actor 0x01073201) then ends with the number in the top 16 bits (`0x002A0101` for 42), which LandSandBoat `scripts/globals/caskets.lua` reads as `option >> 16`; stepped over, the work value stayed 0, the script turned it into 9999 (`0x270F0101` in the maintainer's retail log) and the server answered "You were unable to enter a combination". Whether retail shows a prompt or a different mode tab on the line is not checked. Tests: `MultiEntityEventTests.TreasureCasketCombination_SendsTheNumberEntered`, `StockUiChatTests.Input_TakesAnEventNumber`.
 - `EventOpcodeTable` has XiEvents' 0x54 = 10 and 0x55 = 4 bytes ([#201](https://github.com/jimmy58663/GordianXI/issues/201), 2026-10-03); before, the one 0x54 event ended at that opcode. The corpus walk lands one more entry with them (207,658 of 209,144).
 
 ### 0x72 `CodeGETWEATER`

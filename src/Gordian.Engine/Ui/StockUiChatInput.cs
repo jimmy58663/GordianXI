@@ -50,9 +50,19 @@ namespace Gordian.Engine.Ui
         private int _caret;
         private int _historyIndex;
         private string _swallowText = string.Empty;
+        private Action<int>? _numberEntered;
+        private int _numberMaxDigits;
 
         /// <summary>True while the input line is open (it owns the keyboard).</summary>
         public bool IsOpen { get; private set; }
+
+        /// <summary>
+        /// True while the line takes an event's number (<see cref="OpenNumber"/>) instead of a chat line.
+        /// </summary>
+        public bool IsNumberEntry
+        {
+            get { lock (_sync) return _numberEntered != null; }
+        }
 
 
         public ChatInputMode Mode { get; private set; } = ChatInputMode.Say;
@@ -102,10 +112,32 @@ namespace Gordian.Engine.Ui
             OpenChanged?.Invoke(true);
         }
 
-        public void Close()
+        /// <summary>
+        /// Opens the line for an event's number (opcode 0x71 subs 0x10 / 0x12, XiEvents OpCodes/0x0071): a treasure casket's
+        /// "Enter a combination" is typed into the chat input line in retail (the maintainer's retail check, #582 round 3),
+        /// not picked in a window. Only digits are typed, at most <paramref name="maxDigits"/>; Enter answers with the number
+        /// (0 for an empty line, as the client's <c>atoi</c> reads it), and Escape or anything else that closes the line
+        /// answers -1. The line is not sent as chat and is kept out of the history. A chat line being typed is dropped.
+        /// </summary>
+        public void OpenNumber(int maxDigits, Action<int> completed)
         {
+            ArgumentNullException.ThrowIfNull(completed);
+            Close();
             lock (_sync)
             {
+                _numberEntered = completed;
+                _numberMaxDigits = Math.Clamp(maxDigits, 1, 9);
+            }
+            Open();
+        }
+
+        public void Close()
+        {
+            Action<int>? numberEntered;
+            lock (_sync)
+            {
+                numberEntered = _numberEntered;
+                _numberEntered = null;
                 if (!IsOpen) return;
                 IsOpen = false;
                 _text.Clear();
@@ -113,6 +145,7 @@ namespace Gordian.Engine.Ui
                 _swallowText = string.Empty;
             }
             OpenChanged?.Invoke(false);
+            numberEntered?.Invoke(-1);
         }
 
 
@@ -168,6 +201,7 @@ namespace Gordian.Engine.Ui
             foreach (char c in text)
             {
                 if (c < 0x20 || c > 0x7E || _text.Length >= MaxLength) continue;
+                if (_numberEntered != null && (c < '0' || c > '9' || _text.Length >= _numberMaxDigits)) continue;
                 _text.Insert(_caret++, c);
             }
         }
@@ -179,6 +213,8 @@ namespace Gordian.Engine.Ui
         public bool HandleKey(GordianKey key, InputModifiers modifiers)
         {
             string? submitted = null;
+            Action<int>? numberEntered = null;
+            int number = 0;
             ChatInputMode submittedMode;
             bool close = false, cancel = false;
             int scrollWindow = 0, scrollAmount = 0;
@@ -192,6 +228,12 @@ namespace Gordian.Engine.Ui
 
                 switch (key)
                 {
+                    case GordianKey.Enter or GordianKey.NumPadEnter when _numberEntered != null:
+                        numberEntered = _numberEntered;
+                        _numberEntered = null;
+                        number = int.TryParse(_text.ToString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int typed) ? typed : 0;
+                        close = true;
+                        break;
                     case GordianKey.Enter or GordianKey.NumPadEnter:
                         string line = _text.ToString().Trim();
                         if (line.Length > 0)
@@ -226,10 +268,10 @@ namespace Gordian.Engine.Ui
                     case GordianKey.End:
                         _caret = _text.Length;
                         break;
-                    case GordianKey.Up:
+                    case GordianKey.Up when _numberEntered == null:
                         RecallHistory(-1);
                         break;
-                    case GordianKey.Down:
+                    case GordianKey.Down when _numberEntered == null:
                         RecallHistory(1);
                         break;
                     case GordianKey.PageUp:
@@ -247,6 +289,7 @@ namespace Gordian.Engine.Ui
             {
                 Close();
                 if (submitted != null) Submitted?.Invoke(submitted, submittedMode);
+                numberEntered?.Invoke(number);
             }
             return true;
         }

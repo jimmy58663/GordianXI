@@ -133,7 +133,7 @@ namespace Gordian.Engine.Events
         private volatile bool _zoneChanged;
         private volatile int _queryResult;
         private StockUiOpenMenu? _queryMenu;
-        private StockUiOpenMenu? _numberMenu;
+        private StockUiChatInput? _numberInput;
         private volatile bool _numberPending;
         private int _numberResult;
         private int _queryStart;
@@ -1133,33 +1133,32 @@ namespace Gordian.Engine.Events
             _queryMenu = null;
             _eventMap = _eventMap.WithoutQuery();
             if (menu != null) _menus?.CloseQuery(menu);
-            var number = _numberMenu;
-            _numberMenu = null;
+            var number = _numberInput;
+            _numberInput = null;
             _numberPending = false;
-            if (number != null) _menus?.CloseQuery(number);
+            if (number != null && number.IsNumberEntry) number.Close();
         }
 
         void IEventVmHost.OpenNumberInput(int maxDigits)
         {
             _numberResult = 0;
             _numberPending = false;
-            var menus = _menus;
-            if (menus == null)
+            var chat = _chat;
+            if (chat == null)
             {
-                GordianLog.Warn(LogCategories.Dialog, "The number input window is not available; the input is cancelled.");
+                GordianLog.Warn(LogCategories.Dialog, "The chat input line is not available; the number input is cancelled.");
                 return;
             }
-            // A treasure casket's combination runs from 10 to 99; start the window at the smallest number of its width.
-            uint start = maxDigits >= 2 ? (uint)Math.Pow(10, Math.Min(maxDigits, 9) - 1) : 0;
+            // Retail takes the number in the chat input line (a casket's "Enter a combination", #582 round 3).
             _numberPending = true;
-            _numberMenu = menus.OpenNumberEntry(maxDigits, start, value =>
+            _numberInput = chat.Input;
+            chat.Input.OpenNumber(maxDigits, value =>
             {
                 _numberResult = Math.Max(0, value);
                 _numberPending = false;
-                _numberMenu = null;
-                GordianLog.Debug(LogCategories.Dialog, value < 0 ? "Number input cancelled." : $"Number input: {value}.");
+                _numberInput = null;
+                GordianLog.Info(LogCategories.Dialog, value < 0 ? "Number input cancelled." : $"Number input: {value}.");
             });
-            if (_numberMenu == null) _numberPending = false;
         }
 
         bool IEventVmHost.NumberInputPending => _numberPending;
