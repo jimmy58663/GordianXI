@@ -192,6 +192,22 @@ namespace Gordian.Engine.Events
         int SubMapNumber => 0;
 
         /// <summary>
+        /// Opcode 0x71 subs 0x10 / 0x12 (XiEvents OpCodes/0x0071, <c>CodeOPENPASSWIN</c>): opens the number input window for
+        /// a number of up to <paramref name="maxDigits"/> digits (a treasure casket's two-digit combination). Default: none,
+        /// so the input reads as cancelled.
+        /// </summary>
+        void OpenNumberInput(int maxDigits) { }
+
+        /// <summary>Opcode 0x71 subs 0x11 / 0x13: whether the number input window is still open. Default: no.</summary>
+        bool NumberInputPending => false;
+
+        /// <summary>
+        /// Opcode 0x71 subs 0x11 / 0x13: the number entered, or 0 when the window was cancelled (retail reads the empty
+        /// input buffer as a number, giving 0).
+        /// </summary>
+        int NumberInputResult => 0;
+
+        /// <summary>
         /// Opcode 0x8C subs 0 and 2-5: sends a guild NPC recipe request (C2S 0x058) with the mode and the six values the
         /// sub names; modes 1-4 mark the S2C 0x031 answer pending (retail's <c>RecRecipeFlag</c>; mode 5 does not). False
         /// when it could not be queued, and the opcode tries again next frame. Default: done, nothing pending.

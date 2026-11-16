@@ -1150,6 +1150,9 @@ namespace Gordian.Engine.Events
                 case 0x8C:
                     ExecRecipe();
                     return;
+                case 0x71:
+                    ExecInputWindow();
+                    return;
                 case 0x5C:
                 case 0x5D:
                 case 0x69:
@@ -1666,6 +1669,39 @@ namespace Gordian.Engine.Events
                 default:
                     _host.OnSkippedOpcode(0x8C, _pc);
                     _pc += 2;
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// 0x71 (XiEvents OpCodes/0x0071, <c>CodeOPENPASSWIN</c>), the number input subs. Sub 0x10 (<c>71 10 digits:work</c>)
+        /// opens the number input window for up to eight digits; sub 0x12 (<c>71 12 size:work digits:work</c>) for up to the
+        /// second value's digits (a treasure casket's combination: 2). Subs 0x11 and 0x13 (<c>71 1x dest:work</c>) yield
+        /// while the window is open, then store the number (0 when cancelled) and go on by 4. Every sub yields a frame
+        /// (RetFlag). The text, linkshell concierge and unknown subs are stepped over.
+        /// </summary>
+        private void ExecInputWindow()
+        {
+            _retFlag = true;
+            switch (Code8(1))
+            {
+                case 0x10:
+                    _host.OpenNumberInput(8);
+                    _pc += 4;
+                    return;
+                case 0x12:
+                    _host.OpenNumberInput(GetWork(4));
+                    _pc += 6;
+                    return;
+                case 0x11:
+                case 0x13:
+                    if (_host.NumberInputPending) return;
+                    SetWork(2, _host.NumberInputResult);
+                    _pc += 4;
+                    return;
+                default:
+                    _host.OnSkippedOpcode(0x71, _pc);
+                    _pc += Math.Max(2, EventOpcodeTable.GetLength(_code, _pc));
                     return;
             }
         }

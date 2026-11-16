@@ -109,6 +109,63 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(5, status.GmLevel);
         }
 
+        /// <summary>
+        /// #557: the player's own plate takes its "?" and "M" from S2C 0x037 (LandSandBoat <c>char_status.cpp</c> writes
+        /// NewCharacterFlag and MentorFlag there; the server sends no 0x00D for the player itself). Once the mark is turned
+        /// off, the 0x037 LandSandBoat answers C2S 0x0DC with drops it from both the local state and the local entity.
+        /// </summary>
+        [Fact]
+        public void LocalPlate_DropsTheNewPlayerMark_WithTheNext0x037()
+        {
+            var world = new WorldState();
+            var local = new LocalPlayerState { ServerId = 0x01000001 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, local, (c, e) => System.Threading.Tasks.Task.CompletedTask).Register(dispatcher);
+            world.UpsertEntity(new PlayerEntity(0x01000001, 0x400) { Name = "Gemini", IsSpawned = true });
+
+            byte[] payload = new byte[0x5C];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(52, 4), (1u << 3) | (1u << 4));
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            Assert.True(world.TryGetByServerId(0x01000001, out var self));
+            var flags = local.NamePlate | self!.NamePlate;
+            Assert.Equal(NamePlateIcon.NewPlayer, NamePlateStyle.Icon(flags, 0));
+
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(52, 4), 1u << 4);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(payload.Length + 4), 2), payload);
+            flags = local.NamePlate | self.NamePlate;
+            Assert.Equal(0, (int)(flags & NamePlateFlags.NewPlayer));
+            Assert.Equal(NamePlateIcon.Mentor, NamePlateStyle.Icon(flags, 0));
+        }
+
+        /// <summary>
+        /// The player's own InvisFlag comes in 0x037 (Flags1 bit 15): retail draws the invisible self see-through with no name
+        /// plate, and another character under Invisible not at all (capture-retail, local LandSandBoat, 2026-11-15).
+        /// </summary>
+        [Fact]
+        public void LocalPlayer_InvisFlagFrom0x037_HidesThePlateButNotTheBody()
+        {
+            var world = new WorldState();
+            var local = new LocalPlayerState { ServerId = 0x01000001 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, local, (c, e) => System.Threading.Tasks.Task.CompletedTask).Register(dispatcher);
+            world.UpsertEntity(new PlayerEntity(0x01000001, 0x400) { Name = "Gemini", IsSpawned = true });
+
+            byte[] payload = new byte[0x5C];
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40, 4), 1u << 15);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            Assert.True(world.TryGetByServerId(0x01000001, out var self));
+            Assert.True(self!.IsInvisible);
+            Assert.False(NamePlateStyle.ShowsName(self, self.NamePlate));
+            Assert.True(self.IsDrawn);
+            Assert.False(self.IsDrawnToOthers);
+
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40, 4), 0);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(payload.Length + 4), 2), payload);
+            Assert.False(self.IsInvisible);
+            Assert.True(NamePlateStyle.ShowsName(self, self.NamePlate));
+            Assert.True(self.IsDrawnToOthers);
+        }
+
         [Fact]
         public void Color_FollowsTheCapturedConventions()
         {

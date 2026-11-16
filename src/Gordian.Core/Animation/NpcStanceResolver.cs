@@ -23,21 +23,85 @@ namespace Gordian.Core.Animation
         public static bool IsStateDriven(EntityModel model) => model.RawMotionRoutines.ContainsKey(Gordian.Core.Resources.Graphics.ActorEffectSet.IdleStateRoutine);
 
         /// <summary>
-        /// A state-driven model's stance (round 1 E7, 2026-10-19): sub-animation 1 or 2 picks <c>1dl</c> / <c>2dl</c> when the
-        /// model has them; any other value rests on <c>1dl</c> when it has one, else the default stance. The Synergy Furnace
-        /// (model 2348, file 52643) rests with its cap raised in retail (the maintainer's Whitegate capture, 2026-10-17: lid
-        /// open at rest, closed while in use), which is <c>1dl0</c> (joint 3, the cap, 0.74 yalms higher and tilted 0.61 rad
-        /// against <c>idl0</c> / <c>2dl0</c> / <c>3dl0</c>; its appearance clip <c>pop0</c> ends there). LandSandBoat's captured NPC
-        /// data sends every furnace with sub-animation 5, a value the state routines (0-3) do not name; the Hpemde family rule
-        /// read 5 as "diving" and drew the closed <c>2dl</c>. *Inference*: which actor field the state routines read (+0x3A /
-        /// +0x3C) and how the server's values reach it are not known.
+        /// Bit 2 of the sub-animation (MonStat 4-7): the state is set without its transition. LandSandBoat's spawn update
+        /// writes 4 into packet byte 0x2A whenever the entity has a sub-animation, then ORs the sub-animation in
+        /// (entity_update.cpp), so an entity that appears in a state carries the bit; a later change of state does not.
         /// </summary>
-        internal static byte ResolveStateDrivenStance(IReadOnlyDictionary<string, AnimationClip> anims, byte animationSub)
+        public const byte StateWithoutTransitionBit = 0x04;
+
+        /// <summary>
+        /// A state-driven model's stance: the state is the sub-animation's low two bits (<see cref="StateWithoutTransitionBit"/>
+        /// aside), and the stance is the one the model's idle-state routine for that state (<c>ids&lt;state&gt;</c>) sets with
+        /// op 0x8C (<see cref="Resources.Models.RawMotionRoutine.Stance"/>). Stance 1 or 2 is kept when the model has its
+        /// <c>1dl</c> / <c>2dl</c>; anything else is the default stance <c>idl</c>. A model whose routines set no stance falls back
+        /// to the state itself (1 or 2, with the same check).
+        /// <para>
+        /// Treasure caskets (#582): the blue and brown caskets (models 965 / 966, files 2265 / 2266) rest closed on <c>idl</c>
+        /// (the lid, joint 2, shut) and open on <c>1dl</c> (the lid turned -120 degrees about X). Their <c>ids0</c> sets stance 0
+        /// and both <c>ids1</c> and <c>ids2</c> set stance 1, so states 1 and 2 rest open; <c>mse1</c> reaches <c>ids1</c>
+        /// through <c>sp00</c>, which plays the 15-key opening clip <c>op0</c> for 93 ticks with the glow <c>ef00</c>, while
+        /// <c>mse2</c> goes straight to <c>ids2</c>. Retail (the maintainer's log, 2026-11-15, Valkurm casket 0x01073201) sends
+        /// 4 as the casket appears, 5 as it is first opened and 6 once that event ends, and the casket stays open for the
+        /// next event. LandSandBoat (scripts/globals/caskets.lua) sends 4, then 1 when it is opened and 0 as it despawns: its
+        /// casket never reaches state 2. The first rule (state 2 without a <c>2dl</c> rests closed) shut the lid at 6.
+        /// </para>
+        /// <para>
+        /// The Synergy Furnace (model 2348, file 52643) rests with its cap raised in retail (the maintainer's Whitegate capture,
+        /// 2026-10-17: lid open at rest, closed while in use), which is <c>1dl0</c> (joint 3, the cap, 0.74 yalms higher and
+        /// tilted 0.61 rad against <c>idl0</c> / <c>2dl0</c> / <c>3dl0</c>; its appearance clip <c>pop0</c> ends there). Its
+        /// <c>ids0</c>-<c>ids3</c> set stances 0-3; LandSandBoat's captured NPC data sends every furnace with sub-animation 5
+        /// (state 1), so it rests on <c>1dl0</c>. Nyzul Isle's Armoury Crates (model 965 too) get 13 after their 0x038 opening
+        /// routine (scripts/globals/nyzul/armoury_crate.lua): state 1, open.
+        /// </para>
+        /// *Inference*: that the client picks the idle-state routine by the low two bits of MonStat (XiPackets names the field
+        /// only), and which actor field the state routines read (+0x3A / +0x3C) is not known.
+        /// </summary>
+        internal static byte ResolveStateDrivenStance(EntityModel model, byte animationSub)
         {
-            bool open = anims.ContainsKey("1dl0") || anims.ContainsKey("1dl");
-            if (animationSub == 2 && (anims.ContainsKey("2dl0") || anims.ContainsKey("2dl"))) return 2;
-            if (animationSub == 1 && open) return 1;
-            return open ? (byte)1 : (byte)0;
+            var anims = model.Animations;
+            int state = animationSub & 0x03;
+            int stance = model.RawMotionRoutines.TryGetValue($"ids{state}", out var idle) && idle.Stance is int set ? set : state;
+            if (stance == 2 && (anims.ContainsKey("2dl0") || anims.ContainsKey("2dl"))) return 2;
+            if (stance == 1 && (anims.ContainsKey("1dl0") || anims.ContainsKey("1dl"))) return 1;
+            return 0;
+        }
+
+        /// <summary>
+        /// The clip a state-driven model plays going from state <paramref name="fromStance"/> to <paramref name="toStance"/>:
+        /// the first clip of the transition routine its <c>mse&lt;to&gt;</c> links (op 0x57). The furnace names one per
+        /// previous state (<c>mse1</c> links <c>sp01</c>, <c>sp21</c>, <c>sp31</c>), so <c>sp&lt;from&gt;&lt;to&gt;</c> is taken
+        /// first; a casket's <c>mse1</c> links only <c>sp00</c>, taken when it is the only one. Null when the sub-animation
+        /// carries <see cref="StateWithoutTransitionBit"/> or the model has no such routine.
+        /// </summary>
+        internal static AnimationClip? ResolveStateTransitionClip(EntityModel model, byte fromStance, byte toStance, byte animationSub)
+        {
+            if ((animationSub & StateWithoutTransitionBit) != 0) return null;
+            if (!model.RawMotionRoutines.TryGetValue($"mse{toStance}", out var select)) return null;
+
+            var links = new List<string>();
+            foreach (var command in select.Commands)
+            {
+                if (command.Op == 0x57 && command.Reference.Length == 4 && command.Reference.StartsWith("sp", StringComparison.Ordinal)) links.Add(command.Reference);
+            }
+            if (links.Count == 0) return null;
+
+            string? chosen;
+            char target = (char)('0' + toStance);
+            if (links.TrueForAll(l => l[3] == target))
+            {
+                // Named by the previous and the new state (the furnace's sp01 / sp21 / sp31).
+                string named = $"sp{fromStance}{toStance}";
+                chosen = links.Contains(named) ? named : null;
+            }
+            else
+            {
+                // Numbered in turn (a casket's sp00; model 1157's mse1 sp40 / sp10 / sp30): one per previous state, in
+                // ascending order without the new state itself. *Inference* from the furnace's named links, which follow that order.
+                int index = fromStance < toStance ? fromStance : fromStance - 1;
+                chosen = index >= 0 && index < links.Count ? links[index] : null;
+            }
+            if (chosen == null || !model.MotionRoutines.TryGetValue(chosen, out var routine) || routine.Segments.Count == 0) return null;
+            return model.Animations.TryGetValue(routine.Segments[0].ClipName, out var clip) ? clip : null;
         }
 
         /// <summary>
@@ -50,7 +114,7 @@ namespace Gordian.Core.Animation
             var anims = model.Animations;
 
             // 0. State-driven models (the crafting furnaces): their state routines pick the stance, not a family pattern.
-            if (IsStateDriven(model)) return ResolveStateDrivenStance(anims, animationSub);
+            if (IsStateDriven(model)) return ResolveStateDrivenStance(model, animationSub);
 
             // 1. Check for Uragnite and defense/shell sub-animation 5 pattern: inShell = 5, outOfShell = 4
             // Protocol specification referenced from LandSandBoat scripts/mixins/families/uragnite.lua
@@ -204,9 +268,10 @@ namespace Gordian.Core.Animation
         /// Resolves an explicit one-shot stance transition clip (e.g. sp00 stand-up, sp10 drop-down)
         /// when shifting from fromStance to toStance, or null if no dedicated transition clip exists.
         /// </summary>
-        public static AnimationClip? ResolveTransitionClip(EntityModel model, byte fromStance, byte toStance)
+        public static AnimationClip? ResolveTransitionClip(EntityModel model, byte fromStance, byte toStance, byte animationSub = 0)
         {
             if (model == null || model.Animations.Count == 0 || fromStance == toStance) return null;
+            if (IsStateDriven(model)) return ResolveStateTransitionClip(model, fromStance, toStance, animationSub);
             var anims = model.Animations;
 
             // Transition 0 -> 1 (e.g. Quadruped to Biped, Out to In Shell, Normal to Open Mouth)

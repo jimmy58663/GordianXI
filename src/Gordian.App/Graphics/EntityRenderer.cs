@@ -161,6 +161,13 @@ namespace Gordian.App.Graphics
         /// <summary>Each entity's current head turn and tilt (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
         private readonly Dictionary<uint, Vector2> _headTurn = new();
 
+        /// <summary>
+        /// The clip each state-driven model (caskets, gates, furnaces) last rested on, to log the changes (#582 round 2: a
+        /// casket that closed after a cancelled menu on retail, with nothing in the log to say whether the server or the
+        /// client closed it).
+        /// </summary>
+        private readonly Dictionary<uint, string> _stateDrivenClips = new();
+
         /// <summary>Each humanoid entity's talking mouth and blink (<see cref="FaceMotion"/>).</summary>
         private readonly Dictionary<uint, FaceMotion> _faces = new();
 
@@ -380,7 +387,26 @@ namespace Gordian.App.Graphics
         /// drawn after the others, first into depth only and then blended over what is behind it, so it shows as one see-through
         /// body rather than its inner layers.
         /// </summary>
-        private static bool IsFaded(WorldEntity entity) => entity.EventAlpha < WorldEntity.OpaqueEventAlpha || entity.IsHalfTransparent;
+        private static bool IsFaded(WorldEntity entity, uint localPlayerServerId) =>
+            entity.EventAlpha < WorldEntity.OpaqueEventAlpha || entity.IsHalfTransparent || DrawsSeeThroughAsSelf(entity, localPlayerServerId);
+
+        /// <summary>
+        /// The local player under the server's InvisFlag: retail draws it to itself at half alpha, keeping its shadow
+        /// (capture-retail, local LandSandBoat, 2026-11-15; <see cref="WorldEntity.IsDrawnToOthers"/>).
+        /// </summary>
+        private static bool DrawsSeeThroughAsSelf(WorldEntity entity, uint localPlayerServerId) =>
+            entity.IsInvisible && !entity.IsInEvent && localPlayerServerId != 0 && entity.ServerId == localPlayerServerId;
+
+        /// <summary>The local player of the last <see cref="RenderEntities"/> call (0 before one).</summary>
+        public uint LocalPlayerServerId { get; private set; }
+
+        /// <summary>
+        /// Whether this viewport draws the entity: its own local player by <see cref="WorldEntity.IsDrawn"/> (an invisible
+        /// self is drawn see-through), everyone else by <see cref="WorldEntity.IsDrawnToOthers"/> (an invisible character is
+        /// not drawn at all). The effect passes that follow a body use it too.
+        /// </summary>
+        public bool Draws(WorldEntity entity) =>
+            entity.ServerId == LocalPlayerServerId && LocalPlayerServerId != 0 ? entity.IsDrawn : entity.IsDrawnToOthers;
 
         /// <summary>
         /// Renders all active, spawned entities in the world into the active command list.
@@ -430,6 +456,7 @@ namespace Gordian.App.Graphics
             _shadowDraws.Clear(); // drawn later by DrawQueuedShadows; a frame that never drew them must not pile up
             _shadowCollision = collision;
             if (_disposed || cl == null || entities == null) return;
+            LocalPlayerServerId = localPlayerServerId;
 
             if (resourceManager != null && resourceManager.CacheGeneration != _shared.EntityModelGeneration)
             {
@@ -467,11 +494,11 @@ namespace Gordian.App.Graphics
             _drawOrder.Clear();
             foreach (var entity in entities)
             {
-                if (!IsFaded(entity)) _drawOrder.Add(entity);
+                if (!IsFaded(entity, localPlayerServerId)) _drawOrder.Add(entity);
             }
             foreach (var entity in entities)
             {
-                if (IsFaded(entity)) _drawOrder.Add(entity);
+                if (IsFaded(entity, localPlayerServerId)) _drawOrder.Add(entity);
             }
 
             foreach (var entity in _drawOrder)
@@ -529,7 +556,7 @@ namespace Gordian.App.Graphics
                     // Drawn with the tick-smoothed precise heading that goes with its smoothed position (#547).
                     entity.RenderHeadingRadians = localPlayerDisplayHeading ?? entity.HeadingRadians;
                 }
-                if (!entity.IsDrawn) continue;
+                if (!Draws(entity)) continue;
 
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).
@@ -585,6 +612,9 @@ namespace Gordian.App.Graphics
                 if (eventAlpha <= 0) continue;
                 // 0x00E Flags3 bit 31 (LandSandBoat ghost_phase): retail draws the entity at alpha 0.5 (XiPackets 0x000E).
                 if (entity.IsHalfTransparent) eventAlpha = Math.Min(eventAlpha, WorldEntity.OpaqueEventAlpha / 2);
+                // A see-through body casts no shadow, except the invisible local player's, which keeps it as on retail.
+                bool castsShadow = eventAlpha >= WorldEntity.OpaqueEventAlpha;
+                if (DrawsSeeThroughAsSelf(entity, localPlayerServerId)) eventAlpha = Math.Min(eventAlpha, WorldEntity.OpaqueEventAlpha / 2);
                 bool faded = eventAlpha < WorldEntity.OpaqueEventAlpha;
 
                 // Resolve the model, then its GPU copy. The local player's model is built here if it has to be; everyone
@@ -722,6 +752,7 @@ namespace Gordian.App.Graphics
                     if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
                     {
                         entity.Animation.Advance(frameSeconds, category, entity.AnimationSub, skinnedModel);
+                        if (NpcStanceResolver.IsStateDriven(skinnedModel)) LogStateDrivenClip(entity, category);
                     }
                     else
                     {
@@ -755,7 +786,8 @@ namespace Gordian.App.Graphics
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
                 if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
-                if (!faded && !isFallback && !entity.HidesShadow)
+                // A model with no body (a Home Point, an invisible event NPC) casts no shadow (#577 round 2).
+                if (castsShadow && !isFallback && !entity.HidesShadow && entityModel?.HasNoBody != true)
                     QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y, entity.ServerId, deltaSeconds);
                 if (faded)
                 {
@@ -974,6 +1006,16 @@ namespace Gordian.App.Graphics
             bool canBlink = category != AnimationCategory.Death && (entity.EventRenderFlags & EventRenderFlags.NoBlink) == 0;
             face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model, entity.LineFlaps, entity.SpeechStops);
             return face;
+        }
+
+        /// <summary>Logs a state-driven model's clip change at Info, with what drove it (#582 round 2).</summary>
+        private void LogStateDrivenClip(WorldEntity entity, AnimationCategory category)
+        {
+            string clip = entity.Animation.CurrentClip?.Name ?? "-";
+            if (_stateDrivenClips.TryGetValue(entity.ServerId, out var last) && last == clip) return;
+            _stateDrivenClips[entity.ServerId] = clip;
+            GordianLog.Info(LogCategories.Entity, $"State-driven 0x{entity.ServerId:X8} ({entity.Name}) clip {last ?? "-"} -> {clip}: " +
+                $"sub {entity.AnimationSub}, stance {entity.Animation.CurrentStance}, category {category}, in event {entity.IsInEvent}, state {entity.AnimationState}.");
         }
 
         private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, EntityModel model, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, Vector2 headTurn, FaceMotion? face, out SkeletonPoseEvaluator.EvaluatedPose pose)

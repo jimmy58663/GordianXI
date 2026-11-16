@@ -131,6 +131,12 @@ namespace Gordian.Core.Network
         Blacklist,
         /// <summary><c>/jobmasterdisp on|off</c>: shows or hides the job mastery mark (C2S 0x11B); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         JobMasterDisplay,
+        /// <summary>
+        /// <c>/mentor [on|off]</c>: turns the mentor icon on or off (C2S 0x0DC <c>MentorFlg</c>); no mode toggles it.
+        /// <see cref="ChatCommandResult.Rest"/> is the mode. The command and its subcommands are the retail client's own
+        /// (its help text in <c>ROM/119/65.DAT</c>); the flag from XiPackets world/client/0x00DC.
+        /// </summary>
+        Mentor,
         /// <summary><c>/logout [on|off]</c>: asks to log out to the character select screen (C2S 0x0E7 kind 1); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
         Logout,
         /// <summary><c>/shutdown [on|off]</c>: asks to shut down (C2S 0x0E7 kind 3); <see cref="ChatCommandResult.Rest"/> is the mode.</summary>
@@ -306,6 +312,9 @@ namespace Gordian.Core.Network
                     "blacklist" => new ChatCommandResult { Kind = ChatCommandResultKind.Blacklist, Message = args },
                     "untrack" => new ChatCommandResult { Kind = ChatCommandResultKind.TrackTarget, Message = "off" },
                     "jobmasterdisp" => ParseJobMasterDisplay(args),
+                    "mentor" => TryParseRestMode(args.Trim(), out var mentorMode)
+                        ? new ChatCommandResult { Kind = ChatCommandResultKind.Mentor, Rest = mentorMode }
+                        : new ChatCommandResult { Kind = ChatCommandResultKind.LocalNotice, Message = "Usage: /mentor [on|off]" },
 
                     // Macros and their commands (#339, #362)
                     "macro" => new ChatCommandResult { Kind = ChatCommandResultKind.Macro, Message = args },

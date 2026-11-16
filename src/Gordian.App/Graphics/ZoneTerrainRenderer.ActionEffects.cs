@@ -84,7 +84,7 @@ namespace Gordian.App.Graphics
                 _actionEffectEvents.Clear();
                 foreach (var entity in entities)
                 {
-                    if (entity.IsSpawned && entity.IsDrawn) _actionEffectTracker.Step(entity, _actionEffectEvents);
+                    if (entity.IsSpawned && _entityRenderer.Draws(entity)) _actionEffectTracker.Step(entity, _actionEffectEvents);
                 }
                 _actionEffectTracker.EndFrame();
                 foreach (var effect in _actionEffectEvents) StartActionEffect(effect, resourceManager);

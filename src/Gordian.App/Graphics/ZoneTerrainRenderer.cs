@@ -2306,7 +2306,7 @@ namespace Gordian.App.Graphics
                 foreach (var entity in entities)
                 {
                     uint modelId = entity.Appearance.ModelId;
-                    if (!entity.IsSpawned || !entity.IsDrawn || modelId == 0 || !_entityRenderer.ActorAnchors.TryGetValue(entity.ServerId, out var anchor)) continue;
+                    if (!entity.IsSpawned || !_entityRenderer.Draws(entity) || modelId == 0 || !_entityRenderer.ActorAnchors.TryGetValue(entity.ServerId, out var anchor)) continue;
                     var effects = resourceManager.GetActorEffects(modelId);
                     if (effects == null) continue;
 

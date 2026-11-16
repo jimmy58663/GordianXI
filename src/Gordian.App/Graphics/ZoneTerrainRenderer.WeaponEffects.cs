@@ -40,7 +40,7 @@ namespace Gordian.App.Graphics
                 {
                     // A character drawn from its grap table (a costume draws a fixed model and no gear).
                     var grap = entity.Appearance.GrapIdTable;
-                    if (!entity.IsSpawned || !entity.IsDrawn || entity.Appearance.ModelId != 0 || grap == null || grap.Length <= (int)CharacterSlot.Ranged ||
+                    if (!entity.IsSpawned || !_entityRenderer.Draws(entity) || entity.Appearance.ModelId != 0 || grap == null || grap.Length <= (int)CharacterSlot.Ranged ||
                         !_entityRenderer.ActorAnchors.TryGetValue(entity.ServerId, out var anchor)) continue;
                     var race = (CharacterRace)(entity.Appearance.FaceModel >> 8);
                     if (race == CharacterRace.Unknown) continue;

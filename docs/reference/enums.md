@@ -220,6 +220,7 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 | Hpemde (`hebi`, or `2dl0` / `2tl0` with `sp20` / `sp30`) | 0 or 6 surfaced → 0, 3 open mouth → 1, 5 diving → 2 | `mixins/families/hpemde.lua` |
 | Omega (`omeg`, or `1dl0` / `1lk0` / `1un0`) | 0 quadruped → 0, 1 biped → 1 | LandSandBoat Apollyon / Proto-Omega skill lists |
 | Any model with mode-1 / mode-2 clips | 1 → 1, 2 → 2 | GordianXI convention, not from a reference |
+| State-driven models (the routine `ids0`: treasure caskets 965 / 966, the furnaces, gates, crates) | low two bits: 1 → `1dl`, 2 → `2dl`, else `idl`; bit 2 (4-7) sets the state without its transition (LandSandBoat's spawn update), otherwise the `sp??` routine `mse<state>` links plays first. Casket: 4 closed at spawn, 1 opened, 0 at despawn ([#582](https://github.com/jimmy58663/GordianXI/issues/582)) | LandSandBoat `caskets.lua`, `nyzul/armoury_crate.lua`, `entity_update.cpp`; *inference* |
 | Any fixed model with the routine `@scd` | 3 (7 in LandSandBoat's spawn packet, which sets bit 2 under any non-zero value) while idle → loops `@scd`, the NPC at work ([#455](https://github.com/jimmy58663/GordianXI/issues/455)); the stance is unchanged | LandSandBoat `npcs.yaml` (85 of its 86 sub-animation-3 fixed-model NPCs); *inference* |
 
 ## Entity kinds and looks

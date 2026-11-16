@@ -109,6 +109,31 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Valkurm Dunes (115), event 1002 of a treasure casket (actor 0x01073201): the locked casket's menu, "Enter a
+        /// combination" then the two-digit number window (opcode 0x71 subs 0x12 / 0x13, XiEvents OpCodes/0x0071). The event
+        /// ends with the number in the top 16 bits, which LandSandBoat <c>scripts/globals/caskets.lua</c> reads as
+        /// <c>option &gt;&gt; 16</c>. Before #582 round 2 the VM stepped over 0x71, so the casket got 9999 (0x270F0101, the
+        /// maintainer's retail log 2026-11-15) and answered "You were unable to enter a combination". A cancelled window
+        /// reads as 0, which the script turns into 9999 itself.
+        /// </summary>
+        [Theory]
+        [InlineData(42, 0x002A0101u)]
+        [InlineData(0, 0x270F0101u)]
+        public void TreasureCasketCombination_SendsTheNumberEntered(int entered, uint endParameter)
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var run = RunScene(rm, 115, 1002, host =>
+            {
+                host.NumberAnswer = entered;
+                host.QueryAnswers.Enqueue(2);
+                host.QueryAnswers.Enqueue(2);
+            });
+            Assert.Equal(new[] { 2 }, run.Host.NumberInputs);
+            Assert.Equal(endParameter, run.Scene.EndParameter);
+        }
+
+        /// <summary>
         /// Port Jeuno (246), event 324 (Abyssea "A Journey Begins", LandSandBoat <c>A_Journey_Begins.lua</c>, on zoning in):
         /// the director 0x010F6090 holds the player's head on the look axis (0, 1024) with 0x79 sub 2 and clears it with 0x7B
         /// 121 frames later, the shot from behind the player before the pink flash in the maintainer's retail recording

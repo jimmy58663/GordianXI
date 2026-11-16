@@ -1006,6 +1006,15 @@ namespace Gordian.Core.World
         /// </summary>
         public bool IsDrawn => !IsEventHidden && ((!IsHidden && !IsSleeping && !IsAutoTargetOnly) || IsInEvent);
 
+        /// <summary>
+        /// Whether another character's client draws the entity: <see cref="IsDrawn"/>, and not under the server's InvisFlag
+        /// (Invisible, Prism Powder) unless it takes part in the running event. Retail draws an invisible character to
+        /// nobody else, with no body, shadow or name plate, but draws it to itself at half alpha with its shadow and no plate
+        /// (capture-retail on local LandSandBoat, 2026-11-15, West Ronfaure: Gemini and Claude each under Invisible). The
+        /// renderer uses this for every entity but its own local player (<c>EntityRenderer.Draws</c>).
+        /// </summary>
+        public bool IsDrawnToOthers => IsDrawn && (!IsInvisible || IsInEvent);
+
         private volatile EventPose? _eventPose;
         private volatile EventLook? _eventLook;
         private volatile bool _isEventHidden;

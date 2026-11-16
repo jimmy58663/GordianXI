@@ -133,6 +133,9 @@ namespace Gordian.Engine.Events
         private volatile bool _zoneChanged;
         private volatile int _queryResult;
         private StockUiOpenMenu? _queryMenu;
+        private StockUiChatInput? _numberInput;
+        private volatile bool _numberPending;
+        private int _numberResult;
         private int _queryStart;
         private volatile EventMapState _eventMap = EventMapState.Closed;
 
@@ -1130,7 +1133,37 @@ namespace Gordian.Engine.Events
             _queryMenu = null;
             _eventMap = _eventMap.WithoutQuery();
             if (menu != null) _menus?.CloseQuery(menu);
+            var number = _numberInput;
+            _numberInput = null;
+            _numberPending = false;
+            if (number != null && number.IsNumberEntry) number.Close();
         }
+
+        void IEventVmHost.OpenNumberInput(int maxDigits)
+        {
+            _numberResult = 0;
+            _numberPending = false;
+            var chat = _chat;
+            if (chat == null)
+            {
+                GordianLog.Warn(LogCategories.Dialog, "The chat input line is not available; the number input is cancelled.");
+                return;
+            }
+            // Retail takes the number in the chat input line (a casket's "Enter a combination", #582 round 3).
+            _numberPending = true;
+            _numberInput = chat.Input;
+            chat.Input.OpenNumber(maxDigits, value =>
+            {
+                _numberResult = Math.Max(0, value);
+                _numberPending = false;
+                _numberInput = null;
+                GordianLog.Info(LogCategories.Dialog, value < 0 ? "Number input cancelled." : $"Number input: {value}.");
+            });
+        }
+
+        bool IEventVmHost.NumberInputPending => _numberPending;
+
+        int IEventVmHost.NumberInputResult => _numberResult;
 
         void IEventVmHost.SendEventUpdate(uint endParameter)
         {

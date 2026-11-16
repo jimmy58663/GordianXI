@@ -191,6 +191,14 @@ namespace Gordian.Core.Resources.Models
         /// index"); the argument is the u32 at +8, read from the retail Trust model 3000 (<c>ROM/309/20</c>, 2026-10-12).
         /// </summary>
         public IReadOnlyList<RoutineSpellEffect> SpellEffects { get; init; } = Array.Empty<RoutineSpellEffect>();
+
+        /// <summary>
+        /// The stance the routine's first op 0x8C sets (u32 at +8), or null when it has none. A state-driven model's idle-state
+        /// routines <c>ids0</c>-<c>ids3</c> each set one: the treasure casket's (file 2265) <c>ids0</c> sets 0 (closed) and
+        /// <c>ids1</c> / <c>ids2</c> both set 1 (open); the Synergy Furnace's (file 52643) set 0-3. Read from the retail DATs
+        /// (#582 round 3, 2026-11-15); the op's meaning (set the stance) is *inferred* from which clip each stance plays.
+        /// </summary>
+        public int? Stance { get; init; }
     }
 
     /// <summary>One op 0x19 of a routine: at <paramref name="StartTick"/>, play spell animation <paramref name="Animation"/>'s effects.</summary>
