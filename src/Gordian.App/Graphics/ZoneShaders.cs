@@ -360,11 +360,14 @@ void main()
     // SkyLayerParams.w = 2 + d: a vessel's surface overlay with a positive z offset (op 0x30, #430) is depth-tested d yalms
     // farther along the view ray, which keeps it under the sea it lies just above; a model's or worn weapon's effect
     // particle likewise stays behind its wearer (the Afterglow's +0.2, #8).
-    if (SkyLayerParams.w > 1.5)
+    // SkyLayerParams.w = -1 + d (d < 0): an action effect's negative z offset is depth-tested -d yalms nearer the eye, so
+    // the level up text is drawn over the character it rises from (#581).
+    if (SkyLayerParams.w > 1.5 || SkyLayerParams.w < -0.5)
     {
+        float shift = SkyLayerParams.w > 1.5 ? SkyLayerParams.w - 2.0 : SkyLayerParams.w + 1.0;
         vec3 away = worldPos.xyz - EyePosition.xyz;
         float dist = length(away);
-        vec4 pushed = Projection * View * vec4(worldPos.xyz + (dist > 1e-4 ? away / dist : vec3(0.0)) * (SkyLayerParams.w - 2.0), 1.0);
+        vec4 pushed = Projection * View * vec4(worldPos.xyz + (dist > 1e-4 ? away / dist : vec3(0.0)) * shift, 1.0);
         clipPos.z = pushed.z / pushed.w * clipPos.w;
     }
     else if (SkyLayerParams.w > 0.5) clipPos.z -= 0.00015 * clipPos.w;

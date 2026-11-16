@@ -286,7 +286,7 @@ namespace Gordian.App.Graphics
                 {
                     tip = shared - new Vector2(0, SubTargetCursorRise * Layout.Scale);
                 }
-                StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetCursorTint);
+                StockUiTargetWindow.DrawCursor(renderer, library, tip, Layout.Scale, now, SubTargetTint(session.ActionService.SubTargetBand));
             }
             // The Map window's map goes under the party, log and target windows (retail round 1 image-4: the chat over the map).
             if (!zoning && !cutscene && (_hiddenElements & StockUiElement.Menus) == 0) DrawMap(renderer, library, session, width, height);
@@ -700,6 +700,24 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static readonly UiColor SubTargetCursorTint = new(0x49, 0x4D, 0xF8, 0x80);
         private const float SubTargetCursorRise = 12;
+
+        /// <summary>
+        /// The sub-target cursor out of range (#589): yellow up to a yalm beyond the action's range, red further out. The
+        /// <c>anc</c> texture holds only the gold arrow (ROM/0/1, every <c>anc*</c> group samples it with neutral vertex
+        /// colours), so the colours are tints the client applies, as the violet is. Retail on local LSB (2026-11-15, Retail
+        /// Captures <c>589-subtarget-colour-*</c>): the arrow body averages about (100, 88, 185) violet, (190, 180, 70) yellow
+        /// and (178, 74, 58) red in the same scene, so each tint is the violet tint scaled per channel by those ratios.
+        /// CALIBRATE against a side-by-side capture (docs/reference/calibrations.md).
+        /// </summary>
+        private static readonly UiColor SubTargetNearMissTint = new(0x8B, 0x9E, 0x5E, 0x80);
+        private static readonly UiColor SubTargetOutOfRangeTint = new(0x82, 0x41, 0x4E, 0x80);
+
+        private static UiColor SubTargetTint(Gordian.Engine.Actions.SubTargetRangeBand band) => band switch
+        {
+            Gordian.Engine.Actions.SubTargetRangeBand.JustOutOfRange => SubTargetNearMissTint,
+            Gordian.Engine.Actions.SubTargetRangeBand.OutOfRange => SubTargetOutOfRangeTint,
+            _ => SubTargetCursorTint,
+        };
 
         /// <summary>The screen height the event text positions were measured at (the maintainer's 1440p retail client area).</summary>
         public const float EventTextReferenceHeight = 1416f;

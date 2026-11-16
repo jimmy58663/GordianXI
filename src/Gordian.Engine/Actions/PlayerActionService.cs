@@ -852,6 +852,8 @@ namespace Gordian.Engine.Actions
                     return PlayerActionResult.Ok($"Invited {entity.Name} to party.", ChatCommandResultKind.PartyInvite);
                 case StockUiMenuCommand.Check:
                     var check = await CheckAsync(entity.ServerId, entity.TargetIndex).ConfigureAwait(false);
+                    // A monster's check leaves the menu open (#580), so this only re-opens the engaged list after a
+                    // player's check closed it (it does not open over a menu).
                     if (Combat is { IsEngaged: true }) OpenTargetCommandMenu();
                     return check;
                 case StockUiMenuCommand.ReleaseTrust:
@@ -1150,7 +1152,20 @@ namespace Gordian.Engine.Actions
         /// A zone's name by zone id (the zone name table, ROM/165/84), for the Mog House exit's area list (#354); set by
         /// the app, null in tests and without the game's tables.
         /// </summary>
-        public Func<int, string?>? ZoneName { get; set; }
+        public Func<int, string?>? ZoneName
+        {
+            get => _zoneName;
+            set
+            {
+                _zoneName = value;
+                if (value != null) ZoneNamesAttached?.Invoke();
+            }
+        }
+
+        private Func<int, string?>? _zoneName;
+
+        /// <summary>Raised when the app sets <see cref="ZoneName"/> (the zone name table is now readable).</summary>
+        public event Action? ZoneNamesAttached;
 
         /// <summary>A mount's help line by client mount id (ROM/351/85), for the mount list's help bar; set by the app.</summary>
         public Func<int, string?>? MountHelp { get; set; }

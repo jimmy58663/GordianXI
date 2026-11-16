@@ -853,6 +853,19 @@ namespace Gordian.Core.Network
             GordianLog.Info(LogCategories.Net, $"Server placed local player at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) dir={update.Direction} mode={update.Mode}");
         }
 
+        /// <summary>
+        /// The HP percent a new local player entity starts with (#579). Each zone-in creates the entity again from S2C 0x00A,
+        /// and the server sends the player's vitals (0x0DF) about a second later: an entity left at 0% HP meanwhile read as dead,
+        /// so the player played the death motion and its <c>dead</c> routine's cry on the loading screen. It starts with the
+        /// last known HP (kept across the zone change), or full until the first vitals of a login arrive. A character who is
+        /// really dead is still drawn dead: the server's status 3 (0x037) and 0% HP (0x0DF) say so.
+        /// </summary>
+        internal static byte LocalEntitySeedHpp(LocalPlayerState player)
+        {
+            if (player.IsDead) return 0;
+            return player.Hpp > 0 ? player.Hpp : (byte)100;
+        }
+
         private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)
         {
             uint sid = _parser.LocalPlayer.ServerId != 0 ? _parser.LocalPlayer.ServerId : CharacterId;
@@ -879,6 +892,7 @@ namespace Gordian.Core.Network
                     Direction = dir,
                     IsSpawned = true,
                     Name = CharacterName,
+                    Hpp = LocalEntitySeedHpp(_parser.LocalPlayer),
                     Speed = (byte)(_parser.LocalPlayer.Speed > 0 ? Math.Min((ushort)255, _parser.LocalPlayer.Speed) : 50),
                     SpeedBase = _parser.LocalPlayer.SpeedBase > 0 ? _parser.LocalPlayer.SpeedBase : (byte)50
                 };

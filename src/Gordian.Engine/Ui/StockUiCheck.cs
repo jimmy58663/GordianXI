@@ -49,6 +49,13 @@ namespace Gordian.Engine.Ui
         /// <summary>The "View Wares" button (opens the checked character's bazaar in retail).</summary>
         public const int ViewWaresButton = 17;
 
+        /// <summary>
+        /// Whether checking a command menu target opens this window: a player, yourself included. A monster's check only
+        /// prints lines in the log, and the command menu stays open for it (retail, local LSB 2026-11-15, #580); pets and
+        /// trusts have no Check row.
+        /// </summary>
+        public static bool OpensWindow(StockUiTargetKind kind) => kind is StockUiTargetKind.Self or StockUiTargetKind.Player;
+
         private static readonly EquipSlotId[] ButtonSlots =
         {
             EquipSlotId.Main, EquipSlotId.Head, EquipSlotId.Body, EquipSlotId.Back,

@@ -40,7 +40,30 @@ namespace Gordian.Core.Resources.Tables
     }
 
     /// <summary>A furnishing's mesh and textures (<see cref="FurnitureTable.ModelFileId"/>), the mesh in the room's display space around its origin.</summary>
-    public sealed record FurnitureModel(ushort ItemId, IReadOnlyList<MeshGroup> Meshes, IReadOnlyDictionary<string, DecodedTexture> Textures);
+    public sealed record FurnitureModel(ushort ItemId, IReadOnlyList<MeshGroup> Meshes, IReadOnlyDictionary<string, DecodedTexture> Textures)
+    {
+        /// <summary>
+        /// True once <see cref="ReleaseRenderData"/> has run (#585): the GPU holds the meshes and textures and this copy cannot
+        /// be uploaded again (the furnishing is read from its DAT anew instead).
+        /// </summary>
+        public bool IsRenderDataReleased { get; private set; }
+
+        /// <summary>
+        /// Frees the mesh arrays and the pixels of the furnishing's own textures (those whose source is its model DAT) once
+        /// the shared GPU copy holds them (#585, the App's <c>ZoneModelCache</c>).
+        /// </summary>
+        public void ReleaseRenderData()
+        {
+            if (IsRenderDataReleased) return;
+            IsRenderDataReleased = true;
+            foreach (var mesh in Meshes) mesh.ReleaseRenderData(keepRayMesh: false);
+            string ownPrefix = DecodedTexture.FileLabel(FurnitureTable.ModelFileId(ItemId)) + "@";
+            foreach (var texture in Textures.Values)
+            {
+                if (texture != null && texture.Source.StartsWith(ownPrefix, StringComparison.Ordinal)) texture.ReleasePixels();
+            }
+        }
+    }
 
     /// <summary>
     /// The client's furniture table: file 32922 (ROM directory <c>myro</c>), section type 0x59 <c>furn</c>, 1024 records of 8

@@ -74,6 +74,19 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.Equal(1, renderer.TransportVesselsDrawn);
 
+                // #585: a second window at the dock draws the same GPU copy of the barge on its first frame, with no upload.
+                var models = renderer.SharedResources.ZoneModels;
+                Assert.Equal(1, models.Uploads);
+                using (var second = new ZoneTerrainRenderer(renderer.SharedResources, gd.SwapchainFramebuffer.OutputDescription))
+                {
+                    second.LoadZone(dock, dockTextures);
+                    second.Render(camera, env, 0.016f, Width, Height, entities, rm, present: false, targetFramebuffer: fb);
+                    Assert.Equal(1, second.TransportVesselsDrawn);
+                    Assert.Equal(1, models.Uploads);
+                }
+                // The barge came from a copy of Phanauet Channel of its own: the cached channel keeps its vessel meshes.
+                Assert.False(channel.Vessel!.MeshGroups[0].IsRenderDataReleased);
+
                 // An unmapped ship number draws nothing.
                 ship.ShipNumber = 999;
                 renderer.Render(camera, env, 0.016f, Width, Height, entities, rm, present: false, targetFramebuffer: fb);

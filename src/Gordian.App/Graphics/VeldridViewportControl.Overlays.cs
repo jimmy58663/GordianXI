@@ -103,6 +103,8 @@ namespace Gordian.App.Graphics
                 {
                     _perfStats.GpuEntityPieces = _renderer.SharedResources.EntityMeshes.Count;
                     _perfStats.GpuZones = _renderer.SharedResources.Zones.Count;
+                    var models = _renderer.SharedResources.ZoneModels;
+                    _perfStats.GpuZoneModels = (models.Count, models.ResidentBytes, models.Uploads);
                 }
             }
         }

@@ -11,7 +11,8 @@ namespace Gordian.Engine.Actions
     /// <summary>
     /// The sub-target cursor (retail's <c>&lt;st&gt;</c>, and what every spell or ability chosen in a menu opens): an
     /// action waiting for its target. The cursor starts on the preferred entity (the command menu's target) when the
-    /// action may land on it, else on the current target, else on yourself, else on the nearest entity it may land on;
+    /// action may land on it, else on the current target, else on yourself, else on the nearest entity it may land on,
+    /// except that a monster is never the start of an action that may land on yourself (Cure with a mob targeted starts on you);
     /// the target keys move it through the allowed entities in screen order (wrapping), Confirm runs the action on the
     /// one under it and Cancel drops it. Your own target does not change.
     /// <para>
@@ -19,7 +20,12 @@ namespace Gordian.Engine.Actions
     /// yourself only) in the Magic list still opens the cursor; the lists leave the screen while it is up, the help bar
     /// reads "Advancing March" / "Select target of spell.", and the cursor is the target arrow in violet, drawn 12 px above
     /// the gold target arrow when both mark the same entity. After the cast the list is back with its cursor where it was.
-    /// PROVISIONAL: the start rule beyond yourself, the screen-order cycling, and the list returning after Cancel.
+    /// </para>
+    /// <para>
+    /// Retail on local LSB 2026-11-15 (#562): with a mob targeted, Cure chosen from that mob's command menu starts the
+    /// cursor on yourself, and Cancel brings the Magic list back with its cursor on Cure. With another player or a party
+    /// member targeted, a beneficial spell starts on them (the maintainer's retail check, 2026-11-15 test round).
+    /// PROVISIONAL: the screen-order cycling.
     /// </para>
     /// </summary>
     public sealed class SubTargetSelection

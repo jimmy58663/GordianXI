@@ -207,6 +207,28 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(vanishing, state.IsVanishing);
         }
 
+        /// <summary>
+        /// #579: the local player entity a zone-in creates (S2C 0x00A) starts with the last known HP, or full before the first
+        /// vitals, not 0% (which drew it dead and played its death cry on the loading screen). A really dead one starts at 0.
+        /// </summary>
+        [Theory]
+        [InlineData(null, 0, (byte)100)]   // first login: nothing known yet
+        [InlineData((byte)0, 64, (byte)64)] // zoning alive at 64%
+        [InlineData((byte)3, 100, (byte)100)] // vanishing (status 3 with HP): alive
+        [InlineData((byte)3, 0, (byte)0)]   // dead
+        public void LocalEntitySeedHpp_KeepsTheLivingAlive(byte? status, byte hpp, byte expected)
+        {
+            var state = new LocalPlayerState();
+            if (status is { } s)
+            {
+                byte[] payload = new byte[0x60];
+                payload[36 + 2] = hpp;
+                payload[44] = s;
+                state.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
+            }
+            Assert.Equal(expected, Gordian.Core.Network.SessionNetworkManager.LocalEntitySeedHpp(state));
+        }
+
         [Fact]
         public async Task EntityPacketModule_CoordinatesInboundAndOutboundPackets()
         {
@@ -473,6 +495,25 @@ namespace Gordian.Core.Tests.World
 
             Assert.Equal(0, entity.Direction);
             Assert.Equal(LocomotionDirection.Right, entity.LocomotionDirection);
+        }
+
+        /// <summary>
+        /// An actor effect no viewport took in time (a session that is not shown) is dropped, not played when the session is
+        /// switched to (#581 round 2: a minutes-old level up and level down played together on a switch).
+        /// </summary>
+        [Fact]
+        public void ActorEffects_NotTakenInTime_AreDropped()
+        {
+            var world = new WorldState { CurrentZoneId = 100 };
+            world.PostActorEffect(new ActorEffectRequest(0x01000001, 0x01000001, "kesu"));
+            var taken = new List<ActorEffectRequest>();
+            double posted = ActorColorTrack.Now;
+            world.TakeActorEffects(100, taken, posted + WorldState.MaxActorEffectAgeSeconds + 60);
+            Assert.Empty(taken);
+
+            world.PostActorEffect(new ActorEffectRequest(0x01000001, 0x01000001, "kesu"));
+            world.TakeActorEffects(100, taken, ActorColorTrack.Now);
+            Assert.Single(taken);
         }
 
         [Fact]

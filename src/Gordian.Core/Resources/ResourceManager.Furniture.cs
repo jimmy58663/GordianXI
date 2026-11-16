@@ -28,6 +28,18 @@ namespace Gordian.Core.Resources
         /// <summary>A furnishing's mesh and textures, cached; null for a piece without a mesh file (mannequins, the statues).</summary>
         public FurnitureModel? TryLoadFurnitureModel(ushort itemId) => _furnitureModels.GetOrAdd(itemId, LoadFurnitureModel);
 
+        /// <summary>
+        /// Reads a furnishing again for a GPU upload when the cached model's render data was released after an upload that
+        /// has left the GPU since (#585); the new model replaces it in the cache. A cached model not released is returned as it is.
+        /// </summary>
+        public FurnitureModel? TryReloadFurnitureModel(ushort itemId)
+        {
+            if (_furnitureModels.TryGetValue(itemId, out var cached) && cached is { IsRenderDataReleased: false }) return cached;
+            var model = LoadFurnitureModel(itemId);
+            if (model != null) _furnitureModels[itemId] = model;
+            return model;
+        }
+
         private FurnitureModel? LoadFurnitureModel(ushort itemId)
         {
             int fileId = FurnitureTable.ModelFileId(itemId);

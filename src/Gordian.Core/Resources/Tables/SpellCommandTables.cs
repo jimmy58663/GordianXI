@@ -43,7 +43,9 @@ namespace Gordian.Core.Resources.Tables
     /// <param name="MenuIndex">The slot the known-spell list sorts the spell into.</param>
     /// <param name="Range">
     /// +0x45 (u8), the casting range index (Cure 12, Horde Lullaby 11, self-only spells 15). <b>Beyond xi-tools</b>, which
-    /// lists +0x44 onward as flags: the byte is the spell twin of the command record's range at +0x10.
+    /// lists +0x44 onward as flags: the byte is the spell twin of the command record's range at +0x10. The index maps to
+    /// yalms through a table (12 = 20 yalms; <c>SubTargetRange.RangeYalms</c> in the engine), paired with LandSandBoat's
+    /// <c>spell_list.spell_range</c> and <c>abilities.range</c> for every record (2026-11-15).
     /// </param>
     /// <param name="AoeRadius">
     /// +0x46 (u8), the area-of-effect radius index (0 single target): Curaga, Diaga, Protectra and Advancing March 8, Horde

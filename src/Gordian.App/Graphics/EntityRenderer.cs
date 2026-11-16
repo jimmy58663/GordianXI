@@ -433,6 +433,7 @@ namespace Gordian.App.Graphics
             _entityEnvironments.Clear();
             _actorAnchors.Clear();
             _shadowLights.Clear();
+            _shadowGrounds.Clear();
         }
 
         public void RenderEntities(
@@ -453,6 +454,7 @@ namespace Gordian.App.Graphics
             float? localPlayerDisplayHeading = null)
         {
             _shadowDraws.Clear(); // drawn later by DrawQueuedShadows; a frame that never drew them must not pile up
+            _shadowCollision = collision;
             if (_disposed || cl == null || entities == null) return;
             LocalPlayerServerId = localPlayerServerId;
 

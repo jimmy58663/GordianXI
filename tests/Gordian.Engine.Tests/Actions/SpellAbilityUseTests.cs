@@ -152,13 +152,14 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
-        public async Task SubTargetCursor_StartsOnTheTargetMovesAndConfirms()
+        public async Task SubTargetCursor_StartsOnYourselfOverAMobMovesAndConfirms()
         {
             _service.SetTargetByName("Forest_Hare");
             var started = await _service.ExecuteCommandAsync("/ma \"Cure\" <st>");
             Assert.True(started.Success);
             Assert.NotNull(_service.SubTargeting);
-            Assert.Equal(HareId, _service.DisplayedTarget!.ServerId); // Cure may land on monsters (undead)
+            // Cure may land on monsters (undead), but with a mob targeted retail starts it on yourself (#562).
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
             int before = SentCount;
 
             Assert.True(_service.MoveSubTarget(FriendId));
@@ -181,6 +182,76 @@ namespace Gordian.Engine.Tests.Actions
             await _service.ExecuteCommandAsync("/ma Fire");
             Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
             Assert.False(_service.MoveSubTarget(SelfId));
+        }
+
+        [Fact]
+        public void SubTargetCursor_StartRule()
+        {
+            var cure = (ActionTargetFlags)0x3F; // Cure's target bits: anyone, monsters included (TestCatalog)
+            Assert.True(_world.TryGetByServerId(HareId, out var hare) && hare != null);
+            Task<PlayerActionResult> Run(WorldEntity _) => Task.FromResult(PlayerActionResult.Ok("cast"));
+
+            // A mob targeted, and the mob's own command menu (preferred): a self-capable action starts on yourself
+            // (retail, local LSB 2026-11-15).
+            _service.SetTargetByName("Forest_Hare");
+            Assert.True(_service.BeginSubTarget("Cure", cure, Run).Success);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+            Assert.True(_service.BeginSubTarget("Cure", cure, Run, preferred: hare).Success);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+
+            // An action that cannot land on yourself still starts on the mob.
+            Assert.True(_service.BeginSubTarget("Fire", ActionTargetFlags.Enemy, Run).Success);
+            Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+
+            // Another player targeted: the cursor starts on them (the maintainer's retail check, 2026-11-15 test round).
+            _service.SetTargetByName("Tarudrake");
+            Assert.True(_service.BeginSubTarget("Cure", cure, Run).Success);
+            Assert.Equal(FriendId, _service.SubTargeting!.Current.ServerId);
+            _service.CancelSubTarget();
+        }
+
+        [Fact]
+        public async Task Pianissimo_LetsAPartySongsCursorOntoPartyMembers_At20Yalms()
+        {
+            _party.UpsertMember(new PartyMember { ServerId = SelfId, TargetIndex = SelfIndex, Name = "Gemini", MemberNumber = 0 });
+            _party.UpsertMember(new PartyMember { ServerId = FriendId, TargetIndex = FriendIndex, Name = "Tarudrake", MemberNumber = 1 });
+            _service.SetTargetByName("Tarudrake");
+
+            // Without Pianissimo a song lands only on yourself: no target given casts it at once, and <st> stays on you
+            // with the area guide drawn.
+            Assert.True((await _service.ExecuteCommandAsync("/ma \"Valor Minuet\"")).Success);
+            Assert.Equal((SelfId, SelfIndex, CliActionId.CastMagic, (uint)TestCatalog.ValorMinuet), LastAction());
+            await _service.ExecuteCommandAsync("/ma \"Valor Minuet\" <st>");
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
+            Assert.False(_service.MoveSubTarget(FriendId));
+            Assert.NotNull(_service.AreaOfEffect);
+            _service.CancelSubTarget();
+
+            // Pianissimo (status effect 409: low byte 0x99, high bits 1) on: the cursor starts on the targeted party
+            // member, the area guide stays on (retail, 2026-11-15 round 3), and the colour uses the song's 20 yalms.
+            _localPlayer.BuffIcons[0] = 0x99;
+            _localPlayer.BuffStatusBits[0] = 0x01;
+            await _service.ExecuteCommandAsync("/ma \"Valor Minuet\" <st>");
+            Assert.Equal(FriendId, _service.SubTargeting!.Current.ServerId);
+            Assert.Equal(FriendId, _service.AreaOfEffect!.Value.Center.ServerId);
+            Assert.Equal(SubTargetRangeBand.InRange, _service.SubTargetBand);
+            Assert.True(_world.TryGetByServerId(FriendId, out var friend) && friend != null);
+            friend.Position = new Vector3(10, 5, 40.7f); // 20.7 yalms
+            Assert.Equal(SubTargetRangeBand.JustOutOfRange, _service.SubTargetBand);
+            friend.Position = new Vector3(10, 5, 45); // 25 yalms
+            Assert.Equal(SubTargetRangeBand.OutOfRange, _service.SubTargetBand);
+            Assert.True(_service.MoveSubTarget(SelfId));
+            Assert.Equal(SubTargetRangeBand.InRange, _service.SubTargetBand);
+            _service.CancelSubTarget();
+
+            // A monster is still not a song's target, and spells that are not party songs keep their bits.
+            Assert.False(_service.AcceptsTarget(Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.ValorMinuet), true),
+                _world.TryGetByServerId(HareId, out var hare) ? hare! : throw new InvalidOperationException()));
+            Assert.Equal(ActionTargetFlags.Self, Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.Shantotto), true));
+            Assert.Equal(ActionTargetFlags.Self, Pianissimo.Targets(ActionTargetFlags.Self, TestCatalog.Build().GetSpell(TestCatalog.ValorMinuet), false));
         }
 
         [Fact]
@@ -435,7 +506,7 @@ namespace Gordian.Engine.Tests.Actions
         }
 
         [Fact]
-        public async Task CommandMenu_MagicConfirmListsCastableMagic_RightOpensTheCategories_CursorStartsOnTheTarget()
+        public async Task CommandMenu_MagicConfirmListsCastableMagic_RightOpensTheCategories_CureStartsOnYourself()
         {
             LoadMenus();
             Learn(TestCatalog.Cure, TestCatalog.Fire, TestCatalog.Shantotto);
@@ -469,11 +540,11 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Equal(StockUiActionMenu.CommandMagicCategoryMenu, menus.Top!.Name);
             menus.CloseTop();
 
-            // A spell from the list: the cursor starts on the menu's target.
+            // Cure from the hare's list: the cursor starts on yourself, not the menu's mob (retail, local LSB 2026-11-15, #562).
             menus.Activate();
             menus.Activate();
             for (int i = 0; i < 100 && _service.SubTargeting == null; i++) await Task.Delay(10, TestContext.Current.CancellationToken);
-            Assert.Equal(HareId, _service.SubTargeting!.Current.ServerId);
+            Assert.Equal(SelfId, _service.SubTargeting!.Current.ServerId);
             _service.CancelSubTarget();
         }
 

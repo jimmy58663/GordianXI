@@ -726,7 +726,9 @@ namespace Gordian.Core.Network.Packets
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 if (!_localPlayer.IsVanishing) localEnt.AnimationState = charStatus.ServerStatus;
-                // Nor its InvisFlag (0x037 Flags1 bit 15; LandSandBoat char_status.cpp sets it for any effect with the
+                // Its HP percent too (#579): before, only 0x0DF set it, so a fresh zone-in entity stayed at 0% (dead) until then.
+                localEnt.Hpp = charStatus.Hpp;
+                // And its InvisFlag (0x037 Flags1 bit 15; LandSandBoat char_status.cpp sets it for any effect with the
                 // Invisible flag, or a GM hiding): the renderer draws the player see-through and the name plate hides.
                 localEnt.IsInvisible = charStatus.IsInvisible;
                 localEnt.Mount = _localPlayer.Mount;
