@@ -1,6 +1,7 @@
 // src/Gordian.App/Graphics/ZoneCachePurger.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Gordian.App.Services;
 using Gordian.Core.Diagnostics;
@@ -42,8 +43,11 @@ namespace Gordian.App.Graphics
                 if (resources == null) return;
                 var device = SharedGraphicsDevice.Current;
                 var inUse = CollectZonesInUse(_registry.ActiveSessions, device?.Resources);
-                var dropped = resources.PurgeUnusedZones(inUse);
+                var droppedInteriors = new List<int>();
+                var dropped = resources.PurgeUnusedZones(inUse, droppedInteriorIds: droppedInteriors);
                 if (dropped.Count > 0) device?.Resources.Zones.Drop(dropped);
+                // Ship models of the dropped zones, the dropped interiors, and idle ship models and furniture (#585).
+                device?.Resources.ZoneModels.Purge(dropped.Select(zone => zone.ZoneId), droppedInteriors);
             }
             catch (Exception ex)
             {
@@ -57,8 +61,10 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// The zones in use: those of every logged-in character (<see cref="CharacterZones"/>), the zones a window holds or
-        /// is uploading (<see cref="ZoneResidencyCache.ZonesInUse"/>), and the ship zones a window read for their vessel
-        /// models. Building interiors count through their zone (see <c>ResourceManager.PurgeUnusedZones</c>).
+        /// is uploading (<see cref="ZoneResidencyCache.ZonesInUse"/>), and the zones of the building interiors a window holds
+        /// (<see cref="ZoneModelCache.ZonesInUse"/>, #585). Building interiors count through their zone (see
+        /// <c>ResourceManager.PurgeUnusedZones</c>). A ship model at a dock no longer keeps its ship zone: it is read from a
+        /// copy of its own (#585).
         /// </summary>
         internal static HashSet<int> CollectZonesInUse(IEnumerable<CharacterSession> sessions, GpuSharedResources? shared)
         {
@@ -72,10 +78,7 @@ namespace Gordian.App.Graphics
             if (shared != null)
             {
                 foreach (int zoneId in shared.Zones.ZonesInUse) Add(zones, zoneId);
-                foreach (var renderer in shared.Renderers)
-                {
-                    foreach (int zoneId in renderer.VesselZoneIds) Add(zones, zoneId);
-                }
+                foreach (int zoneId in shared.ZoneModels.ZonesInUse) Add(zones, zoneId);
             }
             return zones;
         }

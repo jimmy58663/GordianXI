@@ -49,7 +49,7 @@ namespace Gordian.Core.Tests.Resources
         }
 
         [Fact]
-        public void Zone_Release_FreesItsOwnMeshesAndTextures_KeepsTheVesselAndSharedTextures()
+        public void Zone_Release_FreesItsOwnMeshesTexturesAndVessel_KeepsSharedTextures()
         {
             var zone = new ZoneGeometry { ZoneId = 1, DatSource = "file100" };
             var floor = Quad("floor", "tex");
@@ -78,15 +78,46 @@ namespace Gordian.Core.Tests.Resources
             Assert.Null(sea.RayPositions);      // water never occludes or floors
             Assert.True(platform.IsRenderDataReleased);
             Assert.True(door.IsRenderDataReleased);
-            Assert.False(hull.IsRenderDataReleased);   // every renderer uploads a ship model on its own
+            Assert.True(hull.IsRenderDataReleased);    // #585: a ship model at a dock reads its own copy of the ship zone
             Assert.Equal(8, zone.TotalVertices);
             Assert.Equal(4, zone.TotalTriangles);
 
             Assert.True(own.PixelsReleased);
             Assert.Empty(own.RgbaPixels);
             Assert.Equal(2, own.Width);
-            Assert.False(shipTexture.PixelsReleased);
+            Assert.True(shipTexture.PixelsReleased);
             Assert.False(shared.PixelsReleased);   // shared effect textures come from another DAT
+        }
+
+        [Fact]
+        public void Interior_Release_WithoutTheRayMesh()
+        {
+            // #585: a building interior is released through its shared GPU copy; nothing ray-tests it.
+            var interior = new ZoneGeometry { DatSource = "file200" };
+            var wall = Quad("wall", "tex");
+            interior.MeshGroups.Add(wall);
+            var texture = new DecodedTexture("tex", 2, 2, new byte[16]) { Source = "file200@0" };
+            interior.ReleaseRenderData(new Dictionary<string, DecodedTexture> { ["tex"] = texture }, keepRayMesh: false);
+            Assert.True(wall.IsRenderDataReleased);
+            Assert.Null(wall.RayPositions);
+            Assert.True(texture.PixelsReleased);
+        }
+
+        [Fact]
+        public void Furniture_Release_FreesItsMeshesAndOwnTextures()
+        {
+            // Item 1 (any id): its own textures come from FurnitureTable.ModelFileId(item).
+            ushort item = 1;
+            int fileId = Gordian.Core.Resources.Tables.FurnitureTable.ModelFileId(item);
+            var mesh = Quad("bed", "tex");
+            var own = new DecodedTexture("tex", 2, 2, new byte[16]) { Source = DecodedTexture.FileLabel(fileId) + "@0" };
+            var other = new DecodedTexture("fx", 2, 2, new byte[16]) { Source = "file0@32" };
+            var model = new Gordian.Core.Resources.Tables.FurnitureModel(item, [mesh], new Dictionary<string, DecodedTexture> { ["tex"] = own, ["fx"] = other });
+            model.ReleaseRenderData();
+            Assert.True(model.IsRenderDataReleased);
+            Assert.True(mesh.IsRenderDataReleased);
+            Assert.True(own.PixelsReleased);
+            Assert.False(other.PixelsReleased);
         }
 
         [Fact]
