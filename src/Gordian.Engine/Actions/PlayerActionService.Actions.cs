@@ -384,13 +384,10 @@ namespace Gordian.Engine.Actions
 
         /// <summary>
         /// The area-of-effect range guide of the sub-target cursor (#356), or null when its action has none. A party song
-        /// under Pianissimo lands on one member, so it has none (LandSandBoat's <c>SPELLAOE_PIANISSIMO</c>; PROVISIONAL
-        /// until retail shows whether the client still draws the circle).
+        /// keeps its circle under Pianissimo too, around the member under the cursor (the maintainer's retail check,
+        /// 2026-11-15 test round 3), though the song then lands on that member alone.
         /// </summary>
-        public AreaOfEffectGuide? AreaOfEffect =>
-            SubTargeting is { Kind: ActionKind.Spell } song && Pianissimo.IsPartySong(Catalog?.GetSpell(song.Id)) && PianissimoActive
-                ? null
-                : AreaOfEffectGuide.For(SubTargeting, Catalog);
+        public AreaOfEffectGuide? AreaOfEffect => AreaOfEffectGuide.For(SubTargeting, Catalog);
 
         /// <summary>Whether Pianissimo (status effect 409) is on you.</summary>
         private bool PianissimoActive => Pianissimo.IsActive(_localPlayer.GetStatusEffectIds());

@@ -231,12 +231,12 @@ namespace Gordian.Engine.Tests.Actions
             _service.CancelSubTarget();
 
             // Pianissimo (status effect 409: low byte 0x99, high bits 1) on: the cursor starts on the targeted party
-            // member, a single-target song has no area guide, and the colour uses the song's 20 yalms.
+            // member, the area guide stays on (retail, 2026-11-15 round 3), and the colour uses the song's 20 yalms.
             _localPlayer.BuffIcons[0] = 0x99;
             _localPlayer.BuffStatusBits[0] = 0x01;
             await _service.ExecuteCommandAsync("/ma \"Valor Minuet\" <st>");
             Assert.Equal(FriendId, _service.SubTargeting!.Current.ServerId);
-            Assert.Null(_service.AreaOfEffect);
+            Assert.Equal(FriendId, _service.AreaOfEffect!.Value.Center.ServerId);
             Assert.Equal(SubTargetRangeBand.InRange, _service.SubTargetBand);
             Assert.True(_world.TryGetByServerId(FriendId, out var friend) && friend != null);
             friend.Position = new Vector3(10, 5, 40.7f); // 20.7 yalms

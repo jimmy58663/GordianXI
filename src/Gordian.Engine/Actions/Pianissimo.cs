@@ -17,10 +17,14 @@ namespace Gordian.Engine.Actions
     /// self (0x01) only. <b>Beyond LandSandBoat:</b> the client's party songs are the singing spells (skill 40) that target
     /// self with an area around the target (<see cref="AreaOfEffectShape.AroundTarget"/>); paired with LandSandBoat's
     /// <c>spell_list.validTargets</c> on 2026-11-15, all 64 of its 0x80 songs match this rule. <b>Differs from
-    /// LandSandBoat:</b> the rule also takes the 14 Etudes (424-437), which LandSandBoat marks self-only (validTargets 1),
-    /// though they are party songs like the rest in the client's table.
+    /// LandSandBoat:</b> the rule also takes the 14 Etudes (424-437), which LandSandBoat marks self-only (validTargets 1);
+    /// retail lets Pianissimo put an Etude on a party member like any other song (the maintainer's retail check,
+    /// 2026-11-15 test round 3).
     /// </para>
-    /// <para>The song keeps its own range index (12, 20 yalms), so the cursor's range colour needs nothing extra.</para>
+    /// <para>
+    /// The song keeps its own range index (12, 20 yalms), so the cursor's range colour needs nothing extra, and its
+    /// area-of-effect guide is still drawn around the member under the cursor (retail, 2026-11-15 test round 3).
+    /// </para>
     /// </summary>
     public static class Pianissimo
     {
