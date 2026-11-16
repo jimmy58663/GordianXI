@@ -73,6 +73,12 @@ namespace Gordian.App.Graphics
         /// <summary>Zones resident on the GPU (#576), sampled with the memory.</summary>
         public int GpuZones { get; set; }
 
+        /// <summary>
+        /// Ship models, interiors and furniture on the GPU, the memory they hold and how many uploads made them (#585), sampled
+        /// with the memory: one upload per model however many windows draw it.
+        /// </summary>
+        public (int Count, long Bytes, int Uploads) GpuZoneModels { get; set; }
+
         /// <summary>The entity model caches (#573), sampled with the memory.</summary>
         public Gordian.Core.Resources.EntityModelCacheStats EntityModels { get; set; }
 

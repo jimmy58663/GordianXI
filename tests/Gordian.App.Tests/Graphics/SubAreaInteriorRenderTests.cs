@@ -34,6 +34,8 @@ namespace Gordian.App.Tests.Graphics
                 var gd = devMgr.Device;
                 if (gd == null) return;
                 using var renderer = new ZoneTerrainRenderer(gd);
+                // As on the app's shared device (#585): the interior's CPU copy goes after its upload.
+                renderer.SharedResources.ZoneModels.ReleaseCpuCopies = true;
                 var fmt = gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;
                 using var color = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, fmt, NeoVeldrid.TextureUsage.RenderTarget));
                 using var depth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(Width, Height, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
@@ -51,6 +53,40 @@ namespace Gordian.App.Tests.Graphics
                 }
                 Assert.Equal(1, renderer.InteriorsDrawn);
                 Assert.True(renderer.InteriorEffectParticleCount >= 3, "a halo at each of the three wall lamps");
+
+                // #585: one GPU copy, its CPU copy released; a second window draws it on its first frame without an upload.
+                var models = renderer.SharedResources.ZoneModels;
+                Assert.Equal(1, models.Uploads);
+                Assert.True(rm.TryLoadSubAreaInterior(462, out var meadhouse, out _));
+                Assert.True(meadhouse.IsRenderDataReleased);
+                using (var second = new ZoneTerrainRenderer(renderer.SharedResources, gd.SwapchainFramebuffer.OutputDescription))
+                {
+                    second.LoadZone(zone!, textures!);
+                    second.SubAreaOverride = [462];
+                    for (int frame = 0; frame < 100 && second.InteriorsDrawn == 0; frame++)
+                    {
+                        second.Render(camera, env, 0.016f, Width, Height, null, rm, present: false, targetFramebuffer: fb);
+                        if (second.InteriorsDrawn == 0) Thread.Sleep(20);
+                    }
+                    Assert.Equal(1, second.InteriorsDrawn);
+                    Assert.Equal(1, models.Uploads);
+                }
+
+                // Purged (the zone left every character): the GPU copy goes once no window holds it, and the next
+                // window to show the interior reads it again from its DAT.
+                renderer.LoadZone(null);
+                Assert.Equal(1, models.Purge([245], [462]));
+                renderer.LoadZone(zone!, textures!);
+                renderer.SubAreaOverride = [462];
+                for (int frame = 0; frame < 100 && (frame == 0 || renderer.InteriorsDrawn == 0); frame++)
+                {
+                    renderer.Render(camera, env, 0.016f, Width, Height, null, rm, present: false, targetFramebuffer: fb);
+                    if (renderer.InteriorsDrawn == 0) Thread.Sleep(20);
+                }
+                Assert.Equal(1, renderer.InteriorsDrawn);
+                Assert.Equal(2, models.Uploads);
+                Assert.True(rm.TryLoadSubAreaInterior(462, out var reread, out _));
+                Assert.NotSame(meadhouse, reread);
             }
             finally
             {

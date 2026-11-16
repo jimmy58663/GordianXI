@@ -603,22 +603,70 @@ namespace Gordian.Core.Resources
         public bool TryLoadSubAreaInterior(int subAreaId, [NotNullWhen(true)] out ZoneGeometry? interior, out Dictionary<string, DecodedTexture> textures)
         {
             MarkInteriorUsed(subAreaId);
-            var entry = _interiorCache.GetOrAdd(subAreaId, id =>
-            {
-                EnsureKeyTables();
-                int fileId = World.Collision.ZoneSubAreas.InteriorFileId(id);
-                byte[]? datBytes = LoadDatBytesByFileId(fileId);
-                if (datBytes == null || datBytes.Length == 0 || _keyTable1 == null) return null;
-                var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
-                var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
-                    GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId), interior: true);
-                _interiorCollisionCache.TryAdd(id, geometry.Collision);
-                GordianLog.Info(LogCategories.Res, $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
-                return (geometry, decoded);
-            });
+            var entry = _interiorCache.GetOrAdd(subAreaId, ReadInterior);
             interior = entry?.Geometry;
             textures = entry?.Textures ?? new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
             return interior != null && interior.MeshGroups.Count > 0;
+        }
+
+        /// <summary>
+        /// Reads a building interior again for a GPU upload when the cached copy's render data was released after an upload
+        /// that has left the GPU since (#585): the new copy replaces it in the cache. When another reader already replaced
+        /// it, that copy is returned; the cached copy as it is when its render data was not released.
+        /// </summary>
+        public bool TryReloadSubAreaInterior(int subAreaId, ZoneGeometry released, [NotNullWhen(true)] out ZoneGeometry? interior, out Dictionary<string, DecodedTexture> textures)
+        {
+            ArgumentNullException.ThrowIfNull(released);
+            MarkInteriorUsed(subAreaId);
+            if (_interiorCache.TryGetValue(subAreaId, out var cached) && cached is { } current && !current.Geometry.IsRenderDataReleased)
+            {
+                interior = current.Geometry;
+                textures = current.Textures;
+                return interior.MeshGroups.Count > 0;
+            }
+            var entry = ReadInterior(subAreaId);
+            if (entry is { } read)
+            {
+                _interiorCache[subAreaId] = read;
+                GordianLog.Info(LogCategories.Res, $"Loaded sub-area {subAreaId} interior again for the GPU (#585).");
+            }
+            interior = entry?.Geometry;
+            textures = entry?.Textures ?? new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            return interior != null && interior.MeshGroups.Count > 0;
+        }
+
+        private (ZoneGeometry Geometry, Dictionary<string, DecodedTexture> Textures)? ReadInterior(int id)
+        {
+            EnsureKeyTables();
+            int fileId = World.Collision.ZoneSubAreas.InteriorFileId(id);
+            byte[]? datBytes = LoadDatBytesByFileId(fileId);
+            if (datBytes == null || datBytes.Length == 0 || _keyTable1 == null) return null;
+            var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            var geometry = ZoneDataLoader.ParseZoneContainer(datBytes, 0, _keyTable1, _keyTable2 ?? ReadOnlySpan<byte>.Empty, decoded,
+                GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(fileId), interior: true);
+            _interiorCollisionCache.TryAdd(id, geometry.Collision);
+            GordianLog.Info(LogCategories.Res, $"Loaded sub-area {id} interior (file {fileId}: {geometry.MeshGroups.Count} submeshes, {geometry.Collision?.TriangleCount ?? 0} collision triangles).");
+            return (geometry, decoded);
+        }
+
+        /// <summary>
+        /// A ship zone's vessel for a ship model drawn at a dock (#403, #585), read from a copy of the zone's DAT of its own
+        /// that is not cached: the App uploads the vessel once per device and drops this copy, so a ship at a dock keeps
+        /// nothing of its ship zone on the CPU, and the cached copy (shown and released by a window on the voyage) is never
+        /// touched. False when the zone has no DAT or no vessel.
+        /// </summary>
+        public bool TryReadZoneVessel(int zoneId, [NotNullWhen(true)] out ZoneVessel? vessel, out Dictionary<string, DecodedTexture> textures)
+        {
+            textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
+            vessel = null;
+            EnsureKeyTables();
+            byte[]? datBytes = ReadZoneModelDat(zoneId);
+            if (datBytes == null || datBytes.Length == 0) return false;
+            var zone = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId, _keyTable1 ?? ReadOnlySpan<byte>.Empty, _keyTable2 ?? ReadOnlySpan<byte>.Empty,
+                textures, GetSharedEffects(), datSource: Graphics.DecodedTexture.FileLabel(ZoneDataLoader.GetZoneModelFileId(zoneId)));
+            vessel = zone.Vessel;
+            if (vessel != null) GordianLog.Info(LogCategories.Res, $"Read the vessel of zone {zoneId} for a ship model ({vessel.MeshGroups.Count} submeshes).");
+            return vessel != null;
         }
 
         /// <summary>A building interior's collision mesh alone (headless sessions walk into shops too, #68); null when none.</summary>
