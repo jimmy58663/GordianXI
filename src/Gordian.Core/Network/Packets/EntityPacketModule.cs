@@ -498,6 +498,12 @@ namespace Gordian.Core.Network.Packets
                 entity.NamePlate = npcPacket.NamePlate;
                 entity.Hpp = npcPacket.Hpp;
                 entity.AnimationState = npcPacket.ServerStatus;
+                if (!isNew && entity.AnimationSub != npcPacket.AnimationSub)
+                {
+                    // State-driven props (caskets, doors, furnaces) change state only through this byte (#582).
+                    GordianLog.Debug(LogCategories.Entity, $"NPC 0x{npcPacket.UniqueNo:X8} sub-animation {entity.AnimationSub} -> {npcPacket.AnimationSub} " +
+                        $"flags=0x{npcPacket.UpdateFlags:X} status={npcPacket.ServerStatus}");
+                }
                 entity.AnimationSub = npcPacket.AnimationSub;
             }
             else if (npcPacket.Hpp > 0)
@@ -719,6 +725,9 @@ namespace Gordian.Core.Network.Packets
                 // The server does not send the player's own 0x00D, so the entity's status comes from here: the renderer
                 // reads it for the resting and sitting postures (/heal 33, /sit 47, #343) and death (3).
                 if (!_localPlayer.IsVanishing) localEnt.AnimationState = charStatus.ServerStatus;
+                // Nor its InvisFlag (0x037 Flags1 bit 15; LandSandBoat char_status.cpp sets it for any effect with the
+                // Invisible flag, or a GM hiding): the renderer draws the player see-through and the name plate hides.
+                localEnt.IsInvisible = charStatus.IsInvisible;
                 localEnt.Mount = _localPlayer.Mount;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a

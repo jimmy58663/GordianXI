@@ -139,7 +139,7 @@ namespace Gordian.App.Graphics
                 Vector3 cameraInternal = new(-camera.Position.X, -camera.Position.Y, camera.Position.Z);
                 foreach (var entity in entities)
                 {
-                    if (!entity.IsSpawned || !entity.IsDrawn ||
+                    if (!entity.IsSpawned || !_entityRenderer.Draws(entity) ||
                         Vector3.DistanceSquared(entity.Position, cameraInternal) > FootEffectRange * FootEffectRange ||
                         !_footfalls.Step(entity) ||
                         !_entityRenderer.ActorAnchors.TryGetValue(entity.ServerId, out var anchor) ||

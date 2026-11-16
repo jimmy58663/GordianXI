@@ -456,6 +456,11 @@ namespace Gordian.Core.Animation
             long now = Stopwatch.GetTimestamp();
             AcceptIncoming(now);
 
+            // A state-driven prop (casket, door, furnace) has one resting clip per state and no combat or locomotion clips: under
+            // any other category the stance lists fall back to idl, which drew an opened casket closed again (#582 round 1).
+            // It rests by its state whatever the classifier makes of it (a claim, a status, a move by 0x05B).
+            if (newCategory != AnimationCategory.Death && NpcStanceResolver.IsStateDriven(model)) newCategory = AnimationCategory.Idle;
+
             byte targetStance = NpcStanceResolver.ResolveEffectiveStance(model, subAnimation);
             bool modelChanged = !ReferenceEquals(model, _lastModel);
             bool categoryChanged = newCategory != Current;

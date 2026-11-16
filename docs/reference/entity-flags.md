@@ -55,7 +55,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 24-26 | GmLevel | 1-2 trial arrow, 3 PlayOnline icon, 4-7 GM icons | 0x00D `GmLevel` → `NamePlateStyle.Icon` |
 | 27 | HackMove | unused | |
 | 28 | (PS2 GMInvisFlag) | unknown | |
-| 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible` (both packets, General updates only, #577): still drawn, but no name plate and skipped by targeting and entity bump |
+| 29 | InvisFlag | unknown; not drawn on the compass | `IsInvisible` (both packets, General updates only, #577): not drawn by other clients (`WorldEntity.IsDrawnToOthers`, `EntityRenderer.Draws`: no body, shadow, name plate or body effects) unless it takes part in the running event; skipped by targeting and entity bump. The local player's own flag comes in 0x037 (below). **Beyond XiPackets:** retail checked with capture-retail on local LandSandBoat (2026-11-15, West Ronfaure, Gemini and Claude each under Invisible): the other client shows nothing of an invisible character, its own client draws it at about half alpha with its shadow and no name plate |
 | 30 | TurnFlag | ease the heading over time instead of snapping | `EasesHeading` (both packets, General updates), not used: GordianXI always eases the heading (15 per second, `WorldEntity.UpdateHeading`). LandSandBoat never sets it ("get the lerp values from retail", `char_update.cpp`). Snapping a standing entity's turn while the flag is clear, as XiPackets reads, was tried for #334 and rejected in the maintainer's in-game test (2026-10-10): the snap did not look right and the eased turns looked better. Retail's turn behaviour and rate are not measured |
 | 31 | BazaarFlag | bazaar icon | 0x00D `NamePlateFlags.Bazaar` |
 
@@ -67,7 +67,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 8-15 | g | 0x00D: linkshell green. 0x00E: hitbox size x 10 | 0x00D `LsColorG`; 0x00E `ModelHitboxSize` / `ModelHitboxRadius` (x 0.1) → `WorldEntity.ModelHitboxRadius`, not used yet (#334). **Beyond XiPackets:** LandSandBoat writes 8 (0.8 yalms) for every mob with HP and 0 once it has none, whatever its database `modelHitboxSize`, so on LandSandBoat it is not a real size (#133 first read it as a living-mob flag) |
 | 16-23 | b | 0x00D: linkshell blue. 0x00E: low 4 bits GEO Indi element, rest unknown | 0x00D `LsColorB` |
 | 24 | PvPFlag | Gate Breach in PvP | not decoded |
-| 25 | ShadowFlag | the shadow is hidden | `HidesShadow` (both packets), not used: GordianXI draws no entity shadows yet |
+| 25 | ShadowFlag | the shadow is hidden | `HidesShadow` (both packets): `EntityRenderer` draws no shadow for it. Nor does it for an entity it does not draw, or one drawn see-through (an event fade, ghost phase), except the invisible local player |
 | 26 | ShipStartMode | read on S2C 0x00A only (`ZoneLoginInfo.ShipReversed`): the ship run plays its Route backwards | **Beyond XiPackets**, which calls it unused: set on retail's Central → South barge rides only ([viewport-and-terrain](../rendering/viewport-and-terrain.md#vessels-and-voyage-zones-403)) |
 | 27 | CharmFlag | charmed | 0x00D `IsCharmed`: for the local player, input is ignored and the server's positions are taken (`EntityPacketModule`, `PlayerLocomotionController`) |
 | 28 | GmIconFlag | a GM hiding the GM icon | 0x00D `NamePlateFlags.GmIconHidden` |
@@ -128,7 +128,7 @@ The local player's own flags use other bit positions than 0x00D. GordianXI decod
 | | 29-31 | GmLevel | `GmLevel` |
 | Flags1 (40) | 0-11 | Speed | `Speed` (no longer copied into the local entity's current speed: [ui/stock-ui.md](../ui/stock-ui.md#live-hud-chunk-3)) |
 | | 12 / 13 | Hackmove / FreezeFlag | `HackMove`; `IsFrozen` holds the local player in place and hides the compass (`LocalPlayerState.IsServerFrozen`, [#511](https://github.com/jimmy58663/GordianXI/issues/511); LandSandBoat sets it while a treasure chest is being opened, `setFreezeFlag`) |
-| | 15 | InvisFlag | `IsInvisible` |
+| | 15 | InvisFlag | `IsInvisible`, also copied to the local entity (#577 round 1; LandSandBoat `char_status.cpp` sets it for any effect with the Invisible flag, or a GM hiding): the player is drawn to itself at half alpha with its shadow, and its name plate hides (`EntityRenderer.DrawsSeeThroughAsSelf`, `NamePlateStyle.ShowsName`) |
 | | 17-24 | SpeedBase | `SpeedBase` |
 | | 29 / 30 / 31 | BazaarFlag / CharmFlag / GmIconFlag | `HasBazaar`, `IsCharmed`, `NamePlate` |
 | Flags2 (48) | 2 | AutoPartyFlag | `NamePlate` |

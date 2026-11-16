@@ -71,6 +71,15 @@ namespace Gordian.Core.Tests.Animation
             Assert.False(state.IsPlayingTransition);
             Assert.Equal(1, state.CurrentStance);
             Assert.Same(casket.Animations["1dl0"], state.CurrentClip);
+
+            // Whatever the classifier makes of it (engaged, moving), an open casket stays open: its stance lists for those
+            // categories fall back to idl, the closed lid (#582 round 1: "it closed and never opened again").
+            foreach (var category in new[] { AnimationCategory.Combat, AnimationCategory.Walk, AnimationCategory.Run, AnimationCategory.Idle })
+            {
+                for (int i = 0; i < 30; i++) state.Advance(1f / 60f, category, 1, casket);
+                Assert.Same(casket.Animations["1dl0"], state.CurrentClip);
+                Assert.Equal(AnimationCategory.Idle, state.Current);
+            }
         }
 
         /// <summary>The furnace names its transitions by previous and new state: 0 to 1 is <c>sp01</c>, its appearance clip <c>pop</c>.</summary>
