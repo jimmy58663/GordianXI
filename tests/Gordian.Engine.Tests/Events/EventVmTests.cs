@@ -26,6 +26,14 @@ namespace Gordian.Engine.Tests.Events
         public int GameTime { get; set; } = 1234;
         public int Closed { get; private set; }
 
+        /// <summary>The digit counts the VM opened the number input window with (opcode 0x71).</summary>
+        public List<int> NumberInputs { get; } = new();
+        /// <summary>The number the window answers with (0 = cancelled).</summary>
+        public int NumberAnswer { get; set; }
+        public void OpenNumberInput(int maxDigits) => NumberInputs.Add(maxDigits);
+        public bool NumberInputPending => false;
+        public int NumberInputResult => NumberAnswer;
+
         /// <summary>How long a prompt message stays open in these tests (long enough that only Confirm closes it).</summary>
         public double PromptSeconds { get; set; } = 60;
 
@@ -35,7 +43,13 @@ namespace Gordian.Engine.Tests.Events
             return PromptAll || PromptMessages.Contains(messageId) ? PromptSeconds : 0;
         }
 
-        public void OpenQuery(int messageId, int defaultIndex, uint hiddenMask) => Queries.Add((messageId, defaultIndex, hiddenMask));
+        /// <summary>Answers for the next queries in order (1-based option numbers), taken as each one opens.</summary>
+        public Queue<int> QueryAnswers { get; } = new();
+        public void OpenQuery(int messageId, int defaultIndex, uint hiddenMask)
+        {
+            Queries.Add((messageId, defaultIndex, hiddenMask));
+            if (QueryAnswers.Count > 0) QueryResult = QueryAnswers.Dequeue();
+        }
         public void CloseQuery()
         {
             Closed++;

@@ -736,7 +736,8 @@ namespace Gordian.App.Graphics
             string total = "/" + menu.QuantityTotal.ToString(System.Globalization.CultureInfo.InvariantCulture);
             float y = placement.Y + field.Y * s + (field.Height * s - font.LineHeight * s) * 0.5f;
             renderer.DrawText(font, count, placement.X + (field.X + QuantityCountRight) * s - font.MeasureWidth(count) * s, y, s);
-            renderer.DrawText(font, total, placement.X + (field.X + QuantityTotalX) * s, y, s);
+            // An event number input shows the number alone (no count / total pair).
+            if (!menu.IsNumberEntry) renderer.DrawText(font, total, placement.X + (field.X + QuantityTotalX) * s, y, s);
         }
 
         /// <summary>
