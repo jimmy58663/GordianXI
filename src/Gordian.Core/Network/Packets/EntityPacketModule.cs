@@ -500,8 +500,9 @@ namespace Gordian.Core.Network.Packets
                 entity.AnimationState = npcPacket.ServerStatus;
                 if (!isNew && entity.AnimationSub != npcPacket.AnimationSub)
                 {
-                    // State-driven props (caskets, doors, furnaces) change state only through this byte (#582).
-                    GordianLog.Debug(LogCategories.Entity, $"NPC 0x{npcPacket.UniqueNo:X8} sub-animation {entity.AnimationSub} -> {npcPacket.AnimationSub} " +
+                    // State-driven props (caskets, doors, furnaces) change state only through this byte (#582). Info, not
+                    // Debug: ENTITY records only Info by default, and the round 2 retail log of a casket closing had none.
+                    GordianLog.Info(LogCategories.Entity, $"NPC 0x{npcPacket.UniqueNo:X8} sub-animation {entity.AnimationSub} -> {npcPacket.AnimationSub} " +
                         $"flags=0x{npcPacket.UpdateFlags:X} status={npcPacket.ServerStatus}");
                 }
                 entity.AnimationSub = npcPacket.AnimationSub;

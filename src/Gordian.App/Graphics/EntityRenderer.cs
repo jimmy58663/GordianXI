@@ -161,6 +161,13 @@ namespace Gordian.App.Graphics
         /// <summary>Each entity's current head turn and tilt (radians) toward the entity its event has it look at (<see cref="HeadLook"/>).</summary>
         private readonly Dictionary<uint, Vector2> _headTurn = new();
 
+        /// <summary>
+        /// The clip each state-driven model (caskets, gates, furnaces) last rested on, to log the changes (#582 round 2: a
+        /// casket that closed after a cancelled menu on retail, with nothing in the log to say whether the server or the
+        /// client closed it).
+        /// </summary>
+        private readonly Dictionary<uint, string> _stateDrivenClips = new();
+
         /// <summary>Each humanoid entity's talking mouth and blink (<see cref="FaceMotion"/>).</summary>
         private readonly Dictionary<uint, FaceMotion> _faces = new();
 
@@ -743,6 +750,7 @@ namespace Gordian.App.Graphics
                     if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
                     {
                         entity.Animation.Advance(frameSeconds, category, entity.AnimationSub, skinnedModel);
+                        if (NpcStanceResolver.IsStateDriven(skinnedModel)) LogStateDrivenClip(entity, category);
                     }
                     else
                     {
@@ -995,6 +1003,16 @@ namespace Gordian.App.Graphics
             bool canBlink = category != AnimationCategory.Death && (entity.EventRenderFlags & EventRenderFlags.NoBlink) == 0;
             face.Advance(deltaSeconds, entity.SpokenLines, canBlink, model, entity.LineFlaps, entity.SpeechStops);
             return face;
+        }
+
+        /// <summary>Logs a state-driven model's clip change at Info, with what drove it (#582 round 2).</summary>
+        private void LogStateDrivenClip(WorldEntity entity, AnimationCategory category)
+        {
+            string clip = entity.Animation.CurrentClip?.Name ?? "-";
+            if (_stateDrivenClips.TryGetValue(entity.ServerId, out var last) && last == clip) return;
+            _stateDrivenClips[entity.ServerId] = clip;
+            GordianLog.Info(LogCategories.Entity, $"State-driven 0x{entity.ServerId:X8} ({entity.Name}) clip {last ?? "-"} -> {clip}: " +
+                $"sub {entity.AnimationSub}, stance {entity.Animation.CurrentStance}, category {category}, in event {entity.IsInEvent}, state {entity.AnimationState}.");
         }
 
         private void UpdateJointPalette(CommandList cl, DeviceBuffer buffer, EntityModel model, EntityAnimationState animState, IReadOnlyDictionary<int, int>? parentOverrides, Vector2 headTurn, FaceMotion? face, out SkeletonPoseEvaluator.EvaluatedPose pose)
