@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
 using NeoVeldrid;
+using Gordian.Core.World.Collision;
 using NeoVeldrid.SPIRV;
 
 namespace Gordian.App.Graphics
@@ -35,8 +36,17 @@ namespace Gordian.App.Graphics
     /// <see cref="DrawQueuedShadows"/>), every shadow is drawn three times without writing depth: first resetting the colour
     /// target's alpha to 1 where it falls, then keeping the smallest "light left" (1 - opacity) in that alpha, then
     /// multiplying the colour by it and restoring the alpha to 1. A pixel covered by several body parts or actors darkens
-    /// once, by the darkest shadow over it. The shadow is pulled <see cref="ShadowEyePull"/> toward the camera so it stays
-    /// over ground rising or dipping around the feet. Actors with the server's ShadowFlag (<c>WorldEntity.HidesShadow</c>)
+    /// once, by the darkest shadow over it.
+    /// </para>
+    /// <para>
+    /// #559: the body is flattened onto the ground's own plane at the feet (<see cref="ShadowGroundNormal"/>, fitted from the
+    /// collision heights <see cref="ShadowGroundSampleRadius"/> around them), so it lies along slopes and dunes rather than
+    /// sinking into ground rising away from a level plane, and pulled <see cref="ShadowEyePull"/> toward the camera for
+    /// the rest (curvature, render mesh vs collision). Pulled toward the camera, the shadow darkens a wall or prop beside
+    /// the actor, as a shadow should, but also anything within that depth of the ground: the <c>/sitchair</c> chair, a
+    /// mount's legs, the actor's feet. So between the mask and apply passes every skinned caster (actor, chair, mount) is
+    /// drawn again as it stands, unflattened and nudged <see cref="ShadowCasterPull"/> toward the eye, setting the light
+    /// left back to 1 where its own body is the nearest surface: an object never shades itself. Actors with the server's ShadowFlag (<c>WorldEntity.HidesShadow</c>)
     /// or an event fade cast none.
     /// </para>
     /// </summary>
@@ -55,10 +65,26 @@ namespace Gordian.App.Graphics
         public const float ShadowMinElevation = 0.6f;
 
         /// <summary>
-        /// How far (yalms) the flattened shadow is pulled toward the camera, so it shows over ground up to that far above
-        /// or below the plane at the feet instead of sinking into dunes and slopes.
+        /// How far (yalms) the flattened shadow is pulled toward the camera, so it shows over ground that bulges up to about
+        /// that far above the fitted plane at the feet, and over a wall or prop within that depth in front of the ground.
         /// </summary>
         public const float ShadowEyePull = 0.4f;
+
+        /// <summary>How far (yalms) from the feet the ground's height is sampled, on four sides, to fit the plane a shadow lies on (#559).</summary>
+        public const float ShadowGroundSampleRadius = 0.75f;
+
+        /// <summary>The steepest ground plane a shadow is laid on (rise per yalm, about 35 degrees); a sample on a ledge or step beyond it is not a slope.</summary>
+        public const float ShadowMaxGroundGradient = 0.7f;
+
+        /// <summary>How fast the ground plane follows the ground under a walking actor (seconds to close about two thirds of the way).</summary>
+        public const float ShadowGroundEaseSeconds = 0.2f;
+
+        /// <summary>
+        /// How far (yalms) a caster's body is nudged toward the eye in the unmask pass so it passes the depth test against
+        /// its own drawn depth (#559). Ground or props closer behind the body than this lose the shadow at its outline.
+        /// </summary>
+        public const float ShadowCasterPull = 0.02f;
+
 
         /// <summary>Which shadows are drawn (Config &gt; Misc. "Shadows"; High until the setting is read).</summary>
         public ActorShadowMode ShadowMode { get; set; } = ActorShadowMode.High;
@@ -66,7 +92,8 @@ namespace Gordian.App.Graphics
         /// <summary>Draws actor shadows at all (offscreen checks turn it off).</summary>
         public bool EnableActorShadows { get; set; } = true;
 
-        private readonly record struct ShadowDraw(ZoneSceneUniform Uniform, ResourceSet? Palette, GpuEntityModel? Model, int HiddenWeapons);
+        /// <summary>A queued shadow: its uniform, whether it is a circle, and the caster (palette, model, world) its unmask pass redraws.</summary>
+        private readonly record struct ShadowDraw(ZoneSceneUniform Uniform, bool Disc, ResourceSet? Palette, GpuEntityModel? Model, int HiddenWeapons, Matrix4x4 CasterWorld);
 
         private readonly List<ShadowDraw> _shadowDraws = new();
         private Pipeline?[]? _silhouettePipelines;
@@ -112,6 +139,50 @@ namespace Gordian.App.Graphics
         public const float ShadowLightEaseSeconds = 0.6f;
 
         private readonly Dictionary<uint, Vector3> _shadowLights = new();
+        private readonly Dictionary<uint, Vector3> _shadowGrounds = new();
+        private ZoneCollisionMesh? _shadowCollision;
+
+        /// <summary>
+        /// The up-facing normal (display space) of the ground plane a shadow lies on, from the ground heights (display, +Y up)
+        /// <see cref="ShadowGroundSampleRadius"/> east (+X), west, north (+Z) and south of the feet; a missing sample counts as
+        /// the feet's own height. The slope is capped at <see cref="ShadowMaxGroundGradient"/>.
+        /// </summary>
+        internal static Vector3 ShadowGroundNormal(float feetHeight, float? east, float? west, float? north, float? south)
+        {
+            float gx = ((east ?? feetHeight) - (west ?? feetHeight)) / (2f * ShadowGroundSampleRadius);
+            float gz = ((north ?? feetHeight) - (south ?? feetHeight)) / (2f * ShadowGroundSampleRadius);
+            float g = MathF.Sqrt(gx * gx + gz * gz);
+            if (g > ShadowMaxGroundGradient) { gx *= ShadowMaxGroundGradient / g; gz *= ShadowMaxGroundGradient / g; }
+            return Vector3.Normalize(new Vector3(-gx, 1f, -gz));
+        }
+
+        /// <summary>The ground height (display) under a display-space point, within a yalm above or below it, from the zone's collision.</summary>
+        private static float? DisplayGroundAt(ZoneCollisionMesh collision, Vector3 display)
+        {
+            // Display (x, y, z) is FFXI (-x, -y, z); internal +Y is down.
+            return collision.TryGetGround(new Vector3(-display.X, -display.Y, display.Z), 1.0f, 1.0f, out var hit) ? -hit.Height : null;
+        }
+
+        /// <summary>The (eased) normal of the ground plane at <paramref name="feet"/> for the shadow keyed <paramref name="key"/>.</summary>
+        private Vector3 ShadowGround(Vector3 feet, uint key, float deltaSeconds)
+        {
+            var normal = Vector3.UnitY;
+            if (_shadowCollision is { } collision)
+            {
+                float r = ShadowGroundSampleRadius;
+                normal = ShadowGroundNormal(feet.Y,
+                    DisplayGroundAt(collision, feet + new Vector3(r, 0f, 0f)), DisplayGroundAt(collision, feet - new Vector3(r, 0f, 0f)),
+                    DisplayGroundAt(collision, feet + new Vector3(0f, 0f, r)), DisplayGroundAt(collision, feet - new Vector3(0f, 0f, r)));
+            }
+            if (_shadowGrounds.TryGetValue(key, out var previous))
+            {
+                float t = 1.0f - MathF.Exp(-Math.Max(0.0f, deltaSeconds) / ShadowGroundEaseSeconds);
+                var eased = Vector3.Lerp(previous, normal, t);
+                if (eased.LengthSquared() > 1e-8f) normal = Vector3.Normalize(eased);
+            }
+            _shadowGrounds[key] = normal;
+            return normal;
+        }
 
         /// <summary>Eases an actor's shadow light toward <paramref name="target"/> (both unit length).</summary>
         internal static Vector3 EaseShadowLight(Vector3 current, Vector3 target, float deltaSeconds)
@@ -132,17 +203,21 @@ namespace Gordian.App.Graphics
             if (_shadowLights.TryGetValue(serverId, out var previous)) l = EaseShadowLight(previous, l, deltaSeconds);
             _shadowLights[serverId] = l;
             shadow.SunDirection = new Vector4(l, feet.Y);
+            var ground = ShadowGround(feet, serverId, deltaSeconds);
+            shadow.SkyTextureFactor = new Vector4(ground, Vector3.Dot(ground, feet));
+            // Only a skinned caster (with its palette) is redrawn by the unmask pass.
+            var casterModel = palette != null ? model : null;
             if (silhouette == true && palette != null)
             {
                 shadow.WeatherParams = new Vector4(ShadowOpacity, ShadowEyePull, 0.0f, 0.0f);
-                _shadowDraws.Add(new ShadowDraw(shadow, palette, model, hiddenWeapons));
+                _shadowDraws.Add(new ShadowDraw(shadow, false, palette, model, hiddenWeapons, uniform.World));
             }
             else
             {
                 float radius = Math.Clamp(actorHeight * ShadowDiscRadiusPerHeight, 0.25f, 2.5f);
                 shadow.World = Matrix4x4.CreateTranslation(feet);
                 shadow.WeatherParams = new Vector4(ShadowDiscOpacity, ShadowEyePull, 0.0f, radius);
-                _shadowDraws.Add(new ShadowDraw(shadow, null, null, 0));
+                _shadowDraws.Add(new ShadowDraw(shadow, true, palette, casterModel, hiddenWeapons, uniform.World));
             }
         }
 
@@ -155,24 +230,38 @@ namespace Gordian.App.Graphics
             if (_shadowDraws.Count == 0) return 0;
             EnsureShadowPipelines();
             int draws = 0;
-            // 0: alpha := 1 under every shadow; 1: alpha := min(alpha, light left); 2: colour *= alpha, alpha := 1.
-            for (int stage = 0; stage < 3; stage++)
+            // 0: alpha := 1 under every shadow; 1: alpha := min(alpha, light left); 2 (unmask): alpha := 1 on every skinned
+            // caster's own visible body (#559); 3: colour *= alpha, alpha := 1.
+            for (int stage = 0; stage < 4; stage++)
             {
                 foreach (var draw in _shadowDraws)
                 {
                     var uniform = draw.Uniform;
-                    uniform.WeatherParams.Z = stage == 1 ? 1.0f : 0.0f;
-                    cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
-                    if (draw.Model != null && draw.Palette != null)
+                    if (stage == 2)
                     {
-                        cl.SetPipeline(_silhouettePipelines![stage]!);
+                        if (draw.Model == null || draw.Palette == null) continue;
+                        uniform.World = draw.CasterWorld;
+                        uniform.WeatherParams = new Vector4(0.0f, ShadowCasterPull, 2.0f, 0.0f);
+                        cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
+                        cl.SetPipeline(_silhouettePipelines![0]!); // the reset blend: alpha := 1, colour untouched
                         cl.SetGraphicsResourceSet(0, _entityResourceSet);
                         cl.SetGraphicsResourceSet(2, draw.Palette);
                         draws += DrawSubmeshes(cl, draw.Model, draw.HiddenWeapons);
+                        continue;
+                    }
+                    int blend = stage == 3 ? 2 : stage;
+                    uniform.WeatherParams.Z = stage == 1 ? 1.0f : 0.0f;
+                    cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
+                    if (!draw.Disc)
+                    {
+                        cl.SetPipeline(_silhouettePipelines![blend]!);
+                        cl.SetGraphicsResourceSet(0, _entityResourceSet);
+                        cl.SetGraphicsResourceSet(2, draw.Palette!);
+                        draws += DrawSubmeshes(cl, draw.Model!, draw.HiddenWeapons);
                     }
                     else
                     {
-                        cl.SetPipeline(_discPipelines![stage]!);
+                        cl.SetPipeline(_discPipelines![blend]!);
                         cl.SetGraphicsResourceSet(0, _entityResourceSet);
                         cl.SetVertexBuffer(0, _discVertices!);
                         cl.Draw(_discVertexCount);

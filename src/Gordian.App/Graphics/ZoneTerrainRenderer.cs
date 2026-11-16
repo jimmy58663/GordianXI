@@ -199,8 +199,20 @@ namespace Gordian.App.Graphics
         /// generator z offset is drawn as a depth push behind the wearer (<see cref="WeatherSkyLayer.DepthOffset"/>, #8).
         /// <paramref name="Surface"/> marks a zone layer drawn as a static mesh (no emitter): a river or sea surface, a cave
         /// mouth's fog gradient, a lamp's light overlay (<see cref="EffectDrawOrder"/>).
+        /// <paramref name="PullDepth"/> marks an action effect, whose negative generator z offset is depth-tested that many
+        /// yalms nearer the eye (<see cref="MaxPullDepth"/>), so the actor it plays on does not hide it (#581 round 2).
         /// </summary>
-        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false);
+        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false, bool PullDepth = false);
+
+        /// <summary>
+        /// The largest negative generator z offset (op 0x30) drawn as a pull toward the eye, in yalms. The level up text
+        /// (<c>ROM/13/35</c> <c>g000</c> -0.3, its streaks -0.5) and level down text (<c>ROM/13/34</c> -0.3 / -0.2) sit at the
+        /// character's joint references, inside the body, and retail draws them over it (<c>581-retail-level-up.mp4</c>).
+        /// Retail's exact rule is not known: xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/particleDrawer.js)
+        /// nudges the projection by offsets within 1 and keeps larger ones as painter weights; GordianXI moves the depth that
+        /// many yalms along the view ray instead (*inference*), leaving the drawn position alone.
+        /// </summary>
+        internal const float MaxPullDepth = 1.0f;
         /// <summary>
         /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
         /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
@@ -391,10 +403,37 @@ namespace Gordian.App.Graphics
             /// <summary>The leaf's placement: its origin is the hinge its door's routines turn it about.</summary>
             public ZonePlacement DoorPlacement { get; init; }
 
+            /// <summary>
+            /// False for a copy that draws another submesh's buffers with a light set of its own (<see cref="WithLightSlots"/>):
+            /// disposing it frees only that light set.
+            /// </summary>
+            public bool OwnsBuffers { get; init; } = true;
+
+            /// <summary>
+            /// A copy drawing this submesh's vertex and index buffers with its own point-light slots (#585: a shared
+            /// interior, whose lights each window moves past its zone's). Dispose it before the submesh it borrows from.
+            /// </summary>
+            public GpuSubmesh WithLightSlots(GpuSharedResources shared, int[] slots)
+            {
+                var refs = shared.CreateLightRefsBuffer(slots);
+                var set = shared.Device.ResourceFactory.CreateResourceSet(new ResourceSetDescription(shared.LightLayout, shared.LightTableBuffer, refs));
+                return new GpuSubmesh
+                {
+                    OwnsBuffers = false,
+                    Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount,
+                    MinBounds = MinBounds, MaxBounds = MaxBounds, IsBlend = IsBlend, NoCull = NoCull, IsFoliage = IsFoliage, IsWater = IsWater,
+                    UVScroll = UVScroll, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
+                    DoorId = DoorId, SubAreaLink = SubAreaLink, Visibility = Visibility, DoorPart = DoorPart, DoorPlacement = DoorPlacement,
+                };
+            }
+
             public void Dispose()
             {
-                VertexBuffer?.Dispose();
-                IndexBuffer?.Dispose();
+                if (OwnsBuffers)
+                {
+                    VertexBuffer?.Dispose();
+                    IndexBuffer?.Dispose();
+                }
                 LightSet?.Dispose();
                 LightRefsBuffer?.Dispose();
             }
@@ -480,7 +519,6 @@ namespace Gordian.App.Graphics
             _entityRenderer = new EntityRenderer(_shared, _outputs);
             BuildFallbackScene();
             BuildOceanWaterPlane();
-            _shared.RegisterRenderer(this);
         }
 
         /// <summary>The GPU resources this renderer draws with (shared with the other windows on the device).</summary>
@@ -832,6 +870,7 @@ namespace Gordian.App.Graphics
             _doorSubmeshes = resident?.DoorSubmeshes ?? new List<GpuSubmesh>();
             _vesselSubmeshes = resident?.VesselSubmeshes ?? new List<GpuSubmesh>();
             DisposeSubAreaInteriors();
+            ReleaseFurniture();
             _weatherSkySubmeshes = resident?.WeatherSkySubmeshes ?? new List<GpuWeatherSkySubmesh>();
             _effectSubmeshes = resident?.EffectSubmeshes ?? new List<GpuWeatherSkySubmesh>();
             _activeDecodedTextures = resident?.Textures;
@@ -1523,7 +1562,7 @@ namespace Gordian.App.Graphics
 
             DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawDoors(sceneUniform, frustum, ref draws, ref visible, ref culled);
-            DrawFurniture(sceneUniform, frustum, ref draws, ref visible, ref culled);
+            DrawFurniture(resourceManager, sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawPlacedSubmeshes(_vesselSubmeshes, Matrix4x4.Identity, _activeDecodedTextures, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
             DrawSubAreaInteriors(resourceManager, sceneUniform, environment, frustum, deferred: false, ref draws, ref visible, ref culled);
             DrawTransportVessels(entities, resourceManager, sceneUniform, camera.Frustum, deferred: false, ref draws, ref visible, ref culled);
@@ -1686,12 +1725,12 @@ namespace Gordian.App.Graphics
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _, emitter, anchor, onModel, _) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor, onModel, _, pullDepth) in _effectDrawList)
                 {
                     var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor, onModel);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor, onModel, pullDepth);
                         visible++;
                     }
                     else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, effectUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
@@ -2047,7 +2086,7 @@ namespace Gordian.App.Graphics
         /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
         /// Returns the number of draw calls issued.
         /// </summary>
-        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null, bool onModel = false)
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null, bool onModel = false, bool pullDepth = false)
         {
             var layer = skyMesh.Layer;
             int drawn = 0;
@@ -2118,7 +2157,7 @@ namespace Gordian.App.Graphics
                         world = worldFacing ? oriented * Matrix4x4.CreateTranslation(center) : world * actorFrame;
                     }
                     if (!frustum.IntersectsSphere(center, radius)) continue;
-                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline, pushDepth: onModel))
+                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline, pushDepth: onModel, pullDepth: pullDepth))
                     {
                         drawn++;
                     }
@@ -2144,7 +2183,8 @@ namespace Gordian.App.Graphics
         /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
         /// A world effect with <paramref name="cullFront"/> 0 or 1 culls its back faces (see <see cref="_culledEffectPipelines"/>);
         /// -1 draws both sides. <paramref name="pushDepth"/> depth-tests a positive generator z offset that many yalms farther
-        /// along the view ray, as a vessel's overlays are (a model's or worn weapon's effect, #8).
+        /// along the view ray, as a vessel's overlays are (a model's or worn weapon's effect, #8); <paramref name="pullDepth"/>
+        /// depth-tests a negative one nearer the eye (an action effect, <see cref="MaxPullDepth"/>).
         /// </summary>
         private bool SubmitGeneratorDraw(
             GpuWeatherSkySubmesh skyMesh,
@@ -2155,7 +2195,8 @@ namespace Gordian.App.Graphics
             ZoneSceneUniform sceneUniform,
             ref Pipeline? currentPipeline,
             int cullFront = -1,
-            bool pushDepth = false)
+            bool pushDepth = false,
+            bool pullDepth = false)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2204,7 +2245,9 @@ namespace Gordian.App.Graphics
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
                 (layer.OnVessel || pushDepth) && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
                     ? 2.0f + layer.DepthOffset
-                    : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                    : pullDepth && layer.DepthOffset < 0 && layer.DepthOffset >= -MaxPullDepth
+                        ? -1.0f + layer.DepthOffset
+                        : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
@@ -2978,30 +3021,23 @@ namespace Gordian.App.Graphics
         /// <summary>The Mog House's furniture this frame (#93); null or empty outside one.</summary>
         public IReadOnlyList<FurnitureInstance>? Furniture { get; set; }
 
-        private readonly Dictionary<FurnitureModel, List<GpuSubmesh>> _furnitureMeshes = new();
+        // The furnishings this renderer holds a reference to (ZoneModelCache, #585), by model, and models being read again.
+        private readonly Dictionary<FurnitureModel, ZoneModelCache.SharedModel> _furnitureMeshes = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ushort, System.Threading.Tasks.Task<FurnitureModel?>> _furnitureLoads = new();
 
         /// <summary>
-        /// Draws the furniture as <see cref="DrawDoors"/> draws a leaf: a model's meshes are uploaded once, around their origin, and
-        /// each piece's place is a per-draw world transform in the scene uniform.
+        /// Draws the furniture as <see cref="DrawDoors"/> draws a leaf: a model's meshes are uploaded once per device, around
+        /// their origin, and shared by every window (#585); each piece's place is a per-draw world transform in the scene
+        /// uniform. A model whose CPU copy went after an upload that has left the GPU since is read again in the background.
         /// </summary>
-        private void DrawFurniture(ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
+        private void DrawFurniture(ResourceManager? resourceManager, ZoneSceneUniform sceneUniform, BoundingFrustum frustum, ref int draws, ref int visible, ref int culled)
         {
             var furniture = Furniture;
             if (furniture == null || furniture.Count == 0) return;
             foreach (var piece in furniture)
             {
-                if (!_furnitureMeshes.TryGetValue(piece.Model, out var meshes))
-                {
-                    meshes = new List<GpuSubmesh>(piece.Model.Meshes.Count);
-                    lock (_shared.GpuLock)
-                    {
-                        foreach (var mesh in piece.Model.Meshes)
-                        {
-                            if (mesh.Vertices.Length > 0 && mesh.Indices.Length > 0) meshes.Add(UploadSubmesh(_shared, mesh));
-                        }
-                    }
-                    _furnitureMeshes[piece.Model] = meshes;
-                }
+                if (GetFurnitureModel(piece.Model, resourceManager) is not { } model) continue;
+                var meshes = model.Submeshes;
                 foreach (var submesh in meshes)
                 {
                     TransformBounds(submesh.MinBounds, submesh.MaxBounds, piece.World, out var min, out var max);
@@ -3015,7 +3051,7 @@ namespace Gordian.App.Graphics
                     _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref moved);
                     _commandList.SetPipeline(ForSubmesh(submesh.IsBlend ? _terrainBlendPipeline : submesh.IsFoliage ? _cutoutPipeline : _pipeline, submesh.NoCull));
                     _commandList.SetGraphicsResourceSet(0, SceneSetFor(submesh));
-                    _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, piece.Model.Textures));
+                    _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, model.Textures));
                     _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                     _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                     _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
@@ -3025,6 +3061,39 @@ namespace Gordian.App.Graphics
                     visible++;
                 }
             }
+        }
+
+        /// <summary>A furnishing's shared GPU copy with this renderer's reference; null while it is being read again.</summary>
+        private ZoneModelCache.SharedModel? GetFurnitureModel(FurnitureModel piece, ResourceManager? resourceManager)
+        {
+            if (_furnitureMeshes.TryGetValue(piece, out var held)) return held;
+            var models = _shared.ZoneModels;
+            var key = new ZoneModelCache.ModelKey(ZoneModelCache.ModelKind.Furniture, piece.ItemId, resourceManager?.CacheGeneration ?? 0);
+            if (!models.TryAcquire(key, out var model))
+            {
+                if (piece.IsRenderDataReleased)
+                {
+                    // Gone from the GPU since its CPU copy was freed: read it again (the room's next frame names the new model).
+                    if (resourceManager != null && !_furnitureLoads.ContainsKey(piece.ItemId))
+                    {
+                        _furnitureLoads[piece.ItemId] = System.Threading.Tasks.Task.Run(() => resourceManager.TryReloadFurnitureModel(piece.ItemId));
+                    }
+                    return null;
+                }
+                model = models.Acquire(key, 0, piece.Meshes, piece.Textures, releaseCpu: piece.ReleaseRenderData);
+                if (model == null) return null;
+            }
+            _furnitureLoads.Remove(piece.ItemId);
+            _furnitureMeshes[piece] = model!;
+            return model;
+        }
+
+        /// <summary>Gives back this renderer's furniture references (the models stay on the GPU for other windows).</summary>
+        private void ReleaseFurniture()
+        {
+            foreach (var model in _furnitureMeshes.Values) _shared.ZoneModels.Release(model);
+            _furnitureMeshes.Clear();
+            _furnitureLoads.Clear();
         }
 
         /// <summary>The axis-aligned bounds of a box after a transform (its eight corners).</summary>
@@ -3055,7 +3124,6 @@ namespace Gordian.App.Graphics
         {
             if (_disposed) return;
             _disposed = true;
-            _shared.UnregisterRenderer(this);
 
             // The zone's GPU copy belongs to the device's zone cache: only the reference is given back.
             var resident = _resident;
@@ -3064,11 +3132,7 @@ namespace Gordian.App.Graphics
             foreach (var runtime in _runtimes.Values) runtime.Dispose();
             _runtimes.Clear();
             _runtime = null;
-            foreach (var meshes in _furnitureMeshes.Values)
-            {
-                foreach (var submesh in meshes) submesh.Dispose();
-            }
-            _furnitureMeshes.Clear();
+            ReleaseFurniture();
             foreach (var meshes in _actorEffectMeshes.Values)
             {
                 foreach (var list in meshes.Values)

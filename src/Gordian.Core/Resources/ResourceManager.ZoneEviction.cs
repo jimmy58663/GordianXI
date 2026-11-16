@@ -41,9 +41,10 @@ namespace Gordian.Core.Resources
         /// building interior whose parent zone is not in use (an interior is in use while its zone is, since every session
         /// in a zone loads all of its interiors' collision). The caller lists the zones of every logged-in character and of
         /// every window (see the App's <c>ZoneCachePurger</c>). Returns the zone geometries dropped, so the GPU copies made
-        /// from them can be dropped too.
+        /// from them can be dropped too, and adds the dropped interiors' sub-area ids to <paramref name="droppedInteriorIds"/>
+        /// (their shared GPU copies go with them, #585).
         /// </summary>
-        public IReadOnlyList<ZoneGeometry> PurgeUnusedZones(IEnumerable<int> zonesInUse, double idleSeconds = ZoneIdleSeconds)
+        public IReadOnlyList<ZoneGeometry> PurgeUnusedZones(IEnumerable<int> zonesInUse, double idleSeconds = ZoneIdleSeconds, ICollection<int>? droppedInteriorIds = null)
         {
             ArgumentNullException.ThrowIfNull(zonesInUse);
             long now = Stopwatch.GetTimestamp();
@@ -90,6 +91,7 @@ namespace Gordian.Core.Resources
                 _interiorCache.TryRemove(subAreaId, out _);
                 _interiorCollisionCache.TryRemove(subAreaId, out _);
                 _interiorLastUse.TryRemove(subAreaId, out _);
+                droppedInteriorIds?.Add(subAreaId);
                 interiors++;
             }
 

@@ -134,7 +134,7 @@ namespace Gordian.Engine.Tests.Animation
             var taken = new List<ActorEffectRequest>();
             world.TakeActorEffects(100, taken);
             var effect = Assert.Single(taken);
-            Assert.Equal(new ActorEffectRequest(Caster, Target, "kesu") { ZoneId = 100 }, effect);
+            Assert.Equal(new ActorEffectRequest(Caster, Target, "kesu") { ZoneId = 100 }, effect with { PostedAt = 0 });
         }
 
         [Fact]

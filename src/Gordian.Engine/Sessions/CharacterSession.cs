@@ -480,6 +480,8 @@ namespace Gordian.Engine.Sessions
             // The synthesis animation (S2C 0x030) plays on the crafters. The guild shop's purchases and sales print to the log;
             // its lists and the open status print only for /guild while the guild shop window (#330) is not up.
             SynthesisAnimation.Attach(Combat, Crafting, World, LocalPlayer);
+            // A level up or down (S2C 0x02D message 9 / 11) plays its effect file, with its sound, on the character (#581).
+            LevelChangeEffects.Attach(Combat, World);
             // A chocobo dig (S2C 0x02F) plays the riding routine chor on the rider and the chocobo (#437).
             Combat.DigReceived += (serverId, targetIndex) =>
             {
@@ -525,6 +527,10 @@ namespace Gordian.Engine.Sessions
                 Pet.Clear();
                 Commands.OnZoneChanged();
             };
+            // Every zone-in prints the zone's name, as retail does (#579); held until the app attaches the zone name table.
+            ZoneArrival = new Ui.ZoneArrivalLog(line => Chat.Log.Add(Ui.ChatLogChannel.System, line));
+            World.ZoneEntered += zone => ZoneArrival.OnZoneEntered(zone, ActionService.ZoneName);
+            ActionService.ZoneNamesAttached += () => ZoneArrival.OnZoneNamesAttached(ActionService.ZoneName);
             // Wide scan lists and proposals print to the message log; no window for them exists yet.
             Commands.WideScan.ListCompleted += entries =>
             {
@@ -566,6 +572,12 @@ namespace Gordian.Engine.Sessions
 
         /// <summary>Plays the synthesis animation on the crafters (S2C 0x030).</summary>
         public Animation.SynthesisAnimationController SynthesisAnimation { get; } = new();
+
+        /// <summary>Prints the zone-name line on every zone-in (#579).</summary>
+        public Ui.ZoneArrivalLog ZoneArrival { get; private set; } = null!;
+
+        /// <summary>Plays the level up and level down effects on the character (S2C 0x02D message 9 / 11, #581).</summary>
+        public Animation.LevelChangeEffectController LevelChangeEffects { get; } = new();
 
         private string? ResolveEntityName(uint id)
         {
