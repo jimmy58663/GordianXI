@@ -199,8 +199,20 @@ namespace Gordian.App.Graphics
         /// generator z offset is drawn as a depth push behind the wearer (<see cref="WeatherSkyLayer.DepthOffset"/>, #8).
         /// <paramref name="Surface"/> marks a zone layer drawn as a static mesh (no emitter): a river or sea surface, a cave
         /// mouth's fog gradient, a lamp's light overlay (<see cref="EffectDrawOrder"/>).
+        /// <paramref name="PullDepth"/> marks an action effect, whose negative generator z offset is depth-tested that many
+        /// yalms nearer the eye (<see cref="MaxPullDepth"/>), so the actor it plays on does not hide it (#581 round 2).
         /// </summary>
-        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false);
+        internal readonly record struct EffectDraw(GpuWeatherSkySubmesh Mesh, float Distance, ZoneParticleEmitter? Emitter, Matrix4x4? Anchor, bool OnModel = false, bool Surface = false, bool PullDepth = false);
+
+        /// <summary>
+        /// The largest negative generator z offset (op 0x30) drawn as a pull toward the eye, in yalms. The level up text
+        /// (<c>ROM/13/35</c> <c>g000</c> -0.3, its streaks -0.5) and level down text (<c>ROM/13/34</c> -0.3 / -0.2) sit at the
+        /// character's joint references, inside the body, and retail draws them over it (<c>581-retail-level-up.mp4</c>).
+        /// Retail's exact rule is not known: xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/particleDrawer.js)
+        /// nudges the projection by offsets within 1 and keeps larger ones as painter weights; GordianXI moves the depth that
+        /// many yalms along the view ray instead (*inference*), leaving the drawn position alone.
+        /// </summary>
+        internal const float MaxPullDepth = 1.0f;
         /// <summary>
         /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
         /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
@@ -1713,12 +1725,12 @@ namespace Gordian.App.Graphics
 
 
                 Pipeline? currentEffectPipeline = null;
-                foreach (var (effectMesh, _, emitter, anchor, onModel, _) in _effectDrawList)
+                foreach (var (effectMesh, _, emitter, anchor, onModel, _, pullDepth) in _effectDrawList)
                 {
                     var effectUniform = EffectSceneUniform(effectMesh.Layer, sceneUniform);
                     if (emitter != null)
                     {
-                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor, onModel);
+                        draws += DrawEmitterParticles(effectMesh, emitter, camera, effectUniform, ref currentEffectPipeline, anchor, onModel, pullDepth);
                         visible++;
                     }
                     else if (DrawSkyGenerator(effectMesh, camera, effectSunDir, effectUniform, effectDayOfWeek, effectMoonPhase, effectDayFraction, ref currentEffectPipeline))
@@ -2074,7 +2086,7 @@ namespace Gordian.App.Graphics
         /// Draws every live particle of a surf / wave-crest emitter with its own transform, texture factor and UV offset.
         /// Returns the number of draw calls issued.
         /// </summary>
-        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null, bool onModel = false)
+        private int DrawEmitterParticles(GpuWeatherSkySubmesh skyMesh, ZoneParticleEmitter emitter, ViewportCamera camera, ZoneSceneUniform sceneUniform, ref Pipeline? currentPipeline, Matrix4x4? anchor = null, bool onModel = false, bool pullDepth = false)
         {
             var layer = skyMesh.Layer;
             int drawn = 0;
@@ -2145,7 +2157,7 @@ namespace Gordian.App.Graphics
                         world = worldFacing ? oriented * Matrix4x4.CreateTranslation(center) : world * actorFrame;
                     }
                     if (!frustum.IntersectsSphere(center, radius)) continue;
-                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline, pushDepth: onModel))
+                    if (SubmitGeneratorDraw(skyMesh, world, particle.TexCoordTranslate, 3.0f, textureFactor, sceneUniform, ref currentPipeline, pushDepth: onModel, pullDepth: pullDepth))
                     {
                         drawn++;
                     }
@@ -2171,7 +2183,8 @@ namespace Gordian.App.Graphics
         /// given transform, UV offset (or lens-flare centre) and texture factor. Lens flares are deferred to the flare pass.
         /// A world effect with <paramref name="cullFront"/> 0 or 1 culls its back faces (see <see cref="_culledEffectPipelines"/>);
         /// -1 draws both sides. <paramref name="pushDepth"/> depth-tests a positive generator z offset that many yalms farther
-        /// along the view ray, as a vessel's overlays are (a model's or worn weapon's effect, #8).
+        /// along the view ray, as a vessel's overlays are (a model's or worn weapon's effect, #8); <paramref name="pullDepth"/>
+        /// depth-tests a negative one nearer the eye (an action effect, <see cref="MaxPullDepth"/>).
         /// </summary>
         private bool SubmitGeneratorDraw(
             GpuWeatherSkySubmesh skyMesh,
@@ -2182,7 +2195,8 @@ namespace Gordian.App.Graphics
             ZoneSceneUniform sceneUniform,
             ref Pipeline? currentPipeline,
             int cullFront = -1,
-            bool pushDepth = false)
+            bool pushDepth = false,
+            bool pullDepth = false)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2231,7 +2245,9 @@ namespace Gordian.App.Graphics
                 layer.IsWorldEffect && layer.LightingEnabled ? 1.0f : 0.0f,
                 (layer.OnVessel || pushDepth) && layer.DepthOffset > 0 && layer.DepthOffset <= WeatherSkyLayer.MaxDepthOffsetDistance
                     ? 2.0f + layer.DepthOffset
-                    : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                    : pullDepth && layer.DepthOffset < 0 && layer.DepthOffset >= -MaxPullDepth
+                        ? -1.0f + layer.DepthOffset
+                        : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet

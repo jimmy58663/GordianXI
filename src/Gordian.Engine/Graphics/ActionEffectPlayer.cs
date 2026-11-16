@@ -109,7 +109,7 @@ namespace Gordian.Engine.Graphics
             {
                 var template = emitter.Template;
                 if (SceneEffectPlayer.IsCameraSpace(template)) emitter.Update(frames, cameraFrame);
-                else if (IsTargetSide(template.Definition)) emitter.Update(frames, targetFrame);
+                else if (IsTargetSide(Player.Instance.PlacementOf(template))) emitter.Update(frames, targetFrame);
                 else emitter.Update(frames, actorFrame);
             }
         }

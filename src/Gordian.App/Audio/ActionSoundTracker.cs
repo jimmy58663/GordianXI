@@ -68,6 +68,16 @@ namespace Gordian.App.Audio
         private readonly Func<HitReaction, IReadOnlyList<int>>? _sharedHitSounds;
         private readonly Func<double> _clock;
         private readonly Dictionary<uint, Tail> _tails = new();
+        private readonly List<Detached> _detached = new();
+
+        /// <summary>An effect's sounds playing on an actor apart from its body's routine (#581), on wall time.</summary>
+        private sealed class Detached
+        {
+            public required uint ActorId { get; init; }
+            public required IReadOnlyList<RoutineSoundCue> Cues { get; init; }
+            public required double Start { get; init; }
+            public float Ticks { get; set; } = -1f;
+        }
 
         /// <summary>
         /// A presentation whose body motion ended before its routine (#328): Cure's <c>main</c> runs 245 ticks, the body
@@ -154,6 +164,49 @@ namespace Gordian.App.Audio
             }
 
             Forget();
+            PlayDetached(lookup, into);
+        }
+
+        /// <summary>
+        /// Plays <paramref name="cues"/> on an actor from <paramref name="startSeconds"/> on wall time (the routine clock, 60
+        /// ticks a second), apart from its body: the level up and level down effects (#581), which play beside whatever
+        /// the body is doing. Each sound plays where the actor is when it falls due; an actor no longer known drops them.
+        /// </summary>
+        public void StartDetached(uint actorId, IReadOnlyList<RoutineSoundCue> cues, double startSeconds)
+        {
+            ArgumentNullException.ThrowIfNull(cues);
+            if (cues.Count > 0)
+            {
+                _detached.Add(new Detached { ActorId = actorId, Cues = cues, Start = startSeconds });
+            }
+        }
+
+        /// <summary>Adds the detached sounds due by now (<see cref="Update"/> calls it; tests drive it directly).</summary>
+        public void PlayDetached(Func<uint, ActorSoundState?> lookup, List<ActionSoundEvent> into)
+        {
+            if (_detached.Count == 0)
+            {
+                return;
+            }
+
+            double now = _clock();
+            for (int i = _detached.Count - 1; i >= 0; i--)
+            {
+                Detached running = _detached[i];
+                float ticks = (float)((now - running.Start) * EntityAnimationState.RoutineTicksPerSecond);
+                if (lookup(running.ActorId) is not { } actor)
+                {
+                    _detached.RemoveAt(i);
+                    continue;
+                }
+
+                Play(running.Cues, running.Ticks, ticks, actor.Position, into);
+                running.Ticks = ticks;
+                if (ticks >= running.Cues[^1].Tick)
+                {
+                    _detached.RemoveAt(i);
+                }
+            }
         }
 
         /// <summary>Advances one actor (tests drive this directly); call <see cref="Forget"/> after a frame's steps.</summary>
@@ -259,6 +312,7 @@ namespace Gordian.App.Audio
             _actors.Clear();
             _tails.Clear();
             _seen.Clear();
+            _detached.Clear();
         }
 
         /// <summary>Drops the actors not stepped since the last call.</summary>

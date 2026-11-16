@@ -21,6 +21,7 @@ namespace Gordian.Engine.Graphics
     {
         private readonly Dictionary<ZoneEmitterTemplate, ZoneParticleEmitter> _byTemplate = new(ReferenceEqualityComparer.Instance);
         private readonly List<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> _emitters = new();
+        private readonly Dictionary<ZoneEmitterTemplate, ZoneEmitterTemplate> _parentOf = new(ReferenceEqualityComparer.Instance);
 
         public ActorEffectInstance(ActorEffectSet effects, int seed = 0)
         {
@@ -37,6 +38,10 @@ namespace Gordian.Engine.Graphics
             foreach (var (_, emitter) in _emitters)
             {
                 emitter.ChildResolver = template => _byTemplate.TryGetValue(template, out var child) ? child : null;
+                foreach (var child in emitter.Template.Children.Values)
+                {
+                    if (!ReferenceEquals(child, emitter.Template)) _parentOf.TryAdd(child, emitter.Template);
+                }
             }
             // A state-driven model appears in its idle state: the routines its ids0 links (the campfire's flames, #425).
             foreach (string link in effects.IdleStateLinks) Play(link);
@@ -89,6 +94,24 @@ namespace Gordian.Engine.Graphics
         public ActorEffectSet Effects { get; }
 
         public IReadOnlyList<(WeatherSkyLayer Layer, ZoneParticleEmitter Emitter)> Emitters => _emitters;
+
+        /// <summary>
+        /// The generator whose attachment places <paramref name="template"/>'s particles: its own for a generator a routine
+        /// spawns, its parent's (up the chain) for a child-only one. A child particle is born at its parent particle's
+        /// position (0x45) or its own base, in the space of the generator that emitted the parent, whatever attach its own
+        /// header names. Retail level up (<c>ROM/13/35</c>): the text <c>g000</c> rides joint reference 1 and its trail
+        /// child <c>g004</c> names no attach, so placing the child by its own (the model origin) drew a second "Level Up !!"
+        /// at the feet (#581 round 2). Child placement referenced from xi-model-viewer
+        /// (https://github.com/vekien/xi-model-viewer, ui/js/particle/runtime.js: a child takes its creator's associated
+        /// position, <c>useParentAssociatedPositionOnly</c>).
+        /// </summary>
+        public ParticleGeneratorDefinition PlacementOf(ZoneEmitterTemplate template)
+        {
+            ArgumentNullException.ThrowIfNull(template);
+            var current = template;
+            for (int depth = 0; depth < 8 && current.ChildOnly && _parentOf.TryGetValue(current, out var parent); depth++) current = parent;
+            return current.Definition;
+        }
 
         /// <summary>
         /// Plays one of the model's routines on the actor (starts its generators at their routine times). Returns false
