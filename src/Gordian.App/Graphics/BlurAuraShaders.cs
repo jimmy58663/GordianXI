@@ -9,9 +9,10 @@ namespace Gordian.App.Graphics
     /// Scene uniform use: WeatherParams = (screen offset x, y in NDC, shell width in yalms, rim exponent);
     /// SkyTextureFactor = (ring tint, strength); SkyLayerParams = (the section's base colour, unused).
     /// <para>
-    /// The smear (<see cref="SmearFragmentShaderGlsl"/>) draws the same shell, wider, over a copy of the scene drawn so far
-    /// (set 3): the background seen through the halo is blurred and slightly darkened, blended in by the rim term.
-    /// SkyLayerParams.w = the blur radius in pixels.
+    /// The edge blur (<see cref="SmearFragmentShaderGlsl"/>) draws the same shell, wider, over a copy of the scene drawn so
+    /// far, the avatar included (set 3): the band around the silhouette, inside and out, shows that copy blurred on a coarse
+    /// block grid, so the avatar's own edges go soft and slightly blocky and bleed outward, as in retail.
+    /// SkyLayerParams.z = the block size, SkyLayerParams.w = the blur radius, both in pixels.
     /// </para>
     /// </summary>
     public static class BlurAuraShaders
@@ -195,21 +196,31 @@ void main()
     vec3 toEye = normalize(EyePosition.xyz - fsin_WorldPos);
     float facing = abs(dot(normalize(fsin_Normal), toEye));
     float rim = pow(clamp(1.0 - facing, 0.0, 1.0), max(WeatherParams.w, 0.5));
-    float alpha = clamp(fsin_Strength * rim, 0.0, 1.0);
+    // Strongest across the silhouette, fading out toward the shell's own outer edge so the band has no hard border.
+    float alpha = clamp(fsin_Strength * smoothstep(0.0, 0.3, rim) * (1.0 - smoothstep(0.35, 0.9, rim)), 0.0, 1.0);
     if (alpha < 0.004) discard;
 
     vec2 size = vec2(textureSize(sampler2D(SceneTex, SceneSampler), 0));
-    vec2 uv = gl_FragCoord.xy / size;
+    // The pixelation: every pixel of a block samples around the block's centre.
+    vec2 block = vec2(max(SkyLayerParams.z, 1.0));
+    vec2 uv = (floor(gl_FragCoord.xy / block) + 0.5) * block / size;
     vec2 step = vec2(max(SkyLayerParams.w, 1.0)) / size;
-    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), uv).rgb;
-    for (int i = 0; i < 8; i++)
+    // A disc of taps (four radii, eight directions, each ring turned half a step), weighted toward the centre: no ring of
+    // taps at one radius, which drew a ghost outline of the body at that distance.
+    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), uv).rgb * 2.0;
+    float total = 2.0;
+    for (int r = 1; r <= 4; r++)
     {
-        float a = float(i) * 0.785398;
-        vec2 dir = vec2(cos(a), sin(a));
-        sum += texture(sampler2D(SceneTex, SceneSampler), uv + dir * step * 0.5).rgb;
-        sum += texture(sampler2D(SceneTex, SceneSampler), uv + dir * step).rgb;
+        float radius = float(r) * 0.25;
+        float weight = 1.25 - radius;
+        for (int i = 0; i < 8; i++)
+        {
+            float a = (float(i) + 0.5 * float(r & 1)) * 0.785398;
+            sum += texture(sampler2D(SceneTex, SceneSampler), uv + vec2(cos(a), sin(a)) * step * radius).rgb * weight;
+            total += weight;
+        }
     }
-    vec3 blurred = (sum / 17.0) * SkyTextureFactor.rgb;
+    vec3 blurred = (sum / total) * SkyTextureFactor.rgb;
     fsout_Color = vec4(blurred, alpha);
 }
 ";

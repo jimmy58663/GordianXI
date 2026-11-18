@@ -680,8 +680,17 @@ namespace Gordian.Engine.Actions
 
         #region Combat & Action Pipeline
 
+        /// <summary>
+        /// Engages (or switches to) a target: <c>/attack</c>, the target menu's Attack, macros. Refused while mounted (#437
+        /// round 1): the retail client offers no attack from a mount, and LandSandBoat would knock the rider off for it
+        /// (its C2S 0x01A Attack removes the mount), which only the client can prevent.
+        /// </summary>
         public async Task<PlayerActionResult> AttackAsync(uint targetId = 0, ushort targetIndex = 0)
         {
+            if (_localPlayer.IsMounted)
+            {
+                return PlayerActionResult.Warn("You cannot attack while mounted.", ChatCommandResultKind.CombatAttack);
+            }
             var (resolvedId, resolvedIdx, resolvedName) = ResolveTarget(targetId, targetIndex, string.Empty);
             if (resolvedId == 0)
             {

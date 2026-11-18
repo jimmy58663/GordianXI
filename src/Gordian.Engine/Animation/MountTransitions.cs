@@ -59,6 +59,13 @@ namespace Gordian.Engine.Animation
         /// <summary>The chocobo dig routine (the chocobo and its rider).</summary>
         public const string DigRoutine = "chor";
 
+        /// <summary>
+        /// How long a dig plays, in 60 Hz ticks: <c>chor</c> on the rider pack and the chocobo, 168 (2.8 s). A dig starts on
+        /// S2C 0x02F (<c>CombatState.DigReceived</c>, <see cref="PlayDig"/>); a hold on the digger's movement keys off that
+        /// and this length.
+        /// </summary>
+        public const int DigTicks = 168;
+
         /// <summary>The dismount routine (every mount and rider pack).</summary>
         public const string DismountRoutine = "coff";
 

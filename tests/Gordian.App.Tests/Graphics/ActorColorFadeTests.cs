@@ -27,19 +27,20 @@ namespace Gordian.App.Tests.Graphics
         }
 
         [Fact]
-        public void GreyFade_ScalesEveryLightAndTheCap_SoTheColourIsMultiplied()
+        public void GreyFade_ScalesEveryLightAndTheCap_DownToTheFloor()
         {
             var uniform = Lit();
             EntityRenderer.ApplyActorColor(ref uniform, new Vector3(0.5f));
-            Assert.Equal(0.2f, uniform.SunColor.X, 5);
-            Assert.Equal(0.05f, uniform.MoonColor.Y, 5);
-            Assert.Equal(0.1f, uniform.AmbientColor.Z, 5);
-            Assert.Equal(0.375f, uniform.WeatherParams.Z, 5);
+            float m = EntityRenderer.ActorColorDarkFloor + (1f - EntityRenderer.ActorColorDarkFloor) * 0.5f;
+            Assert.Equal(0.4f * m, uniform.SunColor.X, 5);
+            Assert.Equal(0.1f * m, uniform.MoonColor.Y, 5);
+            Assert.Equal(0.2f * m, uniform.AmbientColor.Z, 5);
+            Assert.Equal(0.75f * m, uniform.WeatherParams.Z, 5);
             Assert.Equal(1f, uniform.SunColor.W);
         }
 
         [Fact]
-        public void LevelDown_BlackFade_LeavesNoLight_ButACapTheShaderStillReadsAsACap()
+        public void LevelDown_BlackFade_DarkensToTheFloor_AsRetailDoes()
         {
             // File 3309's main: 0x29 to 80000000 at frame 0 over 40 (black, opaque), back to 80808080 at 80.
             var track = new ActorColorTrack();
@@ -51,9 +52,10 @@ namespace Gordian.App.Tests.Graphics
 
             var uniform = Lit();
             EntityRenderer.ApplyActorColor(ref uniform, new Vector3(dark.X, dark.Y, dark.Z));
-            Assert.Equal(Vector4.UnitW, uniform.SunColor);
-            Assert.Equal(Vector4.UnitW, uniform.AmbientColor);
-            Assert.True(uniform.WeatherParams.Z > 0f && uniform.WeatherParams.Z < 0.001f);
+            float floor = EntityRenderer.ActorColorDarkFloor;
+            Assert.Equal(0.4f * floor, uniform.SunColor.X, 5);
+            Assert.Equal(0.2f * floor, uniform.AmbientColor.Y, 5);
+            Assert.Equal(0.75f * floor, uniform.WeatherParams.Z, 5);
 
             var back = track.Sample(130 / 60.0);
             Assert.Equal(Vector3.One, new Vector3(back.X, back.Y, back.Z));

@@ -174,7 +174,7 @@ namespace Gordian.Engine.Tests.Animation
             rm.InitializeFileTable();
             var character = EntityModelLoader.AssembleCharacter(CharacterRace.HumeMale, 1, new ushort[9], rm.LoadDatBytes, rm.LoadDatBytesByFileId)!;
             Assert.True(rm.TryGetRiderModel(character, CharacterRace.HumeMale, out var rider));
-            Assert.Equal(168, EntityAnimationState.OnePassTicks(rider!.MotionRoutines["chor"]));
+            Assert.Equal(MountTransitions.DigTicks, EntityAnimationState.OnePassTicks(rider!.MotionRoutines["chor"]));
             Assert.Equal(MountTransitions.ChocoboRiderDismountTicks, EntityAnimationState.OnePassTicks(rider.MotionRoutines["coff"]));
             Assert.True(rm.TryLoadMountModel(Chocobo, out var chocobo));
             Assert.Contains("chor", chocobo!.MotionRoutines.Keys);

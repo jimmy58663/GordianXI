@@ -24,10 +24,12 @@ namespace Gordian.App.Graphics
     /// drift scaled by the layer count.
     /// </para>
     /// <para>
-    /// The background smear: retail also blurs and slightly darkens what is seen through the halo. When the scene is drawn
-    /// offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws a frame with an aura through its post-process
-    /// target, as the swapchain cannot be sampled), the pass first copies it and draws each aura's shell once more, wider
-    /// (<see cref="AuraSmearWidthScale"/> x its widest ring), blending in the blurred, darkened scene by the rim term
+    /// The edge blur: retail blurs the avatar's own edges, soft and a little blocky, bleeding a few pixels outward over a
+    /// slightly darker band (<c>SMN_Avatars.mp4</c>, Garuda at 18 s; round 1 of 2026-11-18 rejected a smear of the
+    /// background around her). When the scene is drawn offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws
+    /// a frame with an aura through its post-process target, as the swapchain cannot be sampled), the pass copies the scene
+    /// drawn so far, the avatar included, and draws each aura's shell once more, wider (<see cref="AuraSmearWidthScale"/> x
+    /// its widest ring), showing that copy blurred on a block grid by the rim term
     /// (<see cref="BlurAuraShaders.SmearFragmentShaderGlsl"/>). Calibrated by eye, like the glow.
     /// </para>
     /// </summary>
@@ -54,17 +56,20 @@ namespace Gordian.App.Graphics
         /// <summary>The smear shell's width against the aura's widest ring (the glow's own width).</summary>
         public const float AuraSmearWidthScale = 3.0f;
 
-        /// <summary>The smear's blur radius in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 6.5 px).</summary>
-        public const float AuraSmearPixelsPerRadius = 0.05f;
+        /// <summary>The edge blur's radius in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 11.7 px).</summary>
+        public const float AuraSmearPixelsPerRadius = 0.09f;
 
-        /// <summary>The smear's opacity per unit of the rings' mean alpha (Garuda 11: 0.37, Fenrir 16: 0.53), at most <see cref="AuraSmearMaxOpacity"/>.</summary>
-        public const float AuraSmearOpacityPerAlpha = 1.0f / 30.0f;
+        /// <summary>The edge blur's block (pixelation) size against its radius.</summary>
+        public const float AuraSmearBlockPerBlur = 0.3f;
 
-        /// <summary>The most the smear covers the scene behind it.</summary>
-        public const float AuraSmearMaxOpacity = 0.6f;
+        /// <summary>The edge blur's opacity per unit of the rings' mean alpha (Garuda 11: 0.69, Fenrir 16: 0.9), at most <see cref="AuraSmearMaxOpacity"/>.</summary>
+        public const float AuraSmearOpacityPerAlpha = 1.0f / 16.0f;
 
-        /// <summary>How much the smear darkens the scene behind the halo (retail: slightly).</summary>
-        public const float AuraSmearDarken = 0.9f;
+        /// <summary>The most the edge blur covers the scene under it.</summary>
+        public const float AuraSmearMaxOpacity = 0.9f;
+
+        /// <summary>How much the edge blur darkens what it shows: 1, none. Darker values drew a hard ring at the band's outer edge offscreen.</summary>
+        public const float AuraSmearDarken = 1.0f;
 
         /// <summary>Blurs and darkens the scene behind auras (#82) when <see cref="SceneColor"/> is given (on by default).</summary>
         public bool EnableAuraSmear { get; set; } = true;
@@ -101,7 +106,7 @@ namespace Gordian.App.Graphics
         /// The smear's shell for an aura: (no drift, width, rim exponent) as <see cref="AuraRingParams"/>, its opacity and its
         /// blur radius in pixels for a target <paramref name="targetHeight"/> lines high.
         /// </summary>
-        internal static (Vector4 Shell, float Opacity, float BlurPixels) AuraSmearParams(BlurAura aura, uint targetHeight)
+        internal static (Vector4 Shell, float Opacity, float BlurPixels, float BlockPixels) AuraSmearParams(BlurAura aura, uint targetHeight)
         {
             float widest = 0f, alphas = 0f;
             foreach (var ring in aura.Rings)
@@ -110,10 +115,11 @@ namespace Gordian.App.Graphics
                 alphas += ring.Alpha;
             }
             float meanAlpha = aura.Rings.Count > 0 ? alphas / aura.Rings.Count : 0f;
-            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.5f, 0.5f));
+            // A soft rim (falloff / 240): the band reaches well inside the silhouette, so the edges themselves blur.
+            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.25f, 0.5f));
             float opacity = Math.Clamp(meanAlpha * AuraSmearOpacityPerAlpha, 0f, AuraSmearMaxOpacity);
             float blur = MathF.Max(1f, widest * AuraSmearPixelsPerRadius * targetHeight / 1440f);
-            return (shell, opacity, blur);
+            return (shell, opacity, blur, MathF.Max(1f, MathF.Round(blur * AuraSmearBlockPerBlur)));
         }
 
         /// <summary>The ring's shell parameters this frame: (screen drift x, y, width, rim exponent).</summary>
@@ -141,11 +147,11 @@ namespace Gordian.App.Graphics
                 foreach (var draw in _auraDraws)
                 {
                     var uniform = draw.Uniform;
-                    var (shell, opacity, blur) = AuraSmearParams(draw.Aura, scene.Height);
+                    var (shell, opacity, blur, block) = AuraSmearParams(draw.Aura, scene.Height);
                     if (opacity <= 0f) continue;
                     uniform.WeatherParams = shell;
                     uniform.SkyTextureFactor = new Vector4(AuraSmearDarken, AuraSmearDarken, AuraSmearDarken, opacity);
-                    uniform.SkyLayerParams = new Vector4(0f, 0f, 0f, blur);
+                    uniform.SkyLayerParams = new Vector4(0f, 0f, block, blur);
                     cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
                     cl.SetGraphicsResourceSet(0, _entityResourceSet);
                     cl.SetGraphicsResourceSet(2, draw.Palette);

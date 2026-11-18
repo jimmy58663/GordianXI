@@ -819,24 +819,34 @@ namespace Gordian.App.Graphics
         /// returns the draw calls made.
         /// </summary>
         /// <summary>
+        /// How dark a routine colour fade to black leaves an actor, as a share of its brightness as drawn (#590 round 1).
+        /// Retail's level down (<c>581-retail-level-down.mp4</c>, measured 2026-11-18) leaves the character dark but not black
+        /// at the fade's darkest (17.8-18.0 s): the hair at about 0.28 and an arm at 0.43 of their video brightness, while the
+        /// fade's data says black (<c>80000000</c>). Round 1 drew it fully black and the maintainer found it too dark. Keeping
+        /// only the ambient light (a fixed-function diffuse colour) was tried and left the body at 0.81 offscreen (Bibiki Bay at
+        /// noon), far too bright. Estimated; why retail stops there is not known.
+        /// </summary>
+        public const float ActorColorDarkFloor = 0.3f;
+
+        /// <summary>
         /// Multiplies an actor's colour by a routine colour fade's RGB (#590, op 0x29, <see cref="ActorColorTrack.ColorOf"/>: 1 =
-        /// as drawn): its sun, moon and ambient light are scaled per channel and its light cap by the brightest channel. The
-        /// actor shader's colour is <c>2 x clamp(light, 0, cap) x texel</c> and actors take no zone point lights, so for a grey
-        /// fade (level down's <c>80000000</c>: black, opaque) this is exactly the colour times the fade; a tinted fade differs
-        /// only where the light reaches the cap. Done through the lights so the shared terrain and actor shader is unchanged.
-        /// The target flash, added after the clamp, is not darkened.
+        /// as drawn): its sun, moon and ambient light are scaled per channel and its light cap by the brightest channel. A
+        /// channel under 1 darkens only down to <see cref="ActorColorDarkFloor"/> (0 maps to it). The actor shader's colour is
+        /// <c>2 x clamp(light, 0, cap) x texel</c> and actors take no zone point lights, so for a grey fade this multiplies the
+        /// colour; a tinted fade differs only where the light reaches the cap. Done through the lights so the shader shared
+        /// with the terrain is unchanged. The target flash, added after the clamp, is not darkened.
         /// </summary>
         internal static void ApplyActorColor(ref ZoneSceneUniform uniform, Vector3 color)
         {
             if (color == Vector3.One) return;
-            color = Vector3.Max(color, Vector3.Zero);
+            static float Channel(float c) => c >= 1f ? c : ActorColorDarkFloor + (1f - ActorColorDarkFloor) * MathF.Max(c, 0f);
+            color = new Vector3(Channel(color.X), Channel(color.Y), Channel(color.Z));
             static Vector4 Tint(Vector4 c, Vector3 m) => new(c.X * m.X, c.Y * m.Y, c.Z * m.Z, c.W);
             uniform.SunColor = Tint(uniform.SunColor, color);
             uniform.MoonColor = Tint(uniform.MoonColor, color);
             uniform.AmbientColor = Tint(uniform.AmbientColor, color);
-            // A cap of 0 means "no cap" (1) to the shader: keep it just above.
             float brightest = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
-            if (uniform.WeatherParams.Z > 0.0f) uniform.WeatherParams.Z = MathF.Max(uniform.WeatherParams.Z * brightest, 1e-4f);
+            if (uniform.WeatherParams.Z > 0.0f) uniform.WeatherParams.Z *= brightest;
         }
 
         /// <summary>An actor's scene uniform with its sun, moon and ambient light and its light cap scaled by a mesh piece's multiplier.</summary>
