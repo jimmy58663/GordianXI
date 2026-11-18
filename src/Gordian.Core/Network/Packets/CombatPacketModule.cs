@@ -187,6 +187,7 @@ namespace Gordian.Core.Network.Packets
             GordianLog.Debug(LogCategories.Combat, $"Dig 0x02F: Target={dig.TargetId:X8}, Index={dig.TargetIndex}, Flags=0x{dig.Flags:X2}");
             _combatState.RecordDig(dig.TargetId, dig.TargetIndex);
             if (_localPlayerState.ServerId == 0 || dig.TargetId != _localPlayerState.ServerId) return;
+            _localPlayerState.BeginDigHold(System.Diagnostics.Stopwatch.GetTimestamp()); // rooted while the chocobo digs
 
             uint playerId = dig.TargetId;
             ushort playerIndex = dig.TargetIndex;

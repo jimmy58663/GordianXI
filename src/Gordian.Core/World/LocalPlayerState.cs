@@ -1,6 +1,7 @@
 // src/Gordian.Core/World/LocalPlayerState.cs
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -105,35 +106,46 @@ namespace Gordian.Core.World
         /// </summary>
         public bool IsMotionStopped => _isMotionStopped;
 
+        private long _digHoldUntil;
+
+        /// <summary>
+        /// The server has the player's own chocobo dig (S2C 0x02F aimed at the player): the player is rooted, as under bind,
+        /// for the length of the dig routine <c>chor</c> (<see cref="StatusEffectHolds.DigTicks"/>) from
+        /// <paramref name="timestamp"/> (<see cref="System.Diagnostics.Stopwatch"/> ticks). Lane B's #437 test, 2026-11-18.
+        /// </summary>
+        public void BeginDigHold(long timestamp) =>
+            Interlocked.Exchange(ref _digHoldUntil, timestamp + (long)(StatusEffectHolds.DigTicks / 60.0 * System.Diagnostics.Stopwatch.Frequency));
+
         /// <summary>
         /// How crowd control holds the player now (#540): <see cref="PlayerMovementHold.Immobile"/> under stun, sleep,
         /// petrification or terror (the buff lists of S2C 0x037 and 0x063, or the 0x037 MotStopFlag),
-        /// <see cref="PlayerMovementHold.Rooted"/> under bind (the buff lists, or a 0x037 speed of 0). The server does not
-        /// enforce these; the locomotion loop does, and no option lifts them.
+        /// <see cref="PlayerMovementHold.Rooted"/> under bind (the buff lists, or a 0x037 speed of 0) and while the player's
+        /// chocobo digs (<see cref="BeginDigHold"/>). The server does not enforce these; the locomotion loop does, and no
+        /// option lifts them.
         /// </summary>
-        public PlayerMovementHold MovementHold
+        public PlayerMovementHold MovementHold => MovementHoldAt(System.Diagnostics.Stopwatch.GetTimestamp());
+
+        /// <summary><see cref="MovementHold"/> at <paramref name="timestamp"/> (<see cref="System.Diagnostics.Stopwatch"/> ticks).</summary>
+        public PlayerMovementHold MovementHoldAt(long timestamp)
         {
-            get
+            var hold = _isMotionStopped ? PlayerMovementHold.Immobile
+                : _isSpeedHeld || timestamp < Interlocked.Read(ref _digHoldUntil) ? PlayerMovementHold.Rooted
+                : PlayerMovementHold.None;
+            if (hold == PlayerMovementHold.Immobile) return hold;
+            lock (_lock)
             {
-                var hold = _isMotionStopped ? PlayerMovementHold.Immobile
-                    : _isSpeedHeld ? PlayerMovementHold.Rooted
-                    : PlayerMovementHold.None;
-                if (hold == PlayerMovementHold.Immobile) return hold;
-                lock (_lock)
+                for (int i = 0; i < BuffIcons.Length; i++)
                 {
-                    for (int i = 0; i < BuffIcons.Length; i++)
-                    {
-                        int high = (BuffStatusBits[i / 4] >> (2 * (i % 4))) & 0x03;
-                        int id = BuffIcons[i] | (high << 8);
-                        if (id != 0xFF) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For((ushort)id));
-                    }
-                    for (int i = 0; i < StatusIconIds.Length; i++)
-                    {
-                        if (StatusIconIds[i] != S2C_0x063_MiscData.EmptyIcon) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For(StatusIconIds[i]));
-                    }
+                    int high = (BuffStatusBits[i / 4] >> (2 * (i % 4))) & 0x03;
+                    int id = BuffIcons[i] | (high << 8);
+                    if (id != 0xFF) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For((ushort)id));
                 }
-                return hold;
+                for (int i = 0; i < StatusIconIds.Length; i++)
+                {
+                    if (StatusIconIds[i] != S2C_0x063_MiscData.EmptyIcon) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For(StatusIconIds[i]));
+                }
             }
+            return hold;
         }
         #endregion
 

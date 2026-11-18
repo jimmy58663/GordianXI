@@ -145,6 +145,23 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(Vector3.Zero, localEnt.Position);
         }
 
+        /// <summary>The player's own chocobo dig roots it as bind does: it turns but does not move (Lane B's #437 test).</summary>
+        [Fact]
+        public void ChocoboDig_RootsThePlayer()
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            controller.CameraYaw = 0.0f;
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50)));
+            player.BeginDigHold(System.Diagnostics.Stopwatch.GetTimestamp());
+            Assert.Equal(PlayerMovementHold.Rooted, player.MovementHold);
+
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Speed);
+        }
+
         /// <summary>
         /// Bind (a 0x037 speed of 0, LandSandBoat's <c>bind.lua</c>) holds the player's movement but lets it turn in place; the
         /// speed it had comes back when the bind wears off (#540). A speed override does not lift it.
