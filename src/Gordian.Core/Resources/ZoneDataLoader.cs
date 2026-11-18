@@ -1472,7 +1472,7 @@ namespace Gordian.Core.Resources
                     }
                 }
 
-                var effect = BuildEffectLayer(genId, genWeather, genPath, gen, isEmitter, schedule, scheduleLoop, childOnly: false);
+                var effect = BuildEffectLayer(genId, genWeather, genPath, gen, isEmitter, schedule, scheduleLoop, childOnly: false, sharedMeshes: actorEffects);
                 if (effect == null) continue;
                 if (actorAttached)
                 {
@@ -1617,7 +1617,7 @@ namespace Gordian.Core.Resources
                     {
                         generatorPaths.TryGetValue(child.Generator, out string? childPath);
                         var built = BuildEffectLayer(child.Id, child.Weather, childPath ?? string.Empty, child.Generator, isEmitter: true, null, 0, childOnly: true,
-                            sharedMeshes: footLayerSet.Contains(parentLayer));
+                            sharedMeshes: actorEffects || footLayerSet.Contains(parentLayer));
                         if (built == null) continue;
                         // A child takes its parent's place (xi-tools docs/fx/effect_system.md "Child generators"), so it
                         // rides the parent's actor.
@@ -1697,7 +1697,8 @@ namespace Gordian.Core.Resources
                 }
                 if (effectMeshes == null && !string.IsNullOrEmpty(genWeather)) particleMeshes.TryGetValue($"{genWeather}/{linkId}", out effectMeshes);
                 if (effectMeshes == null) particleMeshes.TryGetValue(linkId, out effectMeshes);
-                // A foot effect's mesh may live only in the shared effects DAT (ROM/0/0 syst/effe hit7, asi1, asi2).
+                // A foot effect's mesh may live only in the shared effects DAT (ROM/0/0 syst/effe hit7, asi1, asi2), as may an
+                // actor effect's (the chocobo dig's cho1 links hi16, #437).
                 if (effectMeshes == null && sharedMeshes && sharedEffects != null && sharedEffects.ParticleMeshes.TryGetValue(linkId, out var sharedMeshGroups))
                 {
                     effectMeshes = sharedMeshGroups;

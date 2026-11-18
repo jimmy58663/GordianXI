@@ -1382,8 +1382,10 @@ namespace Gordian.App.Graphics
             var presentation = EventPresentation;
             var blur = presentation?.Blur ?? default;
             var dissolve = presentation?.CrossDissolve ?? default;
-            bool postProcess = EnablePostProcess && presentation != null &&
-                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _));
+            // A blur aura on screen (#82) draws offscreen too: its smear samples the scene behind the actor.
+            bool postProcess = EnablePostProcess && (presentation != null &&
+                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _))
+                               || _entityRenderer is { DrewBlurAura: true, EnableAuraSmear: true });
             if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
             else _postProcess?.Invalidate();
 
@@ -1600,6 +1602,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
+                _entityRenderer.SceneColor = postProcess ? _postProcess!.SceneColor : null;
                 _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, ActorCollision, _platformHeights, LoadedZone, _subEnvironmentActorLights, LocalPlayerRidingPlatformId, LocalPlayerDisplayHeading);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;

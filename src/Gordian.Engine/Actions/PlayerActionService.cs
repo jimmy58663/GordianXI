@@ -1139,6 +1139,8 @@ namespace Gordian.Engine.Actions
         public Task<PlayerActionResult> DismountAsync()
         {
             if (!_localPlayer.IsMounted) return Task.FromResult(PlayerActionResult.Warn("You are not mounted.", ChatCommandResultKind.Dismount));
+            // Asked for: the mount leaves with coff, not cdam (#437).
+            Gordian.Engine.Animation.MountTransitions.NoteDismountRequest(_localPlayer.ServerId);
             return SelfActionAsync(CliActionId.Dismount, 0, "Dismounted.", ChatCommandResultKind.Dismount);
         }
 

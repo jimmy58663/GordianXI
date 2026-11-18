@@ -8,6 +8,11 @@ namespace Gordian.App.Graphics
     /// consumed so the D3D11 cross-compile keeps the stage interface (see <see cref="ZoneShaders.VertexShaderWeatherSkyGlsl"/>).
     /// Scene uniform use: WeatherParams = (screen offset x, y in NDC, shell width in yalms, rim exponent);
     /// SkyTextureFactor = (ring tint, strength); SkyLayerParams = (the section's base colour, unused).
+    /// <para>
+    /// The smear (<see cref="SmearFragmentShaderGlsl"/>) draws the same shell, wider, over a copy of the scene drawn so far
+    /// (set 3): the background seen through the halo is blurred and slightly darkened, blended in by the rim term.
+    /// SkyLayerParams.w = the blur radius in pixels.
+    /// </para>
     /// </summary>
     public static class BlurAuraShaders
     {
@@ -144,6 +149,68 @@ void main()
     if (max(glow.r, max(glow.g, glow.b)) < 0.002) discard;
     // Premultiplied for the additive (One, One) pipeline.
     fsout_Color = vec4(glow, 0.0);
+}
+";
+
+        /// <summary>
+        /// The background smear (#82): retail blurs and slightly darkens what is seen through an avatar's halo (the trees
+        /// behind Garuda lose detail, <c>SMN_Avatars.mp4</c>). Samples a copy of the scene around the pixel (a centre tap
+        /// and two rings of eight), darkens it by <c>SkyTextureFactor.rgb</c> and blends it in with the rim term as alpha.
+        /// </summary>
+        public const string SmearFragmentShaderGlsl = @"#version 450
+
+layout(location = 0) in vec3 fsin_WorldPos;
+layout(location = 1) in vec3 fsin_Normal;
+layout(location = 2) in vec2 fsin_TexCoord;
+layout(location = 3) in float fsin_Strength;
+
+layout(location = 0) out vec4 fsout_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+    vec4 SkyTextureFactor;
+    vec4 SkyLayerParams;
+};
+
+layout(set = 1, binding = 0) uniform texture2D uTexture;
+layout(set = 1, binding = 1) uniform sampler uSampler;
+layout(set = 3, binding = 0) uniform texture2D SceneTex;
+layout(set = 3, binding = 1) uniform sampler SceneSampler;
+
+void main()
+{
+    vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
+    if (tex.a < 0.09) discard;
+
+    vec3 toEye = normalize(EyePosition.xyz - fsin_WorldPos);
+    float facing = abs(dot(normalize(fsin_Normal), toEye));
+    float rim = pow(clamp(1.0 - facing, 0.0, 1.0), max(WeatherParams.w, 0.5));
+    float alpha = clamp(fsin_Strength * rim, 0.0, 1.0);
+    if (alpha < 0.004) discard;
+
+    vec2 size = vec2(textureSize(sampler2D(SceneTex, SceneSampler), 0));
+    vec2 uv = gl_FragCoord.xy / size;
+    vec2 step = vec2(max(SkyLayerParams.w, 1.0)) / size;
+    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), uv).rgb;
+    for (int i = 0; i < 8; i++)
+    {
+        float a = float(i) * 0.785398;
+        vec2 dir = vec2(cos(a), sin(a));
+        sum += texture(sampler2D(SceneTex, SceneSampler), uv + dir * step * 0.5).rgb;
+        sum += texture(sampler2D(SceneTex, SceneSampler), uv + dir * step).rgb;
+    }
+    vec3 blurred = (sum / 17.0) * SkyTextureFactor.rgb;
+    fsout_Color = vec4(blurred, alpha);
 }
 ";
     }

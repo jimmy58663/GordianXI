@@ -38,6 +38,12 @@ namespace Gordian.Core.Resources
     /// </summary>
     public static class MountModels
     {
+        /// <summary>
+        /// The id a player's mount goes by as an actor of its own (#437): its joint palette and anchor in the renderer, its
+        /// effects and its sounds. The player's server id with the top bit flipped, which no server id uses.
+        /// </summary>
+        public static uint ActorKey(uint serverId) => serverId ^ 0x8000_0000u;
+
         /// <summary>File id of mount 0's model; mount n is this + n (xi-tools <c>docs/mounts/mechanism.md</c>).</summary>
         public const int MountFileBase = 0x019131;
 

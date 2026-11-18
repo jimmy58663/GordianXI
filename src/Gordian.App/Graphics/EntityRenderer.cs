@@ -512,6 +512,7 @@ namespace Gordian.App.Graphics
                     if (_jointPaletteByEntity.TryRemove(MountPaletteKey(entity.ServerId), out var staleMount)) staleMount.Dispose();
                     _entityEnvironments.Remove(entity.ServerId);
                     _actorAnchors.Remove(entity.ServerId);
+                    _actorAnchors.Remove(MountModels.ActorKey(entity.ServerId));
                     _faces.Remove(entity.ServerId);
                     continue;
                 }
@@ -586,7 +587,8 @@ namespace Gordian.App.Graphics
                 // The mount drawn this frame: the one ridden, or one leaving after a dismount (#437, MountTransitions).
                 var mountFrame = entity.Type == EntityType.Player
                     ? MountTransitions.Observe(entity, moving: entity.Animation.Current is not (AnimationCategory.Idle or AnimationCategory.Combat
-                        or AnimationCategory.Death or AnimationCategory.Healing or AnimationCategory.Sitting or AnimationCategory.ChairSitting))
+                        or AnimationCategory.Death or AnimationCategory.Healing or AnimationCategory.Sitting or AnimationCategory.ChairSitting),
+                        isLocalPlayer: entity.ServerId == localPlayerServerId)
                     : MountFrame.None;
                 bool mounted = mountFrame.Mount.IsMounted;
                 var sizeScale = entity.Type == EntityType.Player ? Matrix4x4.CreateScale(PlayerSizeScale.For(entity.GraphSize)) : Matrix4x4.Identity;
@@ -603,11 +605,15 @@ namespace Gordian.App.Graphics
 
                 // An event faded it out completely (0x6C to alpha 0): nothing to draw.
                 int eventAlpha = entity.EventAlpha;
-                // A routine's colour fade (0x29: kesu on a despawning entity, the battlefield warps; #206 / #311).
+                // A routine's colour fade (0x29: kesu on a despawning entity, the battlefield warps; #206 / #311), and its
+                // RGB (level down's darkening to black and back, #590).
+                var routineColor = Vector3.One;
                 if (entity.ActorColor.IsActive)
                 {
-                    float routineAlpha = Math.Clamp(entity.ActorColor.Sample(ActorColorTrack.Now).W, 0f, 1f);
+                    var sampled = entity.ActorColor.Sample(ActorColorTrack.Now);
+                    float routineAlpha = Math.Clamp(sampled.W, 0f, 1f);
                     eventAlpha = Math.Min(eventAlpha, (int)MathF.Round(routineAlpha * WorldEntity.OpaqueEventAlpha));
+                    routineColor = new Vector3(sampled.X, sampled.Y, sampled.Z);
                 }
                 if (eventAlpha <= 0) continue;
                 // 0x00E Flags3 bit 31 (LandSandBoat ghost_phase): retail draws the entity at alpha 0.5 (XiPackets 0x000E).
@@ -683,6 +689,7 @@ namespace Gordian.App.Graphics
                         : null;
                 var seatShift = ride is { } seated && !isFallback ? seated.RiderShift : Matrix4x4.Identity;
                 if (ride != null) _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = seatShift * EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
+                else _actorAnchors.Remove(MountModels.ActorKey(entity.ServerId));
                 var worldMatrix = seatShift * rotMatrix * (isFallback ? Matrix4x4.Identity : sizeScale) * headingRot * Matrix4x4.CreateTranslation(pos);
 
                 var uniform = new ZoneSceneUniform
@@ -715,6 +722,7 @@ namespace Gordian.App.Graphics
                     lights = indoorLights;
                 }
                 lights.ApplyTo(ref uniform);
+                ApplyActorColor(ref uniform, routineColor);
 
                 cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
 
@@ -810,6 +818,27 @@ namespace Gordian.App.Graphics
         /// Draws every submesh of a model with the bound pipeline, except the weapon slots in <paramref name="hiddenWeapons"/>;
         /// returns the draw calls made.
         /// </summary>
+        /// <summary>
+        /// Multiplies an actor's colour by a routine colour fade's RGB (#590, op 0x29, <see cref="ActorColorTrack.ColorOf"/>: 1 =
+        /// as drawn): its sun, moon and ambient light are scaled per channel and its light cap by the brightest channel. The
+        /// actor shader's colour is <c>2 x clamp(light, 0, cap) x texel</c> and actors take no zone point lights, so for a grey
+        /// fade (level down's <c>80000000</c>: black, opaque) this is exactly the colour times the fade; a tinted fade differs
+        /// only where the light reaches the cap. Done through the lights so the shared terrain and actor shader is unchanged.
+        /// The target flash, added after the clamp, is not darkened.
+        /// </summary>
+        internal static void ApplyActorColor(ref ZoneSceneUniform uniform, Vector3 color)
+        {
+            if (color == Vector3.One) return;
+            color = Vector3.Max(color, Vector3.Zero);
+            static Vector4 Tint(Vector4 c, Vector3 m) => new(c.X * m.X, c.Y * m.Y, c.Z * m.Z, c.W);
+            uniform.SunColor = Tint(uniform.SunColor, color);
+            uniform.MoonColor = Tint(uniform.MoonColor, color);
+            uniform.AmbientColor = Tint(uniform.AmbientColor, color);
+            // A cap of 0 means "no cap" (1) to the shader: keep it just above.
+            float brightest = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
+            if (uniform.WeatherParams.Z > 0.0f) uniform.WeatherParams.Z = MathF.Max(uniform.WeatherParams.Z * brightest, 1e-4f);
+        }
+
         /// <summary>An actor's scene uniform with its sun, moon and ambient light and its light cap scaled by a mesh piece's multiplier.</summary>
         internal static ZoneSceneUniform ScaledActorLight(in ZoneSceneUniform uniform, float multiplier)
         {

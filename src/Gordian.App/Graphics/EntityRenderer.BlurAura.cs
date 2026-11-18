@@ -21,8 +21,14 @@ namespace Gordian.App.Graphics
     /// halo 10-20 px at 2550x1434 with her body about 3 yalms tall on screen (about 0.03-0.06 yalm, her rings' radii
     /// 60-130), Fenrir's rim 3-6 px further away. The client's exact use of the fields is not decoded: GordianXI's mapping
     /// is width = radius x <see cref="AuraWidthPerRadius"/>, strength = alpha / 128, rim exponent = falloff / 100, ghost
-    /// drift scaled by the layer count. Not reproduced: the background smear (retail blurs and slightly darkens what is
-    /// behind the halo), which needs the scene behind the actor as a texture.
+    /// drift scaled by the layer count.
+    /// </para>
+    /// <para>
+    /// The background smear: retail also blurs and slightly darkens what is seen through the halo. When the scene is drawn
+    /// offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws a frame with an aura through its post-process
+    /// target, as the swapchain cannot be sampled), the pass first copies it and draws each aura's shell once more, wider
+    /// (<see cref="AuraSmearWidthScale"/> x its widest ring), blending in the blurred, darkened scene by the rim term
+    /// (<see cref="BlurAuraShaders.SmearFragmentShaderGlsl"/>). Calibrated by eye, like the glow.
     /// </para>
     /// </summary>
     public sealed partial class EntityRenderer
@@ -45,6 +51,39 @@ namespace Gordian.App.Graphics
         /// <summary>Draws the 0x5E blur aura of avatars and other models that carry one (on by default).</summary>
         public bool EnableBlurAura { get; set; } = true;
 
+        /// <summary>The smear shell's width against the aura's widest ring (the glow's own width).</summary>
+        public const float AuraSmearWidthScale = 3.0f;
+
+        /// <summary>The smear's blur radius in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 6.5 px).</summary>
+        public const float AuraSmearPixelsPerRadius = 0.05f;
+
+        /// <summary>The smear's opacity per unit of the rings' mean alpha (Garuda 11: 0.37, Fenrir 16: 0.53), at most <see cref="AuraSmearMaxOpacity"/>.</summary>
+        public const float AuraSmearOpacityPerAlpha = 1.0f / 30.0f;
+
+        /// <summary>The most the smear covers the scene behind it.</summary>
+        public const float AuraSmearMaxOpacity = 0.6f;
+
+        /// <summary>How much the smear darkens the scene behind the halo (retail: slightly).</summary>
+        public const float AuraSmearDarken = 0.9f;
+
+        /// <summary>Blurs and darkens the scene behind auras (#82) when <see cref="SceneColor"/> is given (on by default).</summary>
+        public bool EnableAuraSmear { get; set; } = true;
+
+        /// <summary>
+        /// The colour target the scene is being drawn into this frame, when it can be sampled (an offscreen target), else
+        /// null: no smear. Set by the zone renderer before <see cref="RenderEntities"/>.
+        /// </summary>
+        public Texture? SceneColor { get; set; }
+
+        /// <summary>Whether the last frame drew a blur aura (the zone renderer then draws the next one offscreen for the smear).</summary>
+        public bool DrewBlurAura { get; private set; }
+
+        private Texture? _auraSceneCopy;
+        private ResourceLayout? _auraSceneLayout;
+        private ResourceSet? _auraSceneSet;
+        private Pipeline? _auraSmearPipeline;
+        private Shader[]? _auraSmearShaders;
+
         private readonly record struct AuraDraw(ZoneSceneUniform Uniform, ResourceSet Palette, GpuEntityModel Model, int HiddenWeapons, BlurAura Aura, uint ServerId);
 
         private readonly List<AuraDraw> _auraDraws = new();
@@ -56,6 +95,25 @@ namespace Gordian.App.Graphics
         {
             if (!EnableBlurAura || aura.Rings.Count == 0) return;
             _auraDraws.Add(new AuraDraw(uniform, palette, model, hiddenWeapons, aura, serverId));
+        }
+
+        /// <summary>
+        /// The smear's shell for an aura: (no drift, width, rim exponent) as <see cref="AuraRingParams"/>, its opacity and its
+        /// blur radius in pixels for a target <paramref name="targetHeight"/> lines high.
+        /// </summary>
+        internal static (Vector4 Shell, float Opacity, float BlurPixels) AuraSmearParams(BlurAura aura, uint targetHeight)
+        {
+            float widest = 0f, alphas = 0f;
+            foreach (var ring in aura.Rings)
+            {
+                widest = MathF.Max(widest, ring.Radius);
+                alphas += ring.Alpha;
+            }
+            float meanAlpha = aura.Rings.Count > 0 ? alphas / aura.Rings.Count : 0f;
+            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.5f, 0.5f));
+            float opacity = Math.Clamp(meanAlpha * AuraSmearOpacityPerAlpha, 0f, AuraSmearMaxOpacity);
+            float blur = MathF.Max(1f, widest * AuraSmearPixelsPerRadius * targetHeight / 1440f);
+            return (shell, opacity, blur);
         }
 
         /// <summary>The ring's shell parameters this frame: (screen drift x, y, width, rim exponent).</summary>
@@ -71,10 +129,31 @@ namespace Gordian.App.Graphics
         private int DrawBlurAuras(CommandList cl, float deltaSeconds)
         {
             _auraClock = (_auraClock + deltaSeconds) % 3600.0f;
+            DrewBlurAura = _auraDraws.Count > 0;
             if (_auraDraws.Count == 0) return 0;
             EnsureAuraPipeline();
 
             int draws = 0;
+            if (EnableAuraSmear && SceneColor is { } scene && PrepareAuraSceneCopy(cl, scene))
+            {
+                // The smear first, the glow over it.
+                cl.SetPipeline(_auraSmearPipeline!);
+                foreach (var draw in _auraDraws)
+                {
+                    var uniform = draw.Uniform;
+                    var (shell, opacity, blur) = AuraSmearParams(draw.Aura, scene.Height);
+                    if (opacity <= 0f) continue;
+                    uniform.WeatherParams = shell;
+                    uniform.SkyTextureFactor = new Vector4(AuraSmearDarken, AuraSmearDarken, AuraSmearDarken, opacity);
+                    uniform.SkyLayerParams = new Vector4(0f, 0f, 0f, blur);
+                    cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
+                    cl.SetGraphicsResourceSet(0, _entityResourceSet);
+                    cl.SetGraphicsResourceSet(2, draw.Palette);
+                    cl.SetGraphicsResourceSet(3, _auraSceneSet!);
+                    draws += DrawSubmeshes(cl, draw.Model, draw.HiddenWeapons);
+                }
+            }
+
             cl.SetPipeline(_auraPipeline!);
             foreach (var draw in _auraDraws)
             {
@@ -105,7 +184,17 @@ namespace Gordian.App.Graphics
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(BlurAuraShaders.SkinnedVertexShaderGlsl), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.FragmentShaderGlsl), "main"));
 
-            var skinnedVertexLayout = new VertexLayoutDescription(
+            var skinnedVertexLayout = AuraVertexLayout;
+
+            // Additive (One, One), depth tested against the scene and the actors but not written: the body hides the shell's
+            // far side, the near side shows only at the outline.
+            var additive = new BlendStateDescription(RgbaFloat.Black,
+                new BlendAttachmentDescription(true, BlendFactor.One, BlendFactor.One, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add));
+            _auraPipeline = CreatePipeline(new[] { _sceneLayout, _textureLayout, _jointPaletteLayout }, skinnedVertexLayout, _auraShaders, additive, depthWrite: false);
+        }
+
+        /// <summary>The skinned vertex layout the aura shells are drawn with (the actors' own).</summary>
+        private static VertexLayoutDescription AuraVertexLayout => new VertexLayoutDescription(
                 new VertexElementDescription("Position0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
                 new VertexElementDescription("Position1", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
                 new VertexElementDescription("Normal0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 24),
@@ -115,11 +204,30 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 64),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 72));
 
-            // Additive (One, One), depth tested against the scene and the actors but not written: the body hides the shell's
-            // far side, the near side shows only at the outline.
-            var additive = new BlendStateDescription(RgbaFloat.Black,
-                new BlendAttachmentDescription(true, BlendFactor.One, BlendFactor.One, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add));
-            _auraPipeline = CreatePipeline(new[] { _sceneLayout, _textureLayout, _jointPaletteLayout }, skinnedVertexLayout, _auraShaders, additive, depthWrite: false);
+        /// <summary>Copies the scene drawn so far for the smear to sample.</summary>
+        private bool PrepareAuraSceneCopy(CommandList cl, Texture scene)
+        {
+            var factory = _gd.ResourceFactory;
+            if (_auraSceneCopy == null || _auraSceneCopy.Width != scene.Width || _auraSceneCopy.Height != scene.Height || _auraSceneCopy.Format != scene.Format)
+            {
+                _auraSceneSet?.Dispose();
+                _auraSceneCopy?.Dispose();
+                _auraSceneCopy = factory.CreateTexture(TextureDescription.Texture2D(scene.Width, scene.Height, 1, 1, scene.Format, TextureUsage.Sampled));
+                _auraSceneLayout ??= factory.CreateResourceLayout(new ResourceLayoutDescription(
+                    new ResourceLayoutElementDescription("SceneTex", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
+                    new ResourceLayoutElementDescription("SceneSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
+                _auraSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_auraSceneLayout, _auraSceneCopy, _gd.LinearSampler));
+            }
+            if (_auraSmearPipeline == null)
+            {
+                _auraSmearShaders = factory.CreateFromSpirv(
+                    new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(BlurAuraShaders.SkinnedVertexShaderGlsl), "main"),
+                    new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.SmearFragmentShaderGlsl), "main"));
+                _auraSmearPipeline = CreatePipeline(new[] { _sceneLayout, _textureLayout, _jointPaletteLayout, _auraSceneLayout! }, AuraVertexLayout,
+                    _auraSmearShaders, BlendStateDescription.SingleAlphaBlend, depthWrite: false);
+            }
+            cl.CopyTexture(scene, _auraSceneCopy);
+            return true;
         }
 
         private void DisposeBlurAura()
@@ -131,6 +239,19 @@ namespace Gordian.App.Graphics
                 foreach (var shader in _auraShaders) shader.Dispose();
                 _auraShaders = null;
             }
+            _auraSmearPipeline?.Dispose();
+            _auraSmearPipeline = null;
+            if (_auraSmearShaders != null)
+            {
+                foreach (var shader in _auraSmearShaders) shader.Dispose();
+                _auraSmearShaders = null;
+            }
+            _auraSceneSet?.Dispose();
+            _auraSceneSet = null;
+            _auraSceneCopy?.Dispose();
+            _auraSceneCopy = null;
+            _auraSceneLayout?.Dispose();
+            _auraSceneLayout = null;
         }
     }
 }
