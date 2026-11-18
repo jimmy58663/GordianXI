@@ -23,6 +23,13 @@ namespace Gordian.App.Graphics
     /// "◆" ends row 2, 0x81A1 "■" starts row 3). The few non-ASCII symbols the client writes itself are copied too
     /// (<see cref="Symbols"/>).
     /// </para>
+    /// <para>
+    /// Font mods (#376): the cell size is taken from the sheet (its width / 64, 16 on the native sheet), so a higher-resolution
+    /// sheet in the same layout is drawn scaled down to the 16-px row. An anti-aliased sheet (alpha with levels between 0 and
+    /// 255, such as XIView's ROM/119/51) keeps its own soft alpha and dark edge instead of the 1-bit mask and outline, and is
+    /// measured by its bright core: XIView's glyphs sit about a pixel up and left of their cells and their soft edges run into
+    /// the neighbouring cells, so measuring by alpha alone gave about 17-px advances with a stray bar of the next glyph's edge.
+    /// </para>
     /// </summary>
     public sealed class StockUiLogFont
     {
@@ -31,10 +38,18 @@ namespace Gordian.App.Graphics
 
         public const string TextureName = "moji";
 
-        private const int SourceCell = 16, SourceColumns = 64;
-        private const int FirstChar = 0x20, LastChar = 0x7E, Pad = 1;
+        /// <summary>The native sheet's cell, in pixels: the layout size every sheet's cells are drawn at.</summary>
+        private const int NativeCell = 16;
+        private const int SourceColumns = 64;
+        private const int FirstChar = 0x20, LastChar = 0x7E;
         private const int SpaceAdvance = 7, InkGap = 2;
         private const byte OutlineAlpha = 200;
+
+        /// <summary>Alpha from which a pixel counts as ink (both kinds of sheet).</summary>
+        private const byte InkAlpha = 0x40;
+
+        /// <summary>Brightness (the largest colour channel) from which an anti-aliased sheet's ink is the glyph's core, not its dark edge.</summary>
+        private const byte CoreBrightness = 0x80;
 
         private const int AsciiCount = LastChar - FirstChar + 1;
 
@@ -49,14 +64,27 @@ namespace Gordian.App.Graphics
 
         private readonly float[] _advances = new float[AsciiCount + Symbols.Length];
         private readonly int _columns;
+        private readonly int _atlasCell, _pad;
+        private readonly float _sourceScale;
 
         public DecodedTexture Atlas { get; }
         public string CacheKey { get; }
 
-        private StockUiLogFont(DecodedTexture atlas, int columns, string cacheKey)
+        /// <summary>The sheet's cell size in pixels (16 native; a higher-resolution font mod's is larger).</summary>
+        public int SourceCell { get; }
+
+        /// <summary>Whether the sheet's alpha is anti-aliased (a font mod), not the native 1-bit mask.</summary>
+        public bool IsAntiAliased { get; }
+
+        private StockUiLogFont(DecodedTexture atlas, int columns, int sourceCell, int pad, bool antiAliased, string cacheKey)
         {
             Atlas = atlas;
             _columns = columns;
+            SourceCell = sourceCell;
+            _pad = pad;
+            _atlasCell = sourceCell + 2 * pad;
+            _sourceScale = sourceCell / (float)NativeCell;
+            IsAntiAliased = antiAliased;
             CacheKey = cacheKey;
         }
 
@@ -88,14 +116,15 @@ namespace Gordian.App.Graphics
         /// </summary>
         public float Draw(StockUiRenderer renderer, ReadOnlySpan<char> text, float x, float y, float scale, UiColor color, bool snap = true)
         {
-            const int cell = SourceCell + 2 * Pad;
+            int cell = _atlasCell;
+            float size = cell / _sourceScale * scale, pad = _pad / _sourceScale * scale;
             float pen = x;
             foreach (char c in text)
             {
                 if (c != ' ' && SlotOf(c) is var i and >= 0)
                 {
                     renderer.DrawTextureRegion(CacheKey, Atlas, i % _columns * cell, i / _columns * cell, cell, cell,
-                        snap ? MathF.Round(pen - Pad * scale) : pen - Pad * scale, MathF.Round(y - Pad * scale), cell * scale, cell * scale, color);
+                        snap ? MathF.Round(pen - pad) : pen - pad, MathF.Round(y - pad), size, size, color);
                 }
                 pen += GetAdvance(c) * scale;
             }
@@ -105,41 +134,82 @@ namespace Gordian.App.Graphics
         /// <summary>Builds the font from the library's <c>moji</c> texture, or null when it is missing.</summary>
         public static StockUiLogFont? FromLibrary(UiResourceLibrary library)
         {
-            if (!library.TryGetTexture(TextureName, out var moji) || moji == null || moji.Width < SourceColumns * SourceCell) return null;
+            if (!library.TryGetTexture(TextureName, out var moji) || moji == null) return null;
             return Build(moji, $"logfont:{TextureName}:{library.WindowSkin}");
         }
 
         /// <summary>
-        /// Copies the ASCII and <see cref="Symbols"/> cells of a <c>moji</c>-layout texture into an outlined atlas and measures each glyph's
-        /// advance.
+        /// The cell size of a <c>moji</c>-layout sheet (64 square cells to a row), or 0 when the sheet cannot hold the cells the
+        /// log draws: narrower than 64 native cells, not a whole number of cells wide, or too short.
         /// </summary>
-        public static StockUiLogFont Build(DecodedTexture moji, string cacheKey)
+        public static int CellSizeOf(DecodedTexture moji)
         {
-            const int cell = SourceCell + 2 * Pad, columns = 16;
+            if (moji.Width < SourceColumns * NativeCell || moji.Width % SourceColumns != 0) return 0;
+            int cell = moji.Width / SourceColumns;
+            int lastCell = 0;
+            foreach (var (_, c) in Symbols) lastCell = Math.Max(lastCell, c);
+            return moji.Height >= (lastCell / SourceColumns + 1) * cell ? cell : 0;
+        }
+
+        /// <summary>
+        /// Copies the ASCII and <see cref="Symbols"/> cells of a <c>moji</c>-layout texture into an atlas and measures each glyph's
+        /// advance; null when the sheet's layout does not fit (<see cref="CellSizeOf"/>).
+        /// </summary>
+        public static StockUiLogFont? Build(DecodedTexture moji, string cacheKey)
+        {
+            int sourceCell = CellSizeOf(moji);
+            if (sourceCell == 0) return null;
+            int pad = Math.Max(1, sourceCell / NativeCell);
+            int cell = sourceCell + 2 * pad;
+            const int columns = 16;
             int count = AsciiCount + Symbols.Length;
             int rows = (count + columns - 1) / columns;
             int width = columns * cell, height = rows * cell;
             var rgba = new byte[width * height * 4];
             var mask = new bool[cell * cell];
-
-            var font = new StockUiLogFont(new DecodedTexture("logfont", width, height, rgba), columns, cacheKey);
             byte[] src = moji.RgbaPixels;
+            bool antiAliased = HasSoftAlpha(moji, sourceCell);
+            float sourceScale = sourceCell / (float)NativeCell;
+
+            var font = new StockUiLogFont(new DecodedTexture("logfont", width, height, rgba), columns, sourceCell, pad, antiAliased, cacheKey);
             for (int i = 0; i < count; i++)
             {
                 int source = i < AsciiCount ? i : Symbols[i - AsciiCount].Cell;
-                int sx = source % SourceColumns * SourceCell, sy = source / SourceColumns * SourceCell;
+                int sx = source % SourceColumns * sourceCell, sy = source / SourceColumns * sourceCell;
                 int dx = i % columns * cell, dy = i / columns * cell;
                 Array.Clear(mask);
-                int right = -1;
-                for (int y = 0; y < SourceCell; y++)
+
+                // An anti-aliased glyph's right edge is its rightmost bright core, and only the soft edge joined to it is
+                // kept (ink columns that touch it, at most two native pixels): the next glyph's edge bleeding into the cell
+                // is left out. The native glyph's is its rightmost ink.
+                int right = -1, keep = sourceCell - 1;
+                if (antiAliased)
                 {
-                    for (int x = 0; x < SourceCell; x++)
+                    right = CoreRight(src, moji.Width, sx, sy, sourceCell);
+                    keep = right;
+                    int edgeLimit = Math.Min(sourceCell - 1, right + (int)MathF.Round(InkGap * sourceScale));
+                    while (right >= 0 && keep < edgeLimit && ColumnHasInk(src, moji.Width, sx + keep + 1, sy, sourceCell)) keep++;
+                }
+
+                for (int y = 0; y < sourceCell; y++)
+                {
+                    for (int x = 0; x <= keep; x++)
                     {
                         int s = ((sy + y) * moji.Width + sx + x) * 4;
-                        if (src[s + 3] < 0x40) continue;
-                        mask[(y + Pad) * cell + x + Pad] = true;
+                        int d = ((dy + y + pad) * width + dx + x + pad) * 4;
+                        if (antiAliased)
+                        {
+                            // The sheet's own soft alpha and dark edge are the glyph's outline.
+                            if (src[s + 3] == 0) continue;
+                            rgba[d] = src[s];
+                            rgba[d + 1] = src[s + 1];
+                            rgba[d + 2] = src[s + 2];
+                            rgba[d + 3] = src[s + 3];
+                            continue;
+                        }
+                        if (src[s + 3] < InkAlpha) continue;
+                        mask[(y + pad) * cell + x + pad] = true;
                         right = Math.Max(right, x);
-                        int d = ((dy + y + Pad) * width + dx + x + Pad) * 4;
                         rgba[d] = src[s];
                         rgba[d + 1] = src[s + 1];
                         rgba[d + 2] = src[s + 2];
@@ -147,18 +217,24 @@ namespace Gordian.App.Graphics
                     }
                 }
 
-                // The outline: every empty pixel next to the glyph turns dark.
-                for (int y = 0; y < cell; y++)
+                // The native sheet's outline: every empty pixel next to the glyph turns dark.
+                if (!antiAliased)
                 {
-                    for (int x = 0; x < cell; x++)
+                    for (int y = 0; y < cell; y++)
                     {
-                        if (mask[y * cell + x] || !Touches(mask, cell, x, y)) continue;
-                        int d = ((dy + y) * width + dx + x) * 4;
-                        rgba[d] = rgba[d + 1] = rgba[d + 2] = 0;
-                        rgba[d + 3] = OutlineAlpha;
+                        for (int x = 0; x < cell; x++)
+                        {
+                            if (mask[y * cell + x] || !Touches(mask, cell, x, y)) continue;
+                            int d = ((dy + y) * width + dx + x) * 4;
+                            rgba[d] = rgba[d + 1] = rgba[d + 2] = 0;
+                            rgba[d + 3] = OutlineAlpha;
+                        }
                     }
                 }
-                font._advances[i] = right < 0 ? SpaceAdvance : right + InkGap;
+
+                // In layout pixels. The bright core ends about a pixel inside where a 1-bit mask's ink would, so an
+                // anti-aliased glyph advances one pixel more to keep the calibrated spacing.
+                font._advances[i] = right < 0 ? SpaceAdvance : right / sourceScale + InkGap + (antiAliased ? 1 : 0);
             }
 
             // Digits share one advance (the widest), so numbers and timestamps line up: a retail capture spaces
@@ -167,6 +243,48 @@ namespace Gordian.App.Graphics
             for (char c = '0'; c <= '9'; c++) digit = Math.Max(digit, font._advances[c - FirstChar]);
             for (char c = '0'; c <= '9'; c++) font._advances[c - FirstChar] = digit;
             return font;
+        }
+
+        /// <summary>Whether any pixel of the sheet's ASCII cells has an alpha between 0 and 255 (an anti-aliased font mod).</summary>
+        private static bool HasSoftAlpha(DecodedTexture moji, int sourceCell)
+        {
+            byte[] src = moji.RgbaPixels;
+            for (int i = 0; i < AsciiCount; i++)
+            {
+                int sx = i % SourceColumns * sourceCell, sy = i / SourceColumns * sourceCell;
+                for (int y = 0; y < sourceCell; y++)
+                {
+                    for (int x = 0; x < sourceCell; x++)
+                    {
+                        byte a = src[((sy + y) * moji.Width + sx + x) * 4 + 3];
+                        if (a != 0 && a != 0xFF) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The rightmost column of a cell holding bright ink (the glyph's core, not its dark edge), or -1.</summary>
+        private static int CoreRight(byte[] src, int sheetWidth, int sx, int sy, int size)
+        {
+            for (int x = size - 1; x >= 0; x--)
+            {
+                for (int y = 0; y < size; y++)
+                {
+                    int s = ((sy + y) * sheetWidth + sx + x) * 4;
+                    if (src[s + 3] >= InkAlpha && Math.Max(src[s], Math.Max(src[s + 1], src[s + 2])) >= CoreBrightness) return x;
+                }
+            }
+            return -1;
+        }
+
+        private static bool ColumnHasInk(byte[] src, int sheetWidth, int x, int sy, int height)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (src[((sy + y) * sheetWidth + x) * 4 + 3] >= InkAlpha) return true;
+            }
+            return false;
         }
 
         private static bool Touches(bool[] mask, int size, int x, int y)
