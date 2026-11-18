@@ -89,6 +89,52 @@ namespace Gordian.Core.World
         /// referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
         /// </summary>
         public bool IsServerFrozen => _isServerFrozen;
+
+        private volatile bool _isSpeedHeld;
+        private volatile bool _isMotionStopped;
+
+        /// <summary>
+        /// The last S2C 0x037 sent a <c>Speed</c> of 0: LandSandBoat's bind (<c>scripts/effects/bind.lua</c> sets the base speed to
+        /// 0) or a negative <c>MOVE_SPEED_OVERRIDE</c> (<c>CBattleEntity::UpdateSpeed</c>). <see cref="Speed"/> keeps the last
+        /// non-zero speed, which the player moves at again once this clears (#540).
+        /// </summary>
+        public bool IsSpeedHeld => _isSpeedHeld;
+
+        /// <summary>
+        /// The server's MotStopFlag on the player's own status (S2C 0x037 flags2 bit 19): terror or petrification (#540).
+        /// </summary>
+        public bool IsMotionStopped => _isMotionStopped;
+
+        /// <summary>
+        /// How crowd control holds the player now (#540): <see cref="PlayerMovementHold.Immobile"/> under stun, sleep,
+        /// petrification or terror (the buff lists of S2C 0x037 and 0x063, or the 0x037 MotStopFlag),
+        /// <see cref="PlayerMovementHold.Rooted"/> under bind (the buff lists, or a 0x037 speed of 0). The server does not
+        /// enforce these; the locomotion loop does, and no option lifts them.
+        /// </summary>
+        public PlayerMovementHold MovementHold
+        {
+            get
+            {
+                var hold = _isMotionStopped ? PlayerMovementHold.Immobile
+                    : _isSpeedHeld ? PlayerMovementHold.Rooted
+                    : PlayerMovementHold.None;
+                if (hold == PlayerMovementHold.Immobile) return hold;
+                lock (_lock)
+                {
+                    for (int i = 0; i < BuffIcons.Length; i++)
+                    {
+                        int high = (BuffStatusBits[i / 4] >> (2 * (i % 4))) & 0x03;
+                        int id = BuffIcons[i] | (high << 8);
+                        if (id != 0xFF) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For((ushort)id));
+                    }
+                    for (int i = 0; i < StatusIconIds.Length; i++)
+                    {
+                        if (StatusIconIds[i] != S2C_0x063_MiscData.EmptyIcon) hold = StatusEffectHolds.Max(hold, StatusEffectHolds.For(StatusIconIds[i]));
+                    }
+                }
+                return hold;
+            }
+        }
         #endregion
 
         #region Vitals
@@ -596,6 +642,8 @@ namespace Gordian.Core.World
                 LinkshellColor = (status.LsColorR, status.LsColorG, status.LsColorB);
                 GmLevel = status.GmLevel;
                 _isServerFrozen = status.IsFrozen;
+                _isMotionStopped = status.IsMotionStopped;
+                _isSpeedHeld = status.IsValid && status.Speed == 0;
 
                 if (status.Speed > 0 && Speed != status.Speed)
                 {
