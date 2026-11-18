@@ -115,9 +115,13 @@ namespace Gordian.Core.Resources.Graphics
         /// <summary>
         /// Returns the model's effects, or null when it has no generator that draws anything. With
         /// <paramref name="cameraEffects"/> (a cutscene scene DAT, played by <c>SceneEffectPlayer</c>) the
-        /// camera-following generators are kept as well: the scene draws them in front of the camera.
+        /// camera-following generators are kept as well: the scene draws them in front of the camera. <paramref name="table1"/>
+        /// and <paramref name="table2"/> are the zone mesh key tables: a scene DAT's generators may draw Section 0x2E meshes,
+        /// stored encrypted like a zone's (#459: Lower Delkfutt's Tower event 37's sea, coral and Bahamut, file 51252
+        /// <c>1sea</c> / <c>3sea</c> / <c>4sea</c> / <c>1cor</c>), which without them do not decode and their generators drop.
         /// </summary>
-        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null, bool cameraEffects = false)
+        public static ActorEffectSet? Load(ReadOnlySpan<byte> datBytes, SharedEffectResources? sharedEffects = null, string? datSource = null, bool cameraEffects = false,
+            ReadOnlySpan<byte> table1 = default, ReadOnlySpan<byte> table2 = default)
         {
             if (datBytes.IsEmpty) return null;
             // Most models carry no generators: skip the full parse (and a second decode of their body textures).
@@ -157,7 +161,7 @@ namespace Gordian.Core.Resources.Graphics
             }
 
             var decoded = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);
-            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource, cameraEffects: cameraEffects);
+            var parsed = ZoneDataLoader.ParseZoneContainer(datBytes, zoneId: -1, table1, table2, outTextures: decoded, sharedEffects: sharedEffects, actorEffects: true, datSource: datSource, cameraEffects: cameraEffects);
 
             var layers = new List<WeatherSkyLayer>();
             var textures = new Dictionary<string, DecodedTexture>(StringComparer.OrdinalIgnoreCase);

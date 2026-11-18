@@ -877,7 +877,11 @@ namespace Gordian.Core.Resources
             return _sceneEffectCache.GetOrAdd(fileId, id =>
             {
                 var bytes = LoadDatBytesByFileId(id);
-                return bytes == null ? null : Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true);
+                if (bytes == null) return null;
+                // Scene DATs can draw Section 0x2E meshes, encrypted like a zone's (#459).
+                EnsureKeyTables();
+                return Gordian.Core.Resources.Graphics.ActorEffectLoader.Load(bytes, GetSharedEffects(), Graphics.DecodedTexture.FileLabel(id), cameraEffects: true,
+                    _keyTable1 ?? ReadOnlySpan<byte>.Empty, _keyTable2 ?? ReadOnlySpan<byte>.Empty);
             });
         }
 

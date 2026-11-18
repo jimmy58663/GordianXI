@@ -1373,7 +1373,10 @@ namespace Gordian.App.Graphics
             UpdateZoneVisibility(camera.Position, environment);
 
             // 2. Select submesh list (loaded zone or fallback scene)
-            var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
+            // A cutscene stage zone draws only what it places (#459: stage zone 542, Lower Delkfutt's Tower event 37, places
+            // nothing; its sea is the scene file's), never the fallback scene, ground plane or ocean.
+            bool bareStage = IsStageZone(LoadedZone);
+            var activeSubmeshes = _zoneSubmeshes.Count > 0 || bareStage ? _zoneSubmeshes : _fallbackSubmeshes;
 
             // 3. Record Render Commands
             // A cutscene (the event holds the camera or plays a shot) draws the scene offscreen for its blur and
@@ -1569,7 +1572,7 @@ namespace Gordian.App.Graphics
 
             // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
             // render the adaptive ground plane centered under the player so character stands on solid ground.
-            if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null)
+            if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null && !bareStage)
             {
                 float groundY = camera.Target.Y - 1.3f;
                 var groundWorld = Matrix4x4.CreateTranslation(new Vector3(camera.Target.X, groundY, camera.Target.Z));
@@ -1762,6 +1765,7 @@ namespace Gordian.App.Graphics
             bool shouldRenderOcean = EnableOceanWaterPlane &&
                                      !environment.Indoors &&
                                      _oceanWaterSubmesh != null &&
+                                     !bareStage &&
                                      HasSeaLevelGeometry(activeSubmeshes);
 
             IsOceanWaterPlaneActive = shouldRenderOcean;
@@ -1966,6 +1970,10 @@ namespace Gordian.App.Graphics
                 IsBlend = true
             };
         }
+
+        /// <summary>Whether the zone is a cutscene stage zone (500-699) that event opcode 0x34 opens (#233, #459).</summary>
+        internal static bool IsStageZone(ZoneGeometry? zone) =>
+            zone != null && zone.ZoneId >= ZoneDataLoader.EventStageZoneFirst && zone.ZoneId <= ZoneDataLoader.EventStageZoneLast;
 
         private bool HasSeaLevelGeometry(List<GpuSubmesh> submeshes)
         {

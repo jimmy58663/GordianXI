@@ -1793,8 +1793,11 @@ namespace Gordian.Core.Resources
                 if (drawnByEffect.Count > 0) zone.MeshGroups.RemoveAll(drawnByEffect.Contains);
             }
 
-            // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C)
-            if (placedCount == 0 && raw0x2ESubmeshes.Count > 0)
+            // Fallback: If no placements were instantiated (e.g. non-world DAT or unit test without 0x1C). Not for a cutscene
+            // stage zone: one with nothing placed draws nothing of its own (#459: stage zone 542, Lower Delkfutt's Tower
+            // event 37, holds only the small sky pieces 3cors / 5cors / shp1, which stood as a dark block in mid-sea; the sea
+            // is the scene file's).
+            if (placedCount == 0 && raw0x2ESubmeshes.Count > 0 && !(zoneId >= EventStageZoneFirst && zoneId <= EventStageZoneLast))
             {
                 for (int i = 0; i < raw0x2ESubmeshes.Count; i++)
                 {
