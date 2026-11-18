@@ -84,10 +84,17 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// Whether the client draws a name over the entity. Hidden and invisible entities, entities a running event hides
         /// the name of (opcode 0x92, <see cref="WorldEntity.HidesEventName"/>), NPCs flagged to hide their
-        /// name, and NPCs that have no name plate at all (<see cref="HasNamePlate"/>) have none.
+        /// name, and NPCs that have no name plate at all (<see cref="HasNamePlate"/>) have none. While a cutscene shows a
+        /// stage zone (<paramref name="inStageZone"/>: event opcode 0x34 opened one, <c>WorldState.EventZoneId</c>) only
+        /// characters keep theirs (#459): every NPC of Pso'Xja's event 2 (stage zone 541) and Lower Delkfutt's Tower's
+        /// event 36 (540) is drawn without a plate in retail, the named ones and the "???" too, while the player's own
+        /// plate shows in the wide shots (459-psoxja-cs2.mp4, 459-lower-delkfutt-cs36-rerun.mp4, 2026-11-08). *Inference*:
+        /// 0x34 deletes the actors and makes them again for the stage zone (XiEvents OpCodes/0x0034), whose id has no entity
+        /// list DAT to name NPCs from.
         /// </summary>
-        public static bool ShowsName(WorldEntity entity, NamePlateFlags flags)
+        public static bool ShowsName(WorldEntity entity, NamePlateFlags flags, bool inStageZone = false)
         {
+            if (inStageZone && entity is not PlayerEntity) return false;
             if (!entity.IsSpawned || ((entity.IsHidden || entity.IsSleeping || entity.IsAutoTargetOnly) && !entity.IsInEvent)
                 || entity.IsInvisible || string.IsNullOrWhiteSpace(entity.Name)) return false;
             if (entity.HidesEventName) return false;

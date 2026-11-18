@@ -160,32 +160,48 @@ namespace Gordian.Engine.Events
                 }
                 double now = Clock();
                 AddSounds(taskId, fileId, resource, routine, now, origin, casterServerId, 0);
-                foreach (var command in routine.Commands)
+                Schedule(taskId, resource, routine, origin, now, 0);
+            }
+        }
+
+        /// <summary>
+        /// Schedules a routine's camera shots, fades, flashes, blurs and dissolves from <paramref name="now"/>, and those of
+        /// the routines it starts (0x03) from their start, as its sounds and actor colours are (#459): Lower Delkfutt's
+        /// Tower's event 37 (the sea and Bahamut) runs one task, 51252's <c>main</c>, whose shots <c>c001</c>-<c>c004</c>
+        /// are in the routines <c>cut1</c>-<c>cut4</c> it starts, so the camera stayed on <c>main</c>'s own <c>c000</c>.
+        /// A repeating routine (0x73) is not followed: its commands would repeat without end.
+        /// </summary>
+        private void Schedule(int taskId, EventSceneResource resource, SceneRoutine routine, Vector3 origin, double now, int depth)
+        {
+            foreach (var command in routine.Commands)
+            {
+                double start = now + command.StartFrame / FramesPerSecond;
+                double duration = command.Duration / FramesPerSecond;
+                switch (command.Kind)
                 {
-                    double start = now + command.StartFrame / FramesPerSecond;
-                    double duration = command.Duration / FramesPerSecond;
-                    switch (command.Kind)
-                    {
-                        case SceneCommandKind.Camera when resource.TryGetRoute(command.Reference, out var route):
-                            _shots.Add(new Shot { TaskId = taskId, Route = route, Origin = origin, Start = start, Duration = duration });
-                            break;
-                        case SceneCommandKind.SceneFade:
-                            Insert(_sceneFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _sceneBase);
-                            break;
-                        case SceneCommandKind.InterfaceFade:
-                            Insert(_interfaceFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _interfaceBase);
-                            break;
-                        case SceneCommandKind.ScreenFlash:
-                            Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
-                            break;
-                        case SceneCommandKind.Blur:
-                            Insert(_blurTints, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _blurTintBase);
-                            Insert(_blurAmounts, new Fade { TaskId = taskId, Target = BlurAmountOf(command.Color, command.Factor), Start = start, Duration = duration }, _blurAmountBase);
-                            break;
-                        case SceneCommandKind.CrossDissolve when duration > 0:
-                            _dissolves.Add(new Dissolve { TaskId = taskId, Sequence = ++_dissolveSequence, Start = start, Duration = duration });
-                            break;
-                    }
+                    case SceneCommandKind.Camera when resource.TryGetRoute(command.Reference, out var route):
+                        _shots.Add(new Shot { TaskId = taskId, Route = route, Origin = origin, Start = start, Duration = duration });
+                        break;
+                    case SceneCommandKind.SceneFade:
+                        Insert(_sceneFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _sceneBase);
+                        break;
+                    case SceneCommandKind.InterfaceFade:
+                        Insert(_interfaceFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _interfaceBase);
+                        break;
+                    case SceneCommandKind.ScreenFlash:
+                        Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
+                        break;
+                    case SceneCommandKind.Blur:
+                        Insert(_blurTints, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _blurTintBase);
+                        Insert(_blurAmounts, new Fade { TaskId = taskId, Target = BlurAmountOf(command.Color, command.Factor), Start = start, Duration = duration }, _blurAmountBase);
+                        break;
+                    case SceneCommandKind.CrossDissolve when duration > 0:
+                        _dissolves.Add(new Dissolve { TaskId = taskId, Sequence = ++_dissolveSequence, Start = start, Duration = duration });
+                        break;
+                    case SceneCommandKind.StartRoutine when depth < MaxSoundLinkDepth && command.Reference != routine.Name
+                        && resource.TryGetRoutine(command.Reference, out var child):
+                        Schedule(taskId, resource, child, origin, start, depth + 1);
+                        break;
                 }
             }
         }

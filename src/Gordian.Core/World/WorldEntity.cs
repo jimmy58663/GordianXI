@@ -70,6 +70,14 @@ namespace Gordian.Core.World
         public uint ServerId { get; }
         public ushort TargetIndex { get; set; }
         public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The zone's entity list carries this NPC without a name (#459), so it keeps none: retail names zone NPCs from
+        /// that list, and draws no plate over Pso'Xja's robed figures (16814539-16814549) although LandSandBoat sends them as
+        /// "blank" (459-psoxja-cs2.mp4, 2026-11-08).
+        /// </summary>
+        public bool IsListedUnnamed { get; set; }
+
         public EntityType Type { get; set; }
 
         private Vector3 _position;

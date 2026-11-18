@@ -304,6 +304,71 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Pso'Xja (9) event 2, the mothercrystal (CoP, #459): the scene walks the player through a zone 9 corridor at
+        /// (-380, 48, 332), opens stage zone 541 (0x34), places the player there last at (-348.5, -19.1, -396.0) and comes
+        /// back (0x35). Retail leaves the player where it stood (459-psoxja-cs2.mp4, 2026-11-08: the start position,
+        /// unchanged before and after); #338's keep-the-placement rule moved it to the stage-zone spot, outside zone 9's
+        /// geometry.
+        /// </summary>
+        [Fact]
+        public void PsoXjaMothercrystal_LeavesThePlayerWhereItStood()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            var query = new Gordian.Core.Resources.Ui.UiMenuDefinition
+            {
+                Name = Gordian.Engine.Ui.StockUiMenuController.QueryMenu,
+                Frame = new Gordian.Core.Resources.Ui.UiMenuFrame { X = 16, Y = 208, Width = 366, Height = 88, Anchor = Gordian.Core.Resources.Ui.UiAnchor.BottomLeft },
+                Buttons = new List<Gordian.Core.Resources.Ui.UiMenuButton>
+                {
+                    new() { ButtonId = 1, X = 28, Y = 28, Width = 132, Height = 16, NavUp = 1, NavDown = 2, NavLeft = 1, NavRight = 1 },
+                    new() { ButtonId = 2, X = 28, Y = 48, Width = 132, Height = 16, NavUp = 1, NavDown = 2, NavLeft = 2, NavRight = 2 },
+                },
+            };
+            var menus = new Gordian.Engine.Ui.StockUiMenuController { Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(new[] { query }) };
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(), menus, () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 9);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            parser.LocalPlayer.ServerId = PlayerId;
+            var start = new System.Numerics.Vector3(-29.956f, -0.002f, 212.521f);
+            var self = new Gordian.Core.World.PlayerEntity(PlayerId, 0x400) { Position = start, IsSpawned = true };
+            parser.World.UpsertEntity(self);
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(9))!)!;
+            foreach (var block in script.Blocks)
+            {
+                if (block.ActorId is EventBlock.ZoneActor or EventBlock.PlayerActor || block.ActorId >= 0x7F000000) continue;
+                if (block.IndexOf(2) < 0 && block.IndexOf(EventBlock.AnyEventId) < 0) continue;
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(block.ActorId, (ushort)(block.ActorId & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            }
+            parser.Progression.StartEvent(PlayerId, 0x400, 9, 2, 0);
+            bool walked = false, openedStage = false;
+            for (int i = 0; i < 200_000 && (i < 600 || controller.IsActive); i++)
+            {
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                if (menus.Top is { IsQuery: true } top)
+                {
+                    while (top.SelectedButtonId != 1) menus.Move(Gordian.Engine.Input.InputAction.MenuUp);
+                    menus.Activate(); // "Proceed onward?" Yes
+                }
+                parser.World.TryGetByServerId(PlayerId, out var me);
+                walked |= me!.EventPose is { } pose && pose.Position.X < -370;
+                openedStage |= parser.World.EventZoneId == 541;
+            }
+            Assert.False(controller.IsActive);
+            Assert.True(walked);
+            Assert.True(openedStage);
+            Assert.Null(self.EventPose);
+            Assert.False(parser.LocalPlayer.TryTakePositionCorrection(out _, out _));
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.

@@ -165,6 +165,35 @@ namespace Gordian.Engine.Tests.Events
             Assert.False(presentation.TryGetCamera(out _));
         }
 
+        /// <summary>
+        /// A shot in a routine the task's routine starts (0x03) plays from that routine's start (#459): Lower Delkfutt's
+        /// Tower's event 37 runs one task, 51252's <c>main</c>, whose shots <c>c001</c>-<c>c004</c> are in <c>cut1</c>-<c>cut4</c>.
+        /// </summary>
+        [Fact]
+        public void ShotInAStartedRoutine_PlaysFromThatRoutinesStart()
+        {
+            var dat = SceneDat(
+                (0x06, "c000", RoutePayload(0, Key(-5, 0), Key(-5, 1))),
+                (0x06, "c001", RoutePayload(0, Key(0, 0), Key(10, 1))),
+                (0x07, "cut1", RoutinePayload(90, Command(0x01, 2, 30, 0, Array.Empty<byte>()), Command(0x04, 6, 0, 60, System.Text.Encoding.ASCII.GetBytes("c001")))),
+                (0x07, "main", RoutinePayload(200,
+                    Command(0x04, 6, 60, 0, System.Text.Encoding.ASCII.GetBytes("c000")),
+                    Command(0x03, 4, 0, 0, System.Text.Encoding.ASCII.GetBytes("cut1")))));
+            var resource = EventSceneResource.Parse(dat);
+            Assert.True(resource.TryGetRoutine("main", out var main));
+            Assert.Equal(60, main.Commands.Single(c => c.Kind == SceneCommandKind.StartRoutine).StartFrame);
+
+            double now = 100;
+            var presentation = new EventPresentation { Clock = () => now };
+            presentation.SetCameraHeld(true);
+            presentation.Play(1, resource, main, Vector3.Zero);
+            Assert.True(presentation.TryGetCamera(out var first));
+            Assert.Equal(-5f, first.Eye.X, 3);
+            now += 2.0; // main frame 120 = cut1 frame 60: half way through c001
+            Assert.True(presentation.TryGetCamera(out var half));
+            Assert.Equal(5f, half.Eye.X, 3);
+        }
+
         [Fact]
         public void StoppedShot_KeepsThePoseItReached()
         {

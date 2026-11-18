@@ -555,9 +555,10 @@ namespace Gordian.Core.Network.Packets
                 // Retail names zone NPCs from the zone's entity list DAT ("Home Point #2" where LandSandBoat's database
                 // says "HomePoint#2"); the server's name is for dynamic entities the list does not carry.
                 string? listed = Resources.Tables.ZoneEntityNames.Resolve(_world.CurrentZoneId, npcPacket.UniqueNo);
-                if (!string.IsNullOrEmpty(listed))
+                if (listed != null)
                 {
                     entity.Name = listed;
+                    entity.IsListedUnnamed = listed.Length == 0;
                     _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 }
             }
@@ -566,14 +567,14 @@ namespace Gordian.Core.Network.Packets
             {
                 // LandSandBoat sends database names ("Island_Rarab"); the client shows them with spaces.
                 string name = npcPacket.GetName().Replace('_', ' ');
-                if (!string.IsNullOrEmpty(name) && string.IsNullOrEmpty(entity.Name))
+                if (!string.IsNullOrEmpty(name) && string.IsNullOrEmpty(entity.Name) && !entity.IsListedUnnamed)
                 {
                     entity.Name = name;
                     _pendingEntityRequests.Remove(npcPacket.ActorIndex);
                 }
             }
 
-            if (string.IsNullOrEmpty(entity.Name) && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)
+            if (string.IsNullOrEmpty(entity.Name) && !entity.IsListedUnnamed && type != EntityType.Elevator && type != EntityType.Ship && type != EntityType.Door)
             {
                 TryRequestEntityInfo(npcPacket.ActorIndex);
             }

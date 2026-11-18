@@ -183,6 +183,16 @@ namespace Gordian.Engine.Events
         /// applied when they arrive.
         /// </summary>
         private readonly Dictionary<uint, EventPose> _pendingPoses = new();
+
+        /// <summary>
+        /// The event zone (<c>WorldState.EventZoneId</c>, 0 = the player's own zone) the player's event pose was set in
+        /// (#459). A pose set while a stage zone is open is in that zone's coordinates, so it is dropped when the scene
+        /// leaves that zone and never kept as the player's own position: Pso'Xja's event 2 last places the player at
+        /// (-348.5, -19.1, -396.0) in stage zone 541, outside zone 9's geometry, where retail leaves the player at its start
+        /// (459-psoxja-cs2.mp4, 2026-11-08: -29.956, -0.002, 212.521 before and after).
+        /// </summary>
+        private ushort _playerPoseZone;
+
         private readonly Dictionary<uint, bool> _pendingHidden = new();
         private readonly Dictionary<uint, bool> _pendingKeepHeight = new();
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
@@ -632,6 +642,7 @@ namespace Gordian.Engine.Events
         /// </summary>
         private void ClearStaging()
         {
+            _playerPoseZone = 0;
             _cutsceneHud = false;
             _eventText = null;
             _pendingPoses.Clear();
@@ -829,12 +840,15 @@ namespace Gordian.Engine.Events
         /// The player stays where the event left it (#338): a script that walks the player (opcode 0x1F, Port Jeuno's
         /// "Door:Arrivals Entrance" event 54 walking the player through the customs door) or turns it moves the player's own
         /// position, which the locomotion loop then reports to the server (C2S 0x015), as retail does. Settled onto the floor
-        /// there, since an event's heights are drawn on the floor below them. Not for an event dropped by a zone change.
+        /// there, since an event's heights are drawn on the floor below them. Not for an event dropped by a zone change, nor
+        /// for a pose set in a stage zone (#459).
         /// </summary>
         private void KeepPlayerEventPlacement()
         {
             var player = _player;
             if (player == null || _world == null || !_world.TryGetByServerId(player.ServerId, out var self)) return;
+            // Not a pose from a stage zone (#459: Pso'Xja's event 2); retail leaves the player where it stood.
+            if (_playerPoseZone != 0) return;
             KeepEventPlacement(player, self);
         }
 
@@ -1249,6 +1263,7 @@ namespace Gordian.Engine.Events
                 return;
             }
             entity.EventPose = pose;
+            if (serverId == (_player?.ServerId ?? 0)) _playerPoseZone = _world.EventZoneId;
             _staged.Add(serverId);
         }
 
@@ -1480,6 +1495,14 @@ namespace Gordian.Engine.Events
             var world = _world;
             if (world == null) return;
             world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
+            // A pose the player was given in a stage zone does not carry over (#459): back in its own zone the player
+            // stands where it is.
+            if (_player is { } player && world.EventZoneId != _playerPoseZone && _playerPoseZone != 0
+                && world.TryGetByServerId(player.ServerId, out var self) && self.EventPose != null)
+            {
+                self.EventPose = null;
+                _playerPoseZone = 0;
+            }
             GordianLog.Info(LogCategories.Event, world.EventZoneId == 0 ? $"Event zone: back to zone {world.CurrentZoneId}." : $"Event zone: zone {zoneId} opened for the scene.");
         }
 
