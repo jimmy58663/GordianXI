@@ -282,6 +282,9 @@ namespace Gordian.Engine.Events
             double Duration = 0, int FileId = 0, string Generator = "", float Far = 0f, float Near = 0f);
 
         private readonly List<SceneSound> _sounds = new();
+
+        /// <summary>The key a held sound (0x8A / 0x8B) plays under, apart from the file's generators of the same name.</summary>
+        internal static string HeldSoundKey(string name) => "8A:" + name;
         private const int MaxSoundLinkDepth = 4;
         private int _soundResets;
 
@@ -303,6 +306,13 @@ namespace Gordian.Engine.Events
                 double duration = command.Duration / FramesPerSecond;
                 switch (command.Kind)
                 {
+                    // A held sound (0x8A) plays like a sound generator, keyed by its name, until 0x8B stops it (#206).
+                    case SceneCommandKind.HeldSound when resource.TryGetSound(command.Reference, out int heldId):
+                        _sounds.Add(new SceneSound(taskId, at, heldId, 0x02, origin, caster, 0, fileId, HeldSoundKey(command.Reference)));
+                        break;
+                    case SceneCommandKind.StopHeldSound:
+                        _sounds.Add(new SceneSound(taskId, at, 0, 0x1E, origin, caster, FileId: fileId, Generator: HeldSoundKey(command.Reference)));
+                        break;
                     case SceneCommandKind.Sound when resource.TryGetSound(command.Reference, out int soundId):
                         _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster, FileId: fileId));
                         break;

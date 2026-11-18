@@ -71,5 +71,38 @@ namespace Gordian.Engine.Tests.Events
             presentation.TakeDueSounds(sounds = new List<EventPresentation.SceneSound>());
             Assert.Empty(sounds); // handed out once
         }
+
+        /// <summary>
+        /// Held sounds (#206): 30982 (Jade Sepulcher event 4) <c>04se</c> starts its sound <c>0019</c> (10019) with 0x8A at
+        /// frame 0 and stops it with 0x8B at frame 35; both go out under the same key, the stop at the right time.
+        /// </summary>
+        [Fact]
+        public void Retail_HeldSound_StartsAndStopsByName()
+        {
+            if (!Directory.Exists(GameDirectory))
+            {
+                return;
+            }
+
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var resource = EventSceneResource.Parse(rm.LoadDatBytesByFileId(30982)!);
+            Assert.True(resource.TryGetRoutine("04se", out var routine));
+            Assert.Contains(routine.Commands, c => c.Kind == SceneCommandKind.HeldSound && c.Reference == "0019" && c.StartFrame == 0);
+            Assert.Contains(routine.Commands, c => c.Kind == SceneCommandKind.StopHeldSound && c.Reference == "0019" && c.StartFrame == 35);
+
+            double clock = 0;
+            var presentation = new EventPresentation { Clock = () => clock };
+            presentation.Play(1, resource, routine, Vector3.Zero, 30982, 1, 1, 0f);
+            var sounds = new List<EventPresentation.SceneSound>();
+            presentation.TakeDueSounds(sounds);
+            var start = Assert.Single(sounds, s => s.SoundId == 10019);
+            Assert.Equal(0x02, start.Opcode);
+            Assert.DoesNotContain(sounds, s => s.Opcode == 0x1E);
+            clock = 36 / 60.0;
+            presentation.TakeDueSounds(sounds = new List<EventPresentation.SceneSound>());
+            var stop = Assert.Single(sounds, s => s.Opcode == 0x1E);
+            Assert.Equal((start.FileId, start.Generator), (stop.FileId, stop.Generator));
+        }
     }
 }

@@ -292,6 +292,18 @@ namespace Gordian.Core.Resources.Events
         /// (1 Rise of the Zilart, 2 Chains of Promathia, 3 Treasures of Aht Urhgan) installed (title fly-through).
         /// </summary>
         ExpansionChoice,
+
+        /// <summary>
+        /// Op 0x8A: starts the 0x3D sound section <see cref="SceneCommand.Reference"/> of the same file and keeps it until a
+        /// 0x8B names it (<see cref="StopHeldSound"/>). Read from the retail DATs (#206, 2026-11-18): every name resolves to a
+        /// sound of its file (30982, Jade Sepulcher event 4's file: <c>04se</c> starts <c>0019</c>, sound 10019, and stops it
+        /// 35 frames later; <c>0s05</c> starts <c>6112</c> and the next shot <c>0s06</c> stops it; <c>0s11</c> holds
+        /// <c>4051</c> for 89 frames); 59 uses in 21 scene files, 48 stops. *Inference*: no reference names the ops.
+        /// </summary>
+        HeldSound,
+
+        /// <summary>Op 0x8B: stops the sound a 0x8A of the same name started (<see cref="HeldSound"/>).</summary>
+        StopHeldSound,
     }
 
     /// <summary>
@@ -403,6 +415,11 @@ namespace Gordian.Core.Resources.Events
                 else if (op == 0x10)
                 {
                     kind = SceneCommandKind.CrossDissolve;
+                }
+                else if (op is 0x8A or 0x8B && size >= 12 && p + 12 <= payload.Length)
+                {
+                    reference = ReadFourCc(payload.Slice(p + 8, 4));
+                    if (reference.Length > 0) kind = op == 0x8A ? SceneCommandKind.HeldSound : SceneCommandKind.StopHeldSound;
                 }
                 else if (op is 0x0A or 0x0B or 0x4A or 0x53 or 0x60 && size >= 12 && p + 12 <= payload.Length)
                 {
