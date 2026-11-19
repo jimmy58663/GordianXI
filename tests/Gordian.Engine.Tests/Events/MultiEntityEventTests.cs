@@ -369,6 +369,57 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Lower Delkfutt's Tower (184) event 37, Bahamut over the sea (#459 round 3): the scene opens stage zone 542 and
+        /// never places the player there. Retail shows no player (Zone184_CS36-39.mp4), and file 51252's <c>main</c>, played
+        /// on the player, anchors its effects at the stage's origin; the player is shown again back in zone 184.
+        /// </summary>
+        [Fact]
+        public void LowerDelkfuttBahamut_HidesThePlayerAndAnchorsAtTheStageOrigin()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(), new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 184);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            parser.LocalPlayer.ServerId = PlayerId;
+            var self = new Gordian.Core.World.PlayerEntity(PlayerId, 0x400) { Position = new System.Numerics.Vector3(340f, 0f, 20f), IsSpawned = true };
+            parser.World.UpsertEntity(self);
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(184))!)!;
+            foreach (var block in script.Blocks)
+            {
+                if (block.ActorId is EventBlock.ZoneActor or EventBlock.PlayerActor || block.ActorId >= 0x7F000000) continue;
+                if (block.IndexOf(37) < 0 && block.IndexOf(EventBlock.AnyEventId) < 0) continue;
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(block.ActorId, (ushort)(block.ActorId & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            }
+            parser.Progression.StartEvent(PlayerId, 0x400, 184, 37, 0);
+            bool hiddenOnStage = false, shownOnStage = false;
+            var effects = new List<SceneEffectEvent>();
+            for (int i = 0; i < 200_000 && (i < 600 || controller.IsActive); i++)
+            {
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                if (parser.World.EventZoneId == 542)
+                {
+                    hiddenOnStage |= self.IsEventHidden;
+                    shownOnStage |= !self.IsEventHidden;
+                }
+            }
+            controller.Presentation.CopySceneEffects(0, effects);
+            Assert.False(controller.IsActive);
+            Assert.True(hiddenOnStage);
+            Assert.False(shownOnStage);
+            Assert.False(self.IsEventHidden);
+            var main = Assert.Single(effects, e => e.FileId == 51252 && e.Routine == "main");
+            Assert.Equal(System.Numerics.Vector3.Zero, main.Origin);
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.

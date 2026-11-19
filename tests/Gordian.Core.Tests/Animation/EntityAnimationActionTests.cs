@@ -92,6 +92,39 @@ namespace Gordian.Core.Tests.Animation
         }
 
         /// <summary>
+        /// A gesture named before the bank that holds it is loaded waits for that bank (#459 round 3: Jade Sepulcher's event
+        /// 4 plays the Wivre's <c>hil2</c> through bank 57383 and loads 57384, which has it, 12 frames later); one that never
+        /// turns up is dropped after <see cref="EntityAnimationState.EventMotionBankWaitSeconds"/>.
+        /// </summary>
+        [Fact]
+        public void EventMotion_NamedBeforeItsBank_WaitsForTheBank()
+        {
+            var model = Model([]);
+            var lie = MotionRoutineDecoder.Decode(MotionRoutineBuilder.Routine(2, MotionRoutineBuilder.PlayClip("hsg?", 2, 2, 0, 0, 0)), "hil2")!;
+            var bank = new EventMotionBank(57384, [Clip("hsg0", 0.1f)], [lie]);
+
+            var state = new EntityAnimationState();
+            state.Advance(0f, AnimationCategory.Idle, 0, model);
+            state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "hil2"));
+            Run(state, model, AnimationCategory.Idle, 12);
+            Assert.False(state.IsPlayingAction);
+
+            state.AddEventMotionBank(bank);
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.Equal("hil2", state.ActiveRoutine!.Name);
+            Assert.Equal("hsg0", state.CurrentClip!.Name);
+
+            var other = new EntityAnimationState();
+            other.Advance(0f, AnimationCategory.Idle, 0, model);
+            long old = Stopwatch.GetTimestamp() - (long)((EntityAnimationState.EventMotionBankWaitSeconds + 0.5) * Stopwatch.Frequency);
+            other.EnqueueAction(Request(ActionMotion.EventMotion, routine: "hil2", received: old));
+            other.Advance(Tick, AnimationCategory.Idle, 0, model);
+            other.AddEventMotionBank(bank);
+            other.Advance(Tick, AnimationCategory.Idle, 0, model);
+            Assert.False(other.IsPlayingAction);
+        }
+
+        /// <summary>
         /// A gesture whose last clip loops until replaced (loop count 0, #193: package 9's <c>sha0</c> kneels down with
         /// <c>sm0</c> and holds the kneel <c>sm1</c>) keeps the pose past its routine's length, until the next gesture
         /// (<c>sha1</c> gets up) or a stop; the event still waits only one pass.
