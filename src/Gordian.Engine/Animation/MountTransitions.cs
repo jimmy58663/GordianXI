@@ -51,6 +51,15 @@ namespace Gordian.Engine.Animation
         /// <summary>The chocobo dig routine (the chocobo and its rider).</summary>
         public const string DigRoutine = "chor";
 
+        /// <summary>
+        /// The length of <see cref="DigRoutine"/> in 60 Hz ticks (rider and chocobo both play <c>chh</c> for 168 ticks), and
+        /// how long the dig freezes its rider. <c>chor</c> carries no control lock (op 0x2E) in either DAT, where the rider's
+        /// <c>coff</c> does (0-180), but retail freezes the rider for the whole dig, moving and turning, as for a job ability
+        /// (the maintainer, #540 round 3): <see cref="PlayDig"/> holds the lock itself on the same action-freeze path
+        /// (<see cref="ActionRequest.ControlLockTicks"/>), so <c>/actionfreeze actions</c> lifts it as it lifts a job ability's.
+        /// </summary>
+        public const int DigTicks = 168;
+
         /// <summary>The dismount routine (every mount and rider pack).</summary>
         public const string DismountRoutine = "coff";
 
@@ -138,14 +147,15 @@ namespace Gordian.Engine.Animation
             ticks >= profile.TotalTicks ? 0f : 1f - Math.Clamp((ticks - profile.FadeStart) / profile.FadeTicks, 0f, 1f);
 
         /// <summary>
-        /// Plays a chocobo dig (S2C 0x02F) on <paramref name="entity"/>: <c>chor</c> on the rider and on its chocobo. Nothing
-        /// plays for a player not riding a chocobo.
+        /// Plays a chocobo dig (S2C 0x02F) on <paramref name="entity"/>: <c>chor</c> on the rider and on its chocobo, the
+        /// rider's with a <see cref="DigTicks"/> control lock (the local player cannot move or turn until the dig has played).
+        /// Nothing plays for a player not riding a chocobo.
         /// </summary>
         public static void PlayDig(WorldEntity entity)
         {
             ArgumentNullException.ThrowIfNull(entity);
             if (!entity.Mount.RidesChocobo) return;
-            Play(entity.Animation, entity.ServerId, DigRoutine);
+            Play(entity.Animation, entity.ServerId, DigRoutine, DigTicks);
             Play(entity.MountAnimation, entity.ServerId, DigRoutine);
         }
 
@@ -158,7 +168,7 @@ namespace Gordian.Engine.Animation
             Play(entity.MountAnimation, entity.ServerId, DismountRoutine);
         }
 
-        private static void Play(EntityAnimationState animation, uint serverId, string routine) =>
+        private static void Play(EntityAnimationState animation, uint serverId, string routine, int controlLockTicks = 0) =>
             animation.EnqueueAction(new ActionRequest
             {
                 ActorId = serverId,
@@ -166,6 +176,7 @@ namespace Gordian.Engine.Animation
                 Routine = routine,
                 TargetId = serverId,
                 ReceivedTimestamp = Stopwatch.GetTimestamp(),
+                ControlLockTicks = controlLockTicks,
             });
     }
 }

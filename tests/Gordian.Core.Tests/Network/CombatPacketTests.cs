@@ -464,37 +464,6 @@ namespace Gordian.Core.Tests.Network
             Assert.Equal(10, BinaryPrimitives.ReadUInt16LittleEndian(answer.AsSpan(12, 2)));
         }
 
-        /// <summary>
-        /// The player's own chocobo dig (S2C 0x02F aimed at it) roots the player, as bind does, for the dig routine's 168
-        /// ticks; another player's dig does not (Lane B's #437 test, 2026-11-18).
-        /// </summary>
-        [Fact]
-        public void S2C_0x02F_Dig_RootsTheLocalPlayerForTheDig()
-        {
-            var playerState = new LocalPlayerState { ServerId = 0x01020304 };
-            var module = new CombatPacketModule(new CombatState(), playerState, (_, _) => Task.CompletedTask);
-            var dispatcher = new PacketDispatcher();
-            module.Register(dispatcher);
-            static byte[] Dig(uint id, ushort index)
-            {
-                byte[] payload = new byte[8];
-                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), id);
-                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), index);
-                payload[6] = 1;
-                return payload;
-            }
-
-            dispatcher.Dispatch(new PacketHeader(S2C_0x02F_Dig.PacketId, 12, 1), Dig(0x01020999, 44));
-            Assert.Equal(PlayerMovementHold.None, playerState.MovementHold);
-
-            long before = System.Diagnostics.Stopwatch.GetTimestamp();
-            dispatcher.Dispatch(new PacketHeader(S2C_0x02F_Dig.PacketId, 12, 2), Dig(0x01020304, 10));
-            long freq = System.Diagnostics.Stopwatch.Frequency;
-            Assert.Equal(PlayerMovementHold.Rooted, playerState.MovementHoldAt(before + freq * 2));      // 2 s into the 2.8 s dig
-            Assert.Equal(PlayerMovementHold.None, playerState.MovementHoldAt(before + freq * 3));        // the dig is over
-            Assert.Equal(168, StatusEffectHolds.DigTicks);
-        }
-
         [Fact]
         public async Task CombatPacketModule_OutboundDispatch_SendsAndUpdatesCombatState()
         {

@@ -145,19 +145,41 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(Vector3.Zero, localEnt.Position);
         }
 
-        /// <summary>The player's own chocobo dig roots it as bind does: it turns but does not move (Lane B's #437 test).</summary>
+        /// <summary>
+        /// The player's own chocobo dig freezes it on the job-ability path (#540 round 3): <c>chor</c> carries no op 0x2E, so
+        /// <c>MountTransitions.PlayDig</c> holds a 168-tick control lock itself. The player cannot move or turn until the dig
+        /// has played, and the dig keeps the body while the player is still moving when it starts, so it is not cut short.
+        /// </summary>
         [Fact]
-        public void ChocoboDig_RootsThePlayer()
+        public void ChocoboDig_FreezesThePlayerAndPlaysInFull()
         {
-            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            var (controller, input, _, _, localEnt) = CreateTestHarness();
             controller.CameraYaw = 0.0f;
-            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50)));
-            player.BeginDigHold(System.Diagnostics.Stopwatch.GetTimestamp());
-            Assert.Equal(PlayerMovementHold.Rooted, player.MovementHold);
+            localEnt.Mount = MountAppearance.FromWire(MountAppearance.StatusChocobo, 0, 1);
+            var model = new Gordian.Core.Resources.Models.EntityModel { Name = "Test" };
+            foreach (var name in new[] { "idl", "wlk", "run", "chh" })
+            {
+                model.Animations[name] = new Gordian.Core.Resources.Models.AnimationClip { Name = name, KeyFrameDuration = 1f, NumFrames = 31 };
+            }
+            model.RawMotionRoutines["chor"] = Gordian.Core.Resources.Graphics.MotionRoutineDecoder.Decode(Gordian.Tests.Shared.MotionRoutineBuilder.Routine(168,
+                Gordian.Tests.Shared.MotionRoutineBuilder.PlayClip("chh?", 0, 168, 4, 4, 1)), "chor")!;
+            model.RebuildMotionRoutines();
+            localEnt.Animation.Advance(0f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
 
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            Gordian.Engine.Animation.MountTransitions.PlayDig(localEnt);
+            localEnt.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
+            localEnt.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
+            Assert.Equal("chor", localEnt.Animation.ActiveRoutine?.Name);             // still moving: the dig is not cut
+
+            long freq = System.Diagnostics.Stopwatch.Frequency;
+            Assert.True(controller.IsActionFrozen(localEnt, start + freq * 2));       // 2 s into the 2.8 s dig
+            Assert.False(controller.IsActionFrozen(localEnt, start + freq * 3));      // the dig is over
+
+            byte heading = localEnt.Direction;
             input.SetKeyDown(GordianKey.D);
             controller.Update(TimeSpan.FromSeconds(0.5));
-            Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(heading, localEnt.Direction);                                  // no turning either
             Assert.Equal(Vector3.Zero, localEnt.Position);
             Assert.Equal(0, localEnt.Speed);
         }

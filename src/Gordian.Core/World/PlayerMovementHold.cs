@@ -16,7 +16,7 @@ namespace Gordian.Core.World
         None = 0,
 
         /// <summary>
-        /// Bind (and the player's own chocobo dig): the player cannot move but can still turn in place. LandSandBoat's <c>scripts/effects/bind.lua</c> sets the base
+        /// Bind: the player cannot move but can still turn in place. LandSandBoat's <c>scripts/effects/bind.lua</c> sets the base
         /// speed to 0, so S2C 0x037 <c>Speed</c> is 0 (<c>CBattleEntity::UpdateSpeed</c>).
         /// </summary>
         Rooted = 1,
@@ -53,13 +53,6 @@ namespace Gordian.Core.World
 
         /// <summary><c>xi.effect.LULLABY</c>.</summary>
         public const ushort Lullaby = 193;
-
-        /// <summary>
-        /// The chocobo dig routine <c>chor</c>'s length in 60 Hz ticks: rider and chocobo both play <c>chh</c> for 168 ticks
-        /// (<c>ROM/90/14</c> <c>hm_c/chor</c>, <c>ROM/169/11</c> <c>cyl_/chor</c>; the engine's <c>MountTransitions.PlayDig</c>).
-        /// The player is rooted that long after S2C 0x02F digs with its own chocobo.
-        /// </summary>
-        public const int DigTicks = 168;
 
         /// <summary>The hold one status effect puts on the player.</summary>
         public static PlayerMovementHold For(ushort effectId) => effectId switch

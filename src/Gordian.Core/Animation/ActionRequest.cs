@@ -96,6 +96,14 @@ namespace Gordian.Core.Animation
         /// <summary><see cref="System.Diagnostics.Stopwatch"/> timestamp the request was built at.</summary>
         public long ReceivedTimestamp { get; init; }
 
+        /// <summary>
+        /// A control lock the client holds for this action from its start for this many 60 Hz ticks, on top of any its routine
+        /// carries (op 0x2E), or 0. The chocobo dig's <c>chor</c> carries no op 0x2E (<c>ROM/90/14</c>, <c>ROM/169/11</c>), yet
+        /// retail freezes the rider for the whole dig, as for a job ability (#540 round 3). The action also keeps the body
+        /// while the actor still moves, so movement in the frame before the freeze lands cannot cut it short.
+        /// </summary>
+        public int ControlLockTicks { get; init; }
+
         /// <summary>Where the hits go; null for a request that only moves its actor.</summary>
         public IActionHitSink? Sink { get; init; }
 
