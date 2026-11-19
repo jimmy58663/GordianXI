@@ -147,8 +147,9 @@ namespace Gordian.Engine.Tests.Input
 
         /// <summary>
         /// The player's own chocobo dig freezes it on the job-ability path (#540 round 3): <c>chor</c> carries no op 0x2E, so
-        /// <c>MountTransitions.PlayDig</c> holds a 168-tick control lock itself. The player cannot move or turn until the dig
-        /// has played, and the dig keeps the body while the player is still moving when it starts, so it is not cut short.
+        /// <c>MountTransitions.PlayDig</c> holds a 168-tick control lock itself, under a source no option lifts (round 4). The
+        /// player cannot move or turn until the dig has played, and rider and chocobo keep the dig while the player is still
+        /// moving when it starts, so neither is cut short (round 4: the chocobo gave way to its run).
         /// </summary>
         [Fact]
         public void ChocoboDig_FreezesThePlayerAndPlaysInFull()
@@ -164,17 +165,27 @@ namespace Gordian.Engine.Tests.Input
             model.RawMotionRoutines["chor"] = Gordian.Core.Resources.Graphics.MotionRoutineDecoder.Decode(Gordian.Tests.Shared.MotionRoutineBuilder.Routine(168,
                 Gordian.Tests.Shared.MotionRoutineBuilder.PlayClip("chh?", 0, 168, 4, 4, 1)), "chor")!;
             model.RebuildMotionRoutines();
-            localEnt.Animation.Advance(0f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
+            var running = Gordian.Core.Animation.AnimationCategory.Run;
+            localEnt.Animation.Advance(0f, running, 0, model);
+            localEnt.MountAnimation.Advance(0f, running, 0, model);
 
             long start = System.Diagnostics.Stopwatch.GetTimestamp();
             Gordian.Engine.Animation.MountTransitions.PlayDig(localEnt);
-            localEnt.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
-            localEnt.Animation.Advance(1f / 60f, Gordian.Core.Animation.AnimationCategory.Run, 0, model);
-            Assert.Equal("chor", localEnt.Animation.ActiveRoutine?.Name);             // still moving: the dig is not cut
+            for (int i = 0; i < 2; i++)
+            {
+                localEnt.Animation.Advance(1f / 60f, running, 0, model);
+                localEnt.MountAnimation.Advance(1f / 60f, running, 0, model);
+            }
+            Assert.Equal("chor", localEnt.Animation.ActiveRoutine?.Name);             // still moving: the rider's dig is not cut
+            Assert.Equal("chor", localEnt.MountAnimation.ActiveRoutine?.Name);        // nor the chocobo's
 
             long freq = System.Diagnostics.Stopwatch.Frequency;
             Assert.True(controller.IsActionFrozen(localEnt, start + freq * 2));       // 2 s into the 2.8 s dig
             Assert.False(controller.IsActionFrozen(localEnt, start + freq * 3));      // the dig is over
+            var source = localEnt.Animation.ControlLocksAt(start + freq * 2);
+            Assert.Equal(Gordian.Core.Animation.ActionFreezeSource.Held, source);
+            var everything = new Gordian.Core.Animation.ActionFreezeSettings { IgnoreRequested = (Gordian.Core.Animation.ActionFreezeSource)0xFF };
+            Assert.Equal(Gordian.Core.Animation.ActionFreezeSource.None, source & everything.GetIgnored(null)); // /actionfreeze off does not lift it
 
             byte heading = localEnt.Direction;
             input.SetKeyDown(GordianKey.D);

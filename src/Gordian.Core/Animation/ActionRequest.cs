@@ -98,11 +98,18 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// A control lock the client holds for this action from its start for this many 60 Hz ticks, on top of any its routine
-        /// carries (op 0x2E), or 0. The chocobo dig's <c>chor</c> carries no op 0x2E (<c>ROM/90/14</c>, <c>ROM/169/11</c>), yet
-        /// retail freezes the rider for the whole dig, as for a job ability (#540 round 3). The action also keeps the body
-        /// while the actor still moves, so movement in the frame before the freeze lands cannot cut it short.
+        /// carries (op 0x2E), or 0. Its source is <see cref="ActionFreezeSource.Held"/>, which no option lifts. The chocobo
+        /// dig's <c>chor</c> carries no op 0x2E (<c>ROM/90/14</c>, <c>ROM/169/11</c>), yet retail freezes the rider for the
+        /// whole dig, as for a job ability (#540 rounds 3-4).
         /// </summary>
         public int ControlLockTicks { get; init; }
+
+        /// <summary>
+        /// Whether the action keeps the body while the actor moves, as an action presentation does, instead of giving way to
+        /// the walk or run. The chocobo dig sets it on the rider and on the chocobo: a run in the frame before the freeze
+        /// lands would otherwise cut the dig short (#540 rounds 3-4).
+        /// </summary>
+        public bool KeepsBodyWhileMoving { get; init; }
 
         /// <summary>Where the hits go; null for a request that only moves its actor.</summary>
         public IActionHitSink? Sink { get; init; }

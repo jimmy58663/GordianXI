@@ -315,7 +315,7 @@ namespace Gordian.Core.Animation
                     if (controlLock.Ticks <= 0) continue;
                     _controlLocks.Add((now + (long)(controlLock.StartTick * stopwatchPerTick), now + (long)(controlLock.EndTick * stopwatchPerTick), source));
                 }
-                if (heldTicks > 0) _controlLocks.Add((now, now + (long)(heldTicks * stopwatchPerTick), source));
+                if (heldTicks > 0) _controlLocks.Add((now, now + (long)(heldTicks * stopwatchPerTick), ActionFreezeSource.Held));
             }
         }
 
@@ -819,7 +819,7 @@ namespace Gordian.Core.Animation
         /// <summary>
         /// Whether the playing action keeps the body while the entity moves (#511 round 1): a weapon draw or sheathe, an
         /// action presentation's <c>main</c>, a finish routine (a release, an item use's finish, a job ability stand-in), or an
-        /// action with a client-held lock (<see cref="ActionRequest.ControlLockTicks"/>, the chocobo dig). Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
+        /// action that asks for it (<see cref="ActionRequest.KeepsBodyWhileMoving"/>, the chocobo dig). Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
         /// sustained routines and event gestures give way to the walk or run.
         /// </summary>
         private bool SlidesWhileMoving
@@ -828,7 +828,7 @@ namespace Gordian.Core.Animation
             {
                 if (_weaponMotion != WeaponMotion.None || _isPresentation) return true;
                 if (_actionRequest is not { } request || ActiveRoutine is not { } routine) return false;
-                if (request.ControlLockTicks > 0) return true;
+                if (request.KeepsBodyWhileMoving) return true;
                 if (request.Motion is ActionMotion.Swing or ActionMotion.EventMotion or ActionMotion.None) return false;
                 if (request.Category is ActionCategory.SkillStart or ActionCategory.MagicStart or ActionCategory.ItemStart
                     or ActionCategory.AbilityStart or ActionCategory.RangedStart) return false;
