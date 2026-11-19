@@ -994,6 +994,7 @@ namespace Gordian.App.Graphics
                         _renderer.Furniture = _activeSession is { } roomSession ? MogHouseFurnitureScene.Build(roomSession, ResourceManager, _furnitureInstances) : null;
                         _renderer.HideSceneryAbove = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true ? MogHouseFurnitureScene.CeilingHeight : null;
                         _renderer.SoftTerrainHighlights = ViewportRenderSettings.SoftTerrainHighlights;
+                        _renderer.DisableZoneBackFaceCulling = !ViewportRenderSettings.ZoneBackFaceCulling;
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
                             shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.Shadows);
@@ -2096,6 +2097,16 @@ namespace Gordian.App.Graphics
                 _renderer.EnableOceanWaterPlane = !_renderer.EnableOceanWaterPlane;
                 GordianLog.Info(LogCategories.Graphics, $"Ocean water plane {(_renderer.EnableOceanWaterPlane ? "enabled" : "disabled")}.");
             }
+        }
+
+        /// <summary>
+        /// Toggles zone back-face culling in every viewport window (Ctrl+Shift+F9, #45): off draws every zone mesh
+        /// double-sided, to tell a face GordianXI culls wrongly from geometry retail leaves open too.
+        /// </summary>
+        public void ToggleZoneBackFaceCulling()
+        {
+            ViewportRenderSettings.ZoneBackFaceCulling = !ViewportRenderSettings.ZoneBackFaceCulling;
+            GordianLog.Info(LogCategories.Graphics, $"Zone back-face culling {(ViewportRenderSettings.ZoneBackFaceCulling ? "enabled" : "disabled (every zone mesh double-sided)")}.");
         }
 
         /// <summary>

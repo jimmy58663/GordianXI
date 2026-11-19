@@ -54,6 +54,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool SoftTerrainHighlights { get; set; }
 
+        /// <summary>
+        /// Cull the back faces of zone meshes that are not flagged double-sided, as the retail client does (#45). On by
+        /// default; off draws every zone mesh double-sided, to check whether a face missing in GordianXI is culled.
+        /// </summary>
+        public bool ZoneBackFaceCulling { get; set; } = true;
+
         public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "viewport_settings.json");
 
         public void SaveToFile(string filePath)

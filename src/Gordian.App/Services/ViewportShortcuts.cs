@@ -13,6 +13,9 @@ namespace Gordian.App.Services
         ToggleFog,
         TogglePostProcess,
         ToggleOceanWater,
+
+        /// <summary>Ctrl+Shift+F9: zone back-face culling on or off (#45), saved like the Settings checkbox.</summary>
+        ToggleZoneBackFaceCulling,
         CycleWeather,
         CycleTimeOfDay,
 
@@ -45,6 +48,7 @@ namespace Gordian.App.Services
                 Key.F12 when ctrl => shift ? ViewportShortcut.RestoreStockUi : ViewportShortcut.CyclePerformanceOverlay,
                 Key.F10 when ctrl => ViewportShortcut.ToggleFog,
                 Key.F10 => ViewportShortcut.CycleTimeOfDay,
+                Key.F9 when ctrl && shift => ViewportShortcut.ToggleZoneBackFaceCulling,
                 Key.F9 when ctrl => ViewportShortcut.ToggleOceanWater,
                 Key.F9 => ViewportShortcut.CycleWeather,
                 Key.F8 when ctrl => ViewportShortcut.TogglePostProcess,

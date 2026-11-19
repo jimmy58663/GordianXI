@@ -267,27 +267,57 @@ namespace Gordian.Engine.Graphics
         }
 
         /// <summary>
-        /// Converts an authored 0x2F ambient color (normalized RGBA) into the shader ambient term: the byte value
-        /// as is (byte / 255), the way a fixed-function global ambient takes it.
+        /// Converts an authored 0x2F ambient color (normalized RGBA) into the shader ambient term, as xim's
+        /// EnvironmentLighting.ambientToColor does: byte / 510, lifted by <see cref="DarkLightBias"/> when every channel
+        /// is under <see cref="DarkLightThreshold"/> (0xCC), and capped at <see cref="MaxAmbient"/>. For the usual
+        /// ambient bytes that is 0.70 / 0.68 / 0.725 of byte / 255.
+        /// Conversion referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer, ui/js/environment.js
+        /// ambientToColor, a port of xim; the viewer's own 1.35 display boost and 0.65 cap are left out).
         /// <para>
-        /// This replaced xi-model-viewer's conversion (byte / 510 with a 1.4x lift for dark colours, capped at 0.5)
-        /// on 2026-09-26: a Windower capture of Bibiki Bay at 15:58 (Windower (642.7, 879.3, -20), `suny`, the 16:00
-        /// keyframe: ambient (83,57,47), sun (226,129,75) x1.5) showed the flat sunlit sand at (182,105,77) where the
-        /// halved ambient gave (137,93,66); the byte/255 ambient with the unclamped sun predicts (186,105,75). The
-        /// halved ambient also left east-facing cliffs in the same capture about 40% too dark.
+        /// Calibration (#516, #7, 2026-11-18, offscreen against retail captures on local LSB): with byte / 255 every face
+        /// the sun does not reach was 1.3-1.5x retail. With this conversion Valkurm Dunes' west-facing cliff
+        /// (`Valkurm_Sand_Retail_*`, six hours 06:22-18:25, `suny`) renders at 0.90-0.98 of retail (was 0.68-0.85), and
+        /// with retail's hue; Eastern Adoulin's wall (`Waypoint_Retail_*_Near`) at 1.01-1.03 at 01:15 and 13:05 (was
+        /// 0.71-0.72) and the street at 0.91 (was 0.80-0.89); actors' shaded sides drop to 0.71x, as retail's are
+        /// 0.67-0.87x ours (`7-noon-actors.png`). Byte / 255 came from a 2026-09-26 Windower capture of Bibiki Bay at
+        /// 15:58 that is no longer on disk; Bibiki's dusk captures (`Bibiki_Lighting_Outside.png`) go from 0.84-1.00
+        /// to 1.07-1.14 of retail.
         /// </para>
         /// </summary>
-        public static Vector3 AmbientToLight(Vector4 authored) => new(authored.X, authored.Y, authored.Z);
+        public static Vector3 AmbientToLight(Vector4 authored)
+        {
+            var c = new Vector3(authored.X, authored.Y, authored.Z);
+            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
+            return Vector3.Min(c * 0.5f * bias, new Vector3(MaxAmbient));
+        }
 
         /// <summary>
         /// Converts an authored 0x2F sun/moon color (normalized RGBA) and light power (<c>light_power</c> in the
-        /// XiColorEnv record) into the shader directional light color: byte / 255 times the power, not clamped.
-        /// Only the lit vertex result is clamped (in the shaders), as fixed-function vertex lighting does; clamping the
-        /// light itself had capped the 16:00 sun's red at 1.0 instead of 1.33 and lost the dusk saturation retail shows.
+        /// XiColorEnv record) into the shader directional light color: byte / 255 times the power, lifted by
+        /// <see cref="DarkLightBias"/> when every channel of that is under <see cref="DarkLightThreshold"/>, as xim's
+        /// EnvironmentLighting.diffuseToColor does (referenced from xi-model-viewer, ui/js/environment.js). Not clamped:
+        /// only the lit vertex result is clamped (in the shaders), as fixed-function vertex lighting does; clamping the
+        /// light itself had capped the 16:00 sun's red at 1.0 instead of 1.33 and lost the dusk saturation retail shows
+        /// (and turned Valkurm's 16:23 cliff greener than retail's, #516). The lift keeps moonlit ground at night as
+        /// bright as retail's once the ambient is lowered (Eastern Adoulin's street at 01:15: 0.91 of retail).
         /// Field naming referenced from xi-tools (https://github.com/vekien/xi-tools, docs/reference/ps2_decomp_crosscheck.md).
         /// </summary>
-        public static Vector3 DiffuseToLight(Vector4 authored, float diffuseMult) =>
-            new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
+        public static Vector3 DiffuseToLight(Vector4 authored, float diffuseMult)
+        {
+            var d = new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
+            return IsDark(d) ? d * DarkLightBias : d;
+        }
+
+        /// <summary>The per-channel lift xim gives dark environment lights (xi-model-viewer environment.js <c>BIAS</c>).</summary>
+        public static readonly Vector3 DarkLightBias = new(1.40f, 1.36f, 1.45f);
+
+        /// <summary>A light is dark, and lifted, when every channel is under 0xCC (xi-model-viewer environment.js <c>TH</c>).</summary>
+        public const float DarkLightThreshold = 0xCC / 255.0f;
+
+        /// <summary>The cap on the converted ambient (xim's clamp at 0.5).</summary>
+        public const float MaxAmbient = 0.5f;
+
+        private static bool IsDark(Vector3 c) => c.X < DarkLightThreshold && c.Y < DarkLightThreshold && c.Z < DarkLightThreshold;
 
         public static ZoneEnvironmentSettings CreateDay() => new()
         {

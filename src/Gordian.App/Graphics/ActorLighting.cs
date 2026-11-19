@@ -14,9 +14,15 @@ namespace Gordian.App.Graphics
     /// with model lights at scale 2) and in the entrance cave (predicted 2x, measured 2-2.5x).
     /// </para>
     /// <para>
-    /// At noon the doubled lights (sun 1.0 + ambient ~0.5, x2) would drive sun-facing surfaces to twice their texel
-    /// and flatten skin tones, so the summed light is capped at <see cref="MaxLight"/> (1.5x the texel after the
-    /// modulate-2x, the pre-doubling noon peak). Night, dusk and cave levels sit below the cap.
+    /// At noon the doubled lights would drive sun-facing surfaces to twice their texel and flatten skin tones, so the
+    /// summed light is capped at <see cref="MaxLight"/>. Night, dusk and cave levels sit below the cap.
+    /// </para>
+    /// <para>
+    /// The cap was 0.75 (an estimate) until #7's retail capture of two characters at Valkurm Dunes at noon
+    /// (`7-noon-actors.png`, sunshine, 11:44): retail's sun-facing parts were 1.14-1.26x ours (a hat top (158, 117, 123)
+    /// against (125, 94, 97), the gold hat's median (173, 128, 80) against (152, 111, 69)). With the lowered ambient
+    /// (<see cref="ZoneEnvironmentSettings.AmbientToLight"/>) a cap of 0.9 lifts fully lit faces 1.2x over the old
+    /// one and a cap of 1 lifts them 1.33x (offscreen, four characters at that spot, 2026-11-18).
     /// </para>
     /// </summary>
     public readonly record struct ActorLighting(Vector3 SunDirection, Vector3 SunColor, Vector3 MoonColor, Vector3 AmbientColor)
@@ -24,7 +30,7 @@ namespace Gordian.App.Graphics
         public const float Scale = 2.0f;
 
         /// <summary>Cap on an actor's summed light (vertex colour x lights) before the modulate-2x.</summary>
-        public const float MaxLight = 0.75f;
+        public const float MaxLight = 0.9f;
 
         public static ActorLighting From(ZoneEnvironmentSettings environment) => new(
             environment.SunDirection,
