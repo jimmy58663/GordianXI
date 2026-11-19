@@ -136,5 +136,23 @@ namespace Gordian.Engine.Tests.Animation
             // A generator a routine spawns keeps its own.
             Assert.Same(parentLayer.Emitter!.Definition, instance.PlacementOf(parentLayer.Emitter!));
         }
+
+        /// <summary>
+        /// The texts carry a negative z offset, drawn as a pull toward the eye so the character does not hide them. Level up
+        /// sets it with op 0x30, level down with op 0x72 (ProjectionBiasInitializer), which was not read, so the level down
+        /// text was hidden by the body (#590 round 3). Skipped without the game install.
+        /// </summary>
+        [Theory]
+        [InlineData(LevelChangeEffectController.LevelUpFileId, "g000", -0.3f)]
+        [InlineData(LevelChangeEffectController.LevelDownFileId, "g000", -0.3f)]
+        [InlineData(LevelChangeEffectController.LevelDownFileId, "g001", -0.2f)]
+        public void TheTexts_CarryTheirDepthPull(int fileId, string layer, float offset)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var effects = rm.GetSceneEffects(fileId)!;
+            Assert.All(effects.Layers.Where(l => l.Name == layer), l => Assert.Equal(offset, l.DepthOffset, 4));
+        }
     }
 }

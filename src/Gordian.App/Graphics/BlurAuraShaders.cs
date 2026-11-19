@@ -10,8 +10,9 @@ namespace Gordian.App.Graphics
     /// SkyTextureFactor = (ring tint, strength); SkyLayerParams = (the section's base colour, unused).
     /// <para>
     /// The edge blur (<see cref="SmearFragmentShaderGlsl"/>) draws the same shell, wider, over a copy of the scene drawn so
-    /// far, the avatar included (set 3): the band around the silhouette, inside and out, shows that copy blurred on a coarse
-    /// block grid, so the avatar's own edges go soft and slightly blocky and bleed outward, as in retail.
+    /// far, the avatar included (set 3): the band around the silhouette, inside and out, shows that copy averaged over
+    /// block-snapped taps, so the avatar's own edges step outward in hard blocks, as in retail. Where it runs, the additive
+    /// glow is not drawn.
     /// SkyLayerParams.z = the block size, SkyLayerParams.w = the blur radius, both in pixels.
     /// </para>
     /// </summary>
@@ -154,9 +155,10 @@ void main()
 ";
 
         /// <summary>
-        /// The background smear (#82): retail blurs and slightly darkens what is seen through an avatar's halo (the trees
-        /// behind Garuda lose detail, <c>SMN_Avatars.mp4</c>). Samples a copy of the scene around the pixel (a centre tap
-        /// and two rings of eight), darkens it by <c>SkyTextureFactor.rgb</c> and blends it in with the rim term as alpha.
+        /// The edge blur (#82 round 3): a blocky, see-through ghost of the avatar spilling a few pixels past its outline, as
+        /// retail draws it (<c>AvatarEdgeBlur_RetailVsGordian_2026-11-19.mp4</c>: Garuda's claws and arms step out in hard
+        /// blocks, with no light rim). Averages a copy of the scene at the pixel's block and at block-snapped taps around it
+        /// (point sampled), scales it by <c>SkyTextureFactor.rgb</c> and blends it in with the rim term as alpha.
         /// </summary>
         public const string SmearFragmentShaderGlsl = @"#version 450
 
@@ -201,23 +203,25 @@ void main()
     if (alpha < 0.004) discard;
 
     vec2 size = vec2(textureSize(sampler2D(SceneTex, SceneSampler), 0));
-    // The pixelation: every pixel of a block samples around the block's centre.
-    vec2 block = vec2(max(SkyLayerParams.z, 1.0));
-    vec2 uv = (floor(gl_FragCoord.xy / block) + 0.5) * block / size;
-    vec2 step = vec2(max(SkyLayerParams.w, 1.0)) / size;
-    // A disc of taps (four radii, eight directions, each ring turned half a step), weighted toward the centre: no ring of
-    // taps at one radius, which drew a ghost outline of the body at that distance.
-    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), uv).rgb * 2.0;
-    float total = 2.0;
-    for (int r = 1; r <= 4; r++)
+    // The pixelation: the band is drawn in blocks, each one colour. Every tap is snapped to a block centre and read with a
+    // point sampler, so the average is the same for every pixel of a block and the body's colour spreads past its outline
+    // in hard steps, not in a smooth gradient.
+    float block = max(SkyLayerParams.z, 1.0);
+    vec2 cell = floor(gl_FragCoord.xy / block);
+    float reach = max(SkyLayerParams.w, 1.0) / block;
+    // The ghost copies: the scene read back at the block itself and at two distances in eight directions, equally weighted,
+    // like copies of the body drawn at small offsets around it and averaged (see-through where only some copies cover).
+    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), (cell + 0.5) * block / size).rgb;
+    float total = 1.0;
+    for (int r = 1; r <= 2; r++)
     {
-        float radius = float(r) * 0.25;
-        float weight = 1.25 - radius;
+        float radius = reach * float(r) * 0.5;
         for (int i = 0; i < 8; i++)
         {
-            float a = (float(i) + 0.5 * float(r & 1)) * 0.785398;
-            sum += texture(sampler2D(SceneTex, SceneSampler), uv + vec2(cos(a), sin(a)) * step * radius).rgb * weight;
-            total += weight;
+            float a = (float(i) + 0.5 * float(r - 1)) * 0.785398;
+            vec2 tap = floor(cell + vec2(cos(a), sin(a)) * radius + 0.5);
+            sum += texture(sampler2D(SceneTex, SceneSampler), (tap + 0.5) * block / size).rgb;
+            total += 1.0;
         }
     }
     vec3 blurred = (sum / total) * SkyTextureFactor.rgb;

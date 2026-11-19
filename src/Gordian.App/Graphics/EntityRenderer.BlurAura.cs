@@ -24,13 +24,15 @@ namespace Gordian.App.Graphics
     /// drift scaled by the layer count.
     /// </para>
     /// <para>
-    /// The edge blur: retail blurs the avatar's own edges, soft and a little blocky, bleeding a few pixels outward over a
-    /// slightly darker band (<c>SMN_Avatars.mp4</c>, Garuda at 18 s; round 1 of 2026-11-18 rejected a smear of the
-    /// background around her). When the scene is drawn offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws
+    /// The edge blur: retail draws the avatar's edges as a blocky, see-through ghost of her spilling a few pixels outward,
+    /// with no light rim (<c>AvatarEdgeBlur_RetailVsGordian_2026-11-19.mp4</c>, retail beside GordianXI at night: Garuda's
+    /// claws and arms step out in hard blocks; round 1 of 2026-11-18 rejected a smear of the background around her, round 3
+    /// a soft blur under the glow's light outline). When the scene is drawn offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws
     /// a frame with an aura through its post-process target, as the swapchain cannot be sampled), the pass copies the scene
     /// drawn so far, the avatar included, and draws each aura's shell once more, wider (<see cref="AuraSmearWidthScale"/> x
-    /// its widest ring), showing that copy blurred on a block grid by the rim term
-    /// (<see cref="BlurAuraShaders.SmearFragmentShaderGlsl"/>). Calibrated by eye, like the glow.
+    /// its widest ring), showing that copy averaged over block-snapped, point-sampled taps by the rim term
+    /// (<see cref="BlurAuraShaders.SmearFragmentShaderGlsl"/>). Then the additive glow is not drawn: it is only the fallback
+    /// where the scene cannot be sampled. Calibrated by eye, like the glow.
     /// </para>
     /// </summary>
     public sealed partial class EntityRenderer
@@ -59,8 +61,8 @@ namespace Gordian.App.Graphics
         /// <summary>The edge blur's radius in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 11.7 px).</summary>
         public const float AuraSmearPixelsPerRadius = 0.09f;
 
-        /// <summary>The edge blur's block (pixelation) size against its radius.</summary>
-        public const float AuraSmearBlockPerBlur = 0.3f;
+        /// <summary>The edge blur's block (pixelation) size against its radius (Garuda: 5.9 px at 1440 lines).</summary>
+        public const float AuraSmearBlockPerBlur = 0.5f;
 
         /// <summary>The edge blur's opacity per unit of the rings' mean alpha (Garuda 11: 0.69, Fenrir 16: 0.9), at most <see cref="AuraSmearMaxOpacity"/>.</summary>
         public const float AuraSmearOpacityPerAlpha = 1.0f / 16.0f;
@@ -115,8 +117,8 @@ namespace Gordian.App.Graphics
                 alphas += ring.Alpha;
             }
             float meanAlpha = aura.Rings.Count > 0 ? alphas / aura.Rings.Count : 0f;
-            // A soft rim (falloff / 240): the band reaches well inside the silhouette, so the edges themselves blur.
-            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.25f, 0.5f));
+            // A rim of falloff / 120: the band covers the outline and a few pixels either side; the body inside stays sharp.
+            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.5f, 0.5f));
             float opacity = Math.Clamp(meanAlpha * AuraSmearOpacityPerAlpha, 0f, AuraSmearMaxOpacity);
             float blur = MathF.Max(1f, widest * AuraSmearPixelsPerRadius * targetHeight / 1440f);
             return (shell, opacity, blur, MathF.Max(1f, MathF.Round(blur * AuraSmearBlockPerBlur)));
@@ -140,14 +142,16 @@ namespace Gordian.App.Graphics
             EnsureAuraPipeline();
 
             int draws = 0;
-            if (EnableAuraSmear && SceneColor is { } scene && PrepareAuraSceneCopy(cl, scene))
+            bool edgeBlur = EnableAuraSmear && SceneColor is { } scene && PrepareAuraSceneCopy(cl, scene);
+            if (edgeBlur)
             {
-                // The smear first, the glow over it.
+                // The edge blur alone: retail draws no light rim (round 3), so the glow is only the fallback where the scene
+                // cannot be sampled (the lobby).
                 cl.SetPipeline(_auraSmearPipeline!);
                 foreach (var draw in _auraDraws)
                 {
                     var uniform = draw.Uniform;
-                    var (shell, opacity, blur, block) = AuraSmearParams(draw.Aura, scene.Height);
+                    var (shell, opacity, blur, block) = AuraSmearParams(draw.Aura, SceneColor!.Height);
                     if (opacity <= 0f) continue;
                     uniform.WeatherParams = shell;
                     uniform.SkyTextureFactor = new Vector4(AuraSmearDarken, AuraSmearDarken, AuraSmearDarken, opacity);
@@ -158,6 +162,12 @@ namespace Gordian.App.Graphics
                     cl.SetGraphicsResourceSet(3, _auraSceneSet!);
                     draws += DrawSubmeshes(cl, draw.Model, draw.HiddenWeapons);
                 }
+            }
+
+            if (edgeBlur)
+            {
+                _auraDraws.Clear();
+                return draws;
             }
 
             cl.SetPipeline(_auraPipeline!);
@@ -222,7 +232,7 @@ namespace Gordian.App.Graphics
                 _auraSceneLayout ??= factory.CreateResourceLayout(new ResourceLayoutDescription(
                     new ResourceLayoutElementDescription("SceneTex", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                     new ResourceLayoutElementDescription("SceneSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
-                _auraSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_auraSceneLayout, _auraSceneCopy, _gd.LinearSampler));
+                _auraSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_auraSceneLayout, _auraSceneCopy, _gd.PointSampler));
             }
             if (_auraSmearPipeline == null)
             {
