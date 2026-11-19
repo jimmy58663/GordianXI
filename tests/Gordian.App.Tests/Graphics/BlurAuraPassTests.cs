@@ -100,5 +100,23 @@ namespace Gordian.App.Tests.Graphics
             }
             Assert.NotEqual(new Vector2(a.X, a.Y), new Vector2(b.X, b.Y));
         }
+
+        [Fact]
+        public void EdgeBlur_TakesItsWidthFromTheWidestRing_AndItsOpacityFromTheMeanAlpha()
+        {
+            var (opacity, sigma) = EntityRenderer.AuraBlurParams(Garuda, 1440);
+            Assert.Equal(11f * EntityRenderer.AuraBlurOpacityPerAlpha, opacity, 5);
+            Assert.Equal(130f * EntityRenderer.AuraBlurSigmaPerRadius, sigma, 4);
+            // The blur scales with the target's height.
+            Assert.Equal(sigma / 2f, EntityRenderer.AuraBlurParams(Garuda, 720).SigmaPixels, 4);
+        }
+
+        [Fact]
+        public void EdgeBlur_OpacityStopsAtTheMaximum()
+        {
+            var strong = new BlurAura(11, 7, 400, new Vector4(0.75f), new Vector4(0.5f), 50f,
+                new[] { new BlurAuraRing(new Vector3(0.5f), 255, 110f) });
+            Assert.Equal(EntityRenderer.AuraBlurMaxOpacity, EntityRenderer.AuraBlurParams(strong, 1080).Opacity);
+        }
     }
 }

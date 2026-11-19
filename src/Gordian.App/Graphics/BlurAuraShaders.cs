@@ -9,11 +9,10 @@ namespace Gordian.App.Graphics
     /// Scene uniform use: WeatherParams = (screen offset x, y in NDC, shell width in yalms, rim exponent);
     /// SkyTextureFactor = (ring tint, strength); SkyLayerParams = (the section's base colour, unused).
     /// <para>
-    /// The edge blur (<see cref="SmearFragmentShaderGlsl"/>) draws the same shell, wider, over a copy of the scene drawn so
-    /// far, the avatar included (set 3): the band around the silhouette, inside and out, shows that copy averaged over
-    /// block-snapped taps, so the avatar's own edges step outward in hard blocks, as in retail. Where it runs, the additive
-    /// glow is not drawn.
-    /// SkyLayerParams.z = the block size, SkyLayerParams.w = the blur radius, both in pixels.
+    /// The edge blur (#82 round 4) is three passes: <see cref="LayerFragmentShaderGlsl"/> draws the avatars alone into a
+    /// half-size layer, keeping their own pixels from a copy of the scene drawn so far (set 3); <see cref="BlurFragmentShaderGlsl"/>
+    /// blurs the layer, once across and once down; <see cref="CompositeFragmentShaderGlsl"/> lays the blurred layer over the
+    /// scene, premultiplied, the body itself kept sharp. Where it runs, the additive glow is not drawn.
     /// </para>
     /// </summary>
     public static class BlurAuraShaders
@@ -155,12 +154,11 @@ void main()
 ";
 
         /// <summary>
-        /// The edge blur (#82 round 3): a blocky, see-through ghost of the avatar spilling a few pixels past its outline, as
-        /// retail draws it (<c>AvatarEdgeBlur_RetailVsGordian_2026-11-19.mp4</c>: Garuda's claws and arms step out in hard
-        /// blocks, with no light rim). Averages a copy of the scene at the pixel's block and at block-snapped taps around it
-        /// (point sampled), scales it by <c>SkyTextureFactor.rgb</c> and blends it in with the rim term as alpha.
+        /// The edge blur's layer (#82 round 4): the avatar's own pixels of the scene drawn so far (set 3, read at this pixel of
+        /// the half-size layer: <c>SkyLayerParams.x</c> is the downscale), premultiplied by the aura's opacity
+        /// (<c>SkyTextureFactor.a</c>). Cut-out texels are left out, as the glow leaves them.
         /// </summary>
-        public const string SmearFragmentShaderGlsl = @"#version 450
+        public const string LayerFragmentShaderGlsl = @"#version 450
 
 layout(location = 0) in vec3 fsin_WorldPos;
 layout(location = 1) in vec3 fsin_Normal;
@@ -194,38 +192,88 @@ void main()
 {
     vec4 tex = texture(sampler2D(uTexture, uSampler), fsin_TexCoord);
     if (tex.a < 0.09) discard;
-
-    vec3 toEye = normalize(EyePosition.xyz - fsin_WorldPos);
-    float facing = abs(dot(normalize(fsin_Normal), toEye));
-    float rim = pow(clamp(1.0 - facing, 0.0, 1.0), max(WeatherParams.w, 0.5));
-    // Strongest across the silhouette, fading out toward the shell's own outer edge so the band has no hard border.
-    float alpha = clamp(fsin_Strength * smoothstep(0.0, 0.3, rim) * (1.0 - smoothstep(0.35, 0.9, rim)), 0.0, 1.0);
-    if (alpha < 0.004) discard;
+    // Every varying is read so the D3D11 cross-compile keeps the stage interface; this never discards.
+    if (fsin_Strength < -1.0 || dot(fsin_Normal, fsin_Normal) < 0.0 || fsin_WorldPos.x != fsin_WorldPos.x) discard;
 
     vec2 size = vec2(textureSize(sampler2D(SceneTex, SceneSampler), 0));
-    // The pixelation: the band is drawn in blocks, each one colour. Every tap is snapped to a block centre and read with a
-    // point sampler, so the average is the same for every pixel of a block and the body's colour spreads past its outline
-    // in hard steps, not in a smooth gradient.
-    float block = max(SkyLayerParams.z, 1.0);
-    vec2 cell = floor(gl_FragCoord.xy / block);
-    float reach = max(SkyLayerParams.w, 1.0) / block;
-    // The ghost copies: the scene read back at the block itself and at two distances in eight directions, equally weighted,
-    // like copies of the body drawn at small offsets around it and averaged (see-through where only some copies cover).
-    vec3 sum = texture(sampler2D(SceneTex, SceneSampler), (cell + 0.5) * block / size).rgb;
-    float total = 1.0;
-    for (int r = 1; r <= 2; r++)
+    vec2 uv = gl_FragCoord.xy * max(SkyLayerParams.x, 1.0) / size;
+    vec3 color = texture(sampler2D(SceneTex, SceneSampler), uv).rgb;
+    float opacity = clamp(SkyTextureFactor.a, 0.0, 1.0);
+    fsout_Color = vec4(color * opacity, opacity);
+}
+";
+
+        /// <summary>One triangle covering the target; the post passes read <c>gl_FragCoord</c>, so no UV is passed.</summary>
+        public const string FullscreenVertexShaderGlsl = @"#version 450
+void main()
+{
+    vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+";
+
+        /// <summary>
+        /// One direction of the edge blur's Gaussian over the half-size layer: <c>Params.xy</c> the direction, <c>Params.z</c>
+        /// sigma in layer pixels, <c>Params.w</c> the gain of the second pass (0: none); 25 taps spread over three sigma.
+        /// </summary>
+        public const string BlurFragmentShaderGlsl = @"#version 450
+
+layout(set = 0, binding = 0) uniform AuraPostParams
+{
+    vec4 Params;
+};
+layout(set = 0, binding = 1) uniform texture2D TexA;
+layout(set = 0, binding = 2) uniform texture2D TexB;
+layout(set = 0, binding = 3) uniform sampler PostSampler;
+
+layout(location = 0) out vec4 fsout_Color;
+
+void main()
+{
+    vec2 size = vec2(textureSize(sampler2D(TexA, PostSampler), 0));
+    vec2 uv = gl_FragCoord.xy / size;
+    float sigma = max(Params.z, 0.5);
+    float spacing = max(1.0, 3.0 * sigma / 12.0);
+    vec2 stepUv = Params.xy * spacing / size;
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    for (int i = -12; i <= 12; i++)
     {
-        float radius = reach * float(r) * 0.5;
-        for (int i = 0; i < 8; i++)
-        {
-            float a = (float(i) + 0.5 * float(r - 1)) * 0.785398;
-            vec2 tap = floor(cell + vec2(cos(a), sin(a)) * radius + 0.5);
-            sum += texture(sampler2D(SceneTex, SceneSampler), (tap + 0.5) * block / size).rgb;
-            total += 1.0;
-        }
+        float d = float(i) * spacing;
+        float w = exp(-0.5 * d * d / (sigma * sigma));
+        sum += texture(sampler2D(TexA, PostSampler), uv + stepUv * float(i)) * w;
+        total += w;
     }
-    vec3 blurred = (sum / total) * SkyTextureFactor.rgb;
-    fsout_Color = vec4(blurred, alpha);
+    vec4 blurred = sum / total;
+    // The second pass strengthens the blur (premultiplied, so colour and coverage together), never past opaque.
+    if (Params.w > 0.0) blurred *= min(Params.w, 1.0 / max(blurred.a, 1e-4));
+    fsout_Color = blurred;
+}
+";
+
+        /// <summary>
+        /// Lays the blurred layer (<c>TexA</c>, premultiplied) over the scene. Where the sharp layer (<c>TexB</c>) covers, the
+        /// avatar's own body, only <c>Params.w</c> of it is laid on, so the body stays sharp; <c>Params.xy</c> is the scene's
+        /// size, <c>Params.z</c> the largest opacity (the sharp layer's alpha over the body).
+        /// </summary>
+        public const string CompositeFragmentShaderGlsl = @"#version 450
+
+layout(set = 0, binding = 0) uniform AuraPostParams
+{
+    vec4 Params;
+};
+layout(set = 0, binding = 1) uniform texture2D TexA;
+layout(set = 0, binding = 2) uniform texture2D TexB;
+layout(set = 0, binding = 3) uniform sampler PostSampler;
+
+layout(location = 0) out vec4 fsout_Color;
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy / max(Params.xy, vec2(1.0));
+    vec4 halo = texture(sampler2D(TexA, PostSampler), uv);
+    float body = clamp(texture(sampler2D(TexB, PostSampler), uv).a / max(Params.z, 0.01), 0.0, 1.0);
+    fsout_Color = halo * (1.0 - body * (1.0 - Params.w));
 }
 ";
     }

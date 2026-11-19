@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Gordian.Core.Resources.Models;
 using NeoVeldrid;
@@ -24,15 +25,17 @@ namespace Gordian.App.Graphics
     /// drift scaled by the layer count.
     /// </para>
     /// <para>
-    /// The edge blur: retail draws the avatar's edges as a blocky, see-through ghost of her spilling a few pixels outward,
-    /// with no light rim (<c>AvatarEdgeBlur_RetailVsGordian_2026-11-19.mp4</c>, retail beside GordianXI at night: Garuda's
-    /// claws and arms step out in hard blocks; round 1 of 2026-11-18 rejected a smear of the background around her, round 3
-    /// a soft blur under the glow's light outline). When the scene is drawn offscreen (<see cref="SceneColor"/>: <c>ZoneTerrainRenderer</c> draws
-    /// a frame with an aura through its post-process target, as the swapchain cannot be sampled), the pass copies the scene
-    /// drawn so far, the avatar included, and draws each aura's shell once more, wider (<see cref="AuraSmearWidthScale"/> x
-    /// its widest ring), showing that copy averaged over block-snapped, point-sampled taps by the rim term
-    /// (<see cref="BlurAuraShaders.SmearFragmentShaderGlsl"/>). Then the additive glow is not drawn: it is only the fallback
-    /// where the scene cannot be sampled. Calibrated by eye, like the glow.
+    /// The edge blur (round 4): retail lays a soft, wide copy of the avatar's own colours around her
+    /// (<c>AvatarEdgeBlur_RetailVsGordian_2026-11-19.mp4</c>, retail beside GordianXI at night): over the dark sky Garuda's
+    /// wings get a bright yellow-green halo of 10-15 px at 1072 lines, over the snow her dark claws spill out as a dark,
+    /// see-through copy; there is no light rim. Rounds 1 and 3 blurred the scene around her (sky and snow included) and did
+    /// not match. When the scene is drawn offscreen (<see cref="SceneFramebuffer"/>: <c>ZoneTerrainRenderer</c> draws a frame
+    /// with an aura through its post-process target, as the swapchain cannot be sampled), the pass copies the scene drawn so
+    /// far, draws the avatars alone into a half-size layer that keeps only their own pixels from that copy (premultiplied by
+    /// the aura's opacity), blurs the layer with a two-pass Gaussian, and lays it over the scene around the avatar, the body
+    /// itself kept sharp but for <see cref="AuraBlurBodyMix"/> (<see cref="BlurAuraShaders"/>). The half-size layer stretched
+    /// back up gives the slight blockiness the maintainer saw. Then the additive glow is not drawn: it is only the fallback
+    /// where the scene cannot be sampled (the lobby). Calibrated by eye, like the glow.
     /// </para>
     /// </summary>
     public sealed partial class EntityRenderer
@@ -55,41 +58,50 @@ namespace Gordian.App.Graphics
         /// <summary>Draws the 0x5E blur aura of avatars and other models that carry one (on by default).</summary>
         public bool EnableBlurAura { get; set; } = true;
 
-        /// <summary>The smear shell's width against the aura's widest ring (the glow's own width).</summary>
-        public const float AuraSmearWidthScale = 3.0f;
+        /// <summary>The edge blur's Gaussian sigma in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 10.4 px).</summary>
+        public const float AuraBlurSigmaPerRadius = 0.08f;
 
-        /// <summary>The edge blur's radius in pixels per unit of the widest ring's radius, at 1440 lines (Garuda: 130 is 11.7 px).</summary>
-        public const float AuraSmearPixelsPerRadius = 0.09f;
-
-        /// <summary>The edge blur's block (pixelation) size against its radius (Garuda: 5.9 px at 1440 lines).</summary>
-        public const float AuraSmearBlockPerBlur = 0.5f;
-
-        /// <summary>The edge blur's opacity per unit of the rings' mean alpha (Garuda 11: 0.69, Fenrir 16: 0.9), at most <see cref="AuraSmearMaxOpacity"/>.</summary>
-        public const float AuraSmearOpacityPerAlpha = 1.0f / 16.0f;
+        /// <summary>The edge blur's opacity per unit of the rings' mean alpha (Garuda 11: 0.69, Fenrir 16: 0.9), at most <see cref="AuraBlurMaxOpacity"/>.</summary>
+        public const float AuraBlurOpacityPerAlpha = 1.0f / 16.0f;
 
         /// <summary>The most the edge blur covers the scene under it.</summary>
-        public const float AuraSmearMaxOpacity = 0.9f;
+        public const float AuraBlurMaxOpacity = 0.9f;
 
-        /// <summary>How much the edge blur darkens what it shows: 1, none. Darker values drew a hard ring at the band's outer edge offscreen.</summary>
-        public const float AuraSmearDarken = 1.0f;
+        /// <summary>How much of the blurred copy is laid over the avatar's own body (0: the body stays sharp).</summary>
+        public const float AuraBlurBodyMix = 0.3f;
 
-        /// <summary>Blurs and darkens the scene behind auras (#82) when <see cref="SceneColor"/> is given (on by default).</summary>
+        /// <summary>
+        /// How much the blurred copy is strengthened where it is laid on (up to opaque): a plain blur of the silhouette is
+        /// half covered at the outline and fades fast, where retail's halo is strong for several pixels out.
+        /// </summary>
+        public const float AuraBlurGain = 1.6f;
+
+        /// <summary>The edge blur's layer is drawn at the scene's size divided by this.</summary>
+        public const uint AuraBlurDownscale = 2;
+
+        /// <summary>Draws the avatar edge blur (#82) when <see cref="SceneFramebuffer"/> is given (on by default).</summary>
         public bool EnableAuraSmear { get; set; } = true;
 
         /// <summary>
-        /// The colour target the scene is being drawn into this frame, when it can be sampled (an offscreen target), else
-        /// null: no smear. Set by the zone renderer before <see cref="RenderEntities"/>.
+        /// The framebuffer the scene is being drawn into this frame, when its colour can be sampled (an offscreen target),
+        /// else null: no edge blur. Set by the zone renderer before <see cref="RenderEntities"/>.
         /// </summary>
-        public Texture? SceneColor { get; set; }
+        public Framebuffer? SceneFramebuffer { get; set; }
 
-        /// <summary>Whether the last frame drew a blur aura (the zone renderer then draws the next one offscreen for the smear).</summary>
+        /// <summary>Whether the last frame drew a blur aura (the zone renderer then draws the next one offscreen for the edge blur).</summary>
         public bool DrewBlurAura { get; private set; }
 
         private Texture? _auraSceneCopy;
         private ResourceLayout? _auraSceneLayout;
         private ResourceSet? _auraSceneSet;
-        private Pipeline? _auraSmearPipeline;
-        private Shader[]? _auraSmearShaders;
+        private Texture? _auraLayer, _auraLayerDepth, _auraBlurH, _auraBlurV;
+        private Framebuffer? _auraLayerFramebuffer, _auraBlurHFramebuffer, _auraBlurVFramebuffer;
+        private ResourceLayout? _auraPostLayout;
+        private ResourceSet? _auraBlurHSet, _auraBlurVSet, _auraCompositeSet;
+        private DeviceBuffer? _auraBlurHParams, _auraBlurVParams, _auraCompositeParams;
+        private Pipeline? _auraLayerPipeline, _auraBlurPipeline, _auraCompositePipeline;
+        private Shader[]? _auraLayerShaders, _auraBlurShaders, _auraCompositeShaders;
+        private OutputDescription? _auraCompositeOutputs;
 
         private readonly record struct AuraDraw(ZoneSceneUniform Uniform, ResourceSet Palette, GpuEntityModel Model, int HiddenWeapons, BlurAura Aura, uint ServerId);
 
@@ -105,10 +117,10 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
-        /// The smear's shell for an aura: (no drift, width, rim exponent) as <see cref="AuraRingParams"/>, its opacity and its
-        /// blur radius in pixels for a target <paramref name="targetHeight"/> lines high.
+        /// The edge blur of an aura: its opacity and its Gaussian sigma in pixels for a target <paramref name="targetHeight"/>
+        /// lines high.
         /// </summary>
-        internal static (Vector4 Shell, float Opacity, float BlurPixels, float BlockPixels) AuraSmearParams(BlurAura aura, uint targetHeight)
+        internal static (float Opacity, float SigmaPixels) AuraBlurParams(BlurAura aura, uint targetHeight)
         {
             float widest = 0f, alphas = 0f;
             foreach (var ring in aura.Rings)
@@ -117,11 +129,9 @@ namespace Gordian.App.Graphics
                 alphas += ring.Alpha;
             }
             float meanAlpha = aura.Rings.Count > 0 ? alphas / aura.Rings.Count : 0f;
-            // A rim of falloff / 120: the band covers the outline and a few pixels either side; the body inside stays sharp.
-            var shell = new Vector4(0f, 0f, widest * AuraWidthPerRadius * AuraSmearWidthScale, Math.Max(aura.Falloff * AuraRimPerFalloff * 0.5f, 0.5f));
-            float opacity = Math.Clamp(meanAlpha * AuraSmearOpacityPerAlpha, 0f, AuraSmearMaxOpacity);
-            float blur = MathF.Max(1f, widest * AuraSmearPixelsPerRadius * targetHeight / 1440f);
-            return (shell, opacity, blur, MathF.Max(1f, MathF.Round(blur * AuraSmearBlockPerBlur)));
+            float opacity = Math.Clamp(meanAlpha * AuraBlurOpacityPerAlpha, 0f, AuraBlurMaxOpacity);
+            float sigma = MathF.Max(1f, widest * AuraBlurSigmaPerRadius * targetHeight / 1440f);
+            return (opacity, sigma);
         }
 
         /// <summary>The ring's shell parameters this frame: (screen drift x, y, width, rim exponent).</summary>
@@ -142,30 +152,11 @@ namespace Gordian.App.Graphics
             EnsureAuraPipeline();
 
             int draws = 0;
-            bool edgeBlur = EnableAuraSmear && SceneColor is { } scene && PrepareAuraSceneCopy(cl, scene);
-            if (edgeBlur)
+            if (EnableAuraSmear && SceneFramebuffer is { } scene && scene.ColorTargets.Count > 0)
             {
-                // The edge blur alone: retail draws no light rim (round 3), so the glow is only the fallback where the scene
-                // cannot be sampled (the lobby).
-                cl.SetPipeline(_auraSmearPipeline!);
-                foreach (var draw in _auraDraws)
-                {
-                    var uniform = draw.Uniform;
-                    var (shell, opacity, blur, block) = AuraSmearParams(draw.Aura, SceneColor!.Height);
-                    if (opacity <= 0f) continue;
-                    uniform.WeatherParams = shell;
-                    uniform.SkyTextureFactor = new Vector4(AuraSmearDarken, AuraSmearDarken, AuraSmearDarken, opacity);
-                    uniform.SkyLayerParams = new Vector4(0f, 0f, block, blur);
-                    cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
-                    cl.SetGraphicsResourceSet(0, _entityResourceSet);
-                    cl.SetGraphicsResourceSet(2, draw.Palette);
-                    cl.SetGraphicsResourceSet(3, _auraSceneSet!);
-                    draws += DrawSubmeshes(cl, draw.Model, draw.HiddenWeapons);
-                }
-            }
-
-            if (edgeBlur)
-            {
+                // The edge blur alone: retail draws no light rim, so the glow is only the fallback where the scene cannot be
+                // sampled (the lobby).
+                draws += DrawAuraEdgeBlur(cl, scene);
                 _auraDraws.Clear();
                 return draws;
             }
@@ -220,30 +211,177 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 64),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 72));
 
-        /// <summary>Copies the scene drawn so far for the smear to sample.</summary>
-        private bool PrepareAuraSceneCopy(CommandList cl, Texture scene)
+        [StructLayout(LayoutKind.Sequential)]
+        private struct AuraPostParams
+        {
+            public Vector4 Params;
+        }
+
+        /// <summary>
+        /// The edge blur (#82 round 4): the avatars alone into a half-size layer (their own pixels of the scene drawn so far,
+        /// premultiplied by the aura's opacity), a two-pass Gaussian of it, and the blurred layer laid over the scene.
+        /// Leaves <paramref name="scene"/> bound.
+        /// </summary>
+        private int DrawAuraEdgeBlur(CommandList cl, Framebuffer scene)
+        {
+            var color = scene.ColorTargets[0].Target;
+            EnsureAuraEdgeBlurResources(scene, color);
+            cl.CopyTexture(color, _auraSceneCopy!);
+
+            float sigma = 1f, maxOpacity = 0f;
+            int draws = 0;
+            cl.SetFramebuffer(_auraLayerFramebuffer!);
+            cl.SetFullViewports();
+            cl.SetFullScissorRects();
+            cl.ClearColorTarget(0, RgbaFloat.Clear);
+            cl.ClearDepthStencil(1f);
+            cl.SetPipeline(_auraLayerPipeline!);
+            foreach (var draw in _auraDraws)
+            {
+                var (opacity, drawSigma) = AuraBlurParams(draw.Aura, color.Height);
+                if (opacity <= 0f) continue;
+                sigma = MathF.Max(sigma, drawSigma);
+                maxOpacity = MathF.Max(maxOpacity, opacity);
+                var uniform = draw.Uniform;
+                uniform.WeatherParams = new Vector4(0f, 0f, 0f, 1f);
+                uniform.SkyTextureFactor = new Vector4(1f, 1f, 1f, opacity);
+                uniform.SkyLayerParams = new Vector4(AuraBlurDownscale, 0f, 0f, 0f);
+                cl.UpdateBuffer(_entityUniformBuffer, 0, ref uniform);
+                cl.SetGraphicsResourceSet(0, _entityResourceSet);
+                cl.SetGraphicsResourceSet(2, draw.Palette);
+                cl.SetGraphicsResourceSet(3, _auraSceneSet!);
+                draws += DrawSubmeshes(cl, draw.Model, draw.HiddenWeapons);
+            }
+
+            if (maxOpacity > 0f)
+            {
+                float layerSigma = sigma / AuraBlurDownscale;
+                var h = new AuraPostParams { Params = new Vector4(1f, 0f, layerSigma, 0f) };
+                var v = new AuraPostParams { Params = new Vector4(0f, 1f, layerSigma, AuraBlurGain) };
+                var c = new AuraPostParams { Params = new Vector4(color.Width, color.Height, maxOpacity, AuraBlurBodyMix) };
+                cl.UpdateBuffer(_auraBlurHParams!, 0, ref h);
+                cl.UpdateBuffer(_auraBlurVParams!, 0, ref v);
+                cl.UpdateBuffer(_auraCompositeParams!, 0, ref c);
+
+                cl.SetFramebuffer(_auraBlurHFramebuffer!);
+                cl.SetFullViewports();
+                cl.SetFullScissorRects();
+                cl.SetPipeline(_auraBlurPipeline!);
+                cl.SetGraphicsResourceSet(0, _auraBlurHSet!);
+                cl.Draw(3);
+                cl.SetFramebuffer(_auraBlurVFramebuffer!);
+                cl.SetFullViewports();
+                cl.SetFullScissorRects();
+                cl.SetGraphicsResourceSet(0, _auraBlurVSet!);
+                cl.Draw(3);
+                draws += 2;
+            }
+
+            cl.SetFramebuffer(scene);
+            cl.SetFullViewports();
+            cl.SetFullScissorRects();
+            if (maxOpacity > 0f)
+            {
+                cl.SetPipeline(_auraCompositePipeline!);
+                cl.SetGraphicsResourceSet(0, _auraCompositeSet!);
+                cl.Draw(3);
+                draws++;
+            }
+            return draws;
+        }
+
+        /// <summary>Creates (or resizes) the scene copy, the half-size layer and blur targets and the edge blur's pipelines.</summary>
+        private void EnsureAuraEdgeBlurResources(Framebuffer scene, Texture color)
         {
             var factory = _gd.ResourceFactory;
-            if (_auraSceneCopy == null || _auraSceneCopy.Width != scene.Width || _auraSceneCopy.Height != scene.Height || _auraSceneCopy.Format != scene.Format)
+            if (_auraSceneCopy == null || _auraSceneCopy.Width != color.Width || _auraSceneCopy.Height != color.Height || _auraSceneCopy.Format != color.Format)
             {
-                _auraSceneSet?.Dispose();
-                _auraSceneCopy?.Dispose();
-                _auraSceneCopy = factory.CreateTexture(TextureDescription.Texture2D(scene.Width, scene.Height, 1, 1, scene.Format, TextureUsage.Sampled));
+                DisposeAuraEdgeBlurTargets();
+                _auraSceneCopy = factory.CreateTexture(TextureDescription.Texture2D(color.Width, color.Height, 1, 1, color.Format, TextureUsage.Sampled));
                 _auraSceneLayout ??= factory.CreateResourceLayout(new ResourceLayoutDescription(
                     new ResourceLayoutElementDescription("SceneTex", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                     new ResourceLayoutElementDescription("SceneSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
-                _auraSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_auraSceneLayout, _auraSceneCopy, _gd.PointSampler));
+                _auraSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_auraSceneLayout, _auraSceneCopy, _gd.LinearSampler));
+
+                uint w = Math.Max(1u, color.Width / AuraBlurDownscale), hgt = Math.Max(1u, color.Height / AuraBlurDownscale);
+                const PixelFormat layerFormat = PixelFormat.R8_G8_B8_A8_UNorm;
+                _auraLayer = factory.CreateTexture(TextureDescription.Texture2D(w, hgt, 1, 1, layerFormat, TextureUsage.RenderTarget | TextureUsage.Sampled));
+                _auraLayerDepth = factory.CreateTexture(TextureDescription.Texture2D(w, hgt, 1, 1, PixelFormat.R32_Float, TextureUsage.DepthStencil));
+                _auraBlurH = factory.CreateTexture(TextureDescription.Texture2D(w, hgt, 1, 1, layerFormat, TextureUsage.RenderTarget | TextureUsage.Sampled));
+                _auraBlurV = factory.CreateTexture(TextureDescription.Texture2D(w, hgt, 1, 1, layerFormat, TextureUsage.RenderTarget | TextureUsage.Sampled));
+                _auraLayerFramebuffer = factory.CreateFramebuffer(new FramebufferDescription(_auraLayerDepth, _auraLayer));
+                _auraBlurHFramebuffer = factory.CreateFramebuffer(new FramebufferDescription(null, _auraBlurH));
+                _auraBlurVFramebuffer = factory.CreateFramebuffer(new FramebufferDescription(null, _auraBlurV));
+
+                _auraPostLayout ??= factory.CreateResourceLayout(new ResourceLayoutDescription(
+                    new ResourceLayoutElementDescription("AuraPostParams", ResourceKind.UniformBuffer, ShaderStages.Fragment),
+                    new ResourceLayoutElementDescription("TexA", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
+                    new ResourceLayoutElementDescription("TexB", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
+                    new ResourceLayoutElementDescription("PostSampler", ResourceKind.Sampler, ShaderStages.Fragment)));
+                _auraBlurHParams ??= factory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
+                _auraBlurVParams ??= factory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
+                _auraCompositeParams ??= factory.CreateBuffer(new BufferDescription(16, BufferUsage.UniformBuffer));
+                _auraBlurHSet = factory.CreateResourceSet(new ResourceSetDescription(_auraPostLayout, _auraBlurHParams, _auraLayer, _auraLayer, _gd.LinearSampler));
+                _auraBlurVSet = factory.CreateResourceSet(new ResourceSetDescription(_auraPostLayout, _auraBlurVParams, _auraBlurH, _auraBlurH, _gd.LinearSampler));
+                _auraCompositeSet = factory.CreateResourceSet(new ResourceSetDescription(_auraPostLayout, _auraCompositeParams, _auraBlurV, _auraLayer, _gd.LinearSampler));
             }
-            if (_auraSmearPipeline == null)
+
+            if (_auraLayerPipeline == null)
             {
-                _auraSmearShaders = factory.CreateFromSpirv(
+                _auraLayerShaders = factory.CreateFromSpirv(
                     new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(BlurAuraShaders.SkinnedVertexShaderGlsl), "main"),
-                    new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.SmearFragmentShaderGlsl), "main"));
-                _auraSmearPipeline = CreatePipeline(new[] { _sceneLayout, _textureLayout, _jointPaletteLayout, _auraSceneLayout! }, AuraVertexLayout,
-                    _auraSmearShaders, BlendStateDescription.SingleAlphaBlend, depthWrite: false);
+                    new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.LayerFragmentShaderGlsl), "main"));
+                _auraLayerPipeline = CreatePipeline(new[] { _sceneLayout, _textureLayout, _jointPaletteLayout, _auraSceneLayout! }, AuraVertexLayout,
+                    _auraLayerShaders, BlendStateDescription.SingleOverrideBlend, depthWrite: true, _auraLayerFramebuffer!.OutputDescription);
             }
-            cl.CopyTexture(scene, _auraSceneCopy);
-            return true;
+            if (_auraBlurPipeline == null)
+            {
+                _auraBlurShaders = factory.CreateFromSpirv(
+                    new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(BlurAuraShaders.FullscreenVertexShaderGlsl), "main"),
+                    new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.BlurFragmentShaderGlsl), "main"));
+                _auraBlurPipeline = CreateAuraPostPipeline(_auraBlurShaders, BlendStateDescription.SingleOverrideBlend, _auraBlurHFramebuffer!.OutputDescription);
+            }
+            var sceneOutputs = scene.OutputDescription;
+            if (_auraCompositePipeline == null || !_auraCompositeOutputs.Equals(sceneOutputs))
+            {
+                _auraCompositePipeline?.Dispose();
+                _auraCompositeShaders ??= factory.CreateFromSpirv(
+                    new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(BlurAuraShaders.FullscreenVertexShaderGlsl), "main"),
+                    new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(BlurAuraShaders.CompositeFragmentShaderGlsl), "main"));
+                // Premultiplied alpha over the scene.
+                var over = new BlendStateDescription(RgbaFloat.Black,
+                    new BlendAttachmentDescription(true, BlendFactor.One, BlendFactor.InverseSourceAlpha, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add));
+                _auraCompositePipeline = CreateAuraPostPipeline(_auraCompositeShaders, over, sceneOutputs);
+                _auraCompositeOutputs = sceneOutputs;
+            }
+        }
+
+        private Pipeline CreateAuraPostPipeline(Shader[] shaders, BlendStateDescription blend, OutputDescription outputs) =>
+            _gd.ResourceFactory.CreateGraphicsPipeline(new GraphicsPipelineDescription
+            {
+                BlendState = blend,
+                DepthStencilState = DepthStencilStateDescription.Disabled,
+                RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, depthClipEnabled: true, scissorTestEnabled: false),
+                PrimitiveTopology = PrimitiveTopology.TriangleList,
+                ResourceLayouts = new[] { _auraPostLayout! },
+                ShaderSet = new ShaderSetDescription(Array.Empty<VertexLayoutDescription>(), shaders),
+                Outputs = outputs
+            });
+
+        private void DisposeAuraEdgeBlurTargets()
+        {
+            _auraBlurHSet?.Dispose(); _auraBlurHSet = null;
+            _auraBlurVSet?.Dispose(); _auraBlurVSet = null;
+            _auraCompositeSet?.Dispose(); _auraCompositeSet = null;
+            _auraLayerFramebuffer?.Dispose(); _auraLayerFramebuffer = null;
+            _auraBlurHFramebuffer?.Dispose(); _auraBlurHFramebuffer = null;
+            _auraBlurVFramebuffer?.Dispose(); _auraBlurVFramebuffer = null;
+            _auraLayer?.Dispose(); _auraLayer = null;
+            _auraLayerDepth?.Dispose(); _auraLayerDepth = null;
+            _auraBlurH?.Dispose(); _auraBlurH = null;
+            _auraBlurV?.Dispose(); _auraBlurV = null;
+            _auraSceneSet?.Dispose(); _auraSceneSet = null;
+            _auraSceneCopy?.Dispose(); _auraSceneCopy = null;
         }
 
         private void DisposeBlurAura()
@@ -255,17 +393,16 @@ namespace Gordian.App.Graphics
                 foreach (var shader in _auraShaders) shader.Dispose();
                 _auraShaders = null;
             }
-            _auraSmearPipeline?.Dispose();
-            _auraSmearPipeline = null;
-            if (_auraSmearShaders != null)
-            {
-                foreach (var shader in _auraSmearShaders) shader.Dispose();
-                _auraSmearShaders = null;
-            }
-            _auraSceneSet?.Dispose();
-            _auraSceneSet = null;
-            _auraSceneCopy?.Dispose();
-            _auraSceneCopy = null;
+            foreach (var pipeline in new[] { _auraLayerPipeline, _auraBlurPipeline, _auraCompositePipeline }) pipeline?.Dispose();
+            _auraLayerPipeline = _auraBlurPipeline = _auraCompositePipeline = null;
+            foreach (var set in new[] { _auraLayerShaders, _auraBlurShaders, _auraCompositeShaders })
+                if (set != null) foreach (var shader in set) shader.Dispose();
+            _auraLayerShaders = _auraBlurShaders = _auraCompositeShaders = null;
+            DisposeAuraEdgeBlurTargets();
+            _auraBlurHParams?.Dispose(); _auraBlurHParams = null;
+            _auraBlurVParams?.Dispose(); _auraBlurVParams = null;
+            _auraCompositeParams?.Dispose(); _auraCompositeParams = null;
+            _auraPostLayout?.Dispose(); _auraPostLayout = null;
             _auraSceneLayout?.Dispose();
             _auraSceneLayout = null;
         }

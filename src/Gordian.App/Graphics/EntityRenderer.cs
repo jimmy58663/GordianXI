@@ -362,7 +362,7 @@ namespace Gordian.App.Graphics
         private static readonly BlendStateDescription DepthOnlyBlend = new(RgbaFloat.Black,
             new BlendAttachmentDescription(true, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add, BlendFactor.Zero, BlendFactor.One, BlendFunction.Add));
 
-        private Pipeline CreatePipeline(ResourceLayout[] layouts, VertexLayoutDescription vertexLayout, Shader[] shaders, BlendStateDescription blend, bool depthWrite) =>
+        private Pipeline CreatePipeline(ResourceLayout[] layouts, VertexLayoutDescription vertexLayout, Shader[] shaders, BlendStateDescription blend, bool depthWrite, OutputDescription? outputs = null) =>
             _gd.ResourceFactory.CreateGraphicsPipeline(new GraphicsPipelineDescription
             {
                 BlendState = blend,
@@ -379,7 +379,7 @@ namespace Gordian.App.Graphics
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = layouts,
                 ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, shaders),
-                Outputs = _outputs
+                Outputs = outputs ?? _outputs
             });
 
         /// <summary>
