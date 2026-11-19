@@ -1050,6 +1050,21 @@ namespace Gordian.Engine.Events
                 case 0x5A:
                     ExecMove(op == 0x5A);
                     return;
+                case 0x31 when Code8(1) <= 1:
+                    // CodeSMOVE (XiEvents OpCodes/0x0031): sub 0 stores the goal (x, y, height, as 0x1F) and a move time,
+                    // sub 1 walks there at the main speed in three axes, facing the goal, kept on the floor (VCalibrate;
+                    // the renderer grounds event actors). Lower Delkfutt's Tower's event 38 walks Wolfgang out of the shot
+                    // with it after "Sir, yes sir!" before placing him (0x37) off screen (#459 round 4); stepped over, he
+                    // vanished there. The move time (120 there) is not used: the walk ends at its goal, as Wolfgang's
+                    // leaves the shot in Zone184_CS36-39.mp4 (*inferred*: how retail uses the time is not settled).
+                    if (Code8(1) == 0)
+                    {
+                        _stacks[_runPos].MovePosition = new Vector3(GetWork(2) * 0.001f, GetWork(6) * 0.001f, GetWork(4) * 0.001f);
+                        _pc += 10;
+                        return;
+                    }
+                    ExecMove(freeFlight: true);
+                    return;
                 case 0x32:
                     _mainSpeed = GetWork(1) * 0.1f;
                     _pc += 3;

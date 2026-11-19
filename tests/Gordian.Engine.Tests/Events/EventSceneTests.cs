@@ -259,6 +259,29 @@ namespace Gordian.Engine.Tests.Events
             Assert.Equal(0f, last.Speed); // standing at the goal
         }
 
+        /// <summary>
+        /// 0x31 (CodeSMOVE, XiEvents OpCodes/0x0031) walks like 0x1F, with a move time after the goal (#459 round 4:
+        /// Lower Delkfutt's Tower's event 38 walks Wolfgang out of the shot with it; stepped over, he vanished).
+        /// </summary>
+        [Fact]
+        public void Opcode31_WalksToItsGoal_ThenGoesOn()
+        {
+            // 32 speed=ref0 ; 31 00 goal x=ref1 y=ref2 height=ref2 time=ref3 ; 31 01 ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 30, 3000, 0, 120, 900 },
+                Code(0x32, Ref(0), 0x31, 0x00, Ref(1), Ref(2), Ref(2), Ref(3), 0x31, 0x01, 0x48, Ref(4), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, MathF.PI, 5f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 200) scene.Tick(Frame);
+            Assert.InRange(frames, 59, 62);
+            Assert.All(host.Poses, p => Assert.Equal(0f, p.Heading, 3));
+            AssertNear(new System.Numerics.Vector3(3, 0, 0), host.Poses[^1].Position);
+            Assert.DoesNotContain((byte)0x31, host.Skipped);
+        }
+
         [Fact]
         public void Opcode1F_FromAnUnknownPlace_IsAtTheGoalAtOnce()
         {

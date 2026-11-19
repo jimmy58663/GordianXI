@@ -181,6 +181,8 @@ namespace Gordian.App.Graphics
             /// <summary>Where the actor stood when the last task started (display space), for an actor that is not drawn.</summary>
             public Matrix4x4 FallbackModelToWorld;
             public Matrix4x4 ModelToWorld;
+            /// <summary>The actor's frame moved across the ground to the camera, for camera-following generators.</summary>
+            public Matrix4x4 FollowToWorld;
         }
 
         private readonly Dictionary<(int FileId, uint Actor), SceneEffectSlot> _sceneEffects = new();
@@ -2443,7 +2445,16 @@ namespace Gordian.App.Graphics
                 if (!Matrix4x4.Invert(slot.ModelToWorld, out var worldToModel)) continue;
                 var actorFrame = new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToModel), dayFraction, daylight,
                     Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToModel)), dayOfWeek, moonPhase);
-                slot.Player.Update(frames, actorFrame, cameraFrame);
+                // Camera-following world generators (SceneEffectPlayer.FollowsCameraPosition): the actor's frame, moved across
+                // the ground (display x / z) to the camera.
+                slot.FollowToWorld = slot.ModelToWorld;
+                slot.FollowToWorld.M41 = camera.Position.X;
+                slot.FollowToWorld.M43 = camera.Position.Z;
+                var followFrame = Matrix4x4.Invert(slot.FollowToWorld, out var worldToFollow)
+                    ? new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToFollow), dayFraction, daylight,
+                        Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToFollow)), dayOfWeek, moonPhase)
+                    : actorFrame;
+                slot.Player.Update(frames, actorFrame, cameraFrame, followFrame);
                 if (slot.Player.IsIdle) _idleSceneEffects.Add(key);
             }
             foreach (var key in _idleSceneEffects)
@@ -2504,7 +2515,11 @@ namespace Gordian.App.Graphics
                     if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
                     Matrix4x4 frame;
                     float sortDistance = distance;
-                    if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
+                    if (SceneEffectPlayer.FollowsCameraPosition(emitter.Template))
+                    {
+                        frame = DisplayFlip * slot.FollowToWorld;
+                    }
+                    else if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
                     {
                         frame = _cameraToWorld;
                         sortDistance = 0.0f;

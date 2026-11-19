@@ -69,7 +69,7 @@ When a change makes an opcode run, update its row and detail section in the same
 | 0x2E | | 1 | runs | 1,044 | Arms the event cancel data flag (and the cancel flag when cancelling is allowed): Cancel on a message may cut the event short ([#413](https://github.com/jimmy58663/GordianXI/issues/413), see [0x23](#0x23-codemeswait)). |
 | 0x2F | | 6 | ignored | 10,668 | Sets or clears `Render.Flags0` bit 19 of an actor. |
 | 0x30 | | 1 | stepped | 848 | Clears the client's "continue after control release" flag. |
-| 0x31 | `CodeSMOVE` | by sub | stepped | 308 | A floor-following walk in three axes with a time operand. |
+| 0x31 | `CodeSMOVE` | by sub | runs | 308 | A floor-following walk in three axes with a time operand: sub 0 stores the goal (x, y, height, as 0x1F) and the time, sub 1 walks there at the main speed facing it ([#459](https://github.com/jimmy58663/GordianXI/issues/459) round 4: Lower Delkfutt's Tower event 38 walks Wolfgang out of the shot with it; stepped over, he vanished). The time is read and not used; *how retail uses it is not settled*. |
 | 0x32 | | 3 | runs | 19,170 | Sets the entity's walk speed in tenths of a yalm per second. |
 | 0x33 | | 2 | runs | 1,627 | Sets or clears `Render.Flags0` bit 21 of the event's own entity: the event keeps its placed height instead of the floor ([#192](https://github.com/jimmy58663/GordianXI/issues/192)). [#198](https://github.com/jimmy58663/GordianXI/issues/198). |
 | 0x34 | | 3 | runs | 1,297 | Removes every actor and opens another zone for the scene ([#175](https://github.com/jimmy58663/GordianXI/issues/175)). |

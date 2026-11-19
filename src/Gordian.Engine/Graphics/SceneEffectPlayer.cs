@@ -77,6 +77,19 @@ namespace Gordian.Engine.Graphics
         /// <summary>Whether the generator draws in front of the camera (setup flag 0x04: the blink's black cards and masks).</summary>
         public static bool IsCameraSpace(ZoneEmitterTemplate template) => template.Definition.Setup?.FollowCamera == true;
 
+        /// <summary>
+        /// Whether a scene generator follows the camera across the ground in the scene's own orientation, rather than
+        /// drawing in the camera's space (#459 round 4): it follows the camera (setup flag 0x04) without its position being
+        /// in camera space (0x0C). Lower Delkfutt's Tower's event 37 draws its sea that way (51252 <c>sea1</c>-<c>sea3</c>
+        /// on <c>1sea</c>, a disc whose rim rises to the horizon, scaled 50; <c>fgd1</c> / <c>fgd2</c>, <c>cor1</c>,
+        /// <c>kira</c>): anchored at the stage's origin, its rim crossed the middle of the shot as a line between two
+        /// colours, where retail's sea is one surface. The screen overlays set both bits (324's blink cards, 51252's
+        /// <c>fls?</c> / <c>zero</c> flashes). The height is not followed: the sea stays at its level, as the camera climbs
+        /// to Bahamut (*inferred*: followed, the camera would sit in the sea plane).
+        /// </summary>
+        public static bool FollowsCameraPosition(ZoneEmitterTemplate template) =>
+            template.Definition.Setup is { FollowCamera: true, LocalPositionInCameraSpace: false };
+
         /// <summary>Starts a routine of the file as task <paramref name="taskId"/>; false when the file has no such routine.</summary>
         public bool Start(int taskId, string routine)
         {
@@ -143,16 +156,21 @@ namespace Gordian.Engine.Graphics
         /// <summary>
         /// Runs the commands due in the next <paramref name="frames"/> 60 Hz frames, then advances the generators:
         /// <paramref name="actorFrame"/> carries the camera in the actor's model space, <paramref name="cameraFrame"/> in
-        /// the camera's own space (for <see cref="IsCameraSpace"/> generators).
+        /// the camera's own space (for <see cref="IsCameraSpace"/> generators), <paramref name="followFrame"/> in the frame
+        /// that follows the camera across the ground (for <see cref="FollowsCameraPosition"/> ones).
         /// </summary>
-        public void Update(float frames, in ZoneParticleFrame actorFrame, in ZoneParticleFrame cameraFrame)
+        public void Update(float frames, in ZoneParticleFrame actorFrame, in ZoneParticleFrame cameraFrame, in ZoneParticleFrame followFrame)
         {
             Advance(frames);
             foreach (var (_, emitter) in Instance.Emitters)
             {
-                emitter.Update(frames, IsCameraSpace(emitter.Template) ? cameraFrame : actorFrame);
+                emitter.Update(frames, FollowsCameraPosition(emitter.Template) ? followFrame : IsCameraSpace(emitter.Template) ? cameraFrame : actorFrame);
             }
         }
+
+        /// <summary>As <see cref="Update(float, in ZoneParticleFrame, in ZoneParticleFrame, in ZoneParticleFrame)"/>, following generators in the camera's space.</summary>
+        public void Update(float frames, in ZoneParticleFrame actorFrame, in ZoneParticleFrame cameraFrame) =>
+            Update(frames, actorFrame, cameraFrame, cameraFrame);
 
         /// <summary>Runs the commands due in the next <paramref name="frames"/> frames (without moving particles).</summary>
         public void Advance(float frames)
