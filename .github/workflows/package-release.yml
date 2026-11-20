@@ -44,9 +44,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish Gordian.App (win-x64, self-contained)
+      # Single file: GordianXI plus its managed dependencies and the .NET runtime in one executable, with
+      # symbols embedded. The native libraries (SDL3, OpenAL Soft, cimgui, SkiaSharp, SPIRV) stay beside it:
+      # bundling them (IncludeNativeLibrariesForSelfExtract) breaks OpenAL and ImGui, whose loaders look next
+      # to the executable rather than in the extraction folder. Native packages' own .pdb files are dropped.
+      - name: Publish GordianXI (win-x64, self-contained, single file)
+        shell: bash
         run: |
-          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o staging/GordianXI
+          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:DebugType=embedded -o staging/GordianXI
+          rm -f staging/GordianXI/*.pdb
 
       - name: Assemble Portable Folder Structure
         shell: bash
@@ -139,9 +145,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish Gordian.App (linux-x64, self-contained)
+      # Single file: GordianXI plus its managed dependencies and the .NET runtime in one executable, with
+      # symbols embedded. The native libraries (SDL3, OpenAL Soft, cimgui, SkiaSharp, SPIRV) stay beside it:
+      # bundling them (IncludeNativeLibrariesForSelfExtract) breaks OpenAL and ImGui, whose loaders look next
+      # to the executable rather than in the extraction folder. Native packages' own .pdb files are dropped.
+      - name: Publish GordianXI (linux-x64, self-contained, single file)
+        shell: bash
         run: |
-          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r linux-x64 --self-contained true -p:PublishReadyToRun=true -o staging/GordianXI
+          dotnet publish src/Gordian.App/Gordian.App.csproj -c Release -r linux-x64 --self-contained true -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:DebugType=embedded -o staging/GordianXI
+          rm -f staging/GordianXI/*.pdb
 
       - name: Assemble Portable Folder Structure
         shell: bash
