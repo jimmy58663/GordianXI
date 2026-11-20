@@ -21,6 +21,7 @@ namespace Gordian.App.Tests.ViewModels
         {
             _tempProfilesDir = Path.Combine(Path.GetTempPath(), "GordianApp_TreeTest_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_tempProfilesDir);
+            SampleProfiles.WriteTo(_tempProfilesDir);
             GordianStorage.ProfilesDirectory = _tempProfilesDir;
             _testRegistry = new SessionRegistry();
         }
@@ -104,7 +105,7 @@ namespace Gordian.App.Tests.ViewModels
             // - Folder Test1 (with AF00 and CraftMule)
             // - Folder Test2 (with subfolder Test3 -> HS00)
             // - Root profile LP00-QA
-            // - Root profile JimmyMain
+            // - Root profile RetailMain
 
             var test1 = vm.LaunchTree.OfType<LaunchFolderViewModel>().FirstOrDefault(f => f.Name == "Test1");
             Assert.NotNull(test1);
@@ -495,16 +496,16 @@ namespace Gordian.App.Tests.ViewModels
             using var vm = new MainWindowViewModel(_testRegistry);
 
             var lp00 = vm.Profiles.First(p => p.ProfileName == "LP00-QA");
-            var jimmyMain = vm.Profiles.First(p => p.ProfileName.StartsWith("JimmyMain"));
+            var retailMain = vm.Profiles.First(p => p.ProfileName.StartsWith("RetailMain"));
 
-            // Reorder LP00 directly before JimmyMain at root
-            vm.MoveProfileRelative(lp00, jimmyMain, insertAfter: false);
+            // Reorder LP00 directly before RetailMain at root
+            vm.MoveProfileRelative(lp00, retailMain, insertAfter: false);
 
             int lp00Index = vm.LaunchTree.IndexOf(lp00);
-            int jimmyIndex = vm.LaunchTree.IndexOf(jimmyMain);
+            int retailIndex = vm.LaunchTree.IndexOf(retailMain);
 
             Assert.True(lp00Index >= 0);
-            Assert.Equal(lp00Index + 1, jimmyIndex);
+            Assert.Equal(lp00Index + 1, retailIndex);
         }
 
         [Fact]

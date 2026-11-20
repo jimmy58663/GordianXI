@@ -83,10 +83,12 @@ namespace Gordian.Engine.Tests.Architecture
             var friends = typeof(Gordian.Core.Config.SessionProfile).Assembly
                 .GetCustomAttributes<System.Runtime.CompilerServices.InternalsVisibleToAttribute>()
                 .Select(a => a.AssemblyName)
+                .Order(StringComparer.Ordinal)
                 .ToList();
-            Assert.DoesNotContain("Gordian.App", friends);
-            Assert.DoesNotContain("Gordian.Addons", friends);
-            Assert.DoesNotContain("Gordian.Automation", friends);
+            // An exact list rather than a deny list, so a renamed assembly (the App builds as GordianXI) can't slip in.
+            Assert.Equal(
+                new[] { "Gordian.App.Tests", "Gordian.Core.Tests", "Gordian.Engine", "Gordian.Engine.Tests" },
+                friends);
         }
 
         /// <summary>

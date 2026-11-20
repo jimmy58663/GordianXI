@@ -570,18 +570,12 @@ namespace Gordian.App.ViewModels
                 AddProfileToTree(profile);
             }
 
-            if (Profiles.Count == 0)
+            // An empty store stays empty: a first launch shows no profiles and writes nothing.
+            foreach (var node in LaunchTree)
             {
-                CreateDefaultMockProfiles();
-            }
-            else
-            {
-                foreach (var node in LaunchTree)
+                if (node is LaunchFolderViewModel folder)
                 {
-                    if (node is LaunchFolderViewModel folder)
-                    {
-                        folder.UpdateCheckStateFromChildren();
-                    }
+                    folder.UpdateCheckStateFromChildren();
                 }
             }
         }
@@ -2226,100 +2220,6 @@ namespace Gordian.App.ViewModels
             {
                 _sessionRegistry.SetPrimaryRenderingSession(Console.SelectedSession);
             }
-        }
-
-        private void CreateDefaultMockProfiles()
-        {
-            string profilesDir = GordianStorage.ProfilesDirectory;
-
-            var mainChar = new AccountProfile
-            {
-                ProfileName = "JimmyMain (Retail Target)",
-                CharacterName = "Jimmy",
-                Folder = string.Empty,
-                ServerType = ProfileServerType.Retail,
-                Username = "jimmy_war",
-                Password = "SuperSecurePassword123",
-                PolId = "JIMMY001",
-                PolPassword = "PolPassword123",
-                OtpSeed = "HXDMVJECJJWSRB3D",
-                TwoFactor = TwoFactorMode.AuthenticatorKey,
-                IsSelectedForLaunch = true
-            };
-
-            var muleChar = new AccountProfile
-            {
-                ProfileName = "CraftMule (Private Target)",
-                CharacterName = "Crafty",
-                Folder = "Test1",
-                Username = "jimmy_mule",
-                Password = "MulePassword456",
-                ServerType = ProfileServerType.LandSandBoat,
-                ServerHost = "127.0.0.1",
-                ServerPort = 54231,
-                IsSelectedForLaunch = true
-            };
-
-            var af00Char = new AccountProfile
-            {
-                ProfileName = "AF00",
-                CharacterName = "AF00",
-                Folder = "Test1",
-                Username = "af00_user",
-                Password = "AFPassword123",
-                ServerType = ProfileServerType.LandSandBoat,
-                ServerHost = "127.0.0.1",
-                ServerPort = 54231,
-                IsSelectedForLaunch = true
-            };
-
-            var hs00Char = new AccountProfile
-            {
-                ProfileName = "HS00",
-                CharacterName = "HS00",
-                Folder = "Test2/Test3",
-                Username = "hs00_user",
-                Password = "HSPassword456",
-                ServerType = ProfileServerType.LandSandBoat,
-                ServerHost = "127.0.0.1",
-                ServerPort = 54231,
-                IsSelectedForLaunch = true
-            };
-
-            var lp00Char = new AccountProfile
-            {
-                ProfileName = "LP00-QA",
-                CharacterName = "LP00-QA",
-                Folder = string.Empty,
-                Username = "lp00_user",
-                Password = "LPPassword789",
-                ServerType = ProfileServerType.LandSandBoat,
-                ServerHost = "127.0.0.1",
-                ServerPort = 54231,
-                IsSelectedForLaunch = false
-            };
-
-            mainChar.SaveToFile(profilesDir);
-            muleChar.SaveToFile(profilesDir);
-            af00Char.SaveToFile(profilesDir);
-            hs00Char.SaveToFile(profilesDir);
-            lp00Char.SaveToFile(profilesDir);
-
-            AddProfileToTree(mainChar);
-            AddProfileToTree(muleChar);
-            AddProfileToTree(af00Char);
-            AddProfileToTree(hs00Char);
-            AddProfileToTree(lp00Char);
-
-            foreach (var node in LaunchTree)
-            {
-                if (node is LaunchFolderViewModel f)
-                {
-                    f.UpdateCheckStateFromChildren();
-                }
-            }
-
-            SaveProfilesToStore();
         }
 
         public void Dispose()
