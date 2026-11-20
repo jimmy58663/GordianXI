@@ -21,6 +21,7 @@ namespace Gordian.App.Tests
         {
             _tempProfilesDir = Path.Combine(Path.GetTempPath(), "GordianApp_Test_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_tempProfilesDir);
+            SampleProfiles.WriteTo(_tempProfilesDir);
             GordianStorage.ProfilesDirectory = _tempProfilesDir;
             _testRegistry = new SessionRegistry();
         }
@@ -59,13 +60,27 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
-        public void InitialLoad_CreatesDefaultProfilesWhenEmpty()
+        public void InitialLoad_EmptyStore_ShowsNoProfilesAndWritesNothing()
+        {
+            string empty = Path.Combine(_tempProfilesDir, "empty");
+            Directory.CreateDirectory(empty);
+            GordianStorage.ProfilesDirectory = empty;
+
+            using var vm = new MainWindowViewModel(_testRegistry);
+
+            Assert.Empty(vm.Profiles);
+            Assert.Empty(vm.LaunchTree);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(empty));
+        }
+
+        [Fact]
+        public void InitialLoad_LoadsTheSavedProfiles()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
 
-            Assert.True(vm.Profiles.Count >= 2);
-            Assert.Contains(vm.Profiles, p => p.ProfileName.Contains("JimmyMain"));
-            Assert.Contains(vm.Profiles, p => p.ProfileName.Contains("CraftMule"));
+            Assert.Equal(5, vm.Profiles.Count);
+            Assert.Contains(vm.Profiles, p => p.ProfileName == "RetailMain");
+            Assert.Contains(vm.Profiles, p => p.ProfileName == "CraftMule");
         }
 
         [Fact]
