@@ -274,7 +274,7 @@ Dates in the evidence column are the dates the docs give.
 | Value | Where | Status | Evidence or what would settle it | Doc |
 |---|---|---|---|---|
 | model scale 0.94 / 1.0 / 1.06 for small / medium / large | `PlayerSizeScale` (`EntityRenderer`, the lobby preview) | guessed | no reference source or DAT gives the factors; settle with a retail capture of one race at the three sizes standing at the same wall | [character-lobby](../design/character-lobby.md#character-creation-33) |
-| fixed model render scale: `info` (0x45) byte 10 + GraphSize over 100; 0, 0xFF or under 10 read as 1 | `EntityModel.SizeScaleFor`, `EntityModelLoader.ReadSizeScales` | data (retail-checked for Fenrir) | Fenrir's 75 against `Fenrir_AvatarSize_Retail_2026-11-19.png` (its back at an Elvaan's chest); bytes 11-13 as the larger classes is inferred (#82 round 5) | [entities-and-animation](../world/entities-and-animation.md) |
+| fixed model render scale: `info` (0x45) byte 10 + GraphSize over 100; 0, 0xFF or under 10 read as 1 | `EntityModel.SizeScaleFor`, `EntityModelLoader.ReadSizeScales` | data (retail-checked) | Fenrir's 75 against `Fenrir_AvatarSize_Retail_2026-11-19.png` (its back at an Elvaan's chest, #82 round 5); in game the maintainer matched Fenrir, Garuda, Damselflies, Goblins, Fafnir, Sheep and Rabbits to retail (round 6, 2026-11-19); bytes 11-13 as the larger classes is inferred | [entities-and-animation](../world/entities-and-animation.md) |
 ## Character lobby and loading
 
 | Value | Where | Status | Evidence or what would settle it | Doc |
