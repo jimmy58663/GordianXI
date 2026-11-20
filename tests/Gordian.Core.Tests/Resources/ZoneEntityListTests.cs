@@ -35,6 +35,22 @@ namespace Gordian.Core.Tests.Resources
             Assert.Null(list.GetName(1));
         }
 
+        /// <summary>
+        /// An entity listed without a name reads as empty, not missing (#459): Pso'Xja's robed figures, which LandSandBoat
+        /// names "blank" and retail draws without a plate.
+        /// </summary>
+        [Fact]
+        public void Parse_KeepsEntitiesListedWithoutAName()
+        {
+            var file = Record("Nag'molada", 16814537).Concat(Record("", 16814539)).Concat(Record("", 0)).ToArray();
+            var list = ZoneEntityList.Parse(file)!;
+            Assert.Equal("Nag'molada", list.GetName(16814537));
+            Assert.Equal(string.Empty, list.GetName(16814539));
+            Assert.Null(list.GetName(1));
+            // A file of unnamed records only is not an entity list.
+            Assert.Null(ZoneEntityList.Parse(Record("", 5).Concat(Record("", 6)).ToArray()));
+        }
+
         [Fact]
         public void Parse_RejectsOtherFiles()
         {

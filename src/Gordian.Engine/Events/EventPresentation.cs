@@ -160,32 +160,48 @@ namespace Gordian.Engine.Events
                 }
                 double now = Clock();
                 AddSounds(taskId, fileId, resource, routine, now, origin, casterServerId, 0);
-                foreach (var command in routine.Commands)
+                Schedule(taskId, resource, routine, origin, now, 0);
+            }
+        }
+
+        /// <summary>
+        /// Schedules a routine's camera shots, fades, flashes, blurs and dissolves from <paramref name="now"/>, and those of
+        /// the routines it starts (0x03) from their start, as its sounds and actor colours are (#459): Lower Delkfutt's
+        /// Tower's event 37 (the sea and Bahamut) runs one task, 51252's <c>main</c>, whose shots <c>c001</c>-<c>c004</c>
+        /// are in the routines <c>cut1</c>-<c>cut4</c> it starts, so the camera stayed on <c>main</c>'s own <c>c000</c>.
+        /// A repeating routine (0x73) is not followed: its commands would repeat without end.
+        /// </summary>
+        private void Schedule(int taskId, EventSceneResource resource, SceneRoutine routine, Vector3 origin, double now, int depth)
+        {
+            foreach (var command in routine.Commands)
+            {
+                double start = now + command.StartFrame / FramesPerSecond;
+                double duration = command.Duration / FramesPerSecond;
+                switch (command.Kind)
                 {
-                    double start = now + command.StartFrame / FramesPerSecond;
-                    double duration = command.Duration / FramesPerSecond;
-                    switch (command.Kind)
-                    {
-                        case SceneCommandKind.Camera when resource.TryGetRoute(command.Reference, out var route):
-                            _shots.Add(new Shot { TaskId = taskId, Route = route, Origin = origin, Start = start, Duration = duration });
-                            break;
-                        case SceneCommandKind.SceneFade:
-                            Insert(_sceneFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _sceneBase);
-                            break;
-                        case SceneCommandKind.InterfaceFade:
-                            Insert(_interfaceFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _interfaceBase);
-                            break;
-                        case SceneCommandKind.ScreenFlash:
-                            Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
-                            break;
-                        case SceneCommandKind.Blur:
-                            Insert(_blurTints, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _blurTintBase);
-                            Insert(_blurAmounts, new Fade { TaskId = taskId, Target = BlurAmountOf(command.Color, command.Factor), Start = start, Duration = duration }, _blurAmountBase);
-                            break;
-                        case SceneCommandKind.CrossDissolve when duration > 0:
-                            _dissolves.Add(new Dissolve { TaskId = taskId, Sequence = ++_dissolveSequence, Start = start, Duration = duration });
-                            break;
-                    }
+                    case SceneCommandKind.Camera when resource.TryGetRoute(command.Reference, out var route):
+                        _shots.Add(new Shot { TaskId = taskId, Route = route, Origin = origin, Start = start, Duration = duration });
+                        break;
+                    case SceneCommandKind.SceneFade:
+                        Insert(_sceneFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _sceneBase);
+                        break;
+                    case SceneCommandKind.InterfaceFade:
+                        Insert(_interfaceFades, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _interfaceBase);
+                        break;
+                    case SceneCommandKind.ScreenFlash:
+                        Insert(_flashFades, new Fade { TaskId = taskId, Target = FlashColorOf(command.Color), Start = start, Duration = duration }, _flashBase);
+                        break;
+                    case SceneCommandKind.Blur:
+                        Insert(_blurTints, new Fade { TaskId = taskId, Target = ColorOf(command.Color), Start = start, Duration = duration }, _blurTintBase);
+                        Insert(_blurAmounts, new Fade { TaskId = taskId, Target = BlurAmountOf(command.Color, command.Factor), Start = start, Duration = duration }, _blurAmountBase);
+                        break;
+                    case SceneCommandKind.CrossDissolve when duration > 0:
+                        _dissolves.Add(new Dissolve { TaskId = taskId, Sequence = ++_dissolveSequence, Start = start, Duration = duration });
+                        break;
+                    case SceneCommandKind.StartRoutine when depth < MaxSoundLinkDepth && command.Reference != routine.Name
+                        && resource.TryGetRoutine(command.Reference, out var child):
+                        Schedule(taskId, resource, child, origin, start, depth + 1);
+                        break;
                 }
             }
         }
@@ -266,6 +282,9 @@ namespace Gordian.Engine.Events
             double Duration = 0, int FileId = 0, string Generator = "", float Far = 0f, float Near = 0f);
 
         private readonly List<SceneSound> _sounds = new();
+
+        /// <summary>The key a held sound (0x8A / 0x8B) plays under, apart from the file's generators of the same name.</summary>
+        internal static string HeldSoundKey(string name) => "8A:" + name;
         private const int MaxSoundLinkDepth = 4;
         private int _soundResets;
 
@@ -287,6 +306,13 @@ namespace Gordian.Engine.Events
                 double duration = command.Duration / FramesPerSecond;
                 switch (command.Kind)
                 {
+                    // A held sound (0x8A) plays like a sound generator, keyed by its name, until 0x8B stops it (#206).
+                    case SceneCommandKind.HeldSound when resource.TryGetSound(command.Reference, out int heldId):
+                        _sounds.Add(new SceneSound(taskId, at, heldId, 0x02, origin, caster, 0, fileId, HeldSoundKey(command.Reference)));
+                        break;
+                    case SceneCommandKind.StopHeldSound:
+                        _sounds.Add(new SceneSound(taskId, at, 0, 0x1E, origin, caster, FileId: fileId, Generator: HeldSoundKey(command.Reference)));
+                        break;
                     case SceneCommandKind.Sound when resource.TryGetSound(command.Reference, out int soundId):
                         _sounds.Add(new SceneSound(taskId, at, soundId, command.Opcode, origin, caster, FileId: fileId));
                         break;

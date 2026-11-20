@@ -259,6 +259,52 @@ namespace Gordian.Engine.Tests.Events
             Assert.Equal(0f, last.Speed); // standing at the goal
         }
 
+        /// <summary>
+        /// 0x31 (CodeSMOVE, XiEvents OpCodes/0x0031) walks like 0x1F, with a move time after the goal (#459 round 4:
+        /// Lower Delkfutt's Tower's event 38 walks Wolfgang out of the shot with it; stepped over, he vanished).
+        /// </summary>
+        [Fact]
+        public void Opcode31_WalksToItsGoal_ThenGoesOn()
+        {
+            // 32 speed=ref0 ; 31 00 goal x=ref1 y=ref2 height=ref2 time=ref3 ; 31 01 ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 30, 3000, 0, 120, 900 },
+                Code(0x32, Ref(0), 0x31, 0x00, Ref(1), Ref(2), Ref(2), Ref(3), 0x31, 0x01, 0x48, Ref(4), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, MathF.PI, 5f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 200) scene.Tick(Frame);
+            Assert.InRange(frames, 59, 62);
+            Assert.All(host.Poses, p => Assert.Equal(0f, p.Heading, 3));
+            AssertNear(new System.Numerics.Vector3(3, 0, 0), host.Poses[^1].Position);
+            Assert.DoesNotContain((byte)0x31, host.Skipped);
+        }
+
+        /// <summary>
+        /// 0x31's move time counts frames and, run out, ends the walk short of its goal (#459 round 5: Wolfgang's 2 s walk
+        /// out of the shot in Lower Delkfutt's Tower's event 38; walked on to the goal, he was still walking at the next shot).
+        /// </summary>
+        [Fact]
+        public void Opcode31_WhenItsTimeRunsOut_StopsShortAndGoesOn()
+        {
+            // 32 speed=ref0 ; 31 00 goal x=ref1 (9 m) time=ref3 (60 frames) ; 31 01 ; 48 msg ; 00
+            var block = Block(Director, new uint[] { 30, 9000, 0, 60, 900 },
+                Code(0x32, Ref(0), 0x31, 0x00, Ref(1), Ref(2), Ref(2), Ref(3), 0x31, 0x01, 0x48, Ref(4), 0x00));
+            var host = new RecordingHost();
+            host.Entities[Director] = (System.Numerics.Vector3.Zero, MathF.PI, 5f);
+            var scene = new EventScene(new EventWorkZone());
+            _ = new EventVm(block, EventId, scene, host, Director, 1);
+
+            int frames = 0;
+            while (host.Printed.Count == 0 && frames++ < 400) scene.Tick(Frame);
+            Assert.InRange(frames, 59, 63);
+            var last = host.Poses[^1];
+            Assert.InRange(last.Position.X, 2.8f, 3.2f);
+            Assert.Equal(0f, last.Speed);
+        }
+
         [Fact]
         public void Opcode1F_FromAnUnknownPlace_IsAtTheGoalAtOnce()
         {

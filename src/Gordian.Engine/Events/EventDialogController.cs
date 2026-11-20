@@ -183,6 +183,65 @@ namespace Gordian.Engine.Events
         /// applied when they arrive.
         /// </summary>
         private readonly Dictionary<uint, EventPose> _pendingPoses = new();
+
+        /// <summary>
+        /// The event zone (<c>WorldState.EventZoneId</c>, 0 = the player's own zone) the player's event pose was set in
+        /// (#459). A pose set while a stage zone is open is in that zone's coordinates, so it is dropped when the scene
+        /// leaves that zone and never kept as the player's own position: Pso'Xja's event 2 last places the player at
+        /// (-348.5, -19.1, -396.0) in stage zone 541, outside zone 9's geometry, where retail leaves the player at its start
+        /// (459-psoxja-cs2.mp4, 2026-11-08: -29.956, -0.002, 212.521 before and after).
+        /// </summary>
+        private ushort _playerPoseZone;
+
+        /// <summary>
+        /// Whether the event's first pose of the player put it more than <see cref="PlayerStagingDistance"/> from where it
+        /// stands (#459 round 5): a scene staging the player elsewhere, whose placement is not kept at the end
+        /// (<see cref="KeepPlayerEventPlacement"/>).
+        /// </summary>
+        private bool _playerStagedAway;
+
+        /// <summary>
+        /// How far (yalms) the event's first placement of the player may be from where it stands for the event's walk to be
+        /// kept at the end. *Inferred* (#459 round 5): the Port Jeuno customs door (event 54) places the player at the door
+        /// it is talking to, then walks it 2.5-6 yalms through; event 324 (the Abyssea intro, also played by <c>!cs 324</c>
+        /// anywhere in the zone) stages it at (-56.4, 0, 0.2), and retail leaves the player where it stood.
+        /// </summary>
+        public const float PlayerStagingDistance = 10f;
+
+        /// <summary>
+        /// Whether the controller hid the player for a stage zone the scene opened without placing the player in it (#459
+        /// round 3). Retail shows no player in Lower Delkfutt's Tower's event 37 (stage zone 542: Zone184_CS36-39.mp4), which
+        /// never places the player there: the player's position belongs to zone 184 and means nothing on the stage. The
+        /// player's scene tasks are anchored at the stage's origin instead (<see cref="SceneTaskOrigin"/>).
+        /// </summary>
+        private bool _playerStageHidden;
+
+        /// <summary>Whether a stage zone (500-699) is open for the scene and the scene has not placed the player in it.</summary>
+        private bool InUnplacedStage =>
+            _world is { } world && IsStageZone(world.EventZoneId) && _playerPoseZone != world.EventZoneId;
+
+        private static bool IsStageZone(int zoneId) =>
+            zoneId >= Gordian.Core.Resources.ZoneDataLoader.EventStageZoneFirst && zoneId <= Gordian.Core.Resources.ZoneDataLoader.EventStageZoneLast;
+
+        /// <summary>Shows or hides the player for a stage zone it was not placed in (<see cref="_playerStageHidden"/>).</summary>
+        private void UpdatePlayerStageVisibility()
+        {
+            if (_world == null || _player == null || !_world.TryGetByServerId(_player.ServerId, out var self)) return;
+            if (InUnplacedStage)
+            {
+                if (_playerStageHidden || self.IsEventHidden) return;
+                self.IsEventHidden = true;
+                _staged.Add(self.ServerId);
+                _playerStageHidden = true;
+                GordianLog.Debug(LogCategories.Event, $"Player hidden: stage zone {_world.EventZoneId} opened without placing it.");
+            }
+            else if (_playerStageHidden)
+            {
+                self.IsEventHidden = false;
+                _playerStageHidden = false;
+            }
+        }
+
         private readonly Dictionary<uint, bool> _pendingHidden = new();
         private readonly Dictionary<uint, bool> _pendingKeepHeight = new();
         private readonly Dictionary<uint, bool> _pendingHidesName = new();
@@ -632,6 +691,9 @@ namespace Gordian.Engine.Events
         /// </summary>
         private void ClearStaging()
         {
+            _playerPoseZone = 0;
+            _playerStagedAway = false;
+            _playerStageHidden = false;
             _cutsceneHud = false;
             _eventText = null;
             _pendingPoses.Clear();
@@ -829,12 +891,19 @@ namespace Gordian.Engine.Events
         /// The player stays where the event left it (#338): a script that walks the player (opcode 0x1F, Port Jeuno's
         /// "Door:Arrivals Entrance" event 54 walking the player through the customs door) or turns it moves the player's own
         /// position, which the locomotion loop then reports to the server (C2S 0x015), as retail does. Settled onto the floor
-        /// there, since an event's heights are drawn on the floor below them. Not for an event dropped by a zone change.
+        /// there, since an event's heights are drawn on the floor below them. Not for an event dropped by a zone change, nor
+        /// for a pose set in a stage zone (#459).
         /// </summary>
         private void KeepPlayerEventPlacement()
         {
             var player = _player;
             if (player == null || _world == null || !_world.TryGetByServerId(player.ServerId, out var self)) return;
+            // Not a pose from a stage zone (#459: Pso'Xja's event 2); retail leaves the player where it stood.
+            if (_playerPoseZone != 0) return;
+            // Not a scene that stages the player away from where it stands (#459 round 5): Port Jeuno's event 324 puts
+            // the player at (-56.4, 0, 0.2) and walks it there; retail leaves the player where it stood. The customs door
+            // (event 54) places the player at the door it stands at (0x37) and walks it a few metres through, and keeps that.
+            if (_playerStagedAway) return;
             KeepEventPlacement(player, self);
         }
 
@@ -1248,8 +1317,18 @@ namespace Gordian.Engine.Events
                 _pendingPoses[serverId] = pose; // applied when the entity arrives (SortArrivals)
                 return;
             }
+            if (serverId == (_player?.ServerId ?? 0) && entity.EventPose == null && _world.EventZoneId == 0
+                && Vector2.Distance(new Vector2(position.X, position.Z), new Vector2(entity.Position.X, entity.Position.Z)) > PlayerStagingDistance)
+            {
+                _playerStagedAway = true;
+            }
             entity.EventPose = pose;
             _staged.Add(serverId);
+            if (serverId == (_player?.ServerId ?? 0))
+            {
+                _playerPoseZone = _world.EventZoneId;
+                UpdatePlayerStageVisibility();
+            }
         }
 
         void IEventVmHost.SetEventMessageMode(bool on, int x, int y)
@@ -1480,6 +1559,15 @@ namespace Gordian.Engine.Events
             var world = _world;
             if (world == null) return;
             world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
+            // A pose the player was given in a stage zone does not carry over (#459): back in its own zone the player
+            // stands where it is.
+            if (_player is { } player && world.EventZoneId != _playerPoseZone && _playerPoseZone != 0
+                && world.TryGetByServerId(player.ServerId, out var self) && self.EventPose != null)
+            {
+                self.EventPose = null;
+                _playerPoseZone = 0;
+            }
+            UpdatePlayerStageVisibility();
             GordianLog.Info(LogCategories.Event, world.EventZoneId == 0 ? $"Event zone: back to zone {world.CurrentZoneId}." : $"Event zone: zone {zoneId} opened for the scene.");
         }
 
@@ -1629,6 +1717,7 @@ namespace Gordian.Engine.Events
             }
             entity.IsEventHidden = hidden;
             _staged.Add(serverId);
+            if (serverId == (_player?.ServerId ?? 0)) _playerStageHidden = false; // the script decides from here
             GordianLog.Debug(LogCategories.Event, $"Event {(hidden ? "hides" : "shows")} 0x{serverId:X8} ({entity.Name}).");
         }
 
@@ -1666,6 +1755,15 @@ namespace Gordian.Engine.Events
             return false;
         }
 
+        /// <summary>
+        /// Where the player's scene tasks are anchored while a stage zone the scene did not place the player in is open: the
+        /// stage's origin, facing heading 0 (#459 round 3), else null. Lower Delkfutt's Tower's event 37 plays file 51252's
+        /// <c>main</c> on the player in stage zone 542: its cameras are absolute, and its wave fronts, light pillars,
+        /// whirlpool and stars sit around (0, 0, 0) only when anchored there (offscreen render against Zone184_CS36-39.mp4);
+        /// anchored at the player's zone-184 position they fell out of every shot. *Inferred from that scene.*
+        /// </summary>
+        private Vector3? SceneTaskOrigin() => InUnplacedStage ? Vector3.Zero : null;
+
         int IEventVmHost.StartSceneTask(int taskId, int fileId, string routine, uint casterServerId, uint targetServerId)
         {
             var resource = LoadSceneResource(fileId);
@@ -1681,6 +1779,7 @@ namespace Gordian.Engine.Events
             if (_scene?.FindActor(casterServerId) is { } actor) (origin, heading) = actor.EventPosition;
             else if (((IEventVmHost)this).TryGetEntityPose(casterServerId, out var position, out var poseHeading, out _)) (origin, heading) = (position, poseHeading);
             if (casterServerId == 0) casterServerId = _player?.ServerId ?? 0;
+            if (casterServerId == (_player?.ServerId ?? 0) && SceneTaskOrigin() is { } stage) (origin, heading) = (stage, 0f);
             Presentation.Play(taskId, resource, scene, origin, fileId, casterServerId, targetServerId, heading);
             PlaySceneMotion(fileId, routine, casterServerId);
             // The routine's colour commands (0x29 fades, 0x2E holds: the battlefield warps wp00 / wp01) fade its actor (#206),
@@ -1807,6 +1906,10 @@ namespace Gordian.Engine.Events
                 if (LoadMotionPackage(resource) is { } package) entity.Animation.AddEventMotionBank(package);
             }
             if (!_banked.Contains(entity)) _banked.Add(entity);
+            // A name of no letters (0xFEFEFE00 in Jade Sepulcher's event 4) only loads the bank onto the actor: it starts no
+            // gesture, so it neither stops the one playing nor drops one still waiting for this bank (#459 round 3, the Wivre's
+            // hil2). *Inferred from that scene.*
+            if (routine.Length == 0) return 0;
             entity.Animation.EnqueueAction(new ActionRequest
             {
                 ActorId = serverId,

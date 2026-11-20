@@ -1,5 +1,6 @@
 // src/Gordian.Core/Resources/Tables/ZoneEntityList.cs
 using System;
+using System.Linq;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
@@ -45,7 +46,14 @@ namespace Gordian.Core.Resources.Tables
                 var record = file.Slice(offset, RecordSize);
                 int length = record.Slice(0, NameSize).IndexOf((byte)0);
                 if (length < 0) length = NameSize;
-                if (length == 0) continue;
+                if (length == 0)
+                {
+                    // An entity listed without a name (#459): retail draws no plate for it, whatever the server calls it
+                    // (Pso'Xja's robed figures 16814539-16814549, which LandSandBoat names "blank").
+                    uint unnamed = BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(NameSize, 4));
+                    if (unnamed != 0) names.TryAdd(unnamed, string.Empty);
+                    continue;
+                }
                 for (int i = 0; i < length; i++)
                 {
                     if (record[i] < 0x20 || record[i] > 0x7E) return null; // not a printable name: not this format
@@ -53,10 +61,13 @@ namespace Gordian.Core.Resources.Tables
                 uint id = BinaryPrimitives.ReadUInt32LittleEndian(record.Slice(NameSize, 4));
                 names.TryAdd(id, Encoding.ASCII.GetString(record.Slice(0, length)));
             }
-            return names.Count > 0 ? new ZoneEntityList(names) : null;
+            return names.Values.Any(n => n.Length > 0) ? new ZoneEntityList(names) : null;
         }
 
-        /// <summary>The display name of an entity by server id, or null.</summary>
+        /// <summary>
+        /// The display name of an entity by server id: empty for an entity the list carries without a name (retail names it
+        /// nothing, #459), null for one it does not carry.
+        /// </summary>
         public string? GetName(uint serverId) => _names.TryGetValue(serverId, out var name) ? name : null;
 
         /// <summary>Every (server id, name) pair, for tools and tests.</summary>
@@ -90,7 +101,7 @@ namespace Gordian.Core.Resources.Tables
         private static int _zoneId = -1;
         private static ZoneEntityList? _list;
 
-        /// <summary>The name of an NPC in a zone, or null when the zone's list does not carry it.</summary>
+        /// <summary>The name of an NPC in a zone: empty when the zone's list carries it without a name, null when it does not carry it.</summary>
         public static string? Resolve(int zoneId, uint serverId)
         {
             var list = ListFor(zoneId);

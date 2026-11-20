@@ -142,6 +142,7 @@ namespace Gordian.App.Graphics
             uint targetId = session.ActionService.CurrentTarget?.ServerId ?? 0;
             uint subTargetId = session.ActionService.SubTargeting?.Current.ServerId ?? 0;
             var magnified = MagnifiedPlates(session);
+            bool inStageZone = session.World.EventZoneId != 0;
 
             NamePlateBounds? target = null;
             foreach (var anchor in ordered)
@@ -153,7 +154,7 @@ namespace Gordian.App.Graphics
                 var flags = isLocal ? session.LocalPlayer.NamePlate | entity.NamePlate : entity.NamePlate;
                 // The server has stopped answering (#235): the player's own name shows the link-dead red circle.
                 if (isLocal && session.NetworkManager.IsConnectionLost) flags |= NamePlateFlags.LinkDead;
-                if (!NamePlateStyle.ShowsName(entity, flags)) continue;
+                if (!NamePlateStyle.ShowsName(entity, flags, inStageZone)) continue;
                 byte gmLevel = isLocal ? session.LocalPlayer.GmLevel : (entity as PlayerEntity)?.GmLevel ?? 0;
 
                 var color = ColorOf(library, NamePlateStyle.Color(entity, flags, localId, ownPartyIds, claimGroup));

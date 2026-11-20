@@ -241,6 +241,21 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(NamePlateStyle.ShowsName(player, NamePlateFlags.NameHidden));
         }
 
+        /// <summary>
+        /// While a cutscene shows a stage zone (0x34) only characters keep their plates (#459): retail draws none over the
+        /// NPCs of Pso'Xja's event 2 or Lower Delkfutt's Tower's event 36, and the player's own in the wide shots.
+        /// </summary>
+        [Fact]
+        public void ShowsName_OnlyCharactersInAStageZone()
+        {
+            var hooded = new WorldEntity(0x010B8130, 0x130, EntityType.Npc) { Name = "???", IsHidden = true, IsInEvent = true };
+            hooded.Appearance.ModelId = 83;
+            Assert.True(NamePlateStyle.ShowsName(hooded, NamePlateFlags.None));
+            Assert.False(NamePlateStyle.ShowsName(hooded, NamePlateFlags.None, inStageZone: true));
+            var player = new PlayerEntity(1, 1) { Name = "Gemini" };
+            Assert.True(NamePlateStyle.ShowsName(player, NamePlateFlags.None, inStageZone: true));
+        }
+
         /// <summary>An event's 0x92 hides an NPC's or a player's plate until it clears the flag or ends (#191).</summary>
         [Fact]
         public void ShowsName_NotWhileAnEventHidesIt()

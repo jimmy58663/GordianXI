@@ -788,6 +788,12 @@ namespace Gordian.Core.Animation
                 if (isEventMotion)
                 {
                     routine = ResolveEventMotion(model, request.Routine, out bank);
+                    if (routine == null && waited < EventMotionBankWaitSeconds)
+                    {
+                        // Not in a bank loaded yet: the script may load it right after (see EventMotionBankWaitSeconds).
+                        _queuedActions.Insert(0, request);
+                        return false;
+                    }
                 }
                 else if (ResolvePresentation(model, request) is { } presentation)
                 {
@@ -844,6 +850,16 @@ namespace Gordian.Core.Animation
 
         /// <summary>An event gesture that waited longer than this to start (its entity was off screen) starts partway through.</summary>
         private const float CatchUpSeconds = 0.1f;
+
+        /// <summary>
+        /// How long an event gesture whose routine is in no motion bank loaded on the entity (nor its model) waits for one
+        /// (#459 round 3). A script can name a routine before the bank holding it: Jade Sepulcher's event 4 plays the Wivre's
+        /// (0x0104311A) <c>hil2</c> through bank 57383 and only then loads 57384, the bank that has it, 12 frames later, the
+        /// banks loading one per frame. Retail loads motion files asynchronously and the Wivre lies aside (<c>hsg</c>) until
+        /// about 3:53 of <c>Zone67_CS4.mp4</c>; dropping the gesture left it standing in the arena. The length is GordianXI's
+        /// choice, well past the dozen frames that scene needs.
+        /// </summary>
+        internal const float EventMotionBankWaitSeconds = 1.0f;
 
         private bool TryStartWeaponMotion(EntityModel model, bool drawing, long now)
         {

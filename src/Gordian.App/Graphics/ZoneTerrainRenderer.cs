@@ -182,6 +182,8 @@ namespace Gordian.App.Graphics
             /// <summary>Where the actor stood when the last task started (display space), for an actor that is not drawn.</summary>
             public Matrix4x4 FallbackModelToWorld;
             public Matrix4x4 ModelToWorld;
+            /// <summary>The actor's frame moved across the ground to the camera, for camera-following generators.</summary>
+            public Matrix4x4 FollowToWorld;
         }
 
         private readonly Dictionary<(int FileId, uint Actor), SceneEffectSlot> _sceneEffects = new();
@@ -1374,7 +1376,10 @@ namespace Gordian.App.Graphics
             UpdateZoneVisibility(camera.Position, environment);
 
             // 2. Select submesh list (loaded zone or fallback scene)
-            var activeSubmeshes = _zoneSubmeshes.Count > 0 ? _zoneSubmeshes : _fallbackSubmeshes;
+            // A cutscene stage zone draws only what it places (#459: stage zone 542, Lower Delkfutt's Tower event 37, places
+            // nothing; its sea is the scene file's), never the fallback scene, ground plane or ocean.
+            bool bareStage = IsStageZone(LoadedZone);
+            var activeSubmeshes = _zoneSubmeshes.Count > 0 || bareStage ? _zoneSubmeshes : _fallbackSubmeshes;
 
             // 3. Record Render Commands
             // A cutscene (the event holds the camera or plays a shot) draws the scene offscreen for its blur and
@@ -1573,7 +1578,7 @@ namespace Gordian.App.Graphics
 
             // If no terrain geometry was drawn (e.g. unplaced zone submeshes or out-of-bounds),
             // render the adaptive ground plane centered under the player so character stands on solid ground.
-            if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null)
+            if ((_zoneSubmeshes.Count == 0 || draws == 0) && _groundPlaneSubmesh != null && !bareStage)
             {
                 float groundY = camera.Target.Y - 1.3f;
                 var groundWorld = Matrix4x4.CreateTranslation(new Vector3(camera.Target.X, groundY, camera.Target.Z));
@@ -1767,6 +1772,7 @@ namespace Gordian.App.Graphics
             bool shouldRenderOcean = EnableOceanWaterPlane &&
                                      !environment.Indoors &&
                                      _oceanWaterSubmesh != null &&
+                                     !bareStage &&
                                      HasSeaLevelGeometry(activeSubmeshes);
 
             IsOceanWaterPlaneActive = shouldRenderOcean;
@@ -1971,6 +1977,10 @@ namespace Gordian.App.Graphics
                 IsBlend = true
             };
         }
+
+        /// <summary>Whether the zone is a cutscene stage zone (500-699) that event opcode 0x34 opens (#233, #459).</summary>
+        internal static bool IsStageZone(ZoneGeometry? zone) =>
+            zone != null && zone.ZoneId >= ZoneDataLoader.EventStageZoneFirst && zone.ZoneId <= ZoneDataLoader.EventStageZoneLast;
 
         private bool HasSeaLevelGeometry(List<GpuSubmesh> submeshes)
         {
@@ -2440,7 +2450,16 @@ namespace Gordian.App.Graphics
                 if (!Matrix4x4.Invert(slot.ModelToWorld, out var worldToModel)) continue;
                 var actorFrame = new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToModel), dayFraction, daylight,
                     Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToModel)), dayOfWeek, moonPhase);
-                slot.Player.Update(frames, actorFrame, cameraFrame);
+                // Camera-following world generators (SceneEffectPlayer.FollowsCameraPosition): the actor's frame, moved across
+                // the ground (display x / z) to the camera.
+                slot.FollowToWorld = slot.ModelToWorld;
+                slot.FollowToWorld.M41 = camera.Position.X;
+                slot.FollowToWorld.M43 = camera.Position.Z;
+                var followFrame = Matrix4x4.Invert(slot.FollowToWorld, out var worldToFollow)
+                    ? new ZoneParticleFrame(Vector3.Transform(camera.Position, worldToFollow), dayFraction, daylight,
+                        Vector3.Normalize(Vector3.TransformNormal(camera.Forward, worldToFollow)), dayOfWeek, moonPhase)
+                    : actorFrame;
+                slot.Player.Update(frames, actorFrame, cameraFrame, followFrame);
                 if (slot.Player.IsIdle) _idleSceneEffects.Add(key);
             }
             foreach (var key in _idleSceneEffects)
@@ -2501,7 +2520,11 @@ namespace Gordian.App.Graphics
                     if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
                     Matrix4x4 frame;
                     float sortDistance = distance;
-                    if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
+                    if (SceneEffectPlayer.FollowsCameraPosition(emitter.Template))
+                    {
+                        frame = DisplayFlip * slot.FollowToWorld;
+                    }
+                    else if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
                     {
                         frame = _cameraToWorld;
                         sortDistance = 0.0f;

@@ -557,7 +557,14 @@ namespace Gordian.App.Graphics
                     // Drawn with the tick-smoothed precise heading that goes with its smoothed position (#547).
                     entity.RenderHeadingRadians = localPlayerDisplayHeading ?? entity.HeadingRadians;
                 }
-                if (!Draws(entity)) continue;
+                if (!Draws(entity))
+                {
+                    // An actor an event keeps hidden has its model built ahead (#459 round 3): Lower Delkfutt's Tower's events
+                    // 38 and 39 swap three Wolfgang entities (0x010B8122-24) by hiding one and showing the next, 0.37 s apart,
+                    // and one first built when shown was missing for the frames its build took.
+                    if (entity.IsEventHidden && entity.ServerId != localPlayerServerId) resourceManager?.RequestEntityModel(entity, out _);
+                    continue;
+                }
 
                 // Server position is in FFXI coordinates: (x, y, z).
                 // Mapped to terrain display coordinates: (-x, -y, z).
@@ -597,7 +604,10 @@ namespace Gordian.App.Graphics
                 _actorAnchors.TryGetValue(entity.ServerId, out var previousAnchor);
                 _actorAnchors[entity.ServerId] = previousAnchor with { ModelToWorld = EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
 
-                if (!frustum.IntersectsBox(minBox, maxBox))
+                // An event's actors are never culled by their placement: a held event motion can carry the body far from it
+                // (#459: Lower Delkfutt's Tower event 37's Bahamut ends hou0 22 yalms ahead of his placement, where camera d002
+                // looks, with the placement itself behind the camera). A scene has few actors.
+                if (eventPose == null && !frustum.IntersectsBox(minBox, maxBox))
                 {
                     culled++;
                     continue;
