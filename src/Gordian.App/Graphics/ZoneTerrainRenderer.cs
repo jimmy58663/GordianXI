@@ -125,7 +125,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Draw every zone mesh double-sided (the old behaviour) instead of culling back faces of meshes whose 0x2E
-        /// flags lack 0x2000 (double-sided), as the client does.
+        /// flags lack 0x2000 (double-sided), as the client does. Set each frame from
+        /// <see cref="ViewportRenderSettings.ZoneBackFaceCulling"/> (Settings, Ctrl+Shift+F9; #45).
         /// </summary>
         public bool DisableZoneBackFaceCulling { get; set; }
         private Pipeline _waterPipeline = null!;

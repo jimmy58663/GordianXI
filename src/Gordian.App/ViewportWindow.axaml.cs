@@ -616,6 +616,7 @@ namespace Gordian.App
                 case ViewportShortcut.ToggleFog: _viewportControl?.ToggleFog(); break;
                 case ViewportShortcut.TogglePostProcess: _viewportControl?.TogglePostProcess(); break;
                 case ViewportShortcut.ToggleOceanWater: _viewportControl?.ToggleOceanWater(); break;
+                case ViewportShortcut.ToggleZoneBackFaceCulling: _viewportControl?.ToggleZoneBackFaceCulling(); break;
                 case ViewportShortcut.CycleWeather: _viewportControl?.CycleWeather(); break;
                 case ViewportShortcut.CycleTimeOfDay: _viewportControl?.CycleTimeOfDay(); break;
                 case ViewportShortcut.RestoreStockUi:

@@ -126,13 +126,14 @@ The local player's own flags use other bit positions than 0x00D. GordianXI decod
 | | 16-23 | hpp | `Hpp` |
 | | 24 / 25 / 26 | PlayOnelineFlag / LinkShellFlag / LinkDeadFlag | `NamePlate` |
 | | 29-31 | GmLevel | `GmLevel` |
-| Flags1 (40) | 0-11 | Speed | `Speed` (no longer copied into the local entity's current speed: [ui/stock-ui.md](../ui/stock-ui.md#live-hud-chunk-3)) |
+| Flags1 (40) | 0-11 | Speed | `Speed` (no longer copied into the local entity's current speed: [ui/stock-ui.md](../ui/stock-ui.md#live-hud-chunk-3)); 0 is bind, which roots the player (`LocalPlayerState.IsSpeedHeld`, [#540](https://github.com/jimmy58663/GordianXI/issues/540)) and leaves `Speed` at its last value |
 | | 12 / 13 | Hackmove / FreezeFlag | `HackMove`; `IsFrozen` holds the local player in place and hides the compass (`LocalPlayerState.IsServerFrozen`, [#511](https://github.com/jimmy58663/GordianXI/issues/511); LandSandBoat sets it while a treasure chest is being opened, `setFreezeFlag`) |
 | | 15 | InvisFlag | `IsInvisible`, also copied to the local entity (#577 round 1; LandSandBoat `char_status.cpp` sets it for any effect with the Invisible flag, or a GM hiding): the player is drawn to itself at half alpha with its shadow, and its name plate hides (`EntityRenderer.DrawsSeeThroughAsSelf`, `NamePlateStyle.ShowsName`) |
 | | 17-24 | SpeedBase | `SpeedBase` |
 | | 29 / 30 / 31 | BazaarFlag / CharmFlag / GmIconFlag | `HasBazaar`, `IsCharmed`, `NamePlate` |
 | Flags2 (48) | 2 | AutoPartyFlag | `NamePlate` |
 | | 3-18 | PetIndex | `PetActorIndex` |
+| | 19 | MotStopFlag | `IsMotionStopped` (LandSandBoat: terror): holds the local player's movement and turning (`LocalPlayerState.IsMotionStopped`, [#540](https://github.com/jimmy58663/GordianXI/issues/540)) |
 | Flags3 (52) | 0 / 1 / 3 / 4 | LfgMasterFlag / TrialFlag / NewCharacterFlag / MentorFlag | `NamePlate`. The player's own "?" and "M" come from here (LandSandBoat `char_status.cpp`: `isNewPlayer()`, `aman().isMentor()`); the server sends no 0x00D for the player itself, and answers every C2S 0x0DC with a 0x037, so the plate follows a change at once (`LocalPlate_DropsTheNewPlayerMark_WithTheNext0x037`, #557) |
 | Flags4 (0x54) | 7 | JobMasterFlag | `NamePlate` |
 

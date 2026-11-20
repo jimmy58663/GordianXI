@@ -61,7 +61,7 @@ namespace Gordian.Engine.Tests.Input
             var (controller, input, _, player, localEnt) = CreateTestHarness();
             byte[] payload = new byte[0x60];
             payload[38] = 100;
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), 1u << 13);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), (1u << 13) | 50u);
             player.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
             Assert.True(player.IsServerFrozen);
 
@@ -70,10 +70,158 @@ namespace Gordian.Engine.Tests.Input
             Assert.Equal(Vector3.Zero, localEnt.Position);
             Assert.Equal(0, localEnt.Speed);
 
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), 0u);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), 50u);
             player.UpdateFromCharStatus(new S2C_0x037_CharStatus(payload));
             controller.Update(TimeSpan.FromSeconds(0.5));
             Assert.True(localEnt.Position.X > 2f);
+        }
+
+        /// <summary>A S2C 0x037 status with the given speed (flags1 bits 0-11), flags2 and status effect ids in its buff list.</summary>
+        private static byte[] CharStatus(ushort speed, uint flags2 = 0, params byte[] buffs)
+        {
+            byte[] payload = new byte[0x60];
+            for (int i = 0; i < 32; i++) payload[i] = i < buffs.Length ? buffs[i] : (byte)0xFF;
+            payload[38] = 100;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(40), speed);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(48), flags2);
+            return payload;
+        }
+
+        /// <summary>
+        /// Stun, sleep, petrification and terror (from the 0x037 buff list) hold the player's movement and turning, and let go
+        /// when the effect wears off (#540). The server enforces none of them.
+        /// </summary>
+        [Theory]
+        [InlineData(StatusEffectHolds.Stun)]
+        [InlineData(StatusEffectHolds.Sleep)]
+        [InlineData(StatusEffectHolds.SleepII)]
+        [InlineData(StatusEffectHolds.Lullaby)]
+        [InlineData(StatusEffectHolds.Petrification)]
+        [InlineData(StatusEffectHolds.Terror)]
+        public void CrowdControl_HoldsMovementAndTurning(ushort effect)
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            controller.CameraYaw = 0.0f;
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50, 0, (byte)effect)));
+            Assert.Equal(PlayerMovementHold.Immobile, player.MovementHold);
+
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Direction);
+            Assert.Equal(0, localEnt.Speed);
+
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50)));
+            Assert.Equal(PlayerMovementHold.None, player.MovementHold);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(64, localEnt.Direction);
+            Assert.True(localEnt.Position.Z < -2f);
+        }
+
+        /// <summary>
+        /// Terror's 0x037 MotStopFlag (flags2 bit 19) holds the player even before the buff list shows it (#540), and a status
+        /// icon from S2C 0x063 holds it as the 0x037 buff list does.
+        /// </summary>
+        [Fact]
+        public void MotStopFlag_AndStatusIcons_HoldThePlayer()
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50, 1u << 19)));
+            Assert.True(player.IsMotionStopped);
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(50)));
+            byte[] misc = new byte[4 + 32 * 6];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(misc.AsSpan(0), 0x09);
+            for (int i = 0; i < 32; i++) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(misc.AsSpan(4 + 2 * i), 0xFF);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(misc.AsSpan(4), StatusEffectHolds.Stun);
+            var icons = new S2C_0x063_MiscData(misc);
+            Assert.Equal(StatusEffectHolds.Stun, icons.GetStatusIcon(0));
+            player.UpdateStatusIcons(icons);
+            Assert.Equal(PlayerMovementHold.Immobile, player.MovementHold);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+        }
+
+        /// <summary>
+        /// The player's own chocobo dig freezes it on the job-ability path (#540 round 3): <c>chor</c> carries no op 0x2E, so
+        /// <c>MountTransitions.PlayDig</c> holds a 168-tick control lock itself, under a source no option lifts (round 4). The
+        /// player cannot move or turn until the dig has played, and rider and chocobo keep the dig while the player is still
+        /// moving when it starts, so neither is cut short (round 4: the chocobo gave way to its run).
+        /// </summary>
+        [Fact]
+        public void ChocoboDig_FreezesThePlayerAndPlaysInFull()
+        {
+            var (controller, input, _, _, localEnt) = CreateTestHarness();
+            controller.CameraYaw = 0.0f;
+            localEnt.Mount = MountAppearance.FromWire(MountAppearance.StatusChocobo, 0, 1);
+            var model = new Gordian.Core.Resources.Models.EntityModel { Name = "Test" };
+            foreach (var name in new[] { "idl", "wlk", "run", "chh" })
+            {
+                model.Animations[name] = new Gordian.Core.Resources.Models.AnimationClip { Name = name, KeyFrameDuration = 1f, NumFrames = 31 };
+            }
+            model.RawMotionRoutines["chor"] = Gordian.Core.Resources.Graphics.MotionRoutineDecoder.Decode(Gordian.Tests.Shared.MotionRoutineBuilder.Routine(168,
+                Gordian.Tests.Shared.MotionRoutineBuilder.PlayClip("chh?", 0, 168, 4, 4, 1)), "chor")!;
+            model.RebuildMotionRoutines();
+            var running = Gordian.Core.Animation.AnimationCategory.Run;
+            localEnt.Animation.Advance(0f, running, 0, model);
+            localEnt.MountAnimation.Advance(0f, running, 0, model);
+
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            Gordian.Engine.Animation.MountTransitions.PlayDig(localEnt);
+            for (int i = 0; i < 2; i++)
+            {
+                localEnt.Animation.Advance(1f / 60f, running, 0, model);
+                localEnt.MountAnimation.Advance(1f / 60f, running, 0, model);
+            }
+            Assert.Equal("chor", localEnt.Animation.ActiveRoutine?.Name);             // still moving: the rider's dig is not cut
+            Assert.Equal("chor", localEnt.MountAnimation.ActiveRoutine?.Name);        // nor the chocobo's
+
+            long freq = System.Diagnostics.Stopwatch.Frequency;
+            Assert.True(controller.IsActionFrozen(localEnt, start + freq * 2));       // 2 s into the 2.8 s dig
+            Assert.False(controller.IsActionFrozen(localEnt, start + freq * 3));      // the dig is over
+            var source = localEnt.Animation.ControlLocksAt(start + freq * 2);
+            Assert.Equal(Gordian.Core.Animation.ActionFreezeSource.Held, source);
+            var everything = new Gordian.Core.Animation.ActionFreezeSettings { IgnoreRequested = (Gordian.Core.Animation.ActionFreezeSource)0xFF };
+            Assert.Equal(Gordian.Core.Animation.ActionFreezeSource.None, source & everything.GetIgnored(null)); // /actionfreeze off does not lift it
+
+            byte heading = localEnt.Direction;
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(heading, localEnt.Direction);                                  // no turning either
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Speed);
+        }
+
+        /// <summary>
+        /// Bind (a 0x037 speed of 0, LandSandBoat's <c>bind.lua</c>) holds the player's movement but lets it turn in place; the
+        /// speed it had comes back when the bind wears off (#540). A speed override does not lift it.
+        /// </summary>
+        [Fact]
+        public void Bind_RootsThePlayerButLetsItTurn()
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            controller.CameraYaw = 0.0f;
+            controller.SpeedOverride = 120;
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(60)));
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(0)));
+            Assert.True(player.IsSpeedHeld);
+            Assert.Equal(PlayerMovementHold.Rooted, player.MovementHold);
+            Assert.Equal(60, player.Speed);
+
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+            Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Speed);
+
+            controller.SpeedOverride = null;
+            player.UpdateFromCharStatus(new S2C_0x037_CharStatus(CharStatus(60)));
+            Assert.Equal(PlayerMovementHold.None, player.MovementHold);
+            controller.Update(TimeSpan.FromSeconds(1.0));
+            Assert.InRange(localEnt.Position.Z, -6.01f, -5.99f);
         }
 
         /// <summary>
