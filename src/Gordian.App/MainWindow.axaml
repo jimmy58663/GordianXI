@@ -2164,6 +2164,15 @@
                                               FontSize="12" Foreground="#DCDCDC"/>
                                 </StackPanel>
 
+                                <!-- Zone back-face culling (#45) -->
+                                <StackPanel Spacing="6">
+                                    <CheckBox IsChecked="{Binding Viewport.ZoneBackFaceCulling, Mode=TwoWay}"
+                                              Content="Cull zone back faces (retail)"
+                                              FontSize="12" Foreground="#DCDCDC"/>
+                                    <TextBlock Text="On by default, as the retail client: the back faces of zone meshes not marked double-sided are not drawn. Turn it off (or press Ctrl+Shift+F9 in a viewport window) to draw every zone mesh double-sided, e.g. to check whether a missing wall or roof face is culled by GordianXI."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
                                 <Button Content="Open Viewport Window"
                                         Command="{Binding Viewport.LaunchViewportCommand}"
                                         ToolTip.Tip="Opens (or brings to the front) the main 3D viewport window, e.g. after closing it while characters are still logged in."
