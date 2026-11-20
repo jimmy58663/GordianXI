@@ -1150,8 +1150,12 @@ namespace Gordian.Engine.Input
             StepKnockback(localEnt, dt);
 
             // An action freeze (a control lock of a routine the player is playing) or the server's 0x037 FreezeFlag holds the
-            // player's own movement and turning only (#511): falls, moving platforms and knockback still move it.
-            if (_localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
+            // player's own movement and turning only (#511): falls, moving platforms and knockback still move it. Stun, sleep,
+            // petrification and terror hold them the same way, bind only the movement (#540): the server enforces none of
+            // these, and no option lifts them. Auto-run is kept, so it carries on when the effect wears off.
+            var hold = _localPlayer.MovementHold;
+            _inputRooted = hold == PlayerMovementHold.Rooted;
+            if (hold == PlayerMovementHold.Immobile || _localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
             {
                 localEnt.Speed = 0;
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
@@ -1242,7 +1246,7 @@ namespace Gordian.Engine.Input
                     float dx = (fwd.X * lockFwd + right.X * lockStrafe) * distance;
                     float dz = (fwd.Y * lockFwd + right.Y * lockStrafe) * distance;
 
-                    MoveHorizontally(localEnt, dx, dz);
+                    MoveByInput(localEnt, dx, dz);
 
                     // Re-align facing to target after displacement
                     toTgtX = lockTgt.Position.X - localEnt.Position.X;
@@ -1280,7 +1284,7 @@ namespace Gordian.Engine.Input
                 localEnt.Speed = autoSpeed;
                 float autoDistance = autoSpeed * 0.1f * dt;
                 var autoFwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
-                MoveHorizontally(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
+                MoveByInput(localEnt, autoFwd.X * autoDistance, autoFwd.Y * autoDistance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -1307,7 +1311,7 @@ namespace Gordian.Engine.Input
                 float distance = speedYalmsPerSec * dt;
 
                 var fwd = WorldEntity.ForwardOf(LocalHeadingRadians(localEnt));
-                MoveHorizontally(localEnt, fwd.X * distance, fwd.Y * distance);
+                MoveByInput(localEnt, fwd.X * distance, fwd.Y * distance);
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
                 return;
             }
@@ -1381,7 +1385,7 @@ namespace Gordian.Engine.Input
                 float dx = (fwd.X * forwardInput + right.X * strafeInput) * distance;
                 float dz = (fwd.Y * forwardInput + right.Y * strafeInput) * distance;
 
-                MoveHorizontally(localEnt, dx, dz);
+                MoveByInput(localEnt, dx, dz);
             }
             else
             {
@@ -1390,6 +1394,26 @@ namespace Gordian.Engine.Input
             }
 
             LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
+        }
+
+        /// <summary>
+        /// Bind holds this tick's input movement (#540): set by <see cref="UpdateLocomotion"/> before any input moves the player.
+        /// </summary>
+        private bool _inputRooted;
+
+        /// <summary>
+        /// Moves the player by the displacement its own input asks for, unless bind roots it (#540): then the player only turns,
+        /// standing (speed 0, so the server and the animation see it stand).
+        /// </summary>
+        private void MoveByInput(WorldEntity localEnt, float dx, float dz)
+        {
+            if (_inputRooted)
+            {
+                localEnt.Speed = 0;
+                localEnt.LocomotionDirection = LocomotionDirection.Forward;
+                return;
+            }
+            MoveHorizontally(localEnt, dx, dz);
         }
 
         /// <summary>

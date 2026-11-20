@@ -175,8 +175,11 @@ namespace Gordian.Engine.Ui.Lobby
 
         private void GoToStep(LobbyCreationStep step)
         {
+            // The step's window is made before the step changes, so a failure cannot leave the new step with the old window.
+            int selected = ButtonOfValue(step);
+            var menu = step is LobbyCreationStep.Name ? null : Menu(MenuOf(step), selected);
             CreationStep = step;
-            CreationMenu = step is LobbyCreationStep.Name ? null : Menu(MenuOf(step), ButtonOfValue(step));
+            CreationMenu = menu;
             UpdateHelp();
         }
 
@@ -377,7 +380,8 @@ namespace Gordian.Engine.Ui.Lobby
                 await _backend.CheckNameAsync(slot, name, world, ct).ConfigureAwait(false);
                 lock (SyncRoot)
                 {
-                    IsBusy = false;
+                    // IsBusy is cleared by RunRequest once the question is up (#514): cleared here first, a reader outside the lock
+                    // could see the request done while the window still showed the status line, or nothing if this threw.
                     var lines = new List<string>();
                     string first = Status(LobbyTextTables.RegisterAndBeginLine1);
                     lines.Add(first.Length > 0 ? first.Replace("%s", name, StringComparison.Ordinal) : $"Register \"{name}\"");

@@ -1179,6 +1179,13 @@ namespace Gordian.Core.Network.Packets
         public bool HackMove => ((Flags1 >> 12) & 0x01) != 0;
 
         /// <summary>
+        /// <c>MotStopFlag</c> (flags2 bit 19): the player's motion scheduler is paused (terror, petrification). LandSandBoat sets
+        /// it on the player's own status while terror is on (<c>char_status.cpp</c>). Layout referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x0037.
+        /// </summary>
+        public bool IsMotionStopped => ((Flags2 >> 19) & 0x01) != 0;
+
+        /// <summary>
         /// <c>dead_counter2</c> (payload 0x3C), written after <see cref="DeadCounterTicks"/>: a second timer of the dead
         /// entity waiting to homepoint. LandSandBoat leaves it 0.
         /// </summary>

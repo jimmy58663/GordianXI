@@ -161,7 +161,9 @@ namespace Gordian.App.Tests.Graphics
                     var pixels = StockUiRendererTests.ReadBack(gd, color, width, height);
                     if (!string.IsNullOrEmpty(dumpDir)) StockUiRendererTests.SavePng(Path.Combine(dumpDir, name), pixels, (int)width, (int)height);
                 }
-                void WaitIdle() => Assert.True(WaitUntil(() => !lobby.IsBusy), "the lobby request did not finish");
+                // The lobby's state is read under its lock, as the renderer reads it (#514), and a failure says where the lobby is.
+                string State() { lock (lobby.SyncRoot) return $"screen {lobby.Screen}, step {lobby.CreationStep}, busy {lobby.IsBusy}, prompt {(lobby.Prompt == null ? "none" : lobby.Prompt.HasButtons ? "with buttons" : "status")}, worlds {lobby.Worlds.Count}"; }
+                void WaitIdle() => Assert.True(WaitUntil(() => { lock (lobby.SyncRoot) return !lobby.IsBusy; }), "the lobby request did not finish: " + State());
 
                 lobby.HandleInput(LobbyInput.Down);
                 lobby.HandleInput(LobbyInput.Confirm); // Create Character
@@ -186,10 +188,11 @@ namespace Gordian.App.Tests.Graphics
                 Frame("lobby_create_name.png");
                 lobby.HandleInput(LobbyInput.Confirm);
                 WaitIdle();
+                Assert.True(lobby.CreationStep == LobbyCreationStep.World && lobby.CreationMenu != null && lobby.Prompt == null, "the world list is up: " + State());
                 Frame("lobby_create_world.png");
                 lobby.HandleInput(LobbyInput.Confirm);
                 WaitIdle();
-                Assert.NotNull(lobby.Prompt);
+                Assert.True(lobby.Prompt is { HasButtons: true }, "the register question is up: " + State());
                 Frame("lobby_create_confirm.png");
 
                 framebuffer.Dispose(); depth.Dispose(); color.Dispose();
