@@ -203,7 +203,7 @@ namespace Gordian.App.Graphics
             // The mount's own anchor: the effects its routines start ride its joints (the chocobo's dig, #437).
             _actorAnchors[ride.Key] = new ActorAnchor(uniform.World, ride.Mount.Skeleton, ride.Pose);
             // The Fenrir mount carries an avatar's blur aura (Section 0x5E), drawn as on the avatar (#82).
-            if (!faded && ride.Mount.BlurAura is { } aura) QueueBlurAura(uniform, ride.Palette.Set, ride.Gpu, 0, aura, ride.Key);
+            if (!faded && ride.Mount.BlurAura is { } aura) QueueBlurAura(uniform, ride.Palette.Set, ride.Gpu, 0, aura, ride.Key, ride.Pose);
             if (faded)
             {
                 cl.SetPipeline(_skinnedFadePipeline);

@@ -670,6 +670,16 @@ namespace Gordian.App.Graphics
                                   ReferenceEquals(gpuModel, _fallbackNpcProxy) ||
                                   ReferenceEquals(gpuModel, _fallbackMonsterProxy);
                 var rotMatrix = isFallback ? Matrix4x4.Identity : EntityRotMatrix;
+                // A fixed model (a monster, an avatar, an NPC without race and gear) is drawn at its info scale for its size class
+                // (#82 round 5: Fenrir at 0.75, Garuda at 0.9; EntityModel.SizeScaleFor).
+                float modelScale = entity.Type != EntityType.Player && !isFallback && entityModel is { IsCharacter: false } fixedModel
+                    ? fixedModel.SizeScaleFor(entity.GraphSize)
+                    : 1f;
+                if (modelScale != 1f)
+                {
+                    sizeScale = Matrix4x4.CreateScale(modelScale);
+                    _actorAnchors[entity.ServerId] = _actorAnchors[entity.ServerId] with { ModelToWorld = EntityRotMatrix * sizeScale * headingRot * Matrix4x4.CreateTranslation(pos) };
+                }
 
                 // A rider sits on its mount's seat (#87): the mount is posed first, scaled for the rider's race, and the rider
                 // follows its seat (round 2: the bob, idle included). A mount left from the last frame frees its palette.
@@ -780,7 +790,7 @@ namespace Gordian.App.Graphics
                     hiddenWeapons = entity.Animation.HiddenWeaponSlots;
                 }
 
-                float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : 1f;
+                float sizeFactor = entity.Type == EntityType.Player && !isFallback ? PlayerSizeScale.For(entity.GraphSize) : modelScale;
                 float overheadHeight = isSkinned ? CursorHeight(entityModel!) * sizeFactor : maxBox.Y - pos.Y;
                 // A rider's name plate (#87, round 2 H12): its own overhead point over the mount's seat, about a yalm over the
                 // seated head as in retail (image-9.png), not over the head itself.
@@ -793,7 +803,7 @@ namespace Gordian.App.Graphics
                 if (HideLocalPlayer && entity.ServerId == localPlayerServerId) continue;
 
                 draws += DrawSubmeshes(cl, gpuModel, hiddenWeapons, uniform);
-                if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId);
+                if (!faded && paletteSet != null && skinnedModel?.BlurAura is { } aura) QueueBlurAura(uniform, paletteSet, gpuModel, hiddenWeapons, aura, entity.ServerId, _actorAnchors[entity.ServerId].Pose);
                 // A model with no body (a Home Point, an invisible event NPC) casts no shadow (#577 round 2).
                 if (castsShadow && !isFallback && !entity.HidesShadow && entityModel?.HasNoBody != true)
                     QueueShadow(uniform, paletteSet, gpuModel, hiddenWeapons, pos, entity.ServerId == localPlayerServerId, overhead.Y - pos.Y, entity.ServerId, deltaSeconds);

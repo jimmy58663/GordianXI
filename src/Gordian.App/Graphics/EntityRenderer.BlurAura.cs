@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using NeoVeldrid;
 using NeoVeldrid.SPIRV;
@@ -103,17 +104,66 @@ namespace Gordian.App.Graphics
         private Shader[]? _auraLayerShaders, _auraBlurShaders, _auraCompositeShaders;
         private OutputDescription? _auraCompositeOutputs;
 
-        private readonly record struct AuraDraw(ZoneSceneUniform Uniform, ResourceSet Palette, GpuEntityModel Model, int HiddenWeapons, BlurAura Aura, uint ServerId);
+        private readonly record struct AuraDraw(ZoneSceneUniform Uniform, ResourceSet Palette, GpuEntityModel Model, int HiddenWeapons, BlurAura Aura, uint ServerId, Vector4 ScreenBounds);
 
         private readonly List<AuraDraw> _auraDraws = new();
         private Pipeline? _auraPipeline;
         private Shader[]? _auraShaders;
         private float _auraClock;
 
-        private void QueueBlurAura(in ZoneSceneUniform uniform, ResourceSet palette, GpuEntityModel model, int hiddenWeapons, BlurAura aura, uint serverId)
+        /// <summary>How far past its joints an actor's mesh may reach (wing tips, tail, fur), in yalms, for its screen bounds.</summary>
+        public const float AuraBoundsMarginYalms = 0.75f;
+
+        private void QueueBlurAura(in ZoneSceneUniform uniform, ResourceSet palette, GpuEntityModel model, int hiddenWeapons, BlurAura aura, uint serverId,
+            SkeletonPoseEvaluator.EvaluatedPose? pose)
         {
             if (!EnableBlurAura || aura.Rings.Count == 0) return;
-            _auraDraws.Add(new AuraDraw(uniform, palette, model, hiddenWeapons, aura, serverId));
+            _auraDraws.Add(new AuraDraw(uniform, palette, model, hiddenWeapons, aura, serverId,
+                AuraScreenBounds(pose?.Translations, uniform.World, uniform.View * uniform.Projection)));
+        }
+
+        /// <summary>
+        /// The NDC rectangle (min x, min y, max x, max y) an actor covers: its posed joints, each grown by
+        /// <see cref="AuraBoundsMarginYalms"/> in every direction, projected. The whole screen when a point is behind the eye
+        /// or there is no pose.
+        /// </summary>
+        internal static Vector4 AuraScreenBounds(Vector3[]? joints, Matrix4x4 world, Matrix4x4 viewProjection)
+        {
+            var full = new Vector4(-1f, -1f, 1f, 1f);
+            if (joints == null || joints.Length == 0) return full;
+            float m = AuraBoundsMarginYalms;
+            var min = new Vector2(float.MaxValue);
+            var max = new Vector2(float.MinValue);
+            foreach (var joint in joints)
+            {
+                var centre = Vector3.Transform(joint, world);
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    var p = centre + new Vector3((corner & 1) != 0 ? m : -m, (corner & 2) != 0 ? m : -m, (corner & 4) != 0 ? m : -m);
+                    var clip = Vector4.Transform(new Vector4(p, 1f), viewProjection);
+                    if (clip.W <= 0.01f) return full;
+                    var ndc = new Vector2(clip.X, clip.Y) / clip.W;
+                    min = Vector2.Min(min, ndc);
+                    max = Vector2.Max(max, ndc);
+                }
+            }
+            return new Vector4(Math.Clamp(min.X, -1f, 1f), Math.Clamp(min.Y, -1f, 1f), Math.Clamp(max.X, -1f, 1f), Math.Clamp(max.Y, -1f, 1f));
+        }
+
+        /// <summary>
+        /// The pixel rectangle (x, y, width, height; rows from the top) of an NDC rectangle on a <paramref name="width"/> x
+        /// <paramref name="height"/> target, grown by <paramref name="padPixels"/>; empty when it is off the target.
+        /// </summary>
+        internal static (uint X, uint Y, uint Width, uint Height) AuraPixelRect(Vector4 ndc, uint width, uint height, float padPixels, bool clipYInverted)
+        {
+            float x0 = (ndc.X + 1f) * 0.5f * width - padPixels;
+            float x1 = (ndc.Z + 1f) * 0.5f * width + padPixels;
+            float top = clipYInverted ? (ndc.Y + 1f) * 0.5f : (1f - ndc.W) * 0.5f;
+            float bottom = clipYInverted ? (ndc.W + 1f) * 0.5f : (1f - ndc.Y) * 0.5f;
+            float y0 = top * height - padPixels, y1 = bottom * height + padPixels;
+            uint ix0 = (uint)Math.Clamp(MathF.Floor(x0), 0f, width), ix1 = (uint)Math.Clamp(MathF.Ceiling(x1), 0f, width);
+            uint iy0 = (uint)Math.Clamp(MathF.Floor(y0), 0f, height), iy1 = (uint)Math.Clamp(MathF.Ceiling(y1), 0f, height);
+            return ix1 <= ix0 || iy1 <= iy0 ? (0, 0, 0, 0) : (ix0, iy0, ix1 - ix0, iy1 - iy0);
         }
 
         /// <summary>
@@ -225,8 +275,21 @@ namespace Gordian.App.Graphics
         private int DrawAuraEdgeBlur(CommandList cl, Framebuffer scene)
         {
             var color = scene.ColorTargets[0].Target;
+            // Only the screen the avatars cover, grown by the blur's reach, is copied, blurred and laid over (round 5: several
+            // summoners' avatars share the one layer and blur; a far one costs only its own rectangle).
+            float reach = 1f;
+            var ndc = new Vector4(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
+            foreach (var draw in _auraDraws)
+            {
+                reach = MathF.Max(reach, 3f * AuraBlurParams(draw.Aura, color.Height).SigmaPixels);
+                ndc = new Vector4(MathF.Min(ndc.X, draw.ScreenBounds.X), MathF.Min(ndc.Y, draw.ScreenBounds.Y),
+                    MathF.Max(ndc.Z, draw.ScreenBounds.Z), MathF.Max(ndc.W, draw.ScreenBounds.W));
+            }
+            var rect = AuraPixelRect(ndc, color.Width, color.Height, reach, _gd.IsClipSpaceYInverted);
+            if (rect.Width == 0) return 0;
+
             EnsureAuraEdgeBlurResources(scene, color);
-            cl.CopyTexture(color, _auraSceneCopy!);
+            cl.CopyTexture(color, rect.X, rect.Y, 0, 0, 0, _auraSceneCopy!, rect.X, rect.Y, 0, 0, 0, rect.Width, rect.Height, 1, 1);
 
             float sigma = 1f, maxOpacity = 0f;
             int draws = 0;
@@ -263,15 +326,18 @@ namespace Gordian.App.Graphics
                 cl.UpdateBuffer(_auraBlurVParams!, 0, ref v);
                 cl.UpdateBuffer(_auraCompositeParams!, 0, ref c);
 
+                uint d = AuraBlurDownscale;
+                uint hx = rect.X / d, hy = rect.Y / d;
+                uint hw = Math.Min((rect.Width + d - 1) / d + 1, _auraBlurH!.Width - hx), hh = Math.Min((rect.Height + d - 1) / d + 1, _auraBlurH.Height - hy);
                 cl.SetFramebuffer(_auraBlurHFramebuffer!);
                 cl.SetFullViewports();
-                cl.SetFullScissorRects();
+                cl.SetScissorRect(0, hx, hy, hw, hh);
                 cl.SetPipeline(_auraBlurPipeline!);
                 cl.SetGraphicsResourceSet(0, _auraBlurHSet!);
                 cl.Draw(3);
                 cl.SetFramebuffer(_auraBlurVFramebuffer!);
                 cl.SetFullViewports();
-                cl.SetFullScissorRects();
+                cl.SetScissorRect(0, hx, hy, hw, hh);
                 cl.SetGraphicsResourceSet(0, _auraBlurVSet!);
                 cl.Draw(3);
                 draws += 2;
@@ -283,8 +349,10 @@ namespace Gordian.App.Graphics
             if (maxOpacity > 0f)
             {
                 cl.SetPipeline(_auraCompositePipeline!);
+                cl.SetScissorRect(0, rect.X, rect.Y, rect.Width, rect.Height);
                 cl.SetGraphicsResourceSet(0, _auraCompositeSet!);
                 cl.Draw(3);
+                cl.SetFullScissorRects();
                 draws++;
             }
             return draws;
@@ -361,7 +429,7 @@ namespace Gordian.App.Graphics
             {
                 BlendState = blend,
                 DepthStencilState = DepthStencilStateDescription.Disabled,
-                RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, depthClipEnabled: true, scissorTestEnabled: false),
+                RasterizerState = new RasterizerStateDescription(FaceCullMode.None, PolygonFillMode.Solid, FrontFace.Clockwise, depthClipEnabled: true, scissorTestEnabled: true),
                 PrimitiveTopology = PrimitiveTopology.TriangleList,
                 ResourceLayouts = new[] { _auraPostLayout! },
                 ShaderSet = new ShaderSetDescription(Array.Empty<VertexLayoutDescription>(), shaders),

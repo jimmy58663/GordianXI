@@ -40,7 +40,7 @@ LandSandBoat writes the entity's status (`data/enums/status.yaml`) as the whole 
 | 4 | | unknown | |
 | 5-7 | ChocoboIndex | special chocobo type | 0x00D decoded (`ChocoboIndex`), not used |
 | 8 | CliPosInitFlag | position being initialised | not decoded |
-| 9-10 | GraphSize | model size 0 small, 1 medium, 2 large | `GraphSize` (both packets, General updates only, #577): entity bump radius 0.35 / 0.7 / 1.4 (`EntityBumpCollision.RadiusOf`) |
+| 9-10 | GraphSize | model size 0 small, 1 medium, 2 large | `GraphSize` (both packets, General updates only, #577): entity bump radius 0.35 / 0.7 / 1.4 (`EntityBumpCollision.RadiusOf`); a player's model scale (`PlayerSizeScale`); a fixed model's render scale, its `info` byte 10 + GraphSize over 100 (`EntityModel.SizeScaleFor`, #82 round 5) |
 | 11 | LfgFlag | 0x00D: seeking party. 0x00E: language-specific use | 0x00D `NamePlateFlags.SeekingParty` |
 | 12 | AnonymousFlag | 0x00D: `/anon`. 0x00E: language-specific | 0x00D `NamePlateFlags.Anonymous` |
 | 13 | YellFlag | called for help: orange name | `NamePlateFlags.CalledForHelp` (both packets) |
