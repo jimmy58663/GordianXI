@@ -279,7 +279,7 @@ namespace Gordian.Core.Resources.Graphics
         public float MaxEmitDistance { get; set; }
 
         /// <summary>
-        /// Painter's-order weight (Section 2 Opcode 0x30 param0): larger values draw earlier (farther).
+        /// Painter's-order weight or depth nudge (Section 2 Opcode 0x30 param0, or 0x72 param0): larger values draw earlier (farther).
         /// </summary>
         public float ProjectionBias { get; set; }
 
@@ -597,6 +597,10 @@ namespace Gordian.Core.Resources.Graphics
                     break;
 
                 case 0x30: // DepthBiasInitializer (projection bias / painter's-order weight)
+                // 0x72 ProjectionBiasInitializer: two floats, the first the same bias as 0x30's (xi-model-viewer,
+                // https://github.com/vekien/xi-model-viewer, ui/js/particle/ops/initializers.js). The level down text
+                // (ROM/13/34 g000 -0.3, g001 -0.2) sets its z offset with it where level up uses 0x30 (#590 round 3).
+                case 0x72:
                     if (opPayload.Length >= 8)
                     {
                         def.ProjectionBias = BinaryPrimitives.ReadSingleLittleEndian(opPayload.Slice(4, 4));

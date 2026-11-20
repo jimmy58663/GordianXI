@@ -5,6 +5,7 @@ using System;
 using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.Resources;
+using Gordian.Core.Resources.Graphics;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.Resources.Tables;
 using Gordian.Core.World;
@@ -16,7 +17,7 @@ namespace Gordian.App.Graphics
     public sealed partial class EntityRenderer
     {
         /// <summary>The mount's joint palette key: the rider's server id with the top bit set (no entity id uses it).</summary>
-        private static uint MountPaletteKey(uint serverId) => serverId ^ 0x8000_0000u;
+        private static uint MountPaletteKey(uint serverId) => MountModels.ActorKey(serverId);
 
         private static CharacterRace RaceOf(WorldEntity entity) => (CharacterRace)((entity.Appearance.FaceModel >> 8) & 0xFF);
 
@@ -43,7 +44,11 @@ namespace Gordian.App.Graphics
         /// rider's name plate is raised.
         /// </summary>
         private readonly record struct MountRide(EntityModel Mount, GpuEntityModel Gpu, JointPaletteEntry Palette, uint Key, float Scale,
-            Matrix4x4 RiderShift, float PlateLift, float ForwardYalms = 0f, float Alpha = 1f);
+            Matrix4x4 RiderShift, float PlateLift, float ForwardYalms = 0f, float Alpha = 1f)
+        {
+            /// <summary>The mount's pose this frame (its anchor's, for the effects its routines start, #437).</summary>
+            public SkeletonPoseEvaluator.EvaluatedPose Pose { get; init; }
+        }
 
         /// <summary>
         /// How much higher a straddling rider's name plate sits over its head than on foot (#87 round 9, yalms). The plate rises
@@ -91,7 +96,13 @@ namespace Gordian.App.Graphics
             }
             var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
             UpdateJointPalette(cl, palette.Buffer, mount, entity.MountAnimation, null, Vector2.Zero, null, out var pose);
+            var ride = PrepareRide(cl, entity, frame, character, resources, mount, gpuModel, palette, key, pose);
+            return ride is { } prepared ? prepared with { Pose = pose } : null;
+        }
 
+        private MountRide? PrepareRide(CommandList cl, WorldEntity entity, in MountFrame frame, EntityModel? character, ResourceManager resources,
+            EntityModel mount, GpuEntityModel gpuModel, JointPaletteEntry palette, uint key, SkeletonPoseEvaluator.EvaluatedPose pose)
+        {
             var rider = character != null ? RiderOrSelf(entity, frame, character, resources) : null;
             bool riding = rider != null && !ReferenceEquals(rider, character);
             var race = RaceOf(entity);
@@ -157,8 +168,8 @@ namespace Gordian.App.Graphics
             if (gpuModel.Submeshes.Count == 0) return null;
             entity.MountAnimation.Advance(frameSeconds, AnimationCategory.Idle, 0, chair);
             var palette = _jointPaletteByEntity.GetOrAdd(key, _ => CreateJointPalette());
-            UpdateJointPalette(cl, palette.Buffer, chair, entity.MountAnimation, null, Vector2.Zero, null, out _);
-            return new MountRide(chair, gpuModel, palette, key, 1f, Matrix4x4.Identity, 0f, 0f, frame.Alpha);
+            UpdateJointPalette(cl, palette.Buffer, chair, entity.MountAnimation, null, Vector2.Zero, null, out var pose);
+            return new MountRide(chair, gpuModel, palette, key, 1f, Matrix4x4.Identity, 0f, 0f, frame.Alpha) { Pose = pose };
         }
 
         /// <summary>
@@ -189,8 +200,10 @@ namespace Gordian.App.Graphics
             cl.SetGraphicsResourceSet(0, _entityResourceSet);
             cl.SetGraphicsResourceSet(2, ride.Palette.Set);
             int draws = DrawSubmeshes(cl, ride.Gpu, 0, uniform);
+            // The mount's own anchor: the effects its routines start ride its joints (the chocobo's dig, #437).
+            _actorAnchors[ride.Key] = new ActorAnchor(uniform.World, ride.Mount.Skeleton, ride.Pose);
             // The Fenrir mount carries an avatar's blur aura (Section 0x5E), drawn as on the avatar (#82).
-            if (!faded && ride.Mount.BlurAura is { } aura) QueueBlurAura(uniform, ride.Palette.Set, ride.Gpu, 0, aura, ride.Key);
+            if (!faded && ride.Mount.BlurAura is { } aura) QueueBlurAura(uniform, ride.Palette.Set, ride.Gpu, 0, aura, ride.Key, ride.Pose);
             if (faded)
             {
                 cl.SetPipeline(_skinnedFadePipeline);

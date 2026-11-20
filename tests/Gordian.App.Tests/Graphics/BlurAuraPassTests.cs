@@ -100,5 +100,48 @@ namespace Gordian.App.Tests.Graphics
             }
             Assert.NotEqual(new Vector2(a.X, a.Y), new Vector2(b.X, b.Y));
         }
+
+        [Fact]
+        public void EdgeBlur_TakesItsWidthFromTheWidestRing_AndItsOpacityFromTheMeanAlpha()
+        {
+            var (opacity, sigma) = EntityRenderer.AuraBlurParams(Garuda, 1440);
+            Assert.Equal(11f * EntityRenderer.AuraBlurOpacityPerAlpha, opacity, 5);
+            Assert.Equal(130f * EntityRenderer.AuraBlurSigmaPerRadius, sigma, 4);
+            // The blur scales with the target's height.
+            Assert.Equal(sigma / 2f, EntityRenderer.AuraBlurParams(Garuda, 720).SigmaPixels, 4);
+        }
+
+        [Fact]
+        public void EdgeBlur_OpacityStopsAtTheMaximum()
+        {
+            var strong = new BlurAura(11, 7, 400, new Vector4(0.75f), new Vector4(0.5f), 50f,
+                new[] { new BlurAuraRing(new Vector3(0.5f), 255, 110f) });
+            Assert.Equal(EntityRenderer.AuraBlurMaxOpacity, EntityRenderer.AuraBlurParams(strong, 1080).Opacity);
+        }
+
+        [Fact]
+        public void ScreenBounds_CoverTheJointsAndTheirMargin()
+        {
+            var view = Matrix4x4.CreateLookAt(new Vector3(0f, 0f, 10f), Vector3.Zero, Vector3.UnitY);
+            var projection = Matrix4x4.CreatePerspectiveFieldOfView(1.0f, 1f, 0.1f, 100f);
+            var bounds = EntityRenderer.AuraScreenBounds(new[] { Vector3.Zero }, Matrix4x4.Identity, view * projection);
+            Assert.True(bounds.X < 0f && bounds.Z > 0f && bounds.Y < 0f && bounds.W > 0f);
+            Assert.True(bounds.Z - bounds.X < 0.5f);
+            // Behind the eye: the whole screen.
+            var behind = EntityRenderer.AuraScreenBounds(new[] { new Vector3(0f, 0f, 20f) }, Matrix4x4.Identity, view * projection);
+            Assert.Equal(new Vector4(-1f, -1f, 1f, 1f), behind);
+            Assert.Equal(new Vector4(-1f, -1f, 1f, 1f), EntityRenderer.AuraScreenBounds(null, Matrix4x4.Identity, view * projection));
+        }
+
+        [Fact]
+        public void PixelRect_GrowsByThePad_ClampsToTheTarget_AndFlipsRows()
+        {
+            var rect = EntityRenderer.AuraPixelRect(new Vector4(-0.5f, 0f, 0.5f, 0.5f), 1000, 800, 10f, clipYInverted: false);
+            Assert.Equal((240u, 190u, 520u, 220u), rect);
+            var inverted = EntityRenderer.AuraPixelRect(new Vector4(-0.5f, 0f, 0.5f, 0.5f), 1000, 800, 10f, clipYInverted: true);
+            Assert.Equal((240u, 390u, 520u, 220u), inverted);
+            Assert.Equal((0u, 0u, 1000u, 800u), EntityRenderer.AuraPixelRect(new Vector4(-1f, -1f, 1f, 1f), 1000, 800, 50f, false));
+            Assert.Equal(0u, EntityRenderer.AuraPixelRect(new Vector4(2f, 2f, 3f, 3f), 1000, 800, 0f, false).Width);
+        }
     }
 }

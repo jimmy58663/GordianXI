@@ -51,6 +51,7 @@ namespace Gordian.App.Graphics
             _actionEffects.Clear();
             _sharedActorEffects.Clear();
             _actionEffectTracker.Clear();
+            ClearMountEffects();
         }
 
         /// <summary>
@@ -90,6 +91,7 @@ namespace Gordian.App.Graphics
                 foreach (var effect in _actionEffectEvents) StartActionEffect(effect, resourceManager);
                 PlayScheduledActorEffects(resourceManager);
             }
+            UpdateMountEffects(camera, environment, entities, resourceManager, deltaSeconds);
             if (ActionEffectCount == 0) return;
 
             float frames = Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f;
@@ -245,7 +247,9 @@ namespace Gordian.App.Graphics
         /// </summary>
         private void AddActionEffectDraws(ViewportCamera camera)
         {
-            if (_entityRenderer == null || ActionEffectCount == 0) return;
+            if (_entityRenderer == null) return;
+            AddMountEffectDraws(camera);
+            if (ActionEffectCount == 0) return;
             var cameraToWorld = CreateBillboardBasis(camera.Right, camera.Up, camera.Forward) * Matrix4x4.CreateTranslation(camera.Position);
             foreach (var slot in _actionEffects) AddActionEffectDraws(camera, slot, cameraToWorld);
             foreach (var slot in _sharedActorEffects.Values) AddActionEffectDraws(camera, slot, cameraToWorld);

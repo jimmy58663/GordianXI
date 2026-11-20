@@ -38,6 +38,14 @@ namespace Gordian.Engine.Animation
     /// <c>run</c> from 100, op 0x6E from tick 102 for 72 ticks with 3.0, and op 0x29 to alpha 0 from tick 150 over 12.</item>
     /// <item><b>Dismount, other mounts</b>: the rider's <c>coff</c> only stands idle (<c>idl</c>, 80 ticks), so it is on foot at
     /// once; the mount's <c>moun/coff</c> plays <c>run</c>, op 0x6E from tick 2 for 72 ticks with 10.0, and fades over 50-74.</item>
+    /// <item><b>Knocked off</b> (<c>cdam</c>, <see cref="KnockedOff"/>): the same on every mount checked (the chocobo
+    /// <c>ROM/169/11</c>, the raptor 102706, Fenrir 102714): clip <c>dam</c> for 4 ticks, op 0x6E from tick 4 for 120 ticks
+    /// with 8.0, op 0x29 to alpha 0 from tick 94 over 30 (124 in all; the raptor's and Fenrir's also link <c>vdam</c>). A
+    /// chocobo's rider plays its pack's <c>cdam</c> (45 ticks, clips for 6 then 36) seated, then stands; any other rider is on
+    /// foot at once, as for <c>coff</c>. *Inference*: no reference says what plays <c>cdam</c>. GordianXI plays it when the
+    /// local player loses its mount without having asked (<see cref="NoteDismountRequest"/>): LandSandBoat removes the
+    /// mount itself when its time runs out or the player attacks (C2S 0x01A Attack). Another player's dismount always
+    /// plays <c>coff</c>, as nothing on the wire tells the two apart.</item>
     /// </list>
     /// *Inference*: op 0x6E is read as moving the actor forward by its float in yalms over its duration; 10 yalms in 72 ticks
     /// is 8.3 yalms/s, the mounted speed the retail capture measures (Mounts.mp4: 7.8-8.2). No reference names the op.
@@ -64,6 +72,18 @@ namespace Gordian.Engine.Animation
         /// <summary>The dismount routine (every mount and rider pack).</summary>
         public const string DismountRoutine = "coff";
 
+        /// <summary>The knocked-off dismount routine (every mount and rider pack, #437).</summary>
+        public const string KnockedOffRoutine = "cdam";
+
+        /// <summary>The chocobo rider's <c>cdam</c>: 45 ticks (clips for 6 then 36).</summary>
+        public const int ChocoboRiderKnockedOffTicks = 45;
+
+        /// <summary>
+        /// How long after the local player asks to dismount (C2S 0x01A Dismount) losing its mount counts as asked, in
+        /// seconds; past it the mount knocks it off (<c>cdam</c>). The server answers within a round trip.
+        /// </summary>
+        public const double DismountRequestSeconds = 5.0;
+
         /// <summary>The chocobo rider's <c>coff</c>: <c>ch1</c> 104 ticks then <c>ch2</c> 72.</summary>
         public const int ChocoboRiderDismountTicks = 180;
 
@@ -76,12 +96,25 @@ namespace Gordian.Engine.Animation
         /// <summary>Every other mount's <c>moun/coff</c> (checked on the raptor, file 102706).</summary>
         public static readonly DepartProfile OtherMount = new(74, 2, 72, 10.0f, 50, 24);
 
+        /// <summary>Every mount's <c>cdam</c> (the chocobo <c>ROM/169/11</c>, the raptor 102706 and Fenrir 102714 agree).</summary>
+        public static readonly DepartProfile KnockedOff = new(124, 4, 120, 8.0f, 94, 30);
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, long> DismountRequests = new();
+
+        /// <summary>
+        /// Notes that the local player <paramref name="serverId"/> asked to dismount (the command menu's Dismount,
+        /// <c>/dismount</c>): losing its mount in the next <see cref="DismountRequestSeconds"/> plays <c>coff</c>.
+        /// </summary>
+        public static void NoteDismountRequest(uint serverId) => DismountRequests[serverId] = Stopwatch.GetTimestamp();
+
         private sealed class State
         {
             public MountAppearance Last;
             public MountAppearance Departing;
             public long DepartStart;
             public bool RiderLeft;
+            public DepartProfile Profile;
+            public int RiderTicks;
         }
 
         private static readonly ConditionalWeakTable<WorldEntity, State> States = new();
@@ -90,9 +123,11 @@ namespace Gordian.Engine.Animation
         /// The mount to draw for <paramref name="entity"/> this frame, starting a mount-up or dismount when its mount changed
         /// since the last call. <paramref name="moving"/> ends a chocobo rider's dismount pose early (it walks off on foot).
         /// </summary>
-        public static MountFrame Observe(WorldEntity entity, bool moving) => Observe(entity, moving, Stopwatch.GetTimestamp());
+        /// With <paramref name="isLocalPlayer"/>, a dismount it did not ask for (<see cref="NoteDismountRequest"/>) knocks it off.
+        public static MountFrame Observe(WorldEntity entity, bool moving, bool isLocalPlayer = false) =>
+            Observe(entity, moving, Stopwatch.GetTimestamp(), isLocalPlayer);
 
-        internal static MountFrame Observe(WorldEntity entity, bool moving, long now)
+        internal static MountFrame Observe(WorldEntity entity, bool moving, long now, bool isLocalPlayer = false)
         {
             ArgumentNullException.ThrowIfNull(entity);
             var current = entity.Mount;
@@ -107,7 +142,7 @@ namespace Gordian.Engine.Animation
                 if (current.IsMounted != state.Last.IsMounted)
                 {
                     if (current.IsMounted) state.Departing = MountAppearance.None;
-                    else StartDismount(entity, state.Last, state, now);
+                    else StartDismount(entity, state.Last, state, now, isLocalPlayer && !Requested(entity.ServerId, now));
                 }
                 state.Last = current;
 
@@ -115,8 +150,8 @@ namespace Gordian.Engine.Animation
                 if (!state.Departing.IsMounted) return MountFrame.None;
 
                 float ticks = (float)((now - state.DepartStart) / (double)Stopwatch.Frequency * EntityAnimationState.RoutineTicksPerSecond);
-                var profile = state.Departing.RidesChocobo ? Chocobo : OtherMount;
-                bool riderSeated = state.Departing.RidesChocobo && !state.RiderLeft && ticks < ChocoboRiderDismountTicks;
+                var profile = state.Profile;
+                bool riderSeated = state.Departing.RidesChocobo && !state.RiderLeft && ticks < state.RiderTicks;
                 if (riderSeated && moving)
                 {
                     // Walking off ends the rider's dismount pose: its clips belong to the riding pack, not the body on foot.
@@ -126,7 +161,7 @@ namespace Gordian.Engine.Animation
                     {
                         ActorId = entity.ServerId,
                         Motion = ActionMotion.EventMotionStop,
-                        Routine = DismountRoutine,
+                        Routine = state.Profile == KnockedOff ? KnockedOffRoutine : DismountRoutine,
                         ReceivedTimestamp = Stopwatch.GetTimestamp(),
                     });
                 }
@@ -161,13 +196,19 @@ namespace Gordian.Engine.Animation
             Play(entity.MountAnimation, entity.ServerId, DigRoutine, keepsBody: true);
         }
 
-        private static void StartDismount(WorldEntity entity, in MountAppearance mount, State state, long now)
+        private static bool Requested(uint serverId, long now) =>
+            DismountRequests.TryRemove(serverId, out long asked) && (now - asked) / (double)Stopwatch.Frequency <= DismountRequestSeconds;
+
+        private static void StartDismount(WorldEntity entity, in MountAppearance mount, State state, long now, bool knockedOff)
         {
             state.Departing = mount;
             state.DepartStart = now;
             state.RiderLeft = false;
-            if (mount.RidesChocobo) Play(entity.Animation, entity.ServerId, DismountRoutine);
-            Play(entity.MountAnimation, entity.ServerId, DismountRoutine);
+            state.Profile = knockedOff ? KnockedOff : mount.RidesChocobo ? Chocobo : OtherMount;
+            state.RiderTicks = knockedOff ? ChocoboRiderKnockedOffTicks : ChocoboRiderDismountTicks;
+            string routine = knockedOff ? KnockedOffRoutine : DismountRoutine;
+            if (mount.RidesChocobo) Play(entity.Animation, entity.ServerId, routine);
+            Play(entity.MountAnimation, entity.ServerId, routine);
         }
 
         private static void Play(EntityAnimationState animation, uint serverId, string routine, int controlLockTicks = 0, bool keepsBody = false) =>

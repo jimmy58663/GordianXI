@@ -336,6 +336,9 @@ namespace Gordian.Core.Animation
         /// <summary>Whether an action is queued and not yet taken by <c>Advance</c>.</summary>
         internal bool HasQueuedActions => !_incomingActions.IsEmpty;
 
+        /// <summary>The routine of the oldest action waiting to be taken up, or null (tests).</summary>
+        internal string? PeekQueuedRoutine() => _incomingActions.TryPeek(out var request) ? request.Routine : null;
+
         /// <summary>
         /// Loads an event motion bank onto the entity (opcode 0x5B; thread-safe): its routines play for event gestures
         /// before the model's own. Loading the same bank again changes nothing.
