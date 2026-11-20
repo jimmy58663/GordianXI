@@ -156,6 +156,7 @@ namespace Gordian.Core.Resources
             var primary = ParseDatContainer(primaryDat, name, primarySource);
             model.Skeleton = primary.Skeleton;
             model.BlurAura = BlurAura.Find(primaryDat);
+            model.SizeScales = ReadSizeScales(primaryDat);
             model.ParentOverrides = parentOverrides;
 
             foreach (var kvp in primary.Textures)
@@ -735,6 +736,31 @@ namespace Gordian.Core.Resources
                 }
             }
             return -1;
+        }
+
+        /// <summary>
+        /// The render scale per size class from the model's first <c>info</c> section (Section 0x45 bytes 10-13 over 100;
+        /// see <see cref="EntityModel.SizeScaleFor"/>), or null without one. A byte of 0, 0xFF (unset, xi-model-viewer
+        /// "default") or under 10 reads as 1: some models carry 0 or 1 in byte 13 next to 82 / 87 / 92, which is no size.
+        /// Section format referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer) <c>ui/js/dat/inspect.js</c>.
+        /// </summary>
+        internal static float[]? ReadSizeScales(ReadOnlySpan<byte> dat)
+        {
+            var headers = DatSectionWalker.ReadHeaders(dat);
+            for (int h = 0; h < headers.Count; h++)
+            {
+                var head = headers[h];
+                if (head.TypeCode != DatSectionType.Info || !head.DatId.StartsWith("info", StringComparison.Ordinal)
+                    || head.DataSizeBytes < 14 || head.DataOffset + 14 > dat.Length) continue;
+                var scales = new float[4];
+                for (int i = 0; i < 4; i++)
+                {
+                    byte b = dat[head.DataOffset + 10 + i];
+                    scales[i] = b is < 10 or 0xFF ? 1f : b / 100f;
+                }
+                return scales;
+            }
+            return null;
         }
 
         /// <summary>The weapon slot of a <c>wepN</c> mesh section, or null.</summary>

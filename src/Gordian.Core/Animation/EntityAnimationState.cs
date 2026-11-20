@@ -302,9 +302,10 @@ namespace Gordian.Core.Animation
             lock (_controlLockSync) _controlLocks.Clear();
         }
 
-        private void AddControlLocks(MotionRoutine routine, ActionFreezeSource source, long now)
+        private void AddControlLocks(MotionRoutine routine, ActionRequest? request, ActionFreezeSource source, long now)
         {
-            if (routine.ControlLocks.Count == 0) return;
+            int heldTicks = request?.ControlLockTicks ?? 0;
+            if (routine.ControlLocks.Count == 0 && heldTicks <= 0) return;
             double stopwatchPerTick = Stopwatch.Frequency / RoutineTicksPerSecond / Math.Max(_actionSpeed, 0.01f);
             lock (_controlLockSync)
             {
@@ -314,6 +315,7 @@ namespace Gordian.Core.Animation
                     if (controlLock.Ticks <= 0) continue;
                     _controlLocks.Add((now + (long)(controlLock.StartTick * stopwatchPerTick), now + (long)(controlLock.EndTick * stopwatchPerTick), source));
                 }
+                if (heldTicks > 0) _controlLocks.Add((now, now + (long)(heldTicks * stopwatchPerTick), ActionFreezeSource.Held));
             }
         }
 
@@ -333,6 +335,9 @@ namespace Gordian.Core.Animation
 
         /// <summary>Whether an action is queued and not yet taken by <c>Advance</c>.</summary>
         internal bool HasQueuedActions => !_incomingActions.IsEmpty;
+
+        /// <summary>The routine of the oldest action waiting to be taken up, or null (tests).</summary>
+        internal string? PeekQueuedRoutine() => _incomingActions.TryPeek(out var request) ? request.Routine : null;
 
         /// <summary>
         /// Loads an event motion bank onto the entity (opcode 0x5B; thread-safe): its routines play for event gestures
@@ -822,8 +827,8 @@ namespace Gordian.Core.Animation
 
         /// <summary>
         /// Whether the playing action keeps the body while the entity moves (#511 round 1): a weapon draw or sheathe, an
-        /// action presentation's <c>main</c>, or a finish routine (a release, an item use's finish, a job ability stand-in).
-        /// Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
+        /// action presentation's <c>main</c>, a finish routine (a release, an item use's finish, a job ability stand-in), or an
+        /// action that asks for it (<see cref="ActionRequest.KeepsBodyWhileMoving"/>, the chocobo dig). Swings (which pick their moving variants), start routines and chants (moving interrupts them, server-side),
         /// sustained routines and event gestures give way to the walk or run.
         /// </summary>
         private bool SlidesWhileMoving
@@ -832,6 +837,7 @@ namespace Gordian.Core.Animation
             {
                 if (_weaponMotion != WeaponMotion.None || _isPresentation) return true;
                 if (_actionRequest is not { } request || ActiveRoutine is not { } routine) return false;
+                if (request.KeepsBodyWhileMoving) return true;
                 if (request.Motion is ActionMotion.Swing or ActionMotion.EventMotion or ActionMotion.None) return false;
                 if (request.Category is ActionCategory.SkillStart or ActionCategory.MagicStart or ActionCategory.ItemStart
                     or ActionCategory.AbilityStart or ActionCategory.RangedStart) return false;
@@ -901,7 +907,7 @@ namespace Gordian.Core.Animation
             _actionHiddenWeapons = model.DefaultHiddenWeaponSlots;
             _weaponChangeIndex = 0;
             ApplyWeaponChanges(routine);
-            AddControlLocks(routine, weaponMotion == WeaponMotion.None ? ActionFreezeSource.Actions : ActionFreezeSource.Engage, now);
+            AddControlLocks(routine, request, weaponMotion == WeaponMotion.None ? ActionFreezeSource.Actions : ActionFreezeSource.Engage, now);
             request?.MarkStarted(now, _actionHitTick);
             EnterSegment(model, 0);
         }

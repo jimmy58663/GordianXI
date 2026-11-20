@@ -125,7 +125,8 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Draw every zone mesh double-sided (the old behaviour) instead of culling back faces of meshes whose 0x2E
-        /// flags lack 0x2000 (double-sided), as the client does.
+        /// flags lack 0x2000 (double-sided), as the client does. Set each frame from
+        /// <see cref="ViewportRenderSettings.ZoneBackFaceCulling"/> (Settings, Ctrl+Shift+F9; #45).
         /// </summary>
         public bool DisableZoneBackFaceCulling { get; set; }
         private Pipeline _waterPipeline = null!;
@@ -1387,13 +1388,16 @@ namespace Gordian.App.Graphics
             var presentation = EventPresentation;
             var blur = presentation?.Blur ?? default;
             var dissolve = presentation?.CrossDissolve ?? default;
-            bool postProcess = EnablePostProcess && presentation != null &&
-                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _));
+            // A blur aura on screen (#82) draws offscreen too: its edge blur samples the avatar as drawn.
+            bool postProcess = EnablePostProcess && (presentation != null &&
+                               (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _))
+                               || _entityRenderer is { DrewBlurAura: true, EnableAuraSmear: true });
             if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
             else _postProcess?.Invalidate();
 
             _commandList.Begin();
-            _commandList.SetFramebuffer(postProcess ? _postProcess!.BeginScene(finalTarget) : finalTarget);
+            var sceneTarget = postProcess ? _postProcess!.BeginScene(finalTarget) : finalTarget;
+            _commandList.SetFramebuffer(sceneTarget);
 
             // Update Scene Uniform Buffer within command stream
             _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
@@ -1605,6 +1609,7 @@ namespace Gordian.App.Graphics
             // Pass 2: Live 3D entity models & modular equipment (drawn on top of terrain/foliage, behind blended water)
             if (_entityRenderer != null && entities != null)
             {
+                _entityRenderer.SceneFramebuffer = postProcess ? sceneTarget : null;
                 _entityRenderer.RenderEntities(_commandList, camera, environment, entities, resourceManager, deltaSeconds, localPlayerServerId, isLocalPlayerEngaged, localPlayerDisplayPos, ActorCollision, _platformHeights, LoadedZone, _subEnvironmentActorLights, LocalPlayerRidingPlatformId, LocalPlayerDisplayHeading);
                 draws += _entityRenderer.DrawCalls;
                 visible += _entityRenderer.VisibleEntities;

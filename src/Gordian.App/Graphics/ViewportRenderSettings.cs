@@ -30,6 +30,7 @@ namespace Gordian.App.Graphics
         private static volatile bool s_vsync = true;
         private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
         private static volatile bool s_softTerrainHighlights;
+        private static volatile bool s_zoneBackFaceCulling = true;
 
         /// <summary>
         /// What the performance overlay shows in every viewport window (#30); hidden by default. Setting a new value raises
@@ -99,6 +100,25 @@ namespace Gordian.App.Graphics
             set => s_softTerrainHighlights = value;
         }
 
+        /// <summary>
+        /// Whether zone meshes without the double-sided flag have their back faces culled (#45; retail's rule, on by
+        /// default). Setting a new value raises <see cref="ZoneBackFaceCullingChanged"/> on the setting thread (the
+        /// Ctrl+Shift+F9 shortcut or Settings), which the main window's view model saves.
+        /// </summary>
+        public static bool ZoneBackFaceCulling
+        {
+            get => s_zoneBackFaceCulling;
+            set
+            {
+                if (s_zoneBackFaceCulling == value) return;
+                s_zoneBackFaceCulling = value;
+                ZoneBackFaceCullingChanged?.Invoke(value);
+            }
+        }
+
+        /// <summary>Raised after <see cref="ZoneBackFaceCulling"/> changes.</summary>
+        public static event Action<bool>? ZoneBackFaceCullingChanged;
+
         public static int ClampFrameRate(int value) => Math.Clamp(value, 1, 240);
 
         /// <summary>Copies a loaded or changed settings file.</summary>
@@ -112,6 +132,7 @@ namespace Gordian.App.Graphics
             VsyncEnabled = settings.IsVsyncEnabled;
             PerformanceOverlay = settings.PerformanceOverlay;
             SoftTerrainHighlights = settings.SoftTerrainHighlights;
+            ZoneBackFaceCulling = settings.ZoneBackFaceCulling;
         }
     }
 }

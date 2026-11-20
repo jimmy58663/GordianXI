@@ -456,10 +456,16 @@ namespace Gordian.Engine.Ui.Lobby
                     GordianLog.Warn(LogCategories.Lobby, $"Lobby request failed: {ex.Message}");
                     lock (SyncRoot)
                     {
-                        Prompt = null;
-                        ShowError(ex, onError);
-                        IsBusy = false;
-                        Touch();
+                        try
+                        {
+                            Prompt = null;
+                            ShowError(ex, onError);
+                        }
+                        finally
+                        {
+                            IsBusy = false; // never left busy, which would drop every key from then on (#514)
+                            Touch();
+                        }
                     }
                 }
             });

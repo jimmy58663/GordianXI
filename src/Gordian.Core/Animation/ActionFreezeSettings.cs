@@ -24,6 +24,14 @@ namespace Gordian.Core.Animation
         /// <summary>Drawing or sheathing the weapons on engage and disengage (<c>in 0</c> / <c>out0</c>, 72 ticks).</summary>
         Engage = 1 << 1,
 
+        /// <summary>
+        /// A lock the client holds for an action whose routine carries none (<c>ActionRequest.ControlLockTicks</c>: the
+        /// chocobo dig, #540). Not part of <see cref="All"/>: no option lifts it, as JaZero-style plugins never lifted the
+        /// dig freeze in retail (the maintainer, round 4 of the 2026-11-18 test).
+        /// </summary>
+        Held = 1 << 2,
+
+        /// <summary>Every source <c>/actionfreeze</c> can ignore (not <see cref="Held"/>).</summary>
         All = Actions | Engage
     }
 
@@ -42,6 +50,6 @@ namespace Gordian.Core.Animation
         public static bool IsLocked(SessionProfile? profile) => profile?.IsRestricted(FeatureRestrictions.ActionFreezeOverride) ?? false;
 
         /// <summary>The sources ignored now: those asked for, or none when the server forbids it.</summary>
-        public ActionFreezeSource GetIgnored(SessionProfile? profile) => IsLocked(profile) ? ActionFreezeSource.None : IgnoreRequested;
+        public ActionFreezeSource GetIgnored(SessionProfile? profile) => IsLocked(profile) ? ActionFreezeSource.None : IgnoreRequested & ActionFreezeSource.All;
     }
 }

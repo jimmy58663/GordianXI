@@ -140,6 +140,23 @@ namespace Gordian.Core.Resources.Models
         /// <summary>The model's blur aura (Section 0x5E: avatars, Prime avatars), or null when it has none (#82).</summary>
         public BlurAura? BlurAura { get; set; }
 
+        /// <summary>
+        /// The model's render scale per size class (its <c>info</c> section, Section 0x45, bytes 10-13 as fractions of 100;
+        /// <see cref="SizeScaleFor"/>), or null when it has none. Byte 10 is xi-model-viewer's "Scale" (<c>dat/inspect.js</c>);
+        /// xi-tools <c>docs/gear/pose.md</c> notes the client applies the <c>info</c> scale (scale / 100) to an actor.
+        /// </summary>
+        public float[]? SizeScales { get; set; }
+
+        /// <summary>
+        /// The render scale for a size class (S2C 0x00E <c>GraphSize</c>: 0 small, 1 medium, 2 large, 3): <c>info</c> byte
+        /// 10 + <paramref name="graphSize"/> over 100, else 1 (#82 round 5: Fenrir, file 1317, has 75 in all four, and retail
+        /// draws the avatar at about 0.75-0.8 of the DAT size against an Elvaan, <c>Fenrir_AvatarSize_Retail_2026-11-19.png</c>).
+        /// *Inference* that bytes 11-13 are the larger classes: 1,034 monster models carry 85 / 100 / 115 / 140, graded like
+        /// the three sizes plus one. **Beyond xi-model-viewer** (which names only bytes 10 and 11).
+        /// </summary>
+        public float SizeScaleFor(byte graphSize) =>
+            SizeScales is { Length: 4 } scales ? scales[Math.Min((int)graphSize, 3)] : 1f;
+
         /// <summary>Rebuilds <see cref="MotionRoutines"/> from <see cref="RawMotionRoutines"/> against the current clips.</summary>
         internal void RebuildMotionRoutines()
         {

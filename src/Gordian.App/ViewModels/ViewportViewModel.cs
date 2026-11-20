@@ -34,6 +34,7 @@ namespace Gordian.App.ViewModels
         private int _zoneCacheBudgetMb = ViewportRenderSettings.DefaultZoneCacheBudgetMb;
         private int _entityPartBudgetMb = ViewportRenderSettings.DefaultEntityPartBudgetMb;
         private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
+        private bool _zoneBackFaceCulling = true;
         private readonly object _saveLock = new();
 
         /// <summary>Whether the notice for a saved OpenGL backend was logged (once per run, not once per view model).</summary>
@@ -71,6 +72,7 @@ namespace Gordian.App.ViewModels
                 _settings.ZoneCacheBudgetMb = _zoneCacheBudgetMb;
                 _settings.EntityPartBudgetMb = _entityPartBudgetMb;
                 _settings.PerformanceOverlay = _performanceOverlay;
+                _settings.ZoneBackFaceCulling = _zoneBackFaceCulling;
                 // The overlay mode can change on a viewport's render or key thread (Ctrl+F12, /perf).
                 lock (_saveLock) _settings.SaveToFile(_settingsPath);
             }
@@ -120,12 +122,15 @@ namespace Gordian.App.ViewModels
             _zoneCacheBudgetMb = Math.Max(0, _settings.ZoneCacheBudgetMb);
             _entityPartBudgetMb = Math.Max(0, _settings.EntityPartBudgetMb);
             _performanceOverlay = _settings.PerformanceOverlay;
+            _zoneBackFaceCulling = _settings.ZoneBackFaceCulling;
             // Every viewport window reads these each frame (#301, #322).
             ViewportRenderSettings.Apply(_settings);
             if (_enableAutoSave)
             {
                 // The shortcut and /perf set the overlay mode directly (#30); the saving view model keeps the file current.
                 ViewportRenderSettings.PerformanceOverlayChanged += OnPerformanceOverlayChanged;
+                // Ctrl+Shift+F9 in a viewport window toggles culling directly (#45); keep the file and checkbox current.
+                ViewportRenderSettings.ZoneBackFaceCullingChanged += OnZoneBackFaceCullingChanged;
             }
 
             LaunchViewportCommand = new RelayCommand(() => ViewportWindowRequested?.Invoke(this, EventArgs.Empty));
@@ -472,6 +477,31 @@ namespace Gordian.App.ViewModels
             _performanceOverlay = mode;
             AutoSaveSettings();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(PerformanceOverlay)));
+        }
+
+        /// <summary>
+        /// Cull back faces of zone meshes not flagged double-sided, as retail does (#45; on by default). Off draws every
+        /// zone mesh double-sided. Ctrl+Shift+F9 in a viewport window toggles the same setting.
+        /// </summary>
+        public bool ZoneBackFaceCulling
+        {
+            get => _zoneBackFaceCulling;
+            set
+            {
+                if (SetProperty(ref _zoneBackFaceCulling, value))
+                {
+                    ViewportRenderSettings.ZoneBackFaceCulling = value;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        private void OnZoneBackFaceCullingChanged(bool enabled)
+        {
+            if (_zoneBackFaceCulling == enabled) return;
+            _zoneBackFaceCulling = enabled;
+            AutoSaveSettings();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(ZoneBackFaceCulling)));
         }
 
         /// <summary>The background frame rates offered in Settings.</summary>

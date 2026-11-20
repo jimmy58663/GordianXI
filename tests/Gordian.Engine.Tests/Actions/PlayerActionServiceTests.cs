@@ -152,6 +152,19 @@ namespace Gordian.Engine.Tests.Actions
             Assert.Equal(28, _sentChunks[0].Length);
         }
 
+        /// <summary>#437 round 1: retail offers no attack from a mount; LandSandBoat would knock the rider off for one.</summary>
+        [Fact]
+        public async Task ExecuteCommand_Attack_WhileMounted_IsRefused()
+        {
+            SendServerStatus(5); // on a chocobo
+            Assert.True(_localPlayer.IsMounted);
+            _actionService.SetTargetByName("Forest_Hare");
+            var res = await _actionService.ExecuteCommandAsync("/attack");
+
+            Assert.False(res.Success);
+            Assert.Empty(_sentChunks);
+        }
+
         [Fact]
         public async Task ExecuteCommand_Attack_WhileEngagedOnAnother_SendsChangeTarget()
         {

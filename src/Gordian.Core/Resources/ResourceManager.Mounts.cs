@@ -17,6 +17,25 @@ namespace Gordian.Core.Resources
         private ConditionalWeakTable<EntityModel, ConcurrentDictionary<byte, EntityModel?>> _poseRiders = new();
         private ConditionalWeakTable<EntityModel, StrongBox<float>> _mountScales = new();
         private readonly ConcurrentDictionary<string, MountSeating.RideData?> _rideData = new();
+        private readonly ConcurrentDictionary<string, ActorEffectSet?> _mountEffects = new();
+
+        /// <summary>
+        /// The particle effects the mount's own DAT carries for its routines (#437), or null when it has none: the chocobo's
+        /// dig (<c>ROM/169/11</c> <c>chor</c> starts <c>chov</c> / <c>cho0</c> / <c>cho1</c>, whose meshes and sprites are the
+        /// shared <c>ROM/0/0</c> ones <c>hit4</c>, <c>hi11</c>, <c>hi16</c>). Every chocobo shares the race file; another mount
+        /// its own model file. Cached per file, including mounts without effects.
+        /// </summary>
+        public ActorEffectSet? GetMountEffects(in MountAppearance mount)
+        {
+            if (!mount.IsMounted) return null;
+            int fileId = mount.RidesChocobo ? -1 : MountModels.MountFileId(mount.MountId);
+            string key = fileId < 0 ? MountModels.ChocoboSkeletonPath : fileId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return _mountEffects.GetOrAdd(key, k =>
+            {
+                byte[]? bytes = fileId < 0 ? LoadDatBytes(k) : LoadDatBytesByFileId(fileId);
+                return bytes is { Length: > 0 } ? ActorEffectLoader.Load(bytes, GetSharedEffects(), fileId < 0 ? k : DecodedTexture.FileLabel(fileId)) : null;
+            });
+        }
 
         /// <summary>
         /// The model of the mount <paramref name="mount"/> rides (#87, <see cref="MountModels.LoadMount"/>), cached with the
@@ -127,6 +146,7 @@ namespace Gordian.Core.Resources
             _riderPacks.Clear();
             _mountPacks.Clear();
             _rideData.Clear();
+            _mountEffects.Clear();
             _riderHips = new ConditionalWeakTable<EntityModel, StrongBox<System.Numerics.Vector3>>();
             _riderHeadRise = new ConditionalWeakTable<EntityModel, StrongBox<float>>();
             _riders = new ConditionalWeakTable<EntityModel, EntityModel>();

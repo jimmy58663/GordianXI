@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Gordian.Core.Animation;
 using Gordian.Core.Network.Packets;
+using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
 using Gordian.Core.World;
 
@@ -151,6 +152,22 @@ namespace Gordian.App.Audio
                 a.ReactionSerial, a.LastReaction, a.Current == AnimationCategory.Death, attack, attack && request!.SubKind == 1, cues);
         }
 
+        /// <summary>
+        /// Snapshot of the mount <paramref name="entity"/> rides, as an actor of its own (<see cref="MountModels.ActorKey"/>):
+        /// the routine its mount plays, when it is one of the mount model's own (#437: the chocobo's dig <c>chor</c> plays
+        /// <c>ROM/169/11</c>'s sound pointer <c>8077</c>, op 0x0A, at ticks 64, 78, 102 and 110). Null for a player not riding.
+        /// </summary>
+        public static ActorSoundState? SnapshotMount(WorldEntity entity)
+        {
+            if (!entity.Mount.IsMounted) return null;
+            EntityAnimationState a = entity.MountAnimation;
+            MotionRoutine? active = a.ActiveRoutine;
+            string? routine = active is not null && a.Model is { } model && model.MotionRoutines.TryGetValue(active.Name, out var own)
+                && ReferenceEquals(own, active) ? active.Name : null;
+            return new ActorSoundState(MountModels.ActorKey(entity.ServerId), entity.Position, a.Model, routine, a.ActionSerial, a.ActionTicks,
+                0, default, false);
+        }
+
         /// <summary>Checks every drawn actor near the listener and adds the sounds due this frame.</summary>
         public void Update(IEnumerable<WorldEntity> entities, Vector3 listener, Func<uint, ActorSoundState?> lookup, List<ActionSoundEvent> into)
         {
@@ -160,6 +177,7 @@ namespace Gordian.App.Audio
                 if (entity.IsDrawn && Vector3.DistanceSquared(entity.Position, listener) <= HearingRange * HearingRange)
                 {
                     Step(Snapshot(entity), lookup, into);
+                    if (SnapshotMount(entity) is { } mount) Step(mount, lookup, into);
                 }
             }
 

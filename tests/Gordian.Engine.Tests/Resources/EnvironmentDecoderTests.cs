@@ -309,24 +309,31 @@ namespace Gordian.Engine.Tests.Resources
             {
                 Hour = 0,
                 Indoors = false,
-                // Ambient is the byte value as is (no halving, no dark lift, no cap)
+                // Ambient: byte / 510, no lift since red is not under 0xCC, capped at 0.5 (#516)
                 TerrainAmbientColor = new Vector4(0xFF / 255f, 0x80 / 255f, 0x40 / 255f, 1f),
-                // Sun and moon: byte value times the light power, not clamped
+                // Sun: byte value times the light power; every channel under 0xCC, so lifted by (1.40, 1.36, 1.45)
                 TerrainSunColor = new Vector4(0x40 / 255f, 0x40 / 255f, 0x40 / 255f, 1f),
+                // Moon: blue over 0xCC once doubled, so not lifted, and not clamped
                 TerrainMoonColor = new Vector4(0x60 / 255f, 0x60 / 255f, 0x80 / 255f, 1f),
-                TerrainDiffuseMult = 2.0f
+                TerrainDiffuseMult = 2.0f,
+                // Model ambient: every channel under 0xCC, so lifted
+                ModelAmbientColor = new Vector4(0x80 / 255f, 0x80 / 255f, 0x80 / 255f, 1f),
             };
 
             settings.ApplyKeyframe(keyframe);
 
-            Assert.Equal(1.0f, settings.AmbientColor.X, 3);
-            Assert.Equal(0x80 / 255f, settings.AmbientColor.Y, 3);
-            Assert.Equal(0x40 / 255f, settings.AmbientColor.Z, 3);
+            Assert.Equal(0.5f, settings.AmbientColor.X, 3);
+            Assert.Equal(0x80 / 510f, settings.AmbientColor.Y, 3);
+            Assert.Equal(0x40 / 510f, settings.AmbientColor.Z, 3);
+
+            Assert.Equal(0x80 / 510f * 1.40f, settings.ModelAmbientColor.X, 3);
+            Assert.Equal(0x80 / 510f * 1.36f, settings.ModelAmbientColor.Y, 3);
+            Assert.Equal(0x80 / 510f * 1.45f, settings.ModelAmbientColor.Z, 3);
 
             float sun = 0x40 / 255f * 2.0f;
-            Assert.Equal(sun, settings.SunColor.X, 3);
-            Assert.Equal(sun, settings.SunColor.Y, 3);
-            Assert.Equal(sun, settings.SunColor.Z, 3);
+            Assert.Equal(sun * 1.40f, settings.SunColor.X, 3);
+            Assert.Equal(sun * 1.36f, settings.SunColor.Y, 3);
+            Assert.Equal(sun * 1.45f, settings.SunColor.Z, 3);
 
             // Moon doubled: blue exceeds 1 and stays so (only the lit vertex result is clamped, in the shader)
             Assert.Equal(0x60 / 255f * 2.0f, settings.MoonColor.X, 3);

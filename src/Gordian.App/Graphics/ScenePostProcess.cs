@@ -149,6 +149,12 @@ void main()
             return _sceneFramebuffer!;
         }
 
+        /// <summary>
+        /// The colour target of <see cref="BeginScene"/>'s framebuffer (sampleable and copyable), or null before the first
+        /// frame: the blur aura's smear copies the scene drawn so far from it (#82).
+        /// </summary>
+        public Texture? SceneColor => _sceneColor;
+
         /// <summary>Forgets the history: the next frame drawn through <see cref="BeginScene"/> starts without blur.</summary>
         public void Invalidate()
         {
