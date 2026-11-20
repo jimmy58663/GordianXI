@@ -369,6 +369,68 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Port Jeuno (246) event 324, the Abyssea intro (#459 round 5): the director places the player at (-56.4, 0, 0.2)
+        /// (0xBA) and walks it about. Played away from there (<c>!cs 324</c> in the middle of the zone), retail leaves the
+        /// player where it stood; #338's keep-the-placement rule left it at the cutscene's spot. Played next to that spot,
+        /// the scene's last walk is kept as for the customs doors.
+        /// </summary>
+        [Theory]
+        [InlineData(-10f, 40f, false)]
+        [InlineData(-58f, 2f, true)]
+        public void PortJeunoAbysseaIntro_KeepsThePlayerOnlyWhenStagedWhereItStood(float x, float z, bool kept)
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            var query = new Gordian.Core.Resources.Ui.UiMenuDefinition
+            {
+                Name = Gordian.Engine.Ui.StockUiMenuController.QueryMenu,
+                Frame = new Gordian.Core.Resources.Ui.UiMenuFrame { X = 16, Y = 208, Width = 366, Height = 88, Anchor = Gordian.Core.Resources.Ui.UiAnchor.BottomLeft },
+                Buttons = new List<Gordian.Core.Resources.Ui.UiMenuButton>
+                {
+                    new() { ButtonId = 1, X = 28, Y = 28, Width = 132, Height = 16, NavUp = 1, NavDown = 2, NavLeft = 1, NavRight = 1 },
+                    new() { ButtonId = 2, X = 28, Y = 48, Width = 132, Height = 16, NavUp = 1, NavDown = 2, NavLeft = 2, NavRight = 2 },
+                },
+            };
+            var menus = new Gordian.Engine.Ui.StockUiMenuController { Library = Gordian.Core.Resources.Ui.UiResourceLibrary.FromDefinitions(new[] { query }) };
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(), menus, () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 246);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            parser.LocalPlayer.ServerId = PlayerId;
+            var self = new Gordian.Core.World.PlayerEntity(PlayerId, 0x400) { Position = new System.Numerics.Vector3(x, 0f, z), IsSpawned = true };
+            parser.World.UpsertEntity(self);
+            var script = ZoneEventScript.Parse(rm.LoadDatBytesByFileId(ZoneEventScript.GetFileId(246))!)!;
+            foreach (var block in script.Blocks)
+            {
+                if (block.ActorId is EventBlock.ZoneActor or EventBlock.PlayerActor || block.ActorId >= 0x7F000000) continue;
+                if (block.IndexOf(324) < 0 && block.IndexOf(EventBlock.AnyEventId) < 0) continue;
+                parser.World.UpsertEntity(new Gordian.Core.World.WorldEntity(block.ActorId, (ushort)(block.ActorId & 0x3FF), Gordian.Core.World.EntityType.Npc) { IsHidden = true });
+            }
+            parser.Progression.StartEvent(PlayerId, 0x400, 246, 324, 0);
+            bool staged = false;
+            for (int i = 0; i < 200_000 && (i < 600 || controller.IsActive); i++)
+            {
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                staged |= self.EventPose is { } pose && MathF.Abs(pose.Position.X + 56.4f) < 0.1f;
+                if (menus.Top is { IsQuery: true } top)
+                {
+                    while (top.SelectedButtonId != 1) menus.Move(Gordian.Engine.Input.InputAction.MenuUp);
+                    menus.Activate();
+                }
+            }
+            Assert.False(controller.IsActive);
+            Assert.True(staged);
+            Assert.Null(self.EventPose);
+            Assert.Equal(kept, parser.LocalPlayer.TryTakePositionCorrection(out _, out _));
+        }
+
+        /// <summary>
         /// Lower Delkfutt's Tower (184) event 37, Bahamut over the sea (#459 round 3): the scene opens stage zone 542 and
         /// never places the player there. Retail shows no player (Zone184_CS36-39.mp4), and file 51252's <c>main</c>, played
         /// on the player, anchors its effects at the stage's origin; the player is shown again back in zone 184.

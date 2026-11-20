@@ -66,6 +66,8 @@ namespace Gordian.Engine.Events
             public int Pc;
             /// <summary>The goal of the stack's walk (0x1F / 0x5A), internal axes.</summary>
             public Vector3 MovePosition;
+            /// <summary>Frames (1/60 s) left of a timed walk (0x31).</summary>
+            public float MoveTime;
             public float WaitTime;
             public int Slot;
             public byte RequestFlag;
@@ -1055,14 +1057,27 @@ namespace Gordian.Engine.Events
                     // sub 1 walks there at the main speed in three axes, facing the goal, kept on the floor (VCalibrate;
                     // the renderer grounds event actors). Lower Delkfutt's Tower's event 38 walks Wolfgang out of the shot
                     // with it after "Sir, yes sir!" before placing him (0x37) off screen (#459 round 4); stepped over, he
-                    // vanished there. The move time (120 there) is not used: the walk ends at its goal, as Wolfgang's
-                    // leaves the shot in Zone184_CS36-39.mp4 (*inferred*: how retail uses the time is not settled).
+                    // vanished there. The move time bounds the walk: Wolfgang's is 120 and his goal 7.3 m away at 1.3 m/s,
+                    // but retail (Zone184_CS36-39.mp4, 2:51-2:53) shows him walk for about 2 s before the cut, then walk
+                    // into the hallway (his next 0x37 / 0x1F) in the next shot. So the time counts frames (1/60 s, the
+                    // frame delay's unit) and, run out, ends the walk where it stands and goes on (*inferred*: XiEvents'
+                    // reading scales it by 0.001 and leaves the opcode waiting; walked to the goal, he was still walking
+                    // into the hallway when the next shot placed him and walked him in again, #459 round 5).
                     if (Code8(1) == 0)
                     {
                         _stacks[_runPos].MovePosition = new Vector3(GetWork(2) * 0.001f, GetWork(6) * 0.001f, GetWork(4) * 0.001f);
+                        _stacks[_runPos].MoveTime = GetWork(8);
                         _pc += 10;
                         return;
                     }
+                    if (_stacks[_runPos].MoveTime <= 0f)
+                    {
+                        _pc += 2;
+                        _poseDirty = true;
+                        _retFlag = true;
+                        return;
+                    }
+                    _stacks[_runPos].MoveTime -= _frameDelay;
                     ExecMove(freeFlight: true);
                     return;
                 case 0x32:

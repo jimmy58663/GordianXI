@@ -194,6 +194,21 @@ namespace Gordian.Engine.Events
         private ushort _playerPoseZone;
 
         /// <summary>
+        /// Whether the event's first pose of the player put it more than <see cref="PlayerStagingDistance"/> from where it
+        /// stands (#459 round 5): a scene staging the player elsewhere, whose placement is not kept at the end
+        /// (<see cref="KeepPlayerEventPlacement"/>).
+        /// </summary>
+        private bool _playerStagedAway;
+
+        /// <summary>
+        /// How far (yalms) the event's first placement of the player may be from where it stands for the event's walk to be
+        /// kept at the end. *Inferred* (#459 round 5): the Port Jeuno customs door (event 54) places the player at the door
+        /// it is talking to, then walks it 2.5-6 yalms through; event 324 (the Abyssea intro, also played by <c>!cs 324</c>
+        /// anywhere in the zone) stages it at (-56.4, 0, 0.2), and retail leaves the player where it stood.
+        /// </summary>
+        public const float PlayerStagingDistance = 10f;
+
+        /// <summary>
         /// Whether the controller hid the player for a stage zone the scene opened without placing the player in it (#459
         /// round 3). Retail shows no player in Lower Delkfutt's Tower's event 37 (stage zone 542: Zone184_CS36-39.mp4), which
         /// never places the player there: the player's position belongs to zone 184 and means nothing on the stage. The
@@ -677,6 +692,7 @@ namespace Gordian.Engine.Events
         private void ClearStaging()
         {
             _playerPoseZone = 0;
+            _playerStagedAway = false;
             _playerStageHidden = false;
             _cutsceneHud = false;
             _eventText = null;
@@ -884,6 +900,10 @@ namespace Gordian.Engine.Events
             if (player == null || _world == null || !_world.TryGetByServerId(player.ServerId, out var self)) return;
             // Not a pose from a stage zone (#459: Pso'Xja's event 2); retail leaves the player where it stood.
             if (_playerPoseZone != 0) return;
+            // Not a scene that stages the player away from where it stands (#459 round 5): Port Jeuno's event 324 puts
+            // the player at (-56.4, 0, 0.2) and walks it there; retail leaves the player where it stood. The customs door
+            // (event 54) places the player at the door it stands at (0x37) and walks it a few metres through, and keeps that.
+            if (_playerStagedAway) return;
             KeepEventPlacement(player, self);
         }
 
@@ -1296,6 +1316,11 @@ namespace Gordian.Engine.Events
             {
                 _pendingPoses[serverId] = pose; // applied when the entity arrives (SortArrivals)
                 return;
+            }
+            if (serverId == (_player?.ServerId ?? 0) && entity.EventPose == null && _world.EventZoneId == 0
+                && Vector2.Distance(new Vector2(position.X, position.Z), new Vector2(entity.Position.X, entity.Position.Z)) > PlayerStagingDistance)
+            {
+                _playerStagedAway = true;
             }
             entity.EventPose = pose;
             _staged.Add(serverId);
