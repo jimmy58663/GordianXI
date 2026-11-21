@@ -110,6 +110,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             public readonly List<string> Sent = new();
             public bool OnSecondFloor { get; set; }
+            public bool ShowsOwnFurniture { get; set; } = true;
 
             private Task Record(string packet)
             {
@@ -231,6 +232,29 @@ namespace Gordian.Engine.Tests.Ui
             Assert.True(h.Menus.OpenMoogleMenu());
             Assert.Equal(StockUiMogHouse.AwayMoogleMenu, h.Menus.Top!.Name);
             Assert.Single(h.Menus.OpenMenus);
+        }
+
+        [Fact]
+        public void AwayFromTheHomeNationsHouse_NoFurnitureShows_AndLayoutIsGreyed()
+        {
+            // #591 / #509: another city's house, or a visit, shows none of your furniture, and Layout cannot start.
+            var h = new Harness();
+            h.House.ShowsOwnFurniture = false;
+            h.Menus.OnMogHouseFurnitureChanged();
+            Assert.Empty(h.Menus.MogHouseLayout.Pieces);
+            Assert.True(h.Menus.OpenMoogleMenu());
+            Assert.True(h.Menus.Top!.IsGreyed(StockUiMogHouse.LayoutButton));
+            h.Choose(StockUiMogHouse.LayoutButton);
+            Assert.False(h.Menus.MogHouseLayout.Active);
+            Assert.Empty(h.House.Sent);
+
+            // Back home the pieces come back and Layout works.
+            h.Menus.CloseAll();
+            h.House.ShowsOwnFurniture = true;
+            h.Menus.OnMogHouseFurnitureChanged();
+            Assert.NotEmpty(h.Menus.MogHouseLayout.Pieces);
+            Assert.True(h.Menus.OpenMoogleMenu());
+            Assert.False(h.Menus.Top!.IsGreyed(StockUiMogHouse.LayoutButton));
         }
 
         [Fact]

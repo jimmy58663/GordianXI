@@ -58,6 +58,12 @@ namespace Gordian.Engine.Ui
         /// <summary>A linkshell item's colour (<see cref="StockUiItems.LinkshellColorOf"/>): its icon is drawn in it; 0 for other items.</summary>
         public ushort LinkshellColor { get; init; }
 
+        /// <summary>
+        /// A temporary item (the Temporary Items container, LandSandBoat location 3: what a battlefield or Assault gives for
+        /// that run). Retail lists these at the top of the Items lists with a pale peach name (#596).
+        /// </summary>
+        public bool IsTemporary => Container == ContainerId.TempItems && !IsStorageOptions;
+
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
     }

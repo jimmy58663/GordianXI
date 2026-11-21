@@ -1879,7 +1879,10 @@ namespace Gordian.Engine.Input
                 else _actionService.OpenTargetCommandMenu();
             }
 
-            // Cancel / Clear Target. While locked on, Cancel does nothing at all (retail; the lock-on key toggles it;
+            // Cancel with no menu open hides the mouse cursor until the mouse moves again (retail, #605).
+            if (_inputState.WasActionTriggered(InputAction.Cancel)) _actionService.UiPointer.HideUntilMoved();
+
+            // Cancel / Clear Target. While locked on, Cancel does nothing else (retail; the lock-on key toggles it;
             // maintainer, 2026-10-20).
             if (_inputState.WasActionTriggered(InputAction.Cancel) && !_actionService.IsLockedOn)
             {
