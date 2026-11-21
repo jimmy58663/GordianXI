@@ -142,12 +142,13 @@ namespace Gordian.Engine.Graphics
         public bool Indoors { get; set; } = false;
 
         /// <summary>
-        /// Sets the Vana'diel time of day and the matching celestial sun direction.
+        /// Sets the Vana'diel time of day and, outdoors, the matching celestial sun direction. Indoors the light direction
+        /// is the keyframe's own (<see cref="ApplyKeyframe"/>) and the clock leaves it alone (#612).
         /// </summary>
         public void SetTimeOfDay(float vanaHour)
         {
             TimeOfDayHours = vanaHour;
-            SunDirection = VanaTime.GetSunDirection(vanaHour);
+            if (!Indoors) SunDirection = VanaTime.GetSunDirection(vanaHour);
         }
 
         /// <summary>

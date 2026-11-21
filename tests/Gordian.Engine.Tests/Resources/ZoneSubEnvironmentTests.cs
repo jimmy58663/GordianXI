@@ -1,4 +1,5 @@
 using System.Numerics;
+using Gordian.Core.World;
 using Gordian.Engine.Graphics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Graphics;
@@ -37,6 +38,49 @@ namespace Gordian.Engine.Tests.Resources
             settings.ApplyKeyframe(new EnvironmentKeyframe { Indoors = true, TerrainMoonColor = slot, TerrainSunColor = new Vector4(0.27f) });
             Assert.Equal(Vector3.Zero, settings.MoonColor);
             Assert.Equal(1.0f, settings.SunDirection.Y, 3);
+        }
+
+        [Fact]
+        public void IndoorKeyframe_KeepsItsLightDirectionWhenTheClockMoves()
+        {
+            // #612: the viewport applies the keyframe, then sets the time of day; indoors the clock must not turn the
+            // keyframe's light back into the celestial sun.
+            var slot = new Vector4(0.0f, 127.0f / 255.0f, 0.0f, 0.5f);
+            var settings = new ZoneEnvironmentSettings();
+            settings.ApplyKeyframe(new EnvironmentKeyframe { Indoors = true, TerrainMoonColor = slot });
+            settings.SetTimeOfDay(18.0f);
+            Assert.Equal(1.0f, settings.SunDirection.Y, 3);
+            Assert.Equal(18.0f, settings.TimeOfDayHours, 3);
+
+            settings.ApplyKeyframe(new EnvironmentKeyframe { Indoors = false });
+            settings.SetTimeOfDay(18.0f);
+            Assert.Equal(VanaTime.GetSunDirection(18.0f), settings.SunDirection);
+        }
+
+        [Fact]
+        public void LowerDelkfuttsTower_IsLitByItsIndoorWeatherKeyframes()
+        {
+            // #612: every 0x2F of zone 184 (weat/<weather>/0000) carries the indoor flag; they are the zone's own
+            // blue-violet light (terrain sun 0x32 0x37 0x58, ambient 0x28 0x29 0x37), not dropped. Stage zone 540 is green.
+            const string gameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!Directory.Exists(gameDirectory)) return;
+            var rm = new ResourceManager(gameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(184, out var zone, out _)) return;
+
+            var keyframe = zone.EnvironmentData?.Interpolate(12.0f, "fine");
+            Assert.NotNull(keyframe);
+            Assert.True(keyframe!.Indoors);
+            Assert.Equal(0x58, (int)MathF.Round(keyframe.TerrainSunColor.Z * 255));
+            Assert.True(keyframe.TerrainSunColor.Z > keyframe.TerrainSunColor.X);
+
+            Assert.True(rm.TryLoadZone(540, out var stage, out _));
+            var green = stage.EnvironmentData!.Interpolate(12.0f, "fine")!;
+            Assert.True(green.TerrainSunColor.Y > green.TerrainSunColor.X && green.TerrainSunColor.Y > green.TerrainSunColor.Z);
+
+            // A zone with outdoor keyframes keeps them (East Ronfaure).
+            Assert.True(rm.TryLoadZone(101, out var outdoor, out _));
+            Assert.False(outdoor.EnvironmentData!.Interpolate(12.0f, "fine")!.Indoors);
         }
 
         [Fact]

@@ -602,6 +602,7 @@ namespace Gordian.Core.Resources
             var allInteractions = new List<ZoneInteraction>();
             var dirStack = new Stack<string>();
             var envData = new ZoneEnvironmentData();
+            var indoorWeatherKeyframes = new List<(string Weather, EnvironmentKeyframe Keyframe)>();
             DatSectionHeader? zoneDefHeader = null;
             DatSectionHeader? vesselDefHeader = null;
             var vesselTemplates = new ZoneMeshTemplates();
@@ -936,9 +937,30 @@ namespace Gordian.Core.Resources
                                 }
                                 envData.AddKeyframe(weather, keyframe);
                             }
+                            else if (keyframe.Indoors && underWeat && !isSubEnv)
+                            {
+                                // A dungeon's own lighting (#612): its weather keyframes carry the indoor flag (Lower
+                                // Delkfutt's Tower 184, stage zone 540). Kept aside and used only when the zone authors no
+                                // outdoor keyframe at all (see after the walk).
+                                indoorWeatherKeyframes.Add((ResolveCurrentWeather(dirStack) ?? "fine", keyframe));
+                            }
                         }
                         break;
                     }
+                }
+            }
+
+            // Dungeons author their main environment only as indoor keyframes under weat/<weather> (every 0x2F there has
+            // +0x00 = 1: Lower Delkfutt's Tower 184, Castle Zvahl Keep 162, stage zone 540). With
+            // no outdoor keyframe in the zone they are its lighting, ambient, fog and light direction (#612); before, they
+            // were dropped and the zone kept whatever lighting was applied last. Zones that also author outdoor
+            // keyframes (32, 73-77, 144, 293) keep those. Sub-environments (ev??) and the alternative `subl` set are not
+            // taken here.
+            if (envData.WeatherKeyframes.Count == 0)
+            {
+                foreach (var (weather, keyframe) in indoorWeatherKeyframes)
+                {
+                    envData.AddKeyframe(string.Equals(weather, "weat", StringComparison.OrdinalIgnoreCase) ? "fine" : weather, keyframe);
                 }
             }
 
