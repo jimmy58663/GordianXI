@@ -235,7 +235,7 @@ Values not listed (the fishing family 38-62, numbered unknowns) are not read.
 | 3 | Elevator | Elevator | FourCC, leg start, travel time (`TryGetTransport`) |
 | 4 | Ship | Ship | FourCC, leg start |
 | 5 | Unknown5 | as 0 | simple model id |
-| 6 | Automaton | Pet | simple model id |
+| 6 | Automaton | Pet | simple model id; also Mamool Ja, Lamia and Troll NPCs. Their DATs are part models that `EntityModelLoader.LoadMonsterModel` builds on the base their `init` names (routine op 0x98, [#608](https://github.com/jimmy58663/GordianXI/issues/608), [entities-and-animation.md](../world/entities-and-animation.md#part-models-subkind-6-608)) |
 | 7 | Chocobo | as 0 | full look, read only with the Model send flag |
 
 `EntityType` itself (Player 0, Npc 1, Monster 2, Pet 3, Trust 4, Elevator 5, Ship 6, Door 7) is internal, not a wire value.
