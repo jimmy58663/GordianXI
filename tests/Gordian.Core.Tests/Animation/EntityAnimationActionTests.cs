@@ -127,7 +127,7 @@ namespace Gordian.Core.Tests.Animation
         /// <summary>
         /// A gesture whose last clip loops until replaced (loop count 0, #193: package 9's <c>sha0</c> kneels down with
         /// <c>sm0</c> and holds the kneel <c>sm1</c>) keeps the pose past its routine's length, until the next gesture
-        /// (<c>sha1</c> gets up) or a stop; the event still waits only one pass.
+        /// (<c>sha1</c> gets up) or a stop; the event still waits only one pass. The next gesture blends in from the held pose.
         /// </summary>
         [Fact]
         public void EventMotion_LoopingLastClip_HoldsThePoseUntilTheNextGesture()
@@ -152,6 +152,10 @@ namespace Gordian.Core.Tests.Animation
             Assert.True(state.LoopsCurrentClip);
 
             state.EnqueueAction(Request(ActionMotion.EventMotion, routine: "sha1"));
+            state.Advance(Tick, AnimationCategory.Idle, 0, model);
+            // The get-up blends in from the held kneel, not from the idle stance (#614: a flash of standing between the two).
+            Assert.Equal("sha1", state.ActiveRoutine!.Name);
+            Assert.Equal("sm10", state.PreviousClip?.Name);
             Run(state, model, AnimationCategory.Idle, 120);
             Assert.False(state.IsPlayingAction);
             Assert.Equal("idl", state.CurrentClip!.Name);

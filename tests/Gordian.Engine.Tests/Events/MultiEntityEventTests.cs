@@ -482,6 +482,21 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Windurst Waters' event 976 opens 288 for its bedroom scene (#233): a room number (0x120, file 388), not the zone
+        /// of that id (Escha - Zi'Tah). Stage zones and ordinary zone ids pass through.
+        /// </summary>
+        [Fact]
+        public void EventZoneKey_ReadsRoomNumbersAsRooms()
+        {
+            int key = EventDialogController.EventZoneKey(288);
+            Assert.True(Gordian.Core.World.MogHouseRooms.TryGetRoomOfKey(key, out int room));
+            Assert.Equal(288, room);
+            Assert.Equal(388, Gordian.Core.Resources.ZoneDataLoader.GetZoneModelFileId(key));
+            Assert.Equal(540, EventDialogController.EventZoneKey(540));
+            Assert.Equal(192, EventDialogController.EventZoneKey(192));
+        }
+
+        /// <summary>
         /// Lower Delkfutt's Tower (184) event 38 (#614): the scene runs <c>34 184</c> in zone 184 itself. No stage zone opens,
         /// but the actors are remade, and retail draws no NPC plate (Zone184_CS36-39.mp4), so the world marks them remade
         /// until the event ends.

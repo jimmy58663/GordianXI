@@ -708,6 +708,8 @@ namespace Gordian.Engine.Events
             {
                 _world.EventZoneId = 0;
                 _world.EventActorsRemade = false;
+                // A room the event opened (0x75 sub 0) closes with it; one the player walked into stays by its position.
+                _world.SubMap.CloseIndoorRoom();
             }
             Presentation.Reset();
             foreach (var entity in _banked)
@@ -1558,6 +1560,16 @@ namespace Gordian.Engine.Events
 
         void IEventVmHost.SetQueryMapEntry(int option, EventQueryMapEntry entry) => _eventMap = _eventMap.WithQueryEntry(option, entry);
 
+        /// <summary>
+        /// The zone key an event's 0x34 / 0x35 operand loads under. The room numbers above 0xFF (0x100-0x102, 0x120-0x124)
+        /// are rooms, file 100 + the number (<c>MogHouseRooms</c>), not the zones of those ids (#233): Windurst Waters' event
+        /// 976 opens 288 (0x120, file 388) for its bedroom scene, where the zone id 288 drew Escha - Zi'Tah. The interior
+        /// ids form one series with these numbers (259-640, file 100 + the id below 625), and 288-292 belong to no zone's
+        /// interiors. The event predates zone 288, so the id cannot mean it; *inference* that the client opens it as a room.
+        /// </summary>
+        internal static int EventZoneKey(int zoneId) =>
+            zoneId >= 0x100 && Gordian.Core.World.MogHouseRooms.IsKnownRoom(zoneId) ? Gordian.Core.World.MogHouseRooms.ZoneKey(zoneId) : zoneId;
+
         void IEventVmHost.OpenEventZone(int zoneId) => ((IEventVmHost)this).OpenEventZone(zoneId, removesActors: false);
 
         void IEventVmHost.OpenEventZone(int zoneId, bool removesActors)
@@ -1566,7 +1578,7 @@ namespace Gordian.Engine.Events
             if (world == null) return;
             // 0x34 remakes the scene's actors even in the session's own zone (event 38 of zone 184): their plates go (#614).
             world.EventActorsRemade = removesActors;
-            world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
+            world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)EventZoneKey(zoneId);
             // A pose the player was given in a stage zone does not carry over (#459): back in its own zone the player
             // stands where it is.
             if (_player is { } player && world.EventZoneId != _playerPoseZone && _playerPoseZone != 0
