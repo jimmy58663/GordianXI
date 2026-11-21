@@ -368,6 +368,27 @@ namespace Gordian.Engine.Ui
             return rows;
         }
 
+        /// <summary>
+        /// The inventory's rows with the temporary items (container 3) put first, as retail lists them at the top of the
+        /// main menu's and the command menu's Items lists (#596). They keep their own container, so Use sends it in C2S 0x037
+        /// and Drop in 0x028; they are in slot order and take no part in the inventory's sort.
+        /// </summary>
+        private List<StockUiItemRow> WithTemporaryItems(List<StockUiItemRow> inventoryRows, bool usableOnly)
+        {
+            var rows = StockUiItems.Rows(Inventory, ContainerId.TempItems, ItemLookup, usableOnly);
+            if (rows.Count == 0) return inventoryRows;
+            rows.AddRange(inventoryRows);
+            return rows;
+        }
+
+        /// <summary>The number of temporary item rows at the top of an item list (<see cref="WithTemporaryItems"/>).</summary>
+        private static int TemporaryRowCount(IReadOnlyList<StockUiItemRow> rows)
+        {
+            int count = 0;
+            while (count < rows.Count && rows[count].IsTemporary) count++;
+            return count;
+        }
+
         /// <summary>Config > Gameplay > Inventory Type: 1 by category, 2 by name.</summary>
         private int SortType => _settings.GetValue(StockUiSettingKey.InventoryType) == 2 ? 2 : 1;
 
@@ -420,7 +441,7 @@ namespace Gordian.Engine.Ui
             {
                 StockUiItemListKind.Equipment when menu.EquipSetNumber > 0 => StockUiEquipSets.SetRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, MenuMessageText),
                 StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
-                StockUiItemListKind.Usable => OrderedRows(ContainerId.Inventory, usableOnly: true),
+                StockUiItemListKind.Usable => WithTemporaryItems(OrderedRows(ContainerId.Inventory, usableOnly: true), usableOnly: true),
                 StockUiItemListKind.Crystals => StockUiSynthesis.CrystalRows(OrderedRows(ContainerId.Inventory)),
                 StockUiItemListKind.SynthesisMaterials when menu.Parent is { IsSynthesisGrid: true } grid =>
                     StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),
@@ -428,6 +449,7 @@ namespace Gordian.Engine.Ui
                 StockUiItemListKind.GuildSell => StockUiGuildShop.InventoryRows(Inventory?.SnapshotGuildSellList() ?? Array.Empty<GuildItemEntry>(), OrderedRows(ContainerId.Inventory)),
                 StockUiItemListKind.AuctionSell => AuctionSellRows(),
                 StockUiItemListKind.Picker when menu.Picker is { } picker => picker.Rows(OrderedRows(ContainerId.Inventory)),
+                StockUiItemListKind.Items when menu.ItemContainer == ContainerId.Inventory => WithTemporaryItems(OrderedRows(ContainerId.Inventory), usableOnly: false),
                 _ => OrderedRows(menu.ItemContainer),
             };
             if (menu.ItemListKind == StockUiItemListKind.RecycleBin) menu.CompanionRows = OrderedRows(ContainerId.Inventory);
@@ -604,6 +626,10 @@ namespace Gordian.Engine.Ui
             {
                 switch (window.ItemListKind)
                 {
+                    case StockUiItemListKind.Items when window.SelectedItemRow is { IsTemporary: true }:
+                        // On a temporary item the fraction is the temporary container's ("Items 2/50", retail 2026-11-20, #596).
+                        (numerator, denominator) = StockUiItems.Fill(Inventory, ContainerId.TempItems);
+                        break;
                     case StockUiItemListKind.Items:
                     case StockUiItemListKind.RecycleBin:
                     case StockUiItemListKind.Storage:
@@ -615,8 +641,15 @@ namespace Gordian.Engine.Ui
                         (numerator, denominator) = StockUiItems.Fill(Inventory, counted);
                         break;
                     case StockUiItemListKind.Usable:
-                        numerator = window.ItemRows.Count;
-                        denominator = StockUiItems.Fill(Inventory, ContainerId.Inventory).Used;
+                    {
+                        // Listed / held, of the selected row's container: "2/2" on a temporary item, "4/10" on an inventory
+                        // item (retail 2026-11-20, #596).
+                        int temporary = TemporaryRowCount(window.ItemRows);
+                        bool onTemporary = window.SelectedItemRow is { IsTemporary: true };
+                        numerator = onTemporary ? temporary : window.ItemRows.Count - temporary;
+                        denominator = StockUiItems.Fill(Inventory, onTemporary ? ContainerId.TempItems : ContainerId.Inventory).Used;
+                        break;
+                    }
                         break;
                     case StockUiItemListKind.Crystals:
                         // "Items 3/30" (capture Crystal_Synthesis.png): the crystals listed over the inventory's size.
@@ -1107,6 +1140,9 @@ namespace Gordian.Engine.Ui
         {
             int index = list.EntryIndex(list.SelectedButtonId);
             if (index < 0 || index >= list.ItemRows.Count) return;
+            // Temporary items stay at the top in slot order: Manual moves only the inventory's rows (#596).
+            int temporary = TemporaryRowCount(list.ItemRows);
+            if (index < temporary) return;
             lock (_sync)
             {
                 if (list.ManualSortFrom is not { } from)
@@ -1115,7 +1151,9 @@ namespace Gordian.Engine.Ui
                 }
                 else
                 {
-                    _itemOrder[list.ItemContainer] = StockUiItems.MoveInOrder(list.ItemRows, from, index);
+                    var inventoryRows = new List<StockUiItemRow>(list.ItemRows.Count - temporary);
+                    for (int i = temporary; i < list.ItemRows.Count; i++) inventoryRows.Add(list.ItemRows[i]);
+                    _itemOrder[list.ItemContainer] = StockUiItems.MoveInOrder(inventoryRows, from - temporary, index - temporary);
                     list.ManualSortFrom = null;
                     FillItemRows(list);
                 }

@@ -79,6 +79,42 @@ namespace Gordian.App.Tests.Graphics
             Assert.True(light, "time text");
         }
 
+        [Theory]
+        [InlineData(5, 2)]  // Heat Wave: two fire icons
+        [InlineData(4, 1)]  // Hot Spell: one
+        [InlineData(1, 0)]  // Sunshine: none
+        public void WeatherIcons_StandAtTheTopLeft_AsRetail(int weather, int icons)
+        {
+            // #604, retail on local LSB 2026-11-20 (604-compass-weather-heat-wave.png, UI 1:1): the fire icons' coloured texels
+            // span x 22-34 and 38-50, y 78-63 above the line's bottom (1252 against icons at 1174-1189).
+            using var screen = StockUiOffscreen.TryCreate(200, 120);
+            if (screen == null) return;
+            const float lineBottom = 110;
+            var shot = screen.Render(r => StockUiCompassWindow.Draw(r, screen.Library, screen.Font, 0, 0,
+                StockUiCompass.LineText(10, 12, "G-8"), System.Array.Empty<StockUiCompassDot>(), lineBottom, 1, weather),
+                $"gpu_compass_weather_{weather}.png");
+            int minX = int.MaxValue, maxX = -1, minY = int.MaxValue, maxY = -1;
+            for (int y = 0; y < (int)(lineBottom - StockUiCompass.CenterRise - 20); y++)
+            {
+                for (int x = 0; x < 80; x++)
+                {
+                    var p = screen.Pixel(shot, x, y);
+                    if (System.Math.Max(p.R, System.Math.Max(p.G, p.B)) - System.Math.Min(p.R, System.Math.Min(p.G, p.B)) <= 60) continue;
+                    minX = System.Math.Min(minX, x); maxX = System.Math.Max(maxX, x);
+                    minY = System.Math.Min(minY, y); maxY = System.Math.Max(maxY, y);
+                }
+            }
+            if (icons == 0)
+            {
+                Assert.Equal(-1, maxX);
+                return;
+            }
+            Assert.InRange(minX, 21, 23);
+            Assert.InRange(maxX, icons == 2 ? 49 : 33, icons == 2 ? 51 : 35);
+            Assert.InRange(lineBottom - minY, 77, 79);
+            Assert.InRange(lineBottom - maxY, 62, 64);
+        }
+
         [Fact]
         public void ItemInfoWindowOnTheLog_CoversTheCompass()
         {

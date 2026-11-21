@@ -31,6 +31,17 @@ namespace Gordian.Core.World
         public static bool IsKnownRoom(int myroomMapNumber) =>
             myroomMapNumber is 199 or 214 or 219 or (>= 0x100 and <= 0x102) or (>= 0x120 and <= 0x124);
 
+        /// <summary>
+        /// Whether the character's own furniture is drawn (and can be laid out) in a room: only the home nation's rooms
+        /// (0x121 San d'Oria, 0x122 Bastok, 0x123 Windurst, which LandSandBoat gives only to a character of that nation) and
+        /// the second floor reached from them (0x267-0x26A). Another nation's room (0x101 / 0x102 / 0x120), Jeuno (0x100),
+        /// Adoulin (0x124), Aht Urhgan (214) and the past fronts (199 / 219 / 745) show none (#591: retail shows and places
+        /// your furniture only in your home nation's Mog House). The room number alone says so, so a visit to a friend's
+        /// house is told apart separately (S2C 0x067's <c>UniqueNoMog</c>, <c>LocalCharSync.MogHouseOwnerId</c>).
+        /// </summary>
+        public static bool ShowsOwnFurniture(int myroomMapNumber) =>
+            myroomMapNumber is (>= 0x121 and <= 0x123) or (>= 0x267 and <= 0x26A);
+
         /// <summary>The room's DAT file id (100 + the number); false for a number not mapped.</summary>
         public static bool TryGetRoomFileId(int myroomMapNumber, out int fileId)
         {

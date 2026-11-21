@@ -56,6 +56,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool PointerDrawn { get; private set; }
 
+        /// <summary>
+        /// Whether the pointer is hidden until the mouse moves (Cancel with no menu open, #605): the viewport shows no system
+        /// cursor. Read from the session's <c>StockUiPointer</c> each frame.
+        /// </summary>
+        public bool PointerHidden { get; private set; }
+
         /// <summary>The zoning overlay's opacity (0 clear, 1 black), drawn over the scene and the interface (<see cref="Gordian.Engine.Ui.ZoneLoadingScreen"/>).</summary>
         public float LoadingOpacity { get; set; }
 
@@ -153,6 +159,7 @@ namespace Gordian.App.Graphics
             Vector2? targetCursor = null, IReadOnlyList<NamePlateAnchor>? namePlates = null, Vector2? subTargetCursor = null)
         {
             var library = _library;
+            PointerHidden = session?.ActionService.UiPointer.Hidden ?? false;
             if (!Enabled || library == null || session == null)
             {
                 PointerDrawn = false;
@@ -519,9 +526,10 @@ namespace Gordian.App.Graphics
             if (_font is not { } font) return;
             float s = Layout.Scale;
             float lineBottom = StockUiCompass.LineBottom(_window1Top, height, s);
-            if (StockUiCompass.IsCovered(StockUiCompass.Bounds(lineBottom, s), renderer.DrawnWindows, coverFrom)) return;
-
             var world = session.World;
+            int weather = world.WeatherNumber;
+            if (StockUiCompass.IsCovered(StockUiCompass.Bounds(lineBottom, s, StockUiCompass.WeatherIcons(weather) != null), renderer.DrawnWindows, coverFrom)) return;
+
             _compassDots.Clear();
             string? grid = null;
             if (world.TryGetByServerId(session.LocalPlayer.ServerId, out var me) && me != null)
@@ -538,7 +546,7 @@ namespace Gordian.App.Graphics
             var now = DateTime.UtcNow;
             var (hour, minute) = StockUiCompass.TimeOfDay(world.Clock, now);
             StockUiCompassWindow.Draw(renderer, library, font, CameraBearing, world.Clock.GetDayOfWeekIndex(now),
-                StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s);
+                StockUiCompass.LineText(hour, minute, grid), _compassDots, lineBottom, s, weather);
         }
 
         /// <summary>
