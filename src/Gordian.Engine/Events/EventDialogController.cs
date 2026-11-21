@@ -704,7 +704,11 @@ namespace Gordian.Engine.Events
             _sorted.Clear();
             _flags = 0;
             UnlockEnvironment();
-            if (_world != null) _world.EventZoneId = 0;
+            if (_world != null)
+            {
+                _world.EventZoneId = 0;
+                _world.EventActorsRemade = false;
+            }
             Presentation.Reset();
             foreach (var entity in _banked)
             {
@@ -1554,10 +1558,14 @@ namespace Gordian.Engine.Events
 
         void IEventVmHost.SetQueryMapEntry(int option, EventQueryMapEntry entry) => _eventMap = _eventMap.WithQueryEntry(option, entry);
 
-        void IEventVmHost.OpenEventZone(int zoneId)
+        void IEventVmHost.OpenEventZone(int zoneId) => ((IEventVmHost)this).OpenEventZone(zoneId, removesActors: false);
+
+        void IEventVmHost.OpenEventZone(int zoneId, bool removesActors)
         {
             var world = _world;
             if (world == null) return;
+            // 0x34 remakes the scene's actors even in the session's own zone (event 38 of zone 184): their plates go (#614).
+            world.EventActorsRemade = removesActors;
             world.EventZoneId = zoneId <= 0 || zoneId == world.CurrentZoneId ? (ushort)0 : (ushort)zoneId;
             // A pose the player was given in a stage zone does not carry over (#459): back in its own zone the player
             // stands where it is.

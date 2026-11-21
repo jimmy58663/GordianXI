@@ -57,6 +57,13 @@ namespace Gordian.Core.World.Collision
         public const float EventStepUpHeight = 2.5f;
 
         /// <summary>
+        /// The up component (of the unit normal) below which an event's near floor counts as a steep face that a flat floor
+        /// up to <see cref="EventStepUpHeight"/> above replaces (#614; GordianXI's choice: the face in zone 540 is 0.60,
+        /// its dais floor 0.97).
+        /// </summary>
+        public const float EventFlatFloorNormalY = 0.8f;
+
+        /// <summary>
         /// Where an event draws an entity it does not keep at its placed height: the floor within a step of the event
         /// position, as for any character, else a floor up to <see cref="EventStepUpHeight"/> above it (a walk whose height
         /// runs below a floor it is crossing). Trying the near floor first keeps an actor standing at the foot of a ledge on
@@ -91,7 +98,23 @@ namespace Gordian.Core.World.Collision
                     MaxFallDistance, out var under) &&
                 (!found || under.Height <= near.Height + MovingPlatforms.LevelTolerance))
                 return under.Height;
-            if (found) return near.Height;
+            if (found)
+            {
+                // A floor a little more than a step above that is nearer the event height wins over one further below (#614):
+                // Lower Delkfutt's Tower's event 39 runs Wolfgang down to the boy (stage zone 540, z -100.5 to -98.75) over a
+                // steep face (normal 0.60) that slopes 2 yalms under the dais floor, which lies 0.51 above his event height.
+                // The near search took the face and he sank into the floor. Buntz (Port Jeuno 324) stands on his floor at the
+                // foot of a ledge 1.2 yalms up, which is further from his height, so he stays on the ground.
+                if (near.Height > position.Y
+                    && collision!.TryGetSteppedGround(position, EventStepUpHeight, MaxFallDistance, FootRadius, out var upper)
+                    && upper.Height < near.Height
+                    && (MathF.Abs(upper.Height - position.Y) < MathF.Abs(near.Height - position.Y)
+                        || (near.Normal.Y > -EventFlatFloorNormalY && upper.Normal.Y <= -EventFlatFloorNormalY)))
+                {
+                    return upper.Height;
+                }
+                return near.Height;
+            }
             return collision == null ? position.Y : GetDisplayHeight(position, collision, EventStepUpHeight);
         }
 

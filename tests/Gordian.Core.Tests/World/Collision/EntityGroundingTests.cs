@@ -76,5 +76,23 @@ namespace Gordian.Core.Tests.World.Collision
             var raised = new ZoneCollisionMesh(Floor(-20, -20, 20, 20, -2.0f).ToList());
             Assert.Equal(-2.0f, EntityGrounding.GetEventDisplayHeight(new Vector3(0, -1.0f, 0), raised), 3);
         }
+
+        /// <summary>
+        /// An event walk over a steep face that runs under the next floor is drawn on that floor (#614): Lower Delkfutt's
+        /// Tower's event 39 runs Wolfgang over a face (normal 0.60) 1.5 yalms below his line, with the dais floor 0.6 above it.
+        /// </summary>
+        [Fact]
+        public void EventPose_TakesTheFlatFloorAbove_OverASteepFaceBelow()
+        {
+            var steepNormal = Vector3.Normalize(new Vector3(0.0f, -0.6f, 0.8f));
+            var triangles = new List<CollisionTriangle>
+            {
+                new(new(-20, 1.0f, -20), new(20, 1.0f, -20), new(20, 1.0f, 20), steepNormal, false, CollisionTerrain.Stone, false),
+                new(new(-20, 1.0f, -20), new(20, 1.0f, 20), new(-20, 1.0f, 20), steepNormal, false, CollisionTerrain.Stone, false),
+            };
+            triangles.AddRange(Floor(-20, -20, 20, 20, -1.1f));
+            var mesh = new ZoneCollisionMesh(triangles);
+            Assert.Equal(-1.1f, EntityGrounding.GetEventDisplayHeight(new Vector3(0, -0.5f, 0), mesh), 3);
+        }
     }
 }

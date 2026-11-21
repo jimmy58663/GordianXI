@@ -482,6 +482,42 @@ namespace Gordian.Engine.Tests.Events
         }
 
         /// <summary>
+        /// Lower Delkfutt's Tower (184) event 38 (#614): the scene runs <c>34 184</c> in zone 184 itself. No stage zone opens,
+        /// but the actors are remade, and retail draws no NPC plate (Zone184_CS36-39.mp4), so the world marks them remade
+        /// until the event ends.
+        /// </summary>
+        [Fact]
+        public void LowerDelkfuttEvent38_RemakesItsActorsInItsOwnZone()
+        {
+            var rm = OpenGame();
+            if (rm == null) return;
+            var parser = new Gordian.Core.Network.PacketParser(new Gordian.Core.Config.SessionProfile(), (_, _) => System.Threading.Tasks.Task.CompletedTask);
+            var controller = new EventDialogController(rm.LoadDatBytesByFileId);
+            controller.Attach(parser.Progression, parser.ProgressionModule, parser.World, parser.LocalPlayer, new Gordian.Engine.Ui.StockUiChat(), new Gordian.Engine.Ui.StockUiMenuController(), () => "Cybin");
+            byte[] login = new byte[144];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(login.AsSpan(0, 4), PlayerId);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(4, 2), 0x0400);
+            foreach (int at in new[] { 44, 60, 94 }) System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(login.AsSpan(at, 2), 184);
+            parser.Dispatcher.Dispatch(new Gordian.Core.Network.Packets.PacketHeader(0x00A, 1, (ushort)login.Length), login);
+            parser.LocalPlayer.ServerId = PlayerId;
+            parser.World.UpsertEntity(new Gordian.Core.World.PlayerEntity(PlayerId, 0x400) { Position = new System.Numerics.Vector3(450f, 0f, 130f), IsSpawned = true });
+            parser.Progression.StartEvent(PlayerId, 0x400, 184, 38, 0);
+            bool remade = false, stageZone = false;
+            for (int i = 0; i < 200_000 && (i < 600 || controller.IsActive); i++)
+            {
+                controller.Tick(Frame);
+                controller.Confirm();
+                parser.Progression.AcknowledgeEventUpdate();
+                remade |= parser.World.EventActorsRemade;
+                stageZone |= parser.World.EventZoneId != 0;
+            }
+            Assert.False(controller.IsActive);
+            Assert.True(remade);
+            Assert.False(stageZone);
+            Assert.False(parser.World.EventActorsRemade);
+        }
+
+        /// <summary>
         /// Name plates (#191): Port Jeuno 324 hides the name of every NPC it places (each runs <c>92 01</c> on itself)
         /// and of Joachim (the director's <c>92 01</c>), never the player's, as the maintainer's retail recording shows
         /// only the player's plate; the Southern San d'Oria intro, whose retail recording shows every plate, hides none.
