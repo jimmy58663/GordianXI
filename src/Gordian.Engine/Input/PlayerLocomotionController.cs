@@ -1155,7 +1155,7 @@ namespace Gordian.Engine.Input
             // these, and no option lifts them. Auto-run is kept, so it carries on when the effect wears off.
             var hold = _localPlayer.MovementHold;
             _inputRooted = hold == PlayerMovementHold.Rooted;
-            if (hold == PlayerMovementHold.Immobile || _localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
+            if (hold == PlayerMovementHold.Immobile || _localPlayer.IsServerFrozen || IsActionFrozen(localEnt, localEnt.Animation.Now))
             {
                 localEnt.Speed = 0;
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);

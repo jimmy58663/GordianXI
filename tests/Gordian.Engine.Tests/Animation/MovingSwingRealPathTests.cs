@@ -58,6 +58,10 @@ namespace Gordian.Engine.Tests.Animation
             var world = new WorldState();
             var player = new LocalPlayerState { ServerId = 0x12345678 };
             var me = new PlayerEntity(player.ServerId, 1) { Name = "Me", IsSpawned = true, Hpp = 100 };
+            // The animation state runs on a simulated clock that advances Dt a frame (#611): queued swings go stale after two
+            // seconds, and on the wall clock a loaded machine stepping these frames slowly dropped the round's later swings.
+            long simulated = Stopwatch.GetTimestamp();
+            me.Animation.Clock = () => simulated;
             world.UpsertEntity(me);
             var status = new byte[0x60];
             status[38] = 100;
@@ -80,6 +84,7 @@ namespace Gordian.Engine.Tests.Animation
 
             AnimationCategory Frame()
             {
+                simulated += (long)(Dt * Stopwatch.Frequency);
                 controller.Update(TimeSpan.FromSeconds(Dt));
                 var category = AnimationStateClassifier.Classify(me, service.Combat!.IsEngaged, isLocalPlayer: true);
                 me.Animation.Advance(Dt, category, me.AnimationSub, model);
@@ -124,7 +129,7 @@ namespace Gordian.Engine.Tests.Animation
         private static ActionRequest Swing(PlayerEntity me, ushort subKind) => new()
         {
             ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = subKind,
-            ReceivedTimestamp = Stopwatch.GetTimestamp()
+            ReceivedTimestamp = me.Animation.Now
         };
 
         /// <summary>
@@ -199,8 +204,12 @@ namespace Gordian.Engine.Tests.Animation
             int rightHand = skeleton.References[handReference].Index;
             var claw = model.AnimatedMeshGroups.Where(g => g.WeaponSlot == weaponSlot).SelectMany(g => g.Vertices).Take(40).ToArray();
             Assert.NotEmpty(claw);
+            // Standing, the frames step the animation alone, on a simulated clock of their own (#611).
+            long standing = me.Animation.Now;
+            if (!moving) me.Animation.Clock = () => standing;
             Func<AnimationCategory> step = moving ? Frame : () =>
             {
+                standing += (long)(Dt * Stopwatch.Frequency);
                 me.Animation.Advance(Dt, AnimationCategory.Combat, 0, model);
                 return AnimationCategory.Combat;
             };
@@ -213,7 +222,7 @@ namespace Gordian.Engine.Tests.Animation
             for (int f = 0; f < 144 * 5; f++)
             {
                 if (f % 144 == 10) me.Animation.EnqueueAction(Swing(me, (ushort)(f / 144 % 2)));
-                if (f % 144 == 100) me.Animation.EnqueueReaction(new HitReaction(default, 1f, 0, f % 288 == 100, default, 0, 0, 0, Stopwatch.GetTimestamp(), default, default));
+                if (f % 144 == 100) me.Animation.EnqueueReaction(new HitReaction(default, 1f, 0, f % 288 == 100, default, 0, 0, 0, me.Animation.Now, default, default));
                 step();
                 var pose = me.Animation.EvaluatePose(skeleton, overrides);
                 for (int k = 0; k < claw.Length; k++) drift = Math.Max(drift, Vector3.Distance(InHand(pose, claw[k]), held[k]));
@@ -246,7 +255,7 @@ namespace Gordian.Engine.Tests.Animation
                 me.Animation.EnqueueAction(new ActionRequest
                 {
                     ActorId = me.ServerId, Motion = ActionMotion.Swing, Category = ActionCategory.BasicAttack, SubKind = (ushort)(h % 2),
-                    ReceivedTimestamp = Stopwatch.GetTimestamp()
+                    ReceivedTimestamp = me.Animation.Now
                 });
             }
 
