@@ -131,6 +131,7 @@ namespace Gordian.App
                 _viewportControl.RawMouseButtonUp += OnRawMouseButtonUp;
                 _viewportControl.RawMouseMoved += OnRawMouseMoved;
                 _viewportControl.RawMouseLeft += OnRawMouseLeft;
+                _viewportControl.CursorRefreshRequested += UpdateViewportCursor;
                 _viewportControl.PointerExited += OnViewportPointerExited;
 
                 // The focused window's character is the one heard (Phase 5H).
@@ -1143,7 +1144,7 @@ namespace Gordian.App
                 }
                 return;
             }
-            var cursor = _viewportControl.StockUi.PointerDrawn ? HiddenCursor : ArrowCursor.Value;
+            var cursor = _viewportControl.StockUi.PointerDrawn || _viewModel?.ActiveTab?.Session?.ActionService.UiPointer.Hidden == true ? HiddenCursor : ArrowCursor.Value;
             if (!ReferenceEquals(_viewportControl.Cursor, cursor)) _viewportControl.Cursor = cursor;
         }
 

@@ -24,7 +24,7 @@ namespace Gordian.App.Graphics
         private static readonly UiColor White = new(0x80, 0x80, 0x80, 0x80);
 
         /// <summary>The element icon textures in <see cref="ElementGlyphs"/> order (Fire ... Dark).</summary>
-        private static readonly string[] ElementIconTextures = { "elfire", "elice", "elwind", "elearth", "elthunde", "elwater", "elholy", "eldark" };
+        internal static readonly string[] ElementIconTextures = { "elfire", "elice", "elwind", "elearth", "elthunde", "elwater", "elholy", "eldark" };
 
         /// <summary>
         /// The pen advance of an element icon (layout px): the 16 px icon, a log row tall (the Carrier's Sash matched retail

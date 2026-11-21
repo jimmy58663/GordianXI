@@ -89,6 +89,43 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public const float TextScale = 0.875f;
 
+        /// <summary>
+        /// The weather icons at the compass's top left (#604; retail on local LSB, 2026-11-20, 2560 x 1440 at UI 1:1, captures
+        /// <c>604-compass-weather-*.png</c>): the UI DAT's 16 x 16 element icons (as an item description's, <c>elfire</c> ...
+        /// <c>eldark</c>), the first's left edge at x 20, the next 16 px to its right, their top 78 px above the text line's
+        /// bottom (the same with the log shown and hidden). Single weather shows one, double weather two; Sunshine, Clouds and
+        /// Fog show none.
+        /// </summary>
+        public const float WeatherIconX = 20, WeatherIconRise = 78, WeatherIconPitch = 16, WeatherIconSize = 16;
+
+        /// <summary>
+        /// The element (in item-description order: Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark) and the number of icons
+        /// a weather shows, or null for none. Weather numbers as the server's (LandSandBoat <c>WEATHER</c>, S2C 0x057): 4 / 5
+        /// Hot Spell / Heat Wave, 6 / 7 Rain / Squall, 8 / 9 Dust / Sand Storm, 10 / 11 Wind / Gales, 12 / 13 Snow /
+        /// Blizzards, 14 / 15 Thunder / Thunderstorms, 16 / 17 Auroras / Stellar Glare, 18 / 19 Gloom / Darkness; the second
+        /// of each pair is double weather.
+        /// </summary>
+        public static (int Element, int Count)? WeatherIcons(int weather)
+        {
+            if (weather < 4 || weather > 19) return null;
+            int element = ((weather - 4) / 2) switch
+            {
+                0 => 0, // fire
+                1 => 5, // water
+                2 => 3, // earth
+                3 => 2, // wind
+                4 => 1, // ice
+                5 => 4, // thunder
+                6 => 6, // light
+                _ => 7, // dark
+            };
+            return (element, (weather & 1) == 1 ? 2 : 1);
+        }
+
+        /// <summary>The top left of the <paramref name="index"/>th weather icon (screen pixels) for a line bottom.</summary>
+        public static (float X, float Y) WeatherIconAt(int index, float lineBottom, float scale) =>
+            ((WeatherIconX + index * WeatherIconPitch) * scale, lineBottom - WeatherIconRise * scale);
+
         /// <summary>A radar dot's size (layout pixels): the captures' dots are 4 px squares with soft corners.</summary>
         public const float DotSize = 4;
 
@@ -245,12 +282,12 @@ namespace Gordian.Engine.Ui
             logTop is { } top ? top - LogGap * scale : screenHeight - ScreenBottomGap * scale;
 
         /// <summary>
-        /// The compass's screen rectangle (letters and text included) for a line bottom: what a window placed there hides
-        /// it for.
+        /// The compass's screen rectangle (letters and text included, and the weather icons when shown) for a line bottom:
+        /// what a window placed there hides it for.
         /// </summary>
-        public static (float X, float Y, float Width, float Height) Bounds(float lineBottom, float scale)
+        public static (float X, float Y, float Width, float Height) Bounds(float lineBottom, float scale, bool weatherIcons = false)
         {
-            float top = lineBottom - (CenterRise + LetterRadius * Squash + 8) * scale;
+            float top = lineBottom - (weatherIcons ? WeatherIconRise : CenterRise + LetterRadius * Squash + 8) * scale;
             float right = (CenterX + LetterRadius + 8) * scale;
             return (0, top, right, lineBottom - top);
         }
