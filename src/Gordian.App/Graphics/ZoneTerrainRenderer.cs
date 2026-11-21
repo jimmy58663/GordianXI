@@ -2589,7 +2589,10 @@ namespace Gordian.App.Graphics
             }
             var frame = new ZoneParticleFrame(ToDisplay(eye), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
                 ToDisplay(forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
-                IsViewerInSubEnvironment(camera.Position));
+                // An indoor zone (a dungeon, #612) keeps camera-attached weather out, as a sub-environment does.
+                environment.Indoors || IsViewerInSubEnvironment(camera.Position),
+                // Generators' own cull distances scale with the draw distance, as placements' do (#70, #612).
+                EmitDistanceScale: environment.DrawDistanceMultiplier);
             // The vessel's own emitters (its wake, lamps, the sea around it) see the eye where it is.
             var vesselFrame = _sceneryTransform.IsIdentity ? frame : frame with { CameraRawPosition = ToDisplay(camera.Position), CameraRawForward = ToDisplay(camera.Forward) };
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;

@@ -35,6 +35,19 @@ namespace Gordian.Core.Resources
         };
 
 
+        /// <summary>Whether the zone authors any outdoor (not indoor) weather keyframe.</summary>
+        private static bool HasOutdoorKeyframe(ZoneEnvironmentData envData)
+        {
+            foreach (var frames in envData.WeatherKeyframes.Values)
+            {
+                foreach (var keyframe in frames)
+                {
+                    if (!keyframe.Indoors) return true;
+                }
+            }
+            return false;
+        }
+
         private static string? ResolveCurrentWeather(Stack<string> stack)
         {
             if (stack.Count == 0) return null;
@@ -1236,6 +1249,13 @@ namespace Gordian.Core.Resources
                 zone.EnvironmentData = envData;
             }
 
+            // A DAT that authors no outdoor keyframe is an interior for its placements' point lights (#612): a dungeon, a Mog
+            // House room or a cutscene stage room takes the lights its +0x46 bit 1 placements reference, as a building
+            // interior's DAT does. Crawlers' Nest flags 1044 of its 1074 lit placements so, Gusgen Mines and the Mog House
+            // rooms all of them; dropped, their torches and room lamps lit nothing. Lower Jeuno's step01 (an outdoor zone)
+            // stays unlit, as retail shows (#428).
+            bool interiorLights = interior || !HasOutdoorKeyframe(envData);
+
             // Phase 2: World Placement Instancing via Section 0x1C (ZoneDef)
             int placedCount = 0;
             var generatorBoundGroups = new Dictionary<string, List<MeshGroup>>(StringComparer.Ordinal);
@@ -1291,8 +1311,9 @@ namespace Gordian.Core.Resources
                                                                           ownDistance, slots, placement.LodNear, placement.LodMid);
                         instantiated.EnvironmentId = placement.EnvironmentId;
                         // A placement flagged at +0x46 bit 0 takes no point lights, even where it references some;
-                        // one flagged at bit 1 takes them only in an interior's DAT.
-                        bool unlit = placement.NoPointLights || (placement.InteriorLightsOnly && !interior);
+                        // one flagged at bit 1 takes them only in an interior (a building interior's DAT, or a DAT with no
+                        // outdoor keyframe: see interiorLights).
+                        bool unlit = placement.NoPointLights || (placement.InteriorLightsOnly && !interiorLights);
                         instantiated.PointLightSlots = unlit ? Array.Empty<int>() : placement.PointLightSlots ?? Array.Empty<int>();
                         instantiated.SubAreaLink = placement.FileIdLink;
                         if (doorLeaf != null)
