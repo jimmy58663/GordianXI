@@ -189,6 +189,15 @@ namespace Gordian.Engine.Input
         /// </summary>
         public int ArrivalSettleCount { get; private set; }
 
+        /// <summary>
+        /// Counts zone-in camera turns (#588): after each S2C 0x00A the camera is put behind the player's new heading, and a
+        /// view snaps its orbit smoothing once rather than swinging round from the previous zone's angle.
+        /// </summary>
+        public int ArrivalFacingCount { get; private set; }
+
+        // Set on the network thread by WorldState.ZoneEntered (once per S2C 0x00A), taken by the locomotion tick.
+        private volatile bool _arrivalFacingPending;
+
         private int _ticksSinceSettle = int.MaxValue;
         private ushort _lastZoneId;
 
@@ -474,6 +483,9 @@ namespace Gordian.Engine.Input
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _localPlayer = localPlayer ?? throw new ArgumentNullException(nameof(localPlayer));
             _actionService = actionService;
+            // Zone-in (#588): the 0x00A heading faces the player away from the zone line (LandSandBoat sends the zone line's
+            // destination rotation there); the camera goes behind it so camera-relative movement walks into the zone.
+            _world.ZoneEntered += _ => _arrivalFacingPending = true;
         }
 
         /// <summary>
@@ -1118,6 +1130,17 @@ namespace Gordian.Engine.Input
             else if (_ticksSinceSettle < int.MaxValue)
             {
                 _ticksSinceSettle++;
+            }
+
+            // Zone-in (S2C 0x00A, #588): the camera starts behind the player's arrival heading, as in retail, instead of
+            // keeping the previous zone's angle; held movement keys are camera-relative, so they now walk away from the
+            // zone line. Taken apart from the ground settle, which can run before the zone-entered notice arrives.
+            if (_arrivalFacingPending)
+            {
+                _arrivalFacingPending = false;
+                CameraYaw = LocalHeadingDegrees(localEnt);
+                ArrivalFacingCount++;
+                CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
             }
 
             // A zone change ends auto-run: it is not carried into the next zone (round 2 of in-game testing).

@@ -1191,6 +1191,9 @@ namespace Gordian.App.Graphics
 
             /// <summary>The session's <c>ArrivalSettleCount</c> this view last snapped to (#350).</summary>
             public int ArrivalSettleCount { get; set; }
+
+            /// <summary>The session's <c>ArrivalFacingCount</c> this view last snapped its orbit to (#588).</summary>
+            public int ArrivalFacingCount { get; set; }
             public uint SmoothedPlayerServerId { get; set; }
             public float LastRawCameraYaw { get; set; }
             public float UnwrappedCameraYaw { get; set; }
@@ -1264,6 +1267,13 @@ namespace Gordian.App.Graphics
                 view.PlayerSmoother.Reset();
                 view.HeadingSmoother.Reset();
                 view.HasHeading = false;
+            }
+            // A zone-in put the camera behind the player's new heading (#588): take that angle at once, no swing round.
+            if (session?.Locomotion is { } facingLocomotion && facingLocomotion.ArrivalFacingCount != view.ArrivalFacingCount)
+            {
+                view.ArrivalFacingCount = facingLocomotion.ArrivalFacingCount;
+                view.OrbitSmoother.Reset();
+                view.HasYaw = false;
             }
             if (snap)
             {

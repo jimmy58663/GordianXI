@@ -54,6 +54,32 @@ namespace Gordian.Engine.Tests.Input
             return (controller, input, world, player, localEnt);
         }
 
+        /// <summary>
+        /// Zone-in (#588): the camera goes behind the S2C 0x00A heading (wire 64 = south), so holding forward walks the way
+        /// the player faces, away from the zone line, instead of along the previous zone's camera angle.
+        /// </summary>
+        [Fact]
+        public void ZoneIn_PutsTheCameraBehindTheArrivalHeading_SoForwardWalksAwayFromTheLine()
+        {
+            var (controller, input, world, _, localEnt) = CreateTestHarness();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            float previousYaw = controller.CameraYaw;
+
+            localEnt.Direction = 64; // the 0x00A heading: south
+            world.NotifyZoneEntered(231);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(90.0f, controller.CameraYaw, 2);
+            Assert.NotEqual(previousYaw, controller.CameraYaw);
+            Assert.Equal(1, controller.ArrivalFacingCount);
+
+            input.SetKeyDown(GordianKey.W);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.True(localEnt.Position.Z < -2.0f, $"walked to {localEnt.Position}");
+            Assert.True(MathF.Abs(localEnt.Position.X) < 0.1f, $"walked to {localEnt.Position}");
+            Assert.Equal(64, localEnt.Direction);
+            Assert.Equal(1, controller.ArrivalFacingCount); // once per zone-in
+        }
+
         /// <summary>The server's FreezeFlag (S2C 0x037 flags1 bit 13) holds the player, and lets go when it clears (#511).</summary>
         [Fact]
         public void ServerFreezeFlag_HoldsThePlayer()
