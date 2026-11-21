@@ -267,6 +267,19 @@ namespace Gordian.Engine.Input
         public const float BodyHeight = 1.6f;
 
         /// <summary>
+        /// The steepest slope, in degrees, the local player walks up (#610). Walls start at 60 degrees
+        /// (<see cref="ZoneCollisionMesh.MaxWallNormalY"/>), but the faces just below them were walked up: a probe of
+        /// Valkurm Dunes around the Selbina gate (16 headings from a 6-yalm grid, 3 s runs) gained most of its steep height
+        /// on 58-60 degree faces, the dune walls retail stops you at. San d'Oria's walkable ramps are 44-46 degrees, so
+        /// LandSandBoat's 46-degree navmesh limit would be too tight. Provisional until a retail capture of a player
+        /// stopping at the wall sets it.
+        /// </summary>
+        public const float MaxClimbSlopeDegrees = 55.0f;
+
+        /// <summary>The floor normal's |Y| below which a slope is too steep to walk up (cosine of <see cref="MaxClimbSlopeDegrees"/>).</summary>
+        public static readonly float MinClimbNormalY = MathF.Cos(MaxClimbSlopeDegrees * MathF.PI / 180.0f);
+
+        /// <summary>
         /// The session's collision toggles (shared with <see cref="PlayerActionService.Collision"/> when there is one).
         /// </summary>
         public CollisionSettings Collision => _actionService?.Collision ?? _ownCollision;
@@ -1451,10 +1464,65 @@ namespace Gordian.Engine.Input
                 {
                     target = start;
                 }
+
+                // Too steep to walk up (#610): slide along the slope instead, or stay put.
+                if ((layers & CollisionLayers.Ground) != 0 && !_airborne && target != start)
+                {
+                    target = LimitClimb(collision, start, target);
+                }
             }
 
             localEnt.Position = target;
             if (!_airborne) SnapToGround(localEnt); // an airborne player's height is owned by FallStep
+        }
+
+        /// <summary>
+        /// Keeps the local player off slopes steeper than <see cref="MaxClimbSlopeDegrees"/> (#610): a move that would rise
+        /// onto one keeps only its part along the slope (across it, or down), re-checked against walls; with nothing left, the
+        /// player stays put. Down and across a steep slope are free, and a steep face no taller than a step (a curb's lip, a
+        /// small bump) is still stepped up, so stairs and the calibrated step-up are untouched. Local player only: remote
+        /// players and NPCs go where the server puts them.
+        /// </summary>
+        private Vector3 LimitClimb(ZoneCollisionMesh collision, Vector3 start, Vector3 target)
+        {
+            if (!ClimbsTooSteep(collision, start, target, out Vector3 normal)) return target;
+
+            var downhill = new Vector2(normal.X, normal.Z);
+            if (downhill.LengthSquared() > 1e-8f)
+            {
+                downhill = Vector2.Normalize(downhill);
+                var move = new Vector2(target.X - start.X, target.Z - start.Z);
+                float into = Vector2.Dot(move, downhill); // negative: uphill
+                if (into < 0.0f)
+                {
+                    move -= downhill * into;
+                    if (move.LengthSquared() > 1e-8f)
+                    {
+                        var slid = collision.ResolveWalls(start, new Vector3(start.X + move.X, start.Y, start.Z + move.Y), BodyRadius, StepUpHeight, BodyHeight);
+                        if (TryFindGround(collision, slid, 0.0f, out _) && !ClimbsTooSteep(collision, start, slid, out _)) return slid;
+                    }
+                }
+            }
+            return start;
+        }
+
+        /// <summary>
+        /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
+        /// steeper than <see cref="MaxClimbSlopeDegrees"/> that rises more than a step.
+        /// </summary>
+        private bool ClimbsTooSteep(ZoneCollisionMesh collision, Vector3 start, Vector3 target, out Vector3 normal)
+        {
+            normal = default;
+            if (!TryFindGround(collision, target, FootRadius, out var ground)) return false;
+            if (ground.Height >= start.Y - 1e-3f) return false; // level or down (internal -Y is up)
+            if (-ground.Normal.Y >= MinClimbNormalY) return false;
+            var triangles = collision.Triangles;
+            if ((uint)ground.TriangleIndex >= (uint)triangles.Length) return false; // a moving platform's floor
+            ref readonly var face = ref triangles[ground.TriangleIndex];
+            float rise = MathF.Max(face.A.Y, MathF.Max(face.B.Y, face.C.Y)) - MathF.Min(face.A.Y, MathF.Min(face.B.Y, face.C.Y));
+            if (rise <= StepUpHeight) return false;
+            normal = ground.Normal;
+            return true;
         }
 
         /// <summary>

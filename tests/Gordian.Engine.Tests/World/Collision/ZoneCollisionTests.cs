@@ -270,6 +270,84 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.True(controller.ArrivalReady);
         }
 
+        /// <summary>
+        /// Flat ground for x &lt; 0 and a ramp rising toward +X at <paramref name="slopeDegrees"/> from x = 0 to x = 10
+        /// (internal space: -Y is up), 20 yalms wide.
+        /// </summary>
+        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees)
+        {
+            var triangles = Floor(-20, -10, 0, 10, 0.0f).ToList();
+            float top = -10.0f * MathF.Tan(slopeDegrees * MathF.PI / 180.0f);
+            var a = new Vector3(0, 0, -10);
+            var b = new Vector3(10, top, -10);
+            var c = new Vector3(10, top, 10);
+            var d = new Vector3(0, 0, 10);
+            var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+            if (normal.Y > 0) normal = -normal;
+            triangles.Add(new CollisionTriangle(a, b, c, normal, false, CollisionTerrain.Grass, false));
+            triangles.Add(new CollisionTriangle(a, c, d, normal, false, CollisionTerrain.Grass, false));
+            return triangles;
+        }
+
+        private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Player) OnRamp(float slopeDegrees, Vector3 start, byte direction)
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = start, Direction = direction, IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees));
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player)
+            {
+                CameraYaw = direction / 256.0f * 360.0f,
+            };
+            return (controller, input, localEnt);
+        }
+
+        /// <summary>
+        /// #610: a face steeper than <see cref="PlayerLocomotionController.MaxClimbSlopeDegrees"/> (but under the 60-degree
+        /// wall limit) stops the player at its foot; a 45-degree ramp (San d'Oria's) is still walked up.
+        /// </summary>
+        [Theory]
+        [InlineData(45.0f, true)]
+        [InlineData(52.0f, true)]
+        [InlineData(58.0f, false)]
+        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, bool climbs)
+        {
+            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0); // facing +X
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+
+            if (climbs)
+            {
+                Assert.True(localEnt.Position.Y < -1.5f, $"stuck at {localEnt.Position}");
+            }
+            else
+            {
+                Assert.True(localEnt.Position.Y > -PlayerLocomotionController.StepUpHeight, $"climbed to {localEnt.Position}"); // no more than a step onto its foot
+                Assert.True(localEnt.Position.X < 0.6f, $"walked to {localEnt.Position}");
+            }
+        }
+
+        /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>
+        [Fact]
+        public void SteepSlope_IsWalkedDownAndAcross()
+        {
+            const float slope = 58.0f;
+            float height = -5.0f * MathF.Tan(slope * MathF.PI / 180.0f);
+            var (controller, input, localEnt) = OnRamp(slope, new Vector3(5.0f, height, 0.0f), direction: 128); // facing -X, downhill
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(localEnt.Position.X < 0.0f, $"walked down to {localEnt.Position}");
+            Assert.Equal(0.0f, localEnt.Position.Y, 2);
+
+            var (across, acrossInput, acrossEnt) = OnRamp(slope, new Vector3(5.0f, height, 0.0f), direction: 192); // facing +Z
+            acrossInput.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 30; i++) across.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(acrossEnt.Position.Z > 1.0f, $"walked across to {acrossEnt.Position}");
+            Assert.True(acrossEnt.Position.Y >= height - 0.05f, $"rose to {acrossEnt.Position}");
+        }
+
         [Fact]
         public void InputBlocked_StopsMovementAndAutoRun_AndAZoneChangeEndsAutoRun()
         {
