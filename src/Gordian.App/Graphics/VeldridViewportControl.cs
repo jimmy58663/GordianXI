@@ -1194,6 +1194,9 @@ namespace Gordian.App.Graphics
 
             /// <summary>The session's <c>ArrivalFacingCount</c> this view last snapped its orbit to (#588).</summary>
             public int ArrivalFacingCount { get; set; }
+
+            /// <summary>Frames left in which a drawn heading or camera off the arrival heading is logged (#588).</summary>
+            public int ArrivalCheckFrames { get; set; }
             public uint SmoothedPlayerServerId { get; set; }
             public float LastRawCameraYaw { get; set; }
             public float UnwrappedCameraYaw { get; set; }
@@ -1274,6 +1277,10 @@ namespace Gordian.App.Graphics
                 view.ArrivalFacingCount = facingLocomotion.ArrivalFacingCount;
                 view.OrbitSmoother.Reset();
                 view.HasYaw = false;
+                // The model takes the arrival heading at once too, not eased from the previous zone's.
+                view.HeadingSmoother.Reset();
+                view.HasHeading = false;
+                view.ArrivalCheckFrames = 300;
             }
             if (snap)
             {
@@ -1404,6 +1411,20 @@ namespace Gordian.App.Graphics
                     view.HasHeading = false;
                 }
                 if (rideHeight is { } ride) playerPos = playerPos with { Y = ride };
+            }
+
+            if (view.ArrivalCheckFrames > 0 && lastTick != null && displayHeading is { } drawn)
+            {
+                // #588 round 1: the camera faced the arrival heading but the character did not. Log a mismatch once.
+                view.ArrivalCheckFrames--;
+                static float Off(float a, float b) => MathF.Abs(MathF.IEEERemainder(a - b, 360.0f));
+                float tickDeg = lastTick.PlayerHeadingRadians * (180.0f / MathF.PI);
+                float drawnDeg = drawn * (180.0f / MathF.PI);
+                if (Off(drawnDeg, tickDeg) > 15.0f || Off(camera.Yaw, tickDeg) > 15.0f)
+                {
+                    GordianLog.Warn(LogCategories.Lifecycle, $"Zone-in view check: tick heading {tickDeg:F0}, drawn {drawnDeg:F0}, camera yaw {camera.Yaw:F0}, tick camera yaw {lastTick.CameraYaw:F0}, entity direction {(cameraEntity?.Direction ?? 0)}.");
+                    view.ArrivalCheckFrames = 0;
+                }
             }
 
             Vector3? displayPlayerPos = hasPlayerPos

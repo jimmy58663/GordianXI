@@ -198,6 +198,14 @@ namespace Gordian.Engine.Input
         // Set on the network thread by WorldState.ZoneEntered (once per S2C 0x00A), taken by the locomotion tick.
         private volatile bool _arrivalFacingPending;
 
+        /// <summary>How long after the zone-in's reveal (ticks) heading changes are still logged (#588).</summary>
+        internal const int ArrivalWatchTicks = 600;
+
+        private bool _arrivalRevealPending;
+        private int _arrivalWatchTicks;
+        private byte _arrivalWatchDirection;
+        private bool _wasInputBlocked;
+
         private int _ticksSinceSettle = int.MaxValue;
         private ushort _lastZoneId;
 
@@ -1131,10 +1139,34 @@ namespace Gordian.Engine.Input
             if (_arrivalFacingPending)
             {
                 _arrivalFacingPending = false;
-                CameraYaw = LocalHeadingDegrees(localEnt);
-                ArrivalFacingCount++;
-                CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
+                FaceArrival(localEnt, "zone-in");
+                _arrivalRevealPending = true;
+                _arrivalWatchTicks = 0;
+                _arrivalWatchDirection = localEnt.Direction;
             }
+            else if (_arrivalRevealPending || _arrivalWatchTicks > 0)
+            {
+                // Round 1 of the 2026-11-20 test saw the camera right after a zone-in but the character facing elsewhere:
+                // log whatever turns the player from the zone-in until 10 s after the screen is revealed, and turn the
+                // camera behind the heading again at the reveal (a turn made while the screen is black is not the player's).
+                if (localEnt.Direction != _arrivalWatchDirection)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Lifecycle,
+                        $"Zone-in watch: heading {_arrivalWatchDirection} -> {localEnt.Direction} ({LocalHeadingDegrees(localEnt):F0} deg), camera yaw {CameraYaw:F0}, input blocked {InputBlocked}, speed {localEnt.Speed}.");
+                    _arrivalWatchDirection = localEnt.Direction;
+                }
+                if (_arrivalRevealPending && _wasInputBlocked && !InputBlocked)
+                {
+                    _arrivalRevealPending = false;
+                    _arrivalWatchTicks = ArrivalWatchTicks;
+                    FaceArrival(localEnt, "reveal");
+                }
+                else if (!_arrivalRevealPending)
+                {
+                    _arrivalWatchTicks--;
+                }
+            }
+            _wasInputBlocked = InputBlocked;
 
             // A zone change ends auto-run: it is not carried into the next zone (round 2 of in-game testing).
             ushort zone = _world.CurrentZoneId;
@@ -1490,6 +1522,18 @@ namespace Gordian.Engine.Input
 
             localEnt.Position = target;
             if (!_airborne) SnapToGround(localEnt); // an airborne player's height is owned by FallStep
+        }
+
+        /// <summary>
+        /// Puts the camera behind the player's heading (#588): the zone-in heading of S2C 0x00A, as retail starts the view.
+        /// </summary>
+        private void FaceArrival(WorldEntity localEnt, string when)
+        {
+            CameraYaw = LocalHeadingDegrees(localEnt);
+            ArrivalFacingCount++;
+            CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
+            Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Lifecycle,
+                $"Zone-in facing ({when}): heading {localEnt.Direction} ({CameraYaw:F0} deg), camera behind it.");
         }
 
         /// <summary>
