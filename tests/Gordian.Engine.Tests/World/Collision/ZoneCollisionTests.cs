@@ -305,12 +305,13 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         /// <summary>
-        /// #610: a face steeper than <see cref="PlayerLocomotionController.MaxClimbSlopeDegrees"/> (but under the 60-degree
-        /// wall limit) stops the player at its foot; a 45-degree ramp (San d'Oria's) is still walked up.
+        /// #610: a face steeper than <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/> (46, under the 60-degree
+        /// wall limit) stops the player at its foot; shallower ramps are still walked up.
         /// </summary>
         [Theory]
+        [InlineData(40.0f, true)]
         [InlineData(45.0f, true)]
-        [InlineData(52.0f, true)]
+        [InlineData(50.0f, false)]
         [InlineData(58.0f, false)]
         public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, bool climbs)
         {
@@ -327,6 +328,25 @@ namespace Gordian.Engine.Tests.World.Collision
                 Assert.True(localEnt.Position.Y > -PlayerLocomotionController.StepUpHeight, $"climbed to {localEnt.Position}"); // no more than a step onto its foot
                 Assert.True(localEnt.Position.X < 0.6f, $"walked to {localEnt.Position}");
             }
+        }
+
+        /// <summary>#610: <c>/collision slope</c> raises the limit, but never past the default while the server protects walls.</summary>
+        [Fact]
+        public void ClimbLimit_FollowsTheSetting_AndTheServerCapsIt()
+        {
+            var settings = new CollisionSettings { MaxClimbSlopeDegrees = 60.0f };
+            Assert.Equal(60.0f, settings.GetEffectiveMaxClimbSlope(null));
+            var profile = new Gordian.Core.Config.SessionProfile();
+            Gordian.Tests.Shared.SessionProfileTestExtensions.Restrict(profile, Gordian.Core.Config.FeatureRestrictions.WallCollisionOverride);
+            Assert.Equal(CollisionSettings.DefaultMaxClimbSlopeDegrees, settings.GetEffectiveMaxClimbSlope(profile));
+            settings.MaxClimbSlopeDegrees = 30.0f;
+            Assert.Equal(30.0f, settings.GetEffectiveMaxClimbSlope(profile));
+
+            var (controller, input, localEnt) = OnRamp(50.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0);
+            controller.Collision.MaxClimbSlopeDegrees = 55.0f;
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(localEnt.Position.Y < -1.5f, $"stuck at {localEnt.Position}");
         }
 
         /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>

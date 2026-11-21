@@ -276,17 +276,10 @@ namespace Gordian.Engine.Input
         public const float BodyHeight = 1.6f;
 
         /// <summary>
-        /// The steepest slope, in degrees, the local player walks up (#610). Walls start at 60 degrees
-        /// (<see cref="ZoneCollisionMesh.MaxWallNormalY"/>), but the faces just below them were walked up: a probe of
-        /// Valkurm Dunes around the Selbina gate (16 headings from a 6-yalm grid, 3 s runs) gained most of its steep height
-        /// on 58-60 degree faces, the dune walls retail stops you at. San d'Oria's walkable ramps are 44-46 degrees, so
-        /// LandSandBoat's 46-degree navmesh limit would be too tight. Provisional until a retail capture of a player
-        /// stopping at the wall sets it.
+        /// The steepest slope, in degrees, the local player walks up (#610): <see cref="CollisionSettings.MaxClimbSlopeDegrees"/>
+        /// (default <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/>), capped while the server protects walls.
         /// </summary>
-        public const float MaxClimbSlopeDegrees = 55.0f;
-
-        /// <summary>The floor normal's |Y| below which a slope is too steep to walk up (cosine of <see cref="MaxClimbSlopeDegrees"/>).</summary>
-        public static readonly float MinClimbNormalY = MathF.Cos(MaxClimbSlopeDegrees * MathF.PI / 180.0f);
+        public float MaxClimbSlopeDegrees => Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile);
 
         /// <summary>
         /// The session's collision toggles (shared with <see cref="PlayerActionService.Collision"/> when there is one).
@@ -1538,7 +1531,7 @@ namespace Gordian.Engine.Input
             normal = default;
             if (!TryFindGround(collision, target, FootRadius, out var ground)) return false;
             if (ground.Height >= start.Y - 1e-3f) return false; // level or down (internal -Y is up)
-            if (-ground.Normal.Y >= MinClimbNormalY) return false;
+            if (-ground.Normal.Y >= MathF.Cos(MaxClimbSlopeDegrees * (MathF.PI / 180.0f))) return false;
             var triangles = collision.Triangles;
             if ((uint)ground.TriangleIndex >= (uint)triangles.Length) return false; // a moving platform's floor
             ref readonly var face = ref triangles[ground.TriangleIndex];

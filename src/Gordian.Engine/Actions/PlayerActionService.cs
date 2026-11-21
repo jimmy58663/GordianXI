@@ -1695,6 +1695,7 @@ namespace Gordian.Engine.Actions
                 sb.AppendLine("  /moveto <x> <height> <y>  - Move to target coordinates, server order (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
+            sb.AppendLine("  /collision slope [deg|default] - Steepest slope you walk up");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
@@ -2775,11 +2776,13 @@ namespace Gordian.Engine.Actions
         /// <summary>
         /// Handles <c>/collision [ground|walls|entities|all] [on|off]</c>: no arguments reports the state, a layer alone
         /// toggles it, and on/off alone applies to every layer. Layers the server protects stay on.
+        /// <c>/collision slope [degrees|default]</c> reports or sets the steepest slope the player walks up (#610).
         /// </summary>
         public PlayerActionResult ApplyCollisionCommand(string args)
         {
             const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
             var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length > 0 && parts[0].Equals("slope", StringComparison.OrdinalIgnoreCase)) return ApplyClimbSlopeCommand(parts);
             var layers = CollisionLayers.None;
             bool? turnOn = null;
             foreach (string part in parts)
@@ -2810,6 +2813,25 @@ namespace Gordian.Engine.Actions
                              $"{Describe(CollisionLayers.Entities, "entities")}.";
             return (Collision.Requested | locked) != Collision.Requested && parts.Length > 0
                 ? PlayerActionResult.Warn(summary, Kind)
+                : PlayerActionResult.Ok(summary, Kind);
+        }
+
+        /// <summary><c>/collision slope [degrees|default]</c>: the steepest slope the local player walks up (#610).</summary>
+        private PlayerActionResult ApplyClimbSlopeCommand(string[] parts)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
+            if (parts.Length > 2) return PlayerActionResult.Warn("Usage: /collision slope [degrees|default]", Kind);
+            if (parts.Length == 2)
+            {
+                if (parts[1].Equals("default", StringComparison.OrdinalIgnoreCase)) Collision.MaxClimbSlopeDegrees = CollisionSettings.DefaultMaxClimbSlopeDegrees;
+                else if (float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees) && degrees >= 1f && degrees <= 89f)
+                    Collision.MaxClimbSlopeDegrees = degrees;
+                else return PlayerActionResult.Warn("Usage: /collision slope [degrees|default] (1-89)", Kind);
+            }
+            float effective = Collision.GetEffectiveMaxClimbSlope(_profile);
+            string summary = $"Collision: steepest climb {effective:0.#} degrees (default {CollisionSettings.DefaultMaxClimbSlopeDegrees:0.#}).";
+            return effective < Collision.MaxClimbSlopeDegrees
+                ? PlayerActionResult.Warn(summary + " The server limits it.", Kind)
                 : PlayerActionResult.Ok(summary, Kind);
         }
 

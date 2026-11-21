@@ -207,5 +207,53 @@ namespace Gordian.Engine.Tests.World.Collision
             if (w < 0.0f || u + w > 1.0f) return -1.0f;
             return Vector3.Dot(e2, q) * inv;
         }
+
+        /// <summary>
+        /// #610 round 1 (2026-11-20): the maintainer climbed a rock in Valkurm Dunes from server position (86.78, -0.98,
+        /// -103.80); retail does not let you. Its way up crosses a 47-degree stone face; with the 55-degree limit runs from
+        /// around the spot rose up to 10.9 yalms onto its top, with the 46-degree default they stop on the ledge below
+        /// (at most about 5.6). Bastok Markets' Path ramp (zone 234, about 3.4 yalms of faces up to about 41 degrees) is
+        /// still walked up.
+        /// </summary>
+        [Theory]
+        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 7.0f)]
+        [InlineData(234, -146.0f, -1.9f, -44.0f, 3.0f, 100.0f)]
+        public void ClimbLimit_StopsTheValkurmRock_AndKeepsBastoksRamp(int zoneId, float x, float height, float z, float minRise, float maxRise)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(zoneId);
+            if (collision == null) return;
+
+            float best = 0.0f;
+            for (float dx = -2.0f; dx <= 2.0f; dx += 2.0f)
+            {
+                for (float dz = -2.0f; dz <= 2.0f; dz += 2.0f)
+                {
+                    var start = new Vector3(x + dx, height, z + dz);
+                    if (!collision.TryGetGround(start with { Y = start.Y - 6.0f }, 0.0f, 12.0f, out var ground)) continue;
+                    for (int h = 0; h < 16; h++)
+                    {
+                        var world = new Gordian.Core.World.WorldState { Collision = collision };
+                        var player = new Gordian.Core.World.LocalPlayerState { ServerId = 1 };
+                        var me = new Gordian.Core.World.PlayerEntity(1, 1) { Position = start with { Y = ground.Height }, Direction = (byte)(h * 16), IsSpawned = true };
+                        world.UpsertEntity(me);
+                        var input = new InputState();
+                        var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = h * 22.5f };
+                        input.SetKeyDown(GordianKey.W);
+                        float highest = me.Position.Y;
+                        for (int i = 0; i < 300; i++)
+                        {
+                            controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+                            highest = MathF.Min(highest, me.Position.Y); // internal -Y is up
+                        }
+                        best = MathF.Max(best, ground.Height - highest);
+                    }
+                }
+            }
+            _output.WriteLine($"Zone {zoneId}: highest climb {best:F2} yalms");
+            Assert.InRange(best, minRise, maxRise);
+        }
     }
 }
