@@ -216,6 +216,18 @@ namespace Gordian.App.Graphics
         /// many yalms along the view ray instead (*inference*), leaving the drawn position alone.
         /// </summary>
         internal const float MaxPullDepth = 1.0f;
+
+        /// <summary>
+        /// Whether a generator layer is drawn with the decal depth bias, so it wins the depth test against the zone surface it
+        /// lies on: a world effect that writes no depth (a cave mouth's fog gradient), or a static zone overlay with a
+        /// negative generator z offset (op 0x30) even though it writes depth. East Ronfaure's gate-interior light overlay
+        /// <c>gin1</c> (<c>f_ro/mode/ligh/g_li/san_</c>, zones 101 and 81) copies the gatehouse walls, floor and ceiling,
+        /// writes depth and carries -1.5; drawn without a bias it z-fought the walls it copies, as dark blotches with
+        /// hatched edges that moved with the camera (#592). The offset itself (1.5 yalms) is not applied as a distance:
+        /// pulling the overlay that far would light actors near the walls.
+        /// </summary>
+        internal static bool TakesDecalBias(WeatherSkyLayer layer, bool staticSurface) =>
+            layer.IsWorldEffect && (!layer.DepthWrite || (staticSurface && layer.DepthOffset < 0));
         /// <summary>
         /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
         /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
@@ -2094,7 +2106,7 @@ namespace Gordian.App.Graphics
                 if (layer.IsWorldEffect && (layer.IsEntranceOverlay || CullSingleSidedWorldEffects) && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
-            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);
+            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront, staticSurface: true);
         }
 
         /// <summary>
@@ -2211,7 +2223,8 @@ namespace Gordian.App.Graphics
             ref Pipeline? currentPipeline,
             int cullFront = -1,
             bool pushDepth = false,
-            bool pullDepth = false)
+            bool pullDepth = false,
+            bool staticSurface = false)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2262,7 +2275,7 @@ namespace Gordian.App.Graphics
                     ? 2.0f + layer.DepthOffset
                     : pullDepth && layer.DepthOffset < 0 && layer.DepthOffset >= -MaxPullDepth
                         ? -1.0f + layer.DepthOffset
-                        : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                        : TakesDecalBias(layer, staticSurface) ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
