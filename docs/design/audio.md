@@ -168,6 +168,10 @@ Level-Up (7) is not a cue: the level up effect file (3310) plays it with its own
 
 An Object floor (130k of South Gustaberg's 347k floor triangles) has no pointer in any zone, so it is silent, as in xim. Not compared with Windower zone by zone yet: the in-game checks in the lane report cover dirt, stone, sand, snow, wood and rain.
 
+### Sneak (#595)
+
+A character under Sneak makes no step sound but keeps its footprints and foot effects (the maintainer's retail check, 2026-11-15 test round 3: a sneaking player's prints are seen, its steps not heard; an invisible player without Sneak is seen and heard). The source is the server's SilenceFlag: S2C 0x00D Flags3 bit 21 for other players (XiPackets: "should not make footstep sounds when moving"; LandSandBoat `char_update.cpp` sets it for Sneak or a GM hiding, in General updates) and 0x037 Flags3 bit 2 for the local player (`char_status.cpp`, same rule), both on `WorldEntity.IsSilent` ([entity-flags.md](../reference/entity-flags.md#flags3-0x00d--0x00e-payload-36-packet-0x28)). `FootstepTracker` still advances the actor's footfall phase but adds no sound; the footprints use their own `FootfallDetector` and do not read the flag. The party status icons (0x076 / 0x0DD) are not used: they cover party members only, the flag covers every player in range. The local player under Sneak is silent too, by the same flag (*inference* from the flag being sent in 0x037; not yet checked against retail).
+
 Footprints and foot effects (sand and snow prints, the dust and water splashes) are drawn by the renderer from the same footfalls: [particles.md](../rendering/particles.md#footprints-and-foot-effects-40). The config page's "Footstep effects" toggle (`StockUiSettingKey.FootstepEffects`) turns those off, not the step sounds (the maintainer's retail answer on #40, 2026-10-07: turning it off draws less, for low-end graphics).
 
 ## Title music (#378)

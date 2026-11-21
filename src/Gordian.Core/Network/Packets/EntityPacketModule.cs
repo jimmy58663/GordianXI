@@ -288,6 +288,7 @@ namespace Gordian.Core.Network.Packets
                 // Referenced from XiPackets (https://github.com/atom0s/XiPackets) world/server/0x000D, sendflags_t General.
                 player.IsSleeping = pc.IsSleeping;
                 player.IsInvisible = pc.IsInvisible;
+                player.IsSilent = pc.IsSilent; // Sneak: no footstep sounds, footprints kept (#595)
                 player.GraphSize = pc.GraphSize;
                 player.IsHidden = pc.IsHidden;
                 player.IsNonBlocking = pc.IsNonBlocking;
@@ -732,6 +733,8 @@ namespace Gordian.Core.Network.Packets
                 // And its InvisFlag (0x037 Flags1 bit 15; LandSandBoat char_status.cpp sets it for any effect with the
                 // Invisible flag, or a GM hiding): the renderer draws the player see-through and the name plate hides.
                 localEnt.IsInvisible = charStatus.IsInvisible;
+                // And its SilenceFlag (0x037 Flags3 bit 2, Sneak or a GM hiding): the player's own footsteps go silent (#595).
+                localEnt.IsSilent = charStatus.IsSilent;
                 localEnt.Mount = _localPlayer.Mount;
                 // The movement speed stat lives on LocalPlayerState (read by the locomotion controller). The entity's
                 // Speed is its current speed, which the locomotion controller owns: writing the stat there made a

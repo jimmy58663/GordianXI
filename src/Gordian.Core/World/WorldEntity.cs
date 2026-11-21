@@ -920,6 +920,12 @@ namespace Gordian.Core.World
         /// <summary>The server's ShadowFlag (Flags2 bit 25): the shadow is hidden (<c>EntityRenderer</c> draws none for it).</summary>
         public bool HidesShadow { get; set; }
 
+        /// <summary>
+        /// The server's SilenceFlag (0x00D Flags3 bit 21, the local player's 0x037 Flags3 bit 2): the character makes no
+        /// footstep sounds (Sneak, or a GM hiding). Its footprints and foot effects are still shown (#595).
+        /// </summary>
+        public bool IsSilent { get; set; }
+
         /// <summary>The server's NamedFlag (0x00E Flags2 bit 29): a proper name, which takes no "The" (XiPackets).</summary>
         public bool HasProperName { get; set; }
 

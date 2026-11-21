@@ -64,6 +64,10 @@ namespace Gordian.App.Audio
                     terrain = (int)ground.Terrain;
                 }
 
+                // Sneak (the server's SilenceFlag): no step sound. The footprints and foot effects have their own detector
+                // and are still shown, as in retail (#595).
+                if (entity.IsSilent) continue;
+
                 FootwearInfo feet = footwear?.Invoke(entity) ?? FootwearInfo.Default;
                 int sound = sounds.FootstepSound(terrain, feet.MovementChar, feet.ShakeFactor, wet);
                 if (sound != 0)
