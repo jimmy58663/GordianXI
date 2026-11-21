@@ -186,6 +186,14 @@ namespace Gordian.Engine.Ui.Lobby
 
         private volatile bool _isBusy;
 
+        /// <summary>
+        /// The last request started (<see cref="RunRequest"/>), completed once it has cleared <see cref="IsBusy"/>; a
+        /// completed task when none ran. Tests wait on it instead of on the wall clock (#609).
+        /// </summary>
+        internal Task PendingRequest => Volatile.Read(ref _pendingRequest);
+
+        private Task _pendingRequest = Task.CompletedTask;
+
         /// <summary>Every content id of the account in slot order.</summary>
         public IReadOnlyList<LobbyCharacter> Characters => _backend.Characters;
 
@@ -439,7 +447,7 @@ namespace Gordian.Engine.Ui.Lobby
             IsBusy = true;
             Prompt = new LobbyPrompt(Menu(StatusPromptMenu, 0), status.Length > 0 ? new[] { status } : Array.Empty<string>(), null);
             Touch();
-            _ = Task.Run(async () =>
+            Volatile.Write(ref _pendingRequest, Task.Run(async () =>
             {
                 try
                 {
@@ -468,7 +476,7 @@ namespace Gordian.Engine.Ui.Lobby
                         }
                     }
                 }
-            });
+            }));
         }
 
         private void ShowError(Exception ex, Action? onError = null)

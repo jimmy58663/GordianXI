@@ -71,11 +71,21 @@ namespace Gordian.Engine.Tests.Ui
             return backend;
         }
 
-        /// <summary>Waits for the controller's background request to finish.</summary>
+        /// <summary>
+        /// Waits for the controller's background requests to finish: on the request task itself, not a time budget (#609;
+        /// a 2-second poll failed in full test runs under load, when the thread pool was slow to start the request). The
+        /// one-minute bound only keeps a hung request from hanging the run.
+        /// </summary>
         internal static void WaitIdle(LobbyController lobby)
         {
-            for (int i = 0; i < 200 && lobby.IsBusy; i++) Thread.Sleep(10);
-            Assert.False(lobby.IsBusy, "the lobby request did not finish");
+            var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(1);
+            while (true)
+            {
+                Task request = lobby.PendingRequest;
+                TimeSpan left = deadline - DateTime.UtcNow;
+                Assert.True(left > TimeSpan.Zero && request.Wait(left), "the lobby request did not finish");
+                if (!lobby.IsBusy && ReferenceEquals(request, lobby.PendingRequest)) return; // no request started after it
+            }
         }
 
         [Fact]
