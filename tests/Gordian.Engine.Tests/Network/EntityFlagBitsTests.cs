@@ -101,6 +101,49 @@ namespace Gordian.Engine.Tests.Network
             Assert.True(pc.IsPriorityDrawn);
         }
 
+        /// <summary>
+        /// #595: the SilenceFlag (0x00D Flags3 bit 21; LandSandBoat sets it for Sneak or a GM hiding) silences another
+        /// player's footsteps. It sits in the General block, so a position-only update (Flags3 zero) keeps it; the local
+        /// player's comes from 0x037 Flags3 bit 2.
+        /// </summary>
+        [Fact]
+        public void SilenceFlag_MarksTheCharacterSilent_FromGeneralUpdatesAndTheOwnStatus()
+        {
+            var world = new WorldState();
+            var local = new LocalPlayerState { ServerId = 0x00010001 };
+            var dispatcher = new PacketDispatcher();
+            new EntityPacketModule(world, local, (c, e) => Task.CompletedTask).Register(dispatcher);
+
+            void SendPc(EntityUpdateFlags flags, uint flags3)
+            {
+                byte[] payload = new byte[0x70];
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(0, 4), 0x00010002);
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4, 2), 1025);
+                payload[6] = (byte)flags;
+                BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(36, 4), flags3);
+                dispatcher.Dispatch(new PacketHeader(S2C_0x00D_CharPc.PacketId, (ushort)(payload.Length + 4), 1), payload);
+            }
+
+            byte[] decoded = new byte[0x70];
+            BinaryPrimitives.WriteUInt32LittleEndian(decoded.AsSpan(36, 4), 1u << 21);
+            Assert.True(new S2C_0x00D_CharPc(decoded).IsSilent);
+            SendPc(PositionAndGeneral, 1u << 21);
+            Assert.True(world.TryGetByServerId(0x00010002, out var other));
+            Assert.True(other!.IsSilent);
+            SendPc(EntityUpdateFlags.Position, 0);
+            Assert.True(other.IsSilent);
+            SendPc(PositionAndGeneral, 0); // Sneak wore off
+            Assert.False(other.IsSilent);
+
+            var self = new PlayerEntity(local.ServerId, 1024) { IsSpawned = true };
+            world.UpsertEntity(self);
+            byte[] status = new byte[0x60];
+            status[38] = 100;
+            BinaryPrimitives.WriteUInt32LittleEndian(status.AsSpan(52, 4), 1u << 2);
+            dispatcher.Dispatch(new PacketHeader(S2C_0x037_CharStatus.PacketId, (ushort)(status.Length + 4), 1), status);
+            Assert.True(self.IsSilent);
+        }
+
         private sealed class Harness
         {
             public readonly WorldState World = new();

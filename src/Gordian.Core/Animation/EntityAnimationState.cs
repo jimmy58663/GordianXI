@@ -70,6 +70,16 @@ namespace Gordian.Core.Animation
         /// <summary>Rounds further apart than this are not one fight's cadence (the actor stopped attacking in between).</summary>
         public const float MaxRoundGapSeconds = 8f;
 
+        /// <summary>
+        /// The clock this state reads (<see cref="Stopwatch"/> timestamps): the wall clock unless a test sets a simulated one
+        /// that advances with the frames it steps (#611), so stale-action and stale-reaction checks follow the simulated time
+        /// rather than how slowly a loaded machine ran the frames.
+        /// </summary>
+        internal Func<long>? Clock { get; set; }
+
+        /// <summary>The current timestamp on <see cref="Clock"/> (the wall clock by default).</summary>
+        internal long Now => Clock?.Invoke() ?? Stopwatch.GetTimestamp();
+
         public AnimationCategory Current { get; private set; } = AnimationCategory.Idle;
         public byte SubAnimation { get; private set; }
         public byte CurrentStance { get; private set; }
@@ -395,7 +405,7 @@ namespace Gordian.Core.Animation
         /// </summary>
         public void TakeReactionsWhileStopped()
         {
-            long now = Stopwatch.GetTimestamp();
+            long now = Now;
             while (_incomingReactions.TryDequeue(out var reaction))
             {
                 if (Seconds(reaction.Timestamp, now) > StaleReactionSeconds) continue;
@@ -422,7 +432,7 @@ namespace Gordian.Core.Animation
         /// </summary>
         public float ClaimFrameTime(float dt)
         {
-            long now = Stopwatch.GetTimestamp();
+            long now = Now;
             long last = Interlocked.Exchange(ref _lastFrameClaim, now);
             if (last == 0 || dt <= 0f) return Math.Max(dt, 0f);
             return Math.Clamp(Seconds(last, now), 0f, dt);
@@ -458,7 +468,7 @@ namespace Gordian.Core.Animation
                 return;
             }
 
-            long now = Stopwatch.GetTimestamp();
+            long now = Now;
             AcceptIncoming(now);
 
             // A state-driven prop (casket, door, furnace) has one resting clip per state and no combat or locomotion clips: under
@@ -1076,7 +1086,7 @@ namespace Gordian.Core.Animation
             if (!_holdsLastClip && _actionTicks >= endTick)
             {
                 // The work schedule starts over at once, without a pass through the idle stance.
-                if (_isWorkSchedule) TryStartWorkSchedule(model, Stopwatch.GetTimestamp());
+                if (_isWorkSchedule) TryStartWorkSchedule(model, Now);
                 else EndAction(model, blend: true);
             }
         }

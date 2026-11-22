@@ -189,6 +189,41 @@ namespace Gordian.Engine.Input
         /// </summary>
         public int ArrivalSettleCount { get; private set; }
 
+        /// <summary>
+        /// Counts zone-in camera turns (#588): after each S2C 0x00A the camera is put behind the player's new heading, and a
+        /// view snaps its orbit smoothing once rather than swinging round from the previous zone's angle.
+        /// </summary>
+        public int ArrivalFacingCount { get; private set; }
+
+        // Set on the network thread by WorldState.ZoneEntered (once per S2C 0x00A), taken by the locomotion tick.
+        private volatile bool _arrivalFacingPending;
+
+        /// <summary>How long after the zone-in's reveal (ticks) heading changes are still logged (#588).</summary>
+        internal const int ArrivalWatchTicks = 600;
+
+        /// <summary>
+        /// How long (seconds) the zone-in hold waits for a view to black the screen (#588 round 2): with no loading screen
+        /// gating this session (a headless client, a session not on screen), input comes back after this instead.
+        /// </summary>
+        internal const float ArrivalUngatedHoldSeconds = 3.0f;
+
+        /// <summary>The longest the zone-in hold lasts (seconds), matching the loading screen's own 20 s limit.</summary>
+        internal const float ArrivalMaxHoldSeconds = 20.0f;
+
+        private bool _arrivalRevealPending;
+        private int _arrivalWatchTicks;
+        private byte _arrivalWatchDirection;
+        private bool _arrivalSawBlock;
+        private float _arrivalHoldSeconds;
+
+        /// <summary>
+        /// True from the zone-in (S2C 0x00A) until the screen is revealed (#588 round 2): input neither moves nor turns the
+        /// player, so it arrives facing the S2C 0x00A heading with the camera behind it. <see cref="InputBlocked"/> alone
+        /// starts only once the fade is fully black, and the 0x00A often arrives before that (a cached zone: 0.4 s after
+        /// the zone-line request, against the 1.0 s fade), so held keys turned the player at the arrival point.
+        /// </summary>
+        public bool ArrivalHeld => _arrivalRevealPending;
+
         private int _ticksSinceSettle = int.MaxValue;
         private ushort _lastZoneId;
 
@@ -461,6 +496,9 @@ namespace Gordian.Engine.Input
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _localPlayer = localPlayer ?? throw new ArgumentNullException(nameof(localPlayer));
             _actionService = actionService;
+            // Zone-in (#588): the 0x00A heading faces the player away from the zone line (LandSandBoat sends the zone line's
+            // destination rotation there); the camera goes behind it so camera-relative movement walks into the zone.
+            _world.ZoneEntered += _ => _arrivalFacingPending = true;
         }
 
         /// <summary>
@@ -1107,6 +1145,51 @@ namespace Gordian.Engine.Input
                 _ticksSinceSettle++;
             }
 
+            // Zone-in (S2C 0x00A, #588): the camera starts behind the player's arrival heading, as in retail, instead of
+            // keeping the previous zone's angle; held movement keys are camera-relative, so they now walk away from the
+            // zone line. Taken apart from the ground settle, which can run before the zone-entered notice arrives.
+            // From the zone-in until the reveal no input moves or turns the player (ArrivalHeld, round 2 of the 2026-11-20
+            // test: the 0x00A came while the fade was still going, and held keys turned the player before the black).
+            if (_arrivalFacingPending)
+            {
+                _arrivalFacingPending = false;
+                FaceArrival(localEnt, "zone-in");
+                _arrivalRevealPending = true;
+                _arrivalSawBlock = InputBlocked;
+                _arrivalHoldSeconds = 0.0f;
+                _arrivalWatchTicks = 0;
+                _arrivalWatchDirection = localEnt.Direction;
+            }
+            else if (_arrivalRevealPending || _arrivalWatchTicks > 0)
+            {
+                // Log whatever turns the player from the zone-in until 10 s after the reveal (wire heading and degrees).
+                if (localEnt.Direction != _arrivalWatchDirection)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Lifecycle,
+                        $"Zone-in watch: heading {_arrivalWatchDirection} -> {localEnt.Direction} (wire; {LocalHeadingDegrees(localEnt):F0} deg), camera yaw {CameraYaw:F0} deg, input blocked {InputBlocked}, held {_arrivalRevealPending}, speed {localEnt.Speed}.");
+                    _arrivalWatchDirection = localEnt.Direction;
+                }
+                if (_arrivalRevealPending)
+                {
+                    _arrivalHoldSeconds += dt;
+                    if (InputBlocked) _arrivalSawBlock = true;
+                    string? release = _arrivalSawBlock && !InputBlocked ? "reveal"
+                        : !_arrivalSawBlock && _arrivalHoldSeconds >= ArrivalUngatedHoldSeconds ? "no loading screen"
+                        : _arrivalHoldSeconds >= ArrivalMaxHoldSeconds ? "time limit"
+                        : null;
+                    if (release != null)
+                    {
+                        _arrivalRevealPending = false;
+                        _arrivalWatchTicks = ArrivalWatchTicks;
+                        FaceArrival(localEnt, release);
+                    }
+                }
+                else
+                {
+                    _arrivalWatchTicks--;
+                }
+            }
+
             // A zone change ends auto-run: it is not carried into the next zone (round 2 of in-game testing).
             ushort zone = _world.CurrentZoneId;
             if (zone != _lastZoneId)
@@ -1116,9 +1199,9 @@ namespace Gordian.Engine.Input
                 localEnt.Animation.ClearControlLocks(); // no action freeze crosses a zone line
             }
 
-            // Zoning (the screen is black): no input moves the player, as in retail, and auto-run stops. The Mog House Layout
-            // has the keys and the view too (#93).
-            if (InputBlocked || _actionService?.Menus.MogHouseLayout.Active == true)
+            // Zoning (the screen is black, or the zone-in waits for its reveal: ArrivalHeld): no input moves the player, as in
+            // retail, and auto-run stops. The Mog House Layout has the keys and the view too (#93).
+            if (InputBlocked || _arrivalRevealPending || _actionService?.Menus.MogHouseLayout.Active == true)
             {
                 _inputState.AutorunActive = false;
                 localEnt.Speed = 0;
@@ -1155,7 +1238,7 @@ namespace Gordian.Engine.Input
             // these, and no option lifts them. Auto-run is kept, so it carries on when the effect wears off.
             var hold = _localPlayer.MovementHold;
             _inputRooted = hold == PlayerMovementHold.Rooted;
-            if (hold == PlayerMovementHold.Immobile || _localPlayer.IsServerFrozen || IsActionFrozen(localEnt, System.Diagnostics.Stopwatch.GetTimestamp()))
+            if (hold == PlayerMovementHold.Immobile || _localPlayer.IsServerFrozen || IsActionFrozen(localEnt, localEnt.Animation.Now))
             {
                 localEnt.Speed = 0;
                 LocomotionUpdated?.Invoke(localEnt.Position, localEnt.Direction, localEnt.Speed);
@@ -1451,10 +1534,83 @@ namespace Gordian.Engine.Input
                 {
                     target = start;
                 }
+
+                // Too steep to walk up (#610): slide along the slope instead, or stay put.
+                if ((layers & CollisionLayers.Ground) != 0 && !_airborne && target != start)
+                {
+                    target = LimitClimb(collision, start, target);
+                }
             }
 
             localEnt.Position = target;
             if (!_airborne) SnapToGround(localEnt); // an airborne player's height is owned by FallStep
+        }
+
+        /// <summary>
+        /// Puts the camera behind the player's heading (#588): the zone-in heading of S2C 0x00A, as retail starts the view.
+        /// </summary>
+        private void FaceArrival(WorldEntity localEnt, string when)
+        {
+            CameraYaw = LocalHeadingDegrees(localEnt);
+            ArrivalFacingCount++;
+            CameraUpdated?.Invoke(CameraPitch, CameraYaw, CameraDistance);
+            Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.Lifecycle,
+                $"Zone-in facing ({when}): heading {localEnt.Direction} (wire; {CameraYaw:F0} deg), camera behind it.");
+        }
+
+        /// <summary>
+        /// Keeps the local player off faces steeper than their terrain's climb limit, and off faces with the wall bit (#610): a
+        /// move that would rise onto one keeps only its part along the slope (across it, or down), re-checked against walls; with nothing left, the
+        /// player stays put. Down and across a steep slope are free, and a steep face no taller than a step (a curb's lip, a
+        /// small bump) is still stepped up, so stairs and the calibrated step-up are untouched. Local player only: remote
+        /// players and NPCs go where the server puts them.
+        /// </summary>
+        private Vector3 LimitClimb(ZoneCollisionMesh collision, Vector3 start, Vector3 target)
+        {
+            if (!ClimbsTooSteep(collision, start, target, out Vector3 normal)) return target;
+
+            var downhill = new Vector2(normal.X, normal.Z);
+            if (downhill.LengthSquared() > 1e-8f)
+            {
+                downhill = Vector2.Normalize(downhill);
+                var move = new Vector2(target.X - start.X, target.Z - start.Z);
+                float into = Vector2.Dot(move, downhill); // negative: uphill
+                if (into < 0.0f)
+                {
+                    move -= downhill * into;
+                    if (move.LengthSquared() > 1e-8f)
+                    {
+                        var slid = collision.ResolveWalls(start, new Vector3(start.X + move.X, start.Y, start.Z + move.Y), BodyRadius, StepUpHeight, BodyHeight);
+                        if (TryFindGround(collision, slid, 0.0f, out _) && !ClimbsTooSteep(collision, start, slid, out _)) return slid;
+                    }
+                }
+            }
+            return start;
+        }
+
+        /// <summary>
+        /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
+        /// steeper than its climb limit (<see cref="CollisionSettings.ClimbSlopeDegrees(CollisionTerrain, float)"/>:
+        /// its terrain's, or the general one for Stone in a built plane),
+        /// or carrying the wall bit, that rises more than a step.
+        /// </summary>
+        private bool ClimbsTooSteep(ZoneCollisionMesh collision, Vector3 start, Vector3 target, out Vector3 normal)
+        {
+            normal = default;
+            if (!TryFindGround(collision, target, FootRadius, out var ground)) return false;
+            if (ground.Height >= start.Y - 1e-3f) return false; // level or down (internal -Y is up)
+            var triangles = collision.Triangles;
+            if ((uint)ground.TriangleIndex >= (uint)triangles.Length) return false; // a moving platform's floor
+            ref readonly var face = ref triangles[ground.TriangleIndex];
+            // A face with the wall bit is never climbed (the maintainer's ask, round 3); any other face up to its terrain's limit.
+            // Stone in a large flat plane is a built stair or ramp and gets the general limit (round 5).
+            float planeArea = ground.Terrain == CollisionTerrain.Stone ? collision.GetPlaneArea(ground.TriangleIndex) : 0.0f;
+            float limit = CollisionSettings.ClimbSlopeDegrees(ground.Terrain, planeArea) * (MathF.PI / 180.0f);
+            if (!face.IsWall && -ground.Normal.Y >= MathF.Cos(limit)) return false;
+            float rise = MathF.Max(face.A.Y, MathF.Max(face.B.Y, face.C.Y)) - MathF.Min(face.A.Y, MathF.Min(face.B.Y, face.C.Y));
+            if (rise <= StepUpHeight) return false;
+            normal = ground.Normal;
+            return true;
         }
 
         /// <summary>

@@ -242,6 +242,118 @@ namespace Gordian.Core.World.Collision
             }
         }
         public int TriangleCount => _triangles.Length;
+
+        /// <summary>
+        /// Two triangles sharing an edge are one plane when their normals' dot product is above this (about 1.1 degrees apart).
+        /// </summary>
+        public const float CoplanarNormalDot = 0.9998f;
+
+        /// <summary>
+        /// Floors steeper than this (degrees) get a plane area (<see cref="GetPlaneArea"/>); flatter ones report 0.
+        /// </summary>
+        public const float PlaneAreaMinSlopeDegrees = 15.0f;
+
+        // Vertices closer than 1/20 yalm are the same vertex when edges are matched.
+        private const float PlaneVertexQuantum = 20.0f;
+
+        private float[]? _planeAreas;
+
+        /// <summary>
+        /// The area (square yalms) of the flat plane a sloped floor triangle is part of: the triangles joined to it through
+        /// shared edges with the same normal (<see cref="CoplanarNormalDot"/>), each distinct triangle counted once. 0 when
+        /// no other triangle lies in its plane (an exact duplicate, which the soup has on many faces, does not count), and
+        /// for floors flatter than <see cref="PlaneAreaMinSlopeDegrees"/>, walls and ceilings. Built stairs and ramps are
+        /// such planes; natural rock is irregular and its steep faces stand alone or in small pieces (#610 round 5). Computed
+        /// for the whole mesh on first use.
+        /// </summary>
+        public float GetPlaneArea(int triangle)
+        {
+            if ((uint)triangle >= (uint)_triangles.Length) return 0.0f;
+            var areas = _planeAreas;
+            if (areas == null)
+            {
+                var computed = ComputePlaneAreas(_triangles);
+                areas = System.Threading.Interlocked.CompareExchange(ref _planeAreas, computed, null) ?? computed;
+            }
+            return areas[triangle];
+        }
+
+        private static float[] ComputePlaneAreas(CollisionTriangle[] triangles)
+        {
+            var areas = new float[triangles.Length];
+            float maxNormalY = -MathF.Cos(PlaneAreaMinSlopeDegrees * (MathF.PI / 180.0f));
+            var parent = new int[triangles.Length];
+            var faceOf = new Dictionary<(long, long, long), int>();
+            var edges = new Dictionary<(long, long), List<int>>();
+            for (int i = 0; i < triangles.Length; i++)
+            {
+                parent[i] = i;
+                ref readonly var t = ref triangles[i];
+                if (t.Normal.Y > -MinFloorNormalY || t.Normal.Y < maxNormalY) continue; // a wall, ceiling or gentle floor
+                long a = VertexKey(t.A), b = VertexKey(t.B), c = VertexKey(t.C);
+                var face = Sort(a, b, c);
+                if (faceOf.TryGetValue(face, out int first)) { parent[i] = first; continue; } // a duplicate joins its original
+                faceOf[face] = i;
+                AddEdge(edges, a, b, i);
+                AddEdge(edges, b, c, i);
+                AddEdge(edges, c, a, i);
+            }
+
+            foreach (var sharing in edges.Values)
+            {
+                for (int x = 0; x < sharing.Count; x++)
+                {
+                    for (int y = x + 1; y < sharing.Count; y++)
+                    {
+                        if (Vector3.Dot(triangles[sharing[x]].Normal, triangles[sharing[y]].Normal) <= CoplanarNormalDot) continue;
+                        int rx = Find(parent, sharing[x]), ry = Find(parent, sharing[y]);
+                        if (rx != ry) parent[Math.Max(rx, ry)] = Math.Min(rx, ry);
+                    }
+                }
+            }
+
+            // Sum each plane's distinct faces; a plane of one face (with or without duplicates) has no area.
+            var total = new Dictionary<int, (float Area, int Faces)>();
+            foreach (int i in faceOf.Values)
+            {
+                ref readonly var t = ref triangles[i];
+                int root = Find(parent, i);
+                var sum = total.GetValueOrDefault(root);
+                total[root] = (sum.Area + (0.5f * Vector3.Cross(t.B - t.A, t.C - t.A).Length()), sum.Faces + 1);
+            }
+            for (int i = 0; i < triangles.Length; i++)
+            {
+                if (total.TryGetValue(Find(parent, i), out var plane) && plane.Faces > 1) areas[i] = plane.Area;
+            }
+            return areas;
+
+            static long VertexKey(Vector3 v) =>
+                ((long)(MathF.Round(v.X * PlaneVertexQuantum) + (1 << 20)) << 42) |
+                ((long)(MathF.Round(v.Y * PlaneVertexQuantum) + (1 << 20)) << 21) |
+                (long)(MathF.Round(v.Z * PlaneVertexQuantum) + (1 << 20));
+
+            static (long, long, long) Sort(long a, long b, long c)
+            {
+                if (a > b) (a, b) = (b, a);
+                if (b > c) (b, c) = (c, b);
+                if (a > b) (a, b) = (b, a);
+                return (a, b, c);
+            }
+
+            static void AddEdge(Dictionary<(long, long), List<int>> edges, long a, long b, int triangle)
+            {
+                var key = a < b ? (a, b) : (b, a);
+                if (!edges.TryGetValue(key, out var list)) edges[key] = list = new List<int>(2);
+                list.Add(triangle);
+            }
+
+            static int Find(int[] parent, int i)
+            {
+                while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+                return i;
+            }
+        }
+
         public Vector3 MinBounds { get; }
         public Vector3 MaxBounds { get; }
 

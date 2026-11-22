@@ -218,7 +218,12 @@ namespace Gordian.Core.Network.Packets
         // Flags3 properties
         public bool IsTrust => (Flags3 & 0x01) != 0;
         public bool IsPet => ((Flags3 >> 6) & 0x01) != 0;
-        public bool IsSneak => ((Flags3 >> 21) & 0x01) != 0;
+        /// <summary>
+        /// SilenceFlag (Flags3 bit 21): the player makes no footstep sounds. LandSandBoat sets it for Sneak or a GM hiding
+        /// (<c>char_update.cpp</c>, General updates only). Flag referenced from XiPackets
+        /// (https://github.com/atom0s/XiPackets) world/server/0x000D flags3_t and LandSandBoat (https://github.com/LandSandBoat/server).
+        /// </summary>
+        public bool IsSilent => ((Flags3 >> 21) & 0x01) != 0;
         public bool IsNewPlayer => ((Flags3 >> 23) & 0x01) != 0;
         public bool IsMentor => ((Flags3 >> 24) & 0x01) != 0;
 
@@ -1156,6 +1161,13 @@ namespace Gordian.Core.Network.Packets
         public ushort Speed => (ushort)(Flags1 & 0x0FFF);
         public byte SpeedBase => (byte)((Flags1 >> 17) & 0xFF);
         public bool IsInvisible => ((Flags1 >> 15) & 0x01) != 0;
+
+        /// <summary>
+        /// SilenceFlag (0x037 Flags3 bit 2): the player's own footsteps are silent. LandSandBoat sets it for Sneak or a GM
+        /// hiding (<c>char_status.cpp</c> flags3_t). Flag referenced from LandSandBoat (https://github.com/LandSandBoat/server)
+        /// and XiPackets (https://github.com/atom0s/XiPackets) world/server/0x0037.
+        /// </summary>
+        public bool IsSilent => ((Flags3 >> 2) & 0x01) != 0;
         public bool HasBazaar => ((Flags1 >> 29) & 0x01) != 0;
         public bool IsCharmed => ((Flags1 >> 30) & 0x01) != 0;
 

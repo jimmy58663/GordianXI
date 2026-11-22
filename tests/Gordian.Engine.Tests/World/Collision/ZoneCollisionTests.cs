@@ -270,6 +270,115 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.True(controller.ArrivalReady);
         }
 
+        /// <summary>
+        /// Flat ground for x &lt; 0 and a ramp rising toward +X at <paramref name="slopeDegrees"/> from x = 0 to x = 10
+        /// (internal space: -Y is up), 20 yalms wide: one flat plane of two triangles, or with <paramref name="rough"/> two
+        /// triangles a few degrees apart (the top corner at z = -10 raised a yalm), as natural rock is.
+        /// </summary>
+        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees, CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false,
+            bool rough = false)
+        {
+            var triangles = Floor(-20, -10, 0, 10, 0.0f).ToList();
+            float top = -10.0f * MathF.Tan(slopeDegrees * MathF.PI / 180.0f);
+            var a = new Vector3(0, 0, -10);
+            var b = new Vector3(10, top - (rough ? 1.0f : 0.0f), -10);
+            var c = new Vector3(10, top, 10);
+            var d = new Vector3(0, 0, 10);
+            triangles.Add(new CollisionTriangle(a, b, c, UpNormal(a, b, c), wall, terrain, false));
+            triangles.Add(new CollisionTriangle(a, c, d, UpNormal(a, c, d), wall, terrain, false));
+            return triangles;
+
+            static Vector3 UpNormal(Vector3 a, Vector3 b, Vector3 c)
+            {
+                var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+                return normal.Y > 0 ? -normal : normal;
+            }
+        }
+
+        private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Player) OnRamp(float slopeDegrees, Vector3 start, byte direction,
+            CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false, bool rough = false)
+        {
+            var world = new WorldState();
+            var player = new LocalPlayerState { ServerId = 0x1001 };
+            var localEnt = new PlayerEntity(player.ServerId, 1) { Position = start, Direction = direction, IsSpawned = true };
+            world.UpsertEntity(localEnt);
+            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees, terrain, wall, rough));
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player)
+            {
+                CameraYaw = direction / 256.0f * 360.0f,
+            };
+            return (controller, input, localEnt);
+        }
+
+        /// <summary>
+        /// #610: a face steeper than its terrain's limit stops the player at its foot; shallower ramps are still walked up.
+        /// Most terrain climbs to <see cref="CollisionSettings.MaxClimbSlopeDegrees"/> (55, under the 60-degree wall
+        /// limit), Stone only to <see cref="CollisionSettings.StoneClimbSlopeDegrees"/> (27) unless it is part of a
+        /// flat plane of <see cref="CollisionSettings.MinStonePlaneArea"/> or more (a built stair or ramp, round 5),
+        /// and a face with the wall bit not at all.
+        /// </summary>
+        [Theory]
+        [InlineData(40.0f, CollisionTerrain.Grass, false, false, true)]
+        [InlineData(50.0f, CollisionTerrain.Sand, false, false, true)]
+        [InlineData(58.0f, CollisionTerrain.Grass, false, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Stone, false, true, true)]
+        [InlineData(32.0f, CollisionTerrain.Stone, false, true, false)]
+        [InlineData(32.0f, CollisionTerrain.Stone, false, false, true)]
+        [InlineData(50.0f, CollisionTerrain.Stone, false, false, true)]
+        [InlineData(58.0f, CollisionTerrain.Stone, false, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Grass, true, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Stone, true, false, false)]
+        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, CollisionTerrain terrain, bool wall, bool rough, bool climbs)
+        {
+            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0, terrain, wall, rough); // facing +X
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+
+            if (climbs)
+            {
+                Assert.True(localEnt.Position.Y < -1.5f, $"stuck at {localEnt.Position}");
+            }
+            else
+            {
+                Assert.True(localEnt.Position.Y > -PlayerLocomotionController.StepUpHeight, $"climbed to {localEnt.Position}"); // no more than a step onto its foot
+                Assert.True(localEnt.Position.X < 0.6f, $"walked to {localEnt.Position}");
+            }
+        }
+
+        /// <summary>
+        /// #610: the fixed climb limits: 55 degrees, Stone 27 outside a flat plane of 17 square yalms or more (round 5); a
+        /// lone face (plane area 0) is never a plane.
+        /// </summary>
+        [Fact]
+        public void ClimbLimits_ByTerrainAndPlane()
+        {
+            Assert.Equal(55.0f, CollisionSettings.ClimbSlopeDegrees(CollisionTerrain.Sand, 0.0f));
+            Assert.Equal(55.0f, CollisionSettings.ClimbSlopeDegrees(CollisionTerrain.Grass, 100.0f));
+            Assert.Equal(27.0f, CollisionSettings.ClimbSlopeDegrees(CollisionTerrain.Stone, 0.0f));
+            Assert.Equal(27.0f, CollisionSettings.ClimbSlopeDegrees(CollisionTerrain.Stone, 16.9f));
+            Assert.Equal(55.0f, CollisionSettings.ClimbSlopeDegrees(CollisionTerrain.Stone, 17.7f));
+        }
+
+        /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>
+        [Fact]
+        public void SteepSlope_IsWalkedDownAndAcross()
+        {
+            const float slope = 58.0f;
+            float height = -5.0f * MathF.Tan(slope * MathF.PI / 180.0f);
+            var (controller, input, localEnt) = OnRamp(slope, new Vector3(5.0f, height, 0.0f), direction: 128); // facing -X, downhill
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(localEnt.Position.X < 0.0f, $"walked down to {localEnt.Position}");
+            Assert.Equal(0.0f, localEnt.Position.Y, 2);
+
+            var (across, acrossInput, acrossEnt) = OnRamp(slope, new Vector3(5.0f, height, 0.0f), direction: 192); // facing +Z
+            acrossInput.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 30; i++) across.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(acrossEnt.Position.Z > 1.0f, $"walked across to {acrossEnt.Position}");
+            Assert.True(acrossEnt.Position.Y >= height - 0.05f, $"rose to {acrossEnt.Position}");
+        }
+
         [Fact]
         public void InputBlocked_StopsMovementAndAutoRun_AndAZoneChangeEndsAutoRun()
         {
