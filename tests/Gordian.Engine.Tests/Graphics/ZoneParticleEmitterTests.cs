@@ -106,6 +106,40 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         [Fact]
+        public void GeneratorCull_ScalesWithTheDrawDistanceMultiplier()
+        {
+            // #612: Eldieme's torch lights cull at 22 yalms; with the client's draw-distance multiplier (3) a torch 50 yalms
+            // down the corridor runs, as retail's does.
+            var def = Surf();
+            def.MaxEmitDistance = 22f;
+            def.Setup!.BasePosition = new Vector3(0f, 0f, 50f);
+
+            var unscaled = new ZoneParticleEmitter(Template(def));
+            unscaled.Update(200f, Frame);
+            Assert.Empty(unscaled.Particles);
+
+            var scaled = new ZoneParticleEmitter(Template(def));
+            scaled.Update(200f, Frame with { EmitDistanceScale = 3f });
+            Assert.NotEmpty(scaled.Particles);
+        }
+
+        [Fact]
+        public void DrawDistanceFade_ScalesWithTheDrawDistanceMultiplier()
+        {
+            // Op 0x2E fades a particle out between its near and far distances (Eldieme's lights: 0 to 22 yalms).
+            var def = Surf();
+            def.Updaters.Add(new ParticleOpcode(0x2E, 0, new[] { BitConverter.SingleToUInt32Bits(0f), BitConverter.SingleToUInt32Bits(22f) }));
+            def.Setup!.BasePosition = new Vector3(0f, 0f, 20f);
+
+            var unscaled = new ZoneParticleEmitter(Template(def));
+            unscaled.Update(1f, Frame);
+            var scaled = new ZoneParticleEmitter(Template(def));
+            scaled.Update(1f, Frame with { EmitDistanceScale = 3f });
+
+            Assert.True(scaled.Particles[0].ColorMultiplier.W > 3f * unscaled.Particles[0].ColorMultiplier.W);
+        }
+
+        [Fact]
         public void RoutineScheduledGenerator_EmitsOncePerArmingAndRearmsOnLoop()
         {
             // Non-auto-running: a looping 300-frame routine starts it at frame 100 with a 0-frame window.

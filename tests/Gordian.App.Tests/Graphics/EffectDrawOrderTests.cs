@@ -30,5 +30,19 @@ namespace Gordian.App.Tests.Graphics
             draws.Sort(ZoneTerrainRenderer.EffectDrawOrder);
             Assert.Equal(new[] { "sea", "cave fog", "river", "spirit far", "spirit near" }, draws.ConvertAll(d => d.Mesh.Name));
         }
+
+        [Fact]
+        public void StaticOverlayWithNegativeZOffset_IsPulledAFixedDistance_NotDecalBiased()
+        {
+            // #592: East Ronfaure's gin1 copies the gatehouse walls, writes depth and carries z offset -1.5. It is depth-tested
+            // 0.05 yalms nearer the eye; the decal bias grew with distance and showed it through the ceiling beams.
+            var overlay = new WeatherSkyLayer { IsWorldEffect = true, DepthWrite = true, DepthOffset = -1.5f };
+            Assert.Equal(-ZoneTerrainRenderer.StaticOverlayPullDistance, ZoneTerrainRenderer.StaticOverlayPull(overlay, staticSurface: true));
+            Assert.False(ZoneTerrainRenderer.TakesDecalBias(overlay));
+            Assert.Equal(0.0f, ZoneTerrainRenderer.StaticOverlayPull(overlay, staticSurface: false));
+            Assert.Equal(0.0f, ZoneTerrainRenderer.StaticOverlayPull(new WeatherSkyLayer { IsWorldEffect = true, DepthWrite = true }, staticSurface: true));
+            Assert.True(ZoneTerrainRenderer.TakesDecalBias(new WeatherSkyLayer { IsWorldEffect = true }));
+            Assert.False(ZoneTerrainRenderer.TakesDecalBias(new WeatherSkyLayer { DepthOffset = -1.5f }));
+        }
     }
 }
