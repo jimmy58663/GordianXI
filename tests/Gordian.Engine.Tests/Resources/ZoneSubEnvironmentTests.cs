@@ -93,6 +93,47 @@ namespace Gordian.Engine.Tests.Resources
         }
 
         [Fact]
+        public void LampLitRoom_KeepsTheOutdoorConversionAndItsAuthoredFog()
+        {
+            // #612 round 3: an indoor keyframe with a black terrain sun (a Mog House room: ambient 0x5A 0x59 0x50, fog 9.8-39.5)
+            // is lit by its lamps and keeps round 2's look; only keyframes with a sun take the dungeon conversion.
+            var room = new EnvironmentKeyframe
+            {
+                Indoors = true, TerrainSunColor = new Vector4(0f, 0f, 0f, 1f), TerrainDiffuseMult = 1.5f,
+                TerrainAmbientColor = new Vector4(0x5A / 255f, 0x59 / 255f, 0x50 / 255f, 1f), TerrainFogStart = 9.8f, TerrainFogEnd = 39.5f,
+            };
+            Assert.False(ZoneEnvironmentSettings.IsDungeonLight(room));
+            var settings = new ZoneEnvironmentSettings();
+            settings.ApplyKeyframe(room);
+            Assert.Equal(ZoneEnvironmentSettings.AmbientToLight(room.TerrainAmbientColor), settings.AmbientColor);
+            Assert.Equal(9.8f, settings.FogStart, 3);
+            Assert.Equal(39.5f, settings.FogEnd, 3);
+
+            Assert.True(ZoneEnvironmentSettings.IsDungeonLight(new EnvironmentKeyframe { Indoors = true, TerrainSunColor = new Vector4(0x36 / 255f, 0x3E / 255f, 0x45 / 255f, 1f) }));
+            Assert.False(ZoneEnvironmentSettings.IsDungeonLight(new EnvironmentKeyframe { Indoors = false, TerrainSunColor = Vector4.One }));
+        }
+
+        [Fact]
+        public void MogHouseRoomsAndInteriors_AreLampLit_DungeonsAreNot()
+        {
+            const string gameDirectory = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!Directory.Exists(gameDirectory)) return;
+            var rm = new ResourceManager(gameDirectory);
+            rm.InitializeFileTable();
+
+            Assert.True(rm.TryLoadZone(MogHouseRooms.ZoneKey(0x101), out var room, out _));
+            Assert.False(ZoneEnvironmentSettings.IsDungeonLight(room.EnvironmentData!.Interpolate(12f, "fine")!));
+            // Windurst Woods' interior 423 (event 588's opening scene) lights by its ev10 sub-environment, also sun-less.
+            Assert.True(rm.TryLoadSubAreaInterior(423, out var interior, out _));
+            Assert.False(ZoneEnvironmentSettings.IsDungeonLight(interior.EnvironmentData!.InterpolateSubEnvironment("ev10", 12f, "fine")!));
+            foreach (int dungeon in new[] { 184, 195, 197, 200 })
+            {
+                Assert.True(rm.TryLoadZone(dungeon, out var zone, out _));
+                Assert.True(ZoneEnvironmentSettings.IsDungeonLight(zone.EnvironmentData!.Interpolate(12f, "fine")!));
+            }
+        }
+
+        [Fact]
         public void LowerDelkfuttsTower_IsLitByItsIndoorWeatherKeyframes()
         {
             // #612: every 0x2F of zone 184 (weat/<weather>/0000) carries the indoor flag; they are the zone's own

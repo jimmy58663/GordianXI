@@ -165,7 +165,8 @@ namespace Gordian.Engine.Graphics
             MoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.TerrainMoonColor, diffuseMult);
             if (keyframe.Indoors) SunDirection = IndoorLightDirection(keyframe.TerrainMoonColor);
             AmbientColor = AmbientToLight(keyframe.TerrainAmbientColor);
-            if (keyframe.Indoors)
+            bool dungeonLight = IsDungeonLight(keyframe);
+            if (dungeonLight)
             {
                 SunColor = IndoorDiffuseToLight(keyframe.TerrainSunColor, diffuseMult);
                 AmbientColor = IndoorAmbientToLight(keyframe.TerrainAmbientColor);
@@ -202,7 +203,7 @@ namespace Gordian.Engine.Graphics
             // field (xi-tools docs/zone/lod-draw-distance.md "Fog and draw distance coupling"), and retail draws far
             // mountains and islands textured where the authored fog end alone fogs them into silhouettes (round 1,
             // 2026-10-31, image-17 / image-19 / image-20).
-            if (keyframe.Indoors)
+            if (dungeonLight)
             {
                 // Indoors the authored fog scales with the draw distance too, but keeps its start and is not stretched
                 // to the draw-distance cut (#612 round 2): Garlaige's far corridor at about 45 yalms is 45 against
@@ -210,7 +211,7 @@ namespace Gordian.Engine.Graphics
                 FogStart *= DrawDistanceMultiplier;
                 FogEnd *= DrawDistanceMultiplier;
             }
-            else
+            else if (!keyframe.Indoors)
             {
                 FogStart *= DrawDistanceMultiplier;
                 FogEnd *= DrawDistanceMultiplier;
@@ -321,6 +322,23 @@ namespace Gordian.Engine.Graphics
             var d = new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
             return IsDark(d) ? d * DarkLightBias : d;
         }
+
+        /// <summary>
+        /// Whether an indoor keyframe lights like a dungeon: it authors a directional light (a terrain sun that is not black).
+        /// Those keyframes take <see cref="IndoorAmbientToLight"/>, <see cref="IndoorDiffuseToLight"/> and fog scaled by the
+        /// draw-distance multiplier. An indoor keyframe whose terrain sun is 00 00 00 is a room lit by its placed lamps (every
+        /// Mog House room, 199 building interiors such as Windurst Woods' interior 423, Heavens Tower, stage 593, the
+        /// <c>ev01</c> caves and houses of outdoor zones) and keeps the outdoor light conversion and its authored fog.
+        /// <para>
+        /// Survey (#612 round 3, 2026-11-21, every indoor keyframe at noon in zones 0-299 and 500-699, the Mog House rooms
+        /// and interiors 259-640, 628 keyframes): 308 author a black sun, all of them rooms, interiors or sub-environments;
+        /// every dungeon authors one of at least 0x35 (Garlaige 0x45, Crawlers' Nest 0x6C). The near-black suns 0x07-0x0E
+        /// (stage 560's ev10, stage 559, zone 39's ev01) count as dungeon light. Round 3 in game: with the dungeon conversion
+        /// the Mog Houses were too bright; with the outdoor one (round 2) they matched retail. *Inference* from the data.
+        /// </para>
+        /// </summary>
+        public static bool IsDungeonLight(EnvironmentKeyframe keyframe) =>
+            keyframe.Indoors && (keyframe.TerrainSunColor.X > 0f || keyframe.TerrainSunColor.Y > 0f || keyframe.TerrainSunColor.Z > 0f);
 
         /// <summary>
         /// The indoor terrain ambient: byte / 255 (not / 510) with the dark lift, capped at <see cref="MaxAmbient"/>.
