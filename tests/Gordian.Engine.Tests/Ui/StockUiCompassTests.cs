@@ -13,6 +13,38 @@ namespace Gordian.Engine.Tests.Ui
     public class StockUiCompassTests
     {
         [Theory]
+        [InlineData(0, null, 0)]  // none
+        [InlineData(1, null, 0)]  // Sunshine: no icon (retail 2026-11-20)
+        [InlineData(3, null, 0)]  // Fog
+        [InlineData(4, 0, 1)]     // Hot Spell: one fire (retail)
+        [InlineData(5, 0, 2)]     // Heat Wave: two fire (retail)
+        [InlineData(7, 5, 2)]     // Squall: water
+        [InlineData(8, 3, 1)]     // Dust Storm: earth
+        [InlineData(11, 2, 2)]    // Gales: wind
+        [InlineData(12, 1, 1)]    // Snow: ice
+        [InlineData(15, 4, 2)]    // Thunderstorms
+        [InlineData(16, 6, 1)]    // Auroras: light
+        [InlineData(18, 7, 1)]    // Gloom: dark (retail)
+        [InlineData(19, 7, 2)]    // Darkness
+        [InlineData(20, null, 0)]
+        public void WeatherIcons_AreTheWeathersElement_TwiceForDoubleWeather(int weather, int? element, int count)
+        {
+            var icons = StockUiCompass.WeatherIcons(weather);
+            Assert.Equal(element, icons?.Element);
+            Assert.Equal(count, icons?.Count ?? 0);
+        }
+
+        [Fact]
+        public void WeatherIcons_SitAtTheTopLeft_AndTheBoundsReachThem()
+        {
+            // Retail (604-compass-weather-heat-wave.png): x 20 and 36, 78 px above the line's bottom.
+            Assert.Equal((20f, 1252f - 78f), StockUiCompass.WeatherIconAt(0, 1252f, 1));
+            Assert.Equal((36f, 1252f - 78f), StockUiCompass.WeatherIconAt(1, 1252f, 1));
+            Assert.Equal(1252f - 78f, StockUiCompass.Bounds(1252f, 1, weatherIcons: true).Y);
+            Assert.True(StockUiCompass.Bounds(1252f, 1).Y > 1252f - 78f);
+        }
+
+        [Theory]
         [InlineData(0f, 1f, 0f)]
         [InlineData(1f, 0f, 90f)]
         [InlineData(0f, -1f, 180f)]

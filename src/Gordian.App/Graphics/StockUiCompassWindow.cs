@@ -13,8 +13,8 @@ namespace Gordian.App.Graphics
 
     /// <summary>
     /// Draws retail's compass above the log (#485; layout and evidence on <see cref="StockUiCompass"/>): the menu DAT's
-    /// <c>compass</c> ring flattened and turned with the camera, the radar dots, the four letters, then the day's orb, the
-    /// time and the map square under it.
+    /// <c>compass</c> ring flattened and turned with the camera, the radar dots, the four letters, the weather's element
+    /// icons at its top left (#604), then the day's orb, the time and the map square under it.
     /// </summary>
     public static class StockUiCompassWindow
     {
@@ -53,7 +53,7 @@ namespace Gordian.App.Graphics
         /// <paramref name="scale"/> screen pixels per layout pixel. Returns false when the DAT has no <c>compass</c> group.
         /// </summary>
         public static bool Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, float cameraBearing,
-            int dayOfWeek, string line, IReadOnlyList<StockUiCompassDot> dots, float lineBottom, float scale)
+            int dayOfWeek, string line, IReadOnlyList<StockUiCompassDot> dots, float lineBottom, float scale, int weather = 0)
         {
             if (!library.TryGetGroup(StockUiCompass.GroupName, out var group) || group.Images.Count <= StockUiCompass.DotImage) return false;
             var center = new Vector2(StockUiCompass.CenterX * scale, lineBottom - StockUiCompass.CenterRise * scale);
@@ -80,6 +80,18 @@ namespace Gordian.App.Graphics
             {
                 var at = center + StockUiCompass.Project(bearing, StockUiCompass.LetterRadius, cameraBearing) * scale;
                 renderer.DrawImage(group.Images[image], at.X, at.Y, scale);
+            }
+
+            // The weather's element icons at the top left (#604): one for single weather, two for double.
+            if (StockUiCompass.WeatherIcons(weather) is { } icons)
+            {
+                float size = StockUiCompass.WeatherIconSize * scale;
+                for (int i = 0; i < icons.Count; i++)
+                {
+                    var (ix, iy) = StockUiCompass.WeatherIconAt(i, lineBottom, scale);
+                    renderer.DrawTextureRect(StockUiTextBoxes.ElementIconTextures[icons.Element], 0, 0, 16, 16, ix, iy, size, size,
+                        new UiColor(0x80, 0x80, 0x80, 0x80));
+                }
             }
 
             var (cellX, cellY) = StockUiCompass.DayOrbCell(dayOfWeek);

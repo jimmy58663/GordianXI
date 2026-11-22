@@ -32,6 +32,8 @@ namespace Gordian.Engine.Sessions
             World.ZoneChanged += _ => menus.OnMogHouseZoneChanged();
             // Into or out of a room the zone id stays the city's: the room's own change reads the furniture for its floor.
             World.MapZoneChanged += _ => menus.OnMogHouseFurnitureChanged();
+            // A visit is known from the char sync after the zone-in (#591): the furniture is read again when it comes.
+            LocalPlayer.CharSyncUpdated += () => menus.OnMogHouseFurnitureChanged();
         }
 
         private MogHouseMannequins? _mannequins;
@@ -61,6 +63,20 @@ namespace Gordian.Engine.Sessions
 
             /// <summary>Second-floor rooms are 0x267-0x26A (XiPackets world/server/0x000A).</summary>
             public bool OnSecondFloor => _session.World.MogHouseRoom is >= 0x267 and <= 0x26A;
+
+            /// <summary>
+            /// The home nation's room or its second floor (<see cref="MogHouseRooms.ShowsOwnFurniture"/>), and not a visit: while
+            /// visiting, S2C 0x067 names the host in <c>UniqueNoMog</c> (LandSandBoat <c>char_sync.cpp</c> writes it only then).
+            /// </summary>
+            public bool ShowsOwnFurniture
+            {
+                get
+                {
+                    if (!MogHouseRooms.ShowsOwnFurniture(_session.World.MogHouseRoom)) return false;
+                    uint owner = _session.LocalPlayer.CharSync.MogHouseOwnerId;
+                    return owner == 0 || owner == _session.LocalPlayer.ServerId;
+                }
+            }
 
             public Task PlaceAsync(FurniturePlacement piece, bool secondFloor, byte x, byte level, byte z, byte rotation) =>
                 _session.ProgressionModule.SendMyRoomLayoutAsync(piece.ItemId, piece.Slot, (byte)piece.Container, secondFloor ? (byte)1 : (byte)0, x, level, z, rotation);

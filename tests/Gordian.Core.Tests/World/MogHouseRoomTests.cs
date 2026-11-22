@@ -13,6 +13,23 @@ namespace Gordian.Core.Tests.World
         private static ZoneLoginInfo Login(bool myRoom, ushort room) =>
             default(ZoneLoginInfo) with { LoginState = myRoom ? SaveLoginState.MyRoom : SaveLoginState.Game, MyroomMapNumber = room };
 
+        [Theory]
+        [InlineData(0x121, true)]  // San d'Oria, home nation
+        [InlineData(0x122, true)]  // Bastok, home nation
+        [InlineData(0x123, true)]  // Windurst, home nation
+        [InlineData(0x267, true)]  // second floor
+        [InlineData(0x26A, true)]
+        [InlineData(0x101, false)] // San d'Oria for another nation's character
+        [InlineData(0x102, false)]
+        [InlineData(0x120, false)]
+        [InlineData(0x100, false)] // Jeuno
+        [InlineData(0x124, false)] // Adoulin
+        [InlineData(214, false)]   // Aht Urhgan
+        [InlineData(745, false)]   // the Ronfaure front
+        [InlineData(0, false)]
+        public void OwnFurniture_ShowsOnlyInTheHomeNationsRooms(int room, bool shown) =>
+            Assert.Equal(shown, MogHouseRooms.ShowsOwnFurniture(room)); // #591
+
         [Fact]
         public void RoomNumbers_MapToTheirDats_UnderKeysApartFromZones()
         {

@@ -47,6 +47,12 @@ namespace Gordian.App.Graphics
         /// <summary>Worn items' names (retail capture: peak (183, 255, 213), light green).</summary>
         private static readonly UiColor EquippedTint = new(0x5C, 0x80, 0x6A, 0x80);
 
+        /// <summary>
+        /// Temporary items' names (#596): pale peach, sampled peak (255, 231, 198) on the retail client on local LSB
+        /// (2026-11-20, <c>596-temp-items-main-list-on-inventory.png</c>). **Differs from the issue**, which said light blue.
+        /// </summary>
+        internal static readonly UiColor TemporaryTint = new(0x80, 0x74, 0x63, 0x80);
+
         /// <summary>The row under the cursor (retail capture: peak (255, 255, 220), pale yellow).</summary>
         private static readonly UiColor SelectedRowTint = new(0x80, 0x80, 0x6E, 0x80);
 
@@ -134,7 +140,7 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
-                    : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
+                    : row.IsTemporary ? TemporaryTint : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
                 // A linkpearl, sack or shell takes its linkshell's colour (#490 round 1).
                 UiColor? iconTint = null;
                 if (row.LinkshellColor != 0)
