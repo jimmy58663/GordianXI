@@ -1597,7 +1597,8 @@ namespace Gordian.Engine.Input
 
         /// <summary>
         /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
-        /// steeper than its terrain's climb limit (<see cref="CollisionSettings.GetEffectiveMaxClimbSlope(Gordian.Core.Config.SessionProfile?, CollisionTerrain)"/>),
+        /// steeper than its climb limit (<see cref="CollisionSettings.GetEffectiveMaxClimbSlope(Gordian.Core.Config.SessionProfile?, CollisionTerrain, float)"/>:
+        /// its terrain's, or the general one for Stone in a built plane),
         /// or carrying the wall bit, that rises more than a step.
         /// </summary>
         private bool ClimbsTooSteep(ZoneCollisionMesh collision, Vector3 start, Vector3 target, out Vector3 normal)
@@ -1609,7 +1610,9 @@ namespace Gordian.Engine.Input
             if ((uint)ground.TriangleIndex >= (uint)triangles.Length) return false; // a moving platform's floor
             ref readonly var face = ref triangles[ground.TriangleIndex];
             // A face with the wall bit is never climbed (the maintainer's ask, round 3); any other face up to its terrain's limit.
-            float limit = Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile, ground.Terrain) * (MathF.PI / 180.0f);
+            // Stone in a large flat plane is a built stair or ramp and gets the general limit (round 5).
+            float planeArea = ground.Terrain == CollisionTerrain.Stone ? collision.GetPlaneArea(ground.TriangleIndex) : 0.0f;
+            float limit = Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile, ground.Terrain, planeArea) * (MathF.PI / 180.0f);
             if (!face.IsWall && -ground.Normal.Y >= MathF.Cos(limit)) return false;
             float rise = MathF.Max(face.A.Y, MathF.Max(face.B.Y, face.C.Y)) - MathF.Min(face.A.Y, MathF.Min(face.B.Y, face.C.Y));
             if (rise <= StepUpHeight) return false;

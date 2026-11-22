@@ -272,31 +272,37 @@ namespace Gordian.Engine.Tests.World.Collision
 
         /// <summary>
         /// Flat ground for x &lt; 0 and a ramp rising toward +X at <paramref name="slopeDegrees"/> from x = 0 to x = 10
-        /// (internal space: -Y is up), 20 yalms wide.
+        /// (internal space: -Y is up), 20 yalms wide: one flat plane of two triangles, or with <paramref name="rough"/> two
+        /// triangles a few degrees apart (the top corner at z = -10 raised a yalm), as natural rock is.
         /// </summary>
-        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees, CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false)
+        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees, CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false,
+            bool rough = false)
         {
             var triangles = Floor(-20, -10, 0, 10, 0.0f).ToList();
             float top = -10.0f * MathF.Tan(slopeDegrees * MathF.PI / 180.0f);
             var a = new Vector3(0, 0, -10);
-            var b = new Vector3(10, top, -10);
+            var b = new Vector3(10, top - (rough ? 1.0f : 0.0f), -10);
             var c = new Vector3(10, top, 10);
             var d = new Vector3(0, 0, 10);
-            var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
-            if (normal.Y > 0) normal = -normal;
-            triangles.Add(new CollisionTriangle(a, b, c, normal, wall, terrain, false));
-            triangles.Add(new CollisionTriangle(a, c, d, normal, wall, terrain, false));
+            triangles.Add(new CollisionTriangle(a, b, c, UpNormal(a, b, c), wall, terrain, false));
+            triangles.Add(new CollisionTriangle(a, c, d, UpNormal(a, c, d), wall, terrain, false));
             return triangles;
+
+            static Vector3 UpNormal(Vector3 a, Vector3 b, Vector3 c)
+            {
+                var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+                return normal.Y > 0 ? -normal : normal;
+            }
         }
 
         private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Player) OnRamp(float slopeDegrees, Vector3 start, byte direction,
-            CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false)
+            CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false, bool rough = false)
         {
             var world = new WorldState();
             var player = new LocalPlayerState { ServerId = 0x1001 };
             var localEnt = new PlayerEntity(player.ServerId, 1) { Position = start, Direction = direction, IsSpawned = true };
             world.UpsertEntity(localEnt);
-            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees, terrain, wall));
+            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees, terrain, wall, rough));
             var input = new InputState();
             var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player)
             {
@@ -308,19 +314,24 @@ namespace Gordian.Engine.Tests.World.Collision
         /// <summary>
         /// #610: a face steeper than its terrain's limit stops the player at its foot; shallower ramps are still walked up.
         /// Most terrain climbs to <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/> (55, under the 60-degree wall
-        /// limit), Stone only to <see cref="CollisionSettings.DefaultStoneClimbSlopeDegrees"/> (25), and a face with the wall
-        /// bit not at all.
+        /// limit), Stone only to <see cref="CollisionSettings.DefaultStoneClimbSlopeDegrees"/> (27) unless it is part of a
+        /// flat plane of <see cref="CollisionSettings.DefaultMinStonePlaneArea"/> or more (a built stair or ramp, round 5),
+        /// and a face with the wall bit not at all.
         /// </summary>
         [Theory]
-        [InlineData(40.0f, CollisionTerrain.Grass, false, true)]
-        [InlineData(50.0f, CollisionTerrain.Sand, false, true)]
-        [InlineData(58.0f, CollisionTerrain.Grass, false, false)]
-        [InlineData(20.0f, CollisionTerrain.Stone, false, true)]
-        [InlineData(30.0f, CollisionTerrain.Stone, false, false)]
-        [InlineData(20.0f, CollisionTerrain.Grass, true, false)]
-        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, CollisionTerrain terrain, bool wall, bool climbs)
+        [InlineData(40.0f, CollisionTerrain.Grass, false, false, true)]
+        [InlineData(50.0f, CollisionTerrain.Sand, false, false, true)]
+        [InlineData(58.0f, CollisionTerrain.Grass, false, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Stone, false, true, true)]
+        [InlineData(32.0f, CollisionTerrain.Stone, false, true, false)]
+        [InlineData(32.0f, CollisionTerrain.Stone, false, false, true)]
+        [InlineData(50.0f, CollisionTerrain.Stone, false, false, true)]
+        [InlineData(58.0f, CollisionTerrain.Stone, false, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Grass, true, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Stone, true, false, false)]
+        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, CollisionTerrain terrain, bool wall, bool rough, bool climbs)
         {
-            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0, terrain, wall); // facing +X
+            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0, terrain, wall, rough); // facing +X
             input.SetKeyDown(GordianKey.W);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
 
@@ -362,7 +373,7 @@ namespace Gordian.Engine.Tests.World.Collision
         public void TerrainClimbLimits_FollowTheirSettings_AndTheServerCapsThem()
         {
             var settings = new CollisionSettings();
-            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
             Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Sand));
             settings.SetTerrainClimbSlope(CollisionTerrain.Stone, 40.0f);
             settings.MaxClimbSlopeDegrees = 70.0f;
@@ -371,12 +382,47 @@ namespace Gordian.Engine.Tests.World.Collision
 
             var profile = new Gordian.Core.Config.SessionProfile();
             Gordian.Tests.Shared.SessionProfileTestExtensions.Restrict(profile, Gordian.Core.Config.FeatureRestrictions.WallCollisionOverride);
-            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Stone));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Stone));
             Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Sand));
 
             settings.ResetClimbSlopes();
-            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
             Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Grass));
+        }
+
+        /// <summary>
+        /// #610 round 5: a Stone face in a plane of at least the plane size takes the general limit, a smaller plane or a lone
+        /// face Stone's; other terrain ignores planes. The size follows its setting, but never drops below the built-in one
+        /// while the server protects walls.
+        /// </summary>
+        [Fact]
+        public void StonePlanes_TakeTheGeneralLimit_AboveThePlaneSize()
+        {
+            var settings = new CollisionSettings();
+            Assert.Equal(17.0f, settings.GetEffectiveMinStonePlaneArea(null));
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone, 17.7f));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone, 16.0f));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone, 0.0f));
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Sand, 0.0f));
+
+            settings.MinStonePlaneArea = 4.0f;
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone, 5.0f));
+            settings.MinStonePlaneArea = 0.0f;
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone, 0.0f)); // a lone face is never a plane
+
+            var profile = new Gordian.Core.Config.SessionProfile();
+            Gordian.Tests.Shared.SessionProfileTestExtensions.Restrict(profile, Gordian.Core.Config.FeatureRestrictions.WallCollisionOverride);
+            Assert.Equal(17.0f, settings.GetEffectiveMinStonePlaneArea(profile));
+            Assert.Equal(27.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Stone, 5.0f));
+
+            settings.ResetClimbSlopes();
+            Assert.Equal(17.0f, settings.MinStonePlaneArea);
+
+            var (controller, input, localEnt) = OnRamp(32.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0, CollisionTerrain.Stone);
+            controller.Collision.MinStonePlaneArea = 10000.0f; // /collision plane off
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+            Assert.True(localEnt.Position.X < 0.6f, $"walked to {localEnt.Position}");
         }
 
         /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>

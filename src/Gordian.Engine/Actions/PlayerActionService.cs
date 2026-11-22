@@ -1696,6 +1696,7 @@ namespace Gordian.Engine.Actions
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
             sb.AppendLine("  /collision slope [terrain] [deg|default] - Steepest slope you walk up");
+            sb.AppendLine("  /collision plane [area|default|off] - Smallest stone plane climbed as stairs");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
@@ -2777,12 +2778,14 @@ namespace Gordian.Engine.Actions
         /// Handles <c>/collision [ground|walls|entities|all] [on|off]</c>: no arguments reports the state, a layer alone
         /// toggles it, and on/off alone applies to every layer. Layers the server protects stay on.
         /// <c>/collision slope [terrain] [degrees|default]</c> reports or sets the steepest slope the player walks up, in general or on one terrain (#610).
+        /// <c>/collision plane [area|default|off]</c> reports or sets the smallest Stone plane climbed as stairs (#610).
         /// </summary>
         public PlayerActionResult ApplyCollisionCommand(string args)
         {
             const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
             var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (parts.Length > 0 && parts[0].Equals("slope", StringComparison.OrdinalIgnoreCase)) return ApplyClimbSlopeCommand(parts);
+            if (parts.Length > 0 && parts[0].Equals("plane", StringComparison.OrdinalIgnoreCase)) return ApplyStonePlaneCommand(parts);
             var layers = CollisionLayers.None;
             bool? turnOn = null;
             foreach (string part in parts)
@@ -2817,8 +2820,37 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
+        /// <c>/collision plane [area|default|off]</c>: the smallest flat plane (square yalms) whose Stone faces the local player
+        /// climbs as built stairs, at the general limit instead of Stone's (#610 round 5); <c>off</c> holds every Stone face to
+        /// Stone's limit. While the server protects walls the size is never below the built-in one.
+        /// </summary>
+        private PlayerActionResult ApplyStonePlaneCommand(string[] parts)
+        {
+            const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
+            const string Usage = "Usage: /collision plane [square yalms|default|off] (0-10000)";
+            if (parts.Length > 2) return PlayerActionResult.Warn(Usage, Kind);
+            if (parts.Length == 2)
+            {
+                string value = parts[1];
+                if (value.Equals("default", StringComparison.OrdinalIgnoreCase)) Collision.MinStonePlaneArea = CollisionSettings.DefaultMinStonePlaneArea;
+                else if (value.Equals("off", StringComparison.OrdinalIgnoreCase)) Collision.MinStonePlaneArea = 10000f;
+                else if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float area)
+                         && area >= 0f && area <= 10000f) Collision.MinStonePlaneArea = area;
+                else return PlayerActionResult.Warn(Usage, Kind);
+            }
+
+            float effective = Collision.GetEffectiveMinStonePlaneArea(_profile);
+            string summary = effective >= 10000f
+                ? "Collision: no stone plane is climbed as stairs."
+                : $"Collision: stone planes of {effective:0.#} square yalms or more are climbed as stairs (default {CollisionSettings.DefaultMinStonePlaneArea:0.#}).";
+            return effective > Collision.MinStonePlaneArea
+                ? PlayerActionResult.Warn(summary + " The server limits it.", Kind)
+                : PlayerActionResult.Ok(summary, Kind);
+        }
+
+        /// <summary>
         /// <c>/collision slope [degrees|default]</c> and <c>/collision slope &lt;terrain&gt; [degrees|default]</c>: the steepest
-        /// slope the local player walks up, in general or on one terrain type (Stone has its own, 25 degrees; #610).
+        /// slope the local player walks up, in general or on one terrain type (Stone has its own, 27 degrees; #610).
         /// </summary>
         private PlayerActionResult ApplyClimbSlopeCommand(string[] parts)
         {
@@ -2864,7 +2896,8 @@ namespace Gordian.Engine.Actions
                 limited |= effective < own;
                 summary.Append($", {each.ToString().ToLowerInvariant()} {effective:0.#}");
             }
-            summary.Append($"; wall-bit faces are never climbed (defaults {CollisionSettings.DefaultMaxClimbSlopeDegrees:0.#}, stone {CollisionSettings.DefaultStoneClimbSlopeDegrees:0.#}).");
+            summary.Append($"; stone planes of {Collision.GetEffectiveMinStonePlaneArea(_profile):0.#} square yalms or more take the general limit");
+            summary.Append($"; wall-bit faces are never climbed (defaults {CollisionSettings.DefaultMaxClimbSlopeDegrees:0.#}, stone {CollisionSettings.DefaultStoneClimbSlopeDegrees:0.#}, plane {CollisionSettings.DefaultMinStonePlaneArea:0.#}).");
             return limited
                 ? PlayerActionResult.Warn(summary + " The server limits it.", Kind)
                 : PlayerActionResult.Ok(summary.ToString(), Kind);
