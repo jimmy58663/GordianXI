@@ -1749,23 +1749,34 @@ namespace Gordian.Core.Resources
                 {
                     effect.Emitter = new Gordian.Core.Resources.Graphics.ZoneEmitterTemplate(gen, ResolveEmitterCurves(gen, genWeather, parentDir, envData),
                         schedule, scheduleLoop, isSprite ? effectMeshes.Count : 0, childOnly, isWeather: !string.IsNullOrEmpty(genWeather));
-                    // Paths (0x54 names a point list at +16): the generator's directory and its parents, then anywhere.
-                    foreach (var op in gen.Initializers)
+                    // Point lists, looked up in the generator's directory and its parents, then anywhere: paths (0x54 names
+                    // one at +16) and spawn points (0x4E / 0x4F name one at +4, xi-model-viewer FixedPointPositionVarianceSetup).
+                    Vector3[]? FindPointList(string listId)
                     {
-                        if (op.OpCode != 0x54 || op.Args.Length < 5) continue;
-                        string listId = FourCcOf(op.Args[4]);
-                        if (listId.Length == 0) continue;
-                        Vector3[]? path = null;
+                        Vector3[]? found = null;
                         string dir = parentDir ?? string.Empty;
-                        while (path == null)
+                        while (found == null)
                         {
-                            pointLists.TryGetValue($"dir:{dir}/{listId}", out path);
+                            pointLists.TryGetValue($"dir:{dir}/{listId}", out found);
                             if (dir.Length == 0) break;
                             int slash = dir.LastIndexOf('/');
                             dir = slash < 0 ? string.Empty : dir.Substring(0, slash);
                         }
-                        if (path == null) pointLists.TryGetValue(listId, out path);
-                        if (path != null) effect.Emitter.PointLists[op.Allocation] = path;
+                        if (found == null) pointLists.TryGetValue(listId, out found);
+                        return found;
+                    }
+                    foreach (var op in gen.Initializers)
+                    {
+                        if (op.OpCode == 0x54 && op.Args.Length >= 5 && FourCcOf(op.Args[4]) is { Length: > 0 } pathId &&
+                            FindPointList(pathId) is { } path)
+                        {
+                            effect.Emitter.PointLists[op.Allocation] = path;
+                        }
+                        else if (op.OpCode is 0x4E or 0x4F && op.Args.Length >= 2 && FourCcOf(op.Args[1]) is { Length: > 0 } spawnId &&
+                                 FindPointList(spawnId) is { Length: > 0 } spawnPoints)
+                        {
+                            effect.Emitter.SpawnPoints = spawnPoints;
+                        }
                     }
                     // Section 1 op 0x17: the emission count over the day (the birds' wabi, the fireflies' time).
                     if (gen.EmissionClockKeyFrameId.Length > 0)

@@ -201,5 +201,26 @@ namespace Gordian.Engine.Tests.Graphics
             Run(player, 600);
             Assert.Empty(Live(player));
         }
+
+        /// <summary>
+        /// Windurst Woods 588 (#233 round 2): Apururu's spell (package 5059 <c>mai1</c>) spawns its gold sparks
+        /// (<c>g002</c>, the child of the spinning <c>g01a</c>) at the points of list <c>apur</c> (initializer 0x4E). Before
+        /// that op was read they all spawned on one spot, so the game showed a single orb where retail shows a ring of sparks
+        /// rising around her hand (retail capture <c>233-windurst-woods-cs588.mp4</c>).
+        /// </summary>
+        [Fact]
+        public void ApururuSpellSparks_SpawnAtTheirPointList()
+        {
+            if (Open(5059) is not var (player, _)) return;
+            var sparks = player.Instance.Emitters.First(e => e.Layer.Name == "g002").Emitter;
+            Assert.NotNull(sparks.Template.SpawnPoints);
+            player.Start(1, "mai1");
+            for (int i = 0; i < 100; i++) player.Update(1, ActorFrame, CameraFrame);
+            var spots = player.Instance.Emitters.Where(e => e.Layer.Name == "g002")
+                .SelectMany(e => e.Emitter.Particles)
+                .Select(p => (MathF.Round(p.WorldPosition.X, 2), MathF.Round(p.WorldPosition.Y, 2), MathF.Round(p.WorldPosition.Z, 2)))
+                .Distinct().Count();
+            Assert.True(spots >= 4, $"the sparks should start at different points, got {spots} distinct spots");
+        }
     }
 }
