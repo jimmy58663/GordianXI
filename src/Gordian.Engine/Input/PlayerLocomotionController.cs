@@ -302,8 +302,9 @@ namespace Gordian.Engine.Input
         public const float BodyHeight = 1.6f;
 
         /// <summary>
-        /// The steepest slope, in degrees, the local player walks up (#610): <see cref="CollisionSettings.MaxClimbSlopeDegrees"/>
-        /// (default <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/>), capped while the server protects walls.
+        /// The steepest slope, in degrees, the local player walks up on terrain without a limit of its own (#610):
+        /// <see cref="CollisionSettings.MaxClimbSlopeDegrees"/> (default <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/>;
+        /// Stone has its own, <see cref="CollisionSettings.DefaultStoneClimbSlopeDegrees"/>), capped while the server protects walls.
         /// </summary>
         public float MaxClimbSlopeDegrees => Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile);
 
@@ -1565,8 +1566,8 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Keeps the local player off slopes steeper than <see cref="MaxClimbSlopeDegrees"/> (#610): a move that would rise
-        /// onto one keeps only its part along the slope (across it, or down), re-checked against walls; with nothing left, the
+        /// Keeps the local player off faces steeper than their terrain's climb limit, and off faces with the wall bit (#610): a
+        /// move that would rise onto one keeps only its part along the slope (across it, or down), re-checked against walls; with nothing left, the
         /// player stays put. Down and across a steep slope are free, and a steep face no taller than a step (a curb's lip, a
         /// small bump) is still stepped up, so stairs and the calibrated step-up are untouched. Local player only: remote
         /// players and NPCs go where the server puts them.
@@ -1596,25 +1597,20 @@ namespace Gordian.Engine.Input
 
         /// <summary>
         /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
-        /// steeper than <see cref="MaxClimbSlopeDegrees"/> that rises more than a step; under <see cref="ClimbRule.Path"/>,
-        /// only when the move itself also rises more steeply than the limit.
+        /// steeper than its terrain's climb limit (<see cref="CollisionSettings.GetEffectiveMaxClimbSlope(Gordian.Core.Config.SessionProfile?, CollisionTerrain)"/>),
+        /// or carrying the wall bit, that rises more than a step.
         /// </summary>
         private bool ClimbsTooSteep(ZoneCollisionMesh collision, Vector3 start, Vector3 target, out Vector3 normal)
         {
             normal = default;
             if (!TryFindGround(collision, target, FootRadius, out var ground)) return false;
             if (ground.Height >= start.Y - 1e-3f) return false; // level or down (internal -Y is up)
-            float limit = MaxClimbSlopeDegrees * (MathF.PI / 180.0f);
-            if (-ground.Normal.Y >= MathF.Cos(limit)) return false;
-            if (Collision.GetEffectiveClimbRule(_actionService?.Profile) == ClimbRule.Path)
-            {
-                // The path rule: only the move's own rise counts, so a run across the face at an angle climbs it.
-                float run = new Vector2(target.X - start.X, target.Z - start.Z).Length();
-                if (run > 1e-5f && (start.Y - ground.Height) <= run * MathF.Tan(limit)) return false;
-            }
             var triangles = collision.Triangles;
             if ((uint)ground.TriangleIndex >= (uint)triangles.Length) return false; // a moving platform's floor
             ref readonly var face = ref triangles[ground.TriangleIndex];
+            // A face with the wall bit is never climbed (the maintainer's ask, round 3); any other face up to its terrain's limit.
+            float limit = Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile, ground.Terrain) * (MathF.PI / 180.0f);
+            if (!face.IsWall && -ground.Normal.Y >= MathF.Cos(limit)) return false;
             float rise = MathF.Max(face.A.Y, MathF.Max(face.B.Y, face.C.Y)) - MathF.Min(face.A.Y, MathF.Min(face.B.Y, face.C.Y));
             if (rise <= StepUpHeight) return false;
             normal = ground.Normal;

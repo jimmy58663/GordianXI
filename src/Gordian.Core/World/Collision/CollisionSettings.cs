@@ -53,48 +53,86 @@ namespace Gordian.Core.World.Collision
         public CollisionLayers GetEffective(SessionProfile? profile) => Requested | GetLocked(profile);
 
         /// <summary>
-        /// The steepest floor, in degrees, the local player walks up (#610). LandSandBoat's navmesh walkable slope
-        /// (<c>navmesh_config.h</c> <c>walkableSlopeAngle</c>, 46, "Previous xiNavmeshes value"). Round 1 of the 2026-11-20 test
-        /// climbed a rock in Valkurm Dunes (zone 103, server position 86.78, -0.98, -103.80) at 55: its way up crosses a
-        /// 47-degree stone face; at 46 or 50 the climb stops on the 43-44 degree ledge below the top. Bastok Markets' Path
-        /// ramp (zone 234, around -146, -44) climbs on faces of at most about 41 degrees. Provisional: <c>/collision slope</c>
-        /// tunes it in game until a retail check sets it.
+        /// The steepest floor, in degrees, the local player walks up on every terrain but <see cref="CollisionTerrain.Stone"/>
+        /// (#610 round 4). Bastok Markets' Path ramp (zone 234, around -146, -44) reaches its landing only above 45 degrees (its
+        /// top face is a 45-degree Path triangle; at 46 runs stopped 3.5 yalms up, under the landing), and round 2 of the
+        /// 2026-11-20 test found 40 blocking slopes retail climbs; the Valkurm Dunes sand the maintainer walks up is 40-42
+        /// degrees. Steep sand is rare (Valkurm Dunes has 25 sand faces past 60 degrees against 9167 stone ones). Provisional.
         /// </summary>
-        public const float DefaultMaxClimbSlopeDegrees = 46.0f;
+        public const float DefaultMaxClimbSlopeDegrees = 55.0f;
+
+        /// <summary>
+        /// The steepest <see cref="CollisionTerrain.Stone"/> floor the local player walks up (#610 round 4). Round 3 of the
+        /// 2026-11-20 test: in retail the Valkurm Dunes rock at server position (86.78, -0.98, -103.80) stops the player at
+        /// the edges where its sand triangles (40-42 degrees, #83697 / #83700 / #82300) meet the stone ones (#83701 at 29,
+        /// #85523 at 39), the line between the sand and rock textures (the maintainer's screenshot). Neither side carries the
+        /// wall bit, and the stone is gentler than the sand, so only the terrain changes there; 25 degrees stops every run
+        /// from the spot on the sand at those edges. In field zones Stone is the rock and cliff terrain (the steep walls by
+        /// Selbina's gate are all Stone), while cities use it for some floors and ramps too. Provisional.
+        /// </summary>
+        public const float DefaultStoneClimbSlopeDegrees = 25.0f;
+
+        /// <summary>The built-in climb limit for faces of <paramref name="terrain"/>.</summary>
+        public static float DefaultClimbSlope(CollisionTerrain terrain) =>
+            terrain == CollisionTerrain.Stone ? DefaultStoneClimbSlopeDegrees : DefaultMaxClimbSlopeDegrees;
 
         private float _maxClimbSlopeDegrees = DefaultMaxClimbSlopeDegrees;
+        private readonly float?[] _terrainClimbSlopes = CreateTerrainDefaults();
 
-        /// <summary>The steepest slope the player has asked to walk up (1-89 degrees); see <see cref="GetEffectiveMaxClimbSlope"/>.</summary>
+        private static float?[] CreateTerrainDefaults()
+        {
+            var limits = new float?[16];
+            limits[(int)CollisionTerrain.Stone] = DefaultStoneClimbSlopeDegrees;
+            return limits;
+        }
+
+        /// <summary>
+        /// The steepest slope the player has asked to walk up (1-89 degrees) on terrain without a limit of its own; see
+        /// <see cref="GetEffectiveMaxClimbSlope(SessionProfile?, CollisionTerrain)"/>.
+        /// </summary>
         public float MaxClimbSlopeDegrees
         {
             get => _maxClimbSlopeDegrees;
             set => _maxClimbSlopeDegrees = Math.Clamp(value, 1.0f, 89.0f);
         }
 
+        /// <summary>A terrain type's own climb limit in degrees, or null when it uses <see cref="MaxClimbSlopeDegrees"/>.</summary>
+        public float? GetTerrainClimbSlope(CollisionTerrain terrain) =>
+            (uint)terrain < (uint)_terrainClimbSlopes.Length ? _terrainClimbSlopes[(int)terrain] : null;
+
+        /// <summary>Sets a terrain type's own climb limit (1-89 degrees), or with null makes it follow <see cref="MaxClimbSlopeDegrees"/>.</summary>
+        public void SetTerrainClimbSlope(CollisionTerrain terrain, float? degrees)
+        {
+            if ((uint)terrain >= (uint)_terrainClimbSlopes.Length) return;
+            _terrainClimbSlopes[(int)terrain] = degrees is { } d ? Math.Clamp(d, 1.0f, 89.0f) : null;
+        }
+
+        /// <summary>Puts every climb limit back to the built-in ones.</summary>
+        public void ResetClimbSlopes()
+        {
+            _maxClimbSlopeDegrees = DefaultMaxClimbSlopeDegrees;
+            var defaults = CreateTerrainDefaults();
+            Array.Copy(defaults, _terrainClimbSlopes, defaults.Length);
+        }
+
         /// <summary>
-        /// The steepest slope in force: the requested one, but never steeper than <see cref="DefaultMaxClimbSlopeDegrees"/>
-        /// while the server protects wall collision (<see cref="FeatureRestrictions.WallCollisionOverride"/>), so the setting
-        /// cannot be used to climb walls there.
+        /// The climb limit in force on a face of <paramref name="terrain"/>: its own limit if set, else the general one, but
+        /// never steeper than the built-in one (<see cref="DefaultClimbSlope"/>) while the server protects wall collision
+        /// (<see cref="FeatureRestrictions.WallCollisionOverride"/>), so the setting cannot be used to climb walls there.
         /// </summary>
+        public float GetEffectiveMaxClimbSlope(SessionProfile? profile, CollisionTerrain terrain)
+        {
+            float requested = GetTerrainClimbSlope(terrain) ?? _maxClimbSlopeDegrees;
+            return profile != null && profile.IsRestricted(FeatureRestrictions.WallCollisionOverride)
+                ? Math.Min(requested, DefaultClimbSlope(terrain))
+                : requested;
+        }
+
+        /// <summary>The general climb limit in force (terrain without a limit of its own).</summary>
         public float GetEffectiveMaxClimbSlope(SessionProfile? profile) =>
             profile != null && profile.IsRestricted(FeatureRestrictions.WallCollisionOverride)
                 ? Math.Min(_maxClimbSlopeDegrees, DefaultMaxClimbSlopeDegrees)
                 : _maxClimbSlopeDegrees;
-
-        /// <summary>
-        /// How the climb limit is measured (#610 round 3): <see cref="ClimbRule.Face"/> (the default) stops a climb onto any
-        /// face steeper than the limit; <see cref="ClimbRule.Path"/> stops only a move whose own rise along its direction is
-        /// steeper, so running across a steep face at an angle climbs it. Set with <c>/collision slope face|path</c> to
-        /// compare with retail at the Valkurm Dunes rock.
-        /// </summary>
-        public ClimbRule ClimbRule { get; set; } = ClimbRule.Face;
-
-        /// <summary>
-        /// The climb rule in force: <see cref="ClimbRule.Face"/> while the server protects wall collision, since the path
-        /// rule climbs more.
-        /// </summary>
-        public ClimbRule GetEffectiveClimbRule(SessionProfile? profile) =>
-            profile != null && profile.IsRestricted(FeatureRestrictions.WallCollisionOverride) ? ClimbRule.Face : ClimbRule;
 
         /// <summary>
         /// Parses a layer name used by the <c>/collision</c> command.
@@ -111,15 +149,5 @@ namespace Gordian.Core.World.Collision
             };
             return layer != CollisionLayers.None;
         }
-    }
-
-    /// <summary>How the steepest-climb limit is measured (#610).</summary>
-    public enum ClimbRule
-    {
-        /// <summary>A climb onto a face steeper than the limit is stopped, whatever the direction of the move.</summary>
-        Face,
-
-        /// <summary>A climb is stopped only when the move's own rise over its horizontal length is steeper than the limit.</summary>
-        Path,
     }
 }

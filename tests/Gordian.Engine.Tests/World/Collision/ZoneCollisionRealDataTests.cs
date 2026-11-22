@@ -209,17 +209,16 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         /// <summary>
-        /// #610 round 1 (2026-11-20): the maintainer climbed a rock in Valkurm Dunes from server position (86.78, -0.98,
-        /// -103.80); retail does not let you. Its way up crosses a 47-degree stone face; with the 55-degree limit runs from
-        /// around the spot rose up to 10.9 yalms onto its top, with the 46-degree default they stop on the ledge below
-        /// (at most about 5.6). Bastok Markets' Path ramp (zone 234, about 3.4 yalms of faces up to about 41 degrees) is
-        /// still walked up.
+        /// #610: the maintainer climbed a rock in Valkurm Dunes from server position (86.78, -0.98, -103.80); retail stops
+        /// them where its 40-42 degree sand triangles meet the stone ones above (round 3: the edges drawn on their
+        /// screenshot), about a yalm up. With Stone's own 25-degree limit runs from around the spot stay on the sand (they
+        /// reached 5.3 yalms with one 46-degree limit, 10.9 with 55). Bastok Markets' Path ramp (zone 234) is still walked up
+        /// onto its landing, 4.35 yalms up, which its 45-degree top face kept a 46-degree limit from.
         /// </summary>
         [Theory]
-        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 7.0f, ClimbRule.Face)]
-        [InlineData(234, -146.0f, -1.9f, -44.0f, 3.0f, 100.0f, ClimbRule.Face)]
-        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 100.0f, ClimbRule.Path)] // reported only: round 3 compares it in game
-        public void ClimbLimit_StopsTheValkurmRock_AndKeepsBastoksRamp(int zoneId, float x, float height, float z, float minRise, float maxRise, ClimbRule rule)
+        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 3.0f)]
+        [InlineData(234, -146.0f, -1.9f, -44.0f, 4.0f, 100.0f)]
+        public void ClimbLimit_StopsTheValkurmRock_AndKeepsBastoksRamp(int zoneId, float x, float height, float z, float minRise, float maxRise)
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
@@ -242,7 +241,6 @@ namespace Gordian.Engine.Tests.World.Collision
                         world.UpsertEntity(me);
                         var input = new InputState();
                         var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = h * 22.5f };
-                        controller.Collision.ClimbRule = rule;
                         input.SetKeyDown(GordianKey.W);
                         float highest = me.Position.Y;
                         for (int i = 0; i < 300; i++)
@@ -254,7 +252,7 @@ namespace Gordian.Engine.Tests.World.Collision
                     }
                 }
             }
-            _output.WriteLine($"Zone {zoneId} ({rule}): highest climb {best:F2} yalms");
+            _output.WriteLine($"Zone {zoneId}: highest climb {best:F2} yalms");
             Assert.InRange(best, minRise, maxRise);
         }
     }

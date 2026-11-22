@@ -274,7 +274,7 @@ namespace Gordian.Engine.Tests.World.Collision
         /// Flat ground for x &lt; 0 and a ramp rising toward +X at <paramref name="slopeDegrees"/> from x = 0 to x = 10
         /// (internal space: -Y is up), 20 yalms wide.
         /// </summary>
-        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees)
+        private static List<CollisionTriangle> FloorAndRamp(float slopeDegrees, CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false)
         {
             var triangles = Floor(-20, -10, 0, 10, 0.0f).ToList();
             float top = -10.0f * MathF.Tan(slopeDegrees * MathF.PI / 180.0f);
@@ -284,18 +284,19 @@ namespace Gordian.Engine.Tests.World.Collision
             var d = new Vector3(0, 0, 10);
             var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
             if (normal.Y > 0) normal = -normal;
-            triangles.Add(new CollisionTriangle(a, b, c, normal, false, CollisionTerrain.Grass, false));
-            triangles.Add(new CollisionTriangle(a, c, d, normal, false, CollisionTerrain.Grass, false));
+            triangles.Add(new CollisionTriangle(a, b, c, normal, wall, terrain, false));
+            triangles.Add(new CollisionTriangle(a, c, d, normal, wall, terrain, false));
             return triangles;
         }
 
-        private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Player) OnRamp(float slopeDegrees, Vector3 start, byte direction)
+        private static (PlayerLocomotionController Controller, InputState Input, PlayerEntity Player) OnRamp(float slopeDegrees, Vector3 start, byte direction,
+            CollisionTerrain terrain = CollisionTerrain.Grass, bool wall = false)
         {
             var world = new WorldState();
             var player = new LocalPlayerState { ServerId = 0x1001 };
             var localEnt = new PlayerEntity(player.ServerId, 1) { Position = start, Direction = direction, IsSpawned = true };
             world.UpsertEntity(localEnt);
-            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees));
+            world.Collision = new ZoneCollisionMesh(FloorAndRamp(slopeDegrees, terrain, wall));
             var input = new InputState();
             var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player)
             {
@@ -305,17 +306,21 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         /// <summary>
-        /// #610: a face steeper than <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/> (46, under the 60-degree
-        /// wall limit) stops the player at its foot; shallower ramps are still walked up.
+        /// #610: a face steeper than its terrain's limit stops the player at its foot; shallower ramps are still walked up.
+        /// Most terrain climbs to <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/> (55, under the 60-degree wall
+        /// limit), Stone only to <see cref="CollisionSettings.DefaultStoneClimbSlopeDegrees"/> (25), and a face with the wall
+        /// bit not at all.
         /// </summary>
         [Theory]
-        [InlineData(40.0f, true)]
-        [InlineData(45.0f, true)]
-        [InlineData(50.0f, false)]
-        [InlineData(58.0f, false)]
-        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, bool climbs)
+        [InlineData(40.0f, CollisionTerrain.Grass, false, true)]
+        [InlineData(50.0f, CollisionTerrain.Sand, false, true)]
+        [InlineData(58.0f, CollisionTerrain.Grass, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Stone, false, true)]
+        [InlineData(30.0f, CollisionTerrain.Stone, false, false)]
+        [InlineData(20.0f, CollisionTerrain.Grass, true, false)]
+        public void SteepSlope_StopsTheClimb_ShallowerOnesAreWalked(float slopeDegrees, CollisionTerrain terrain, bool wall, bool climbs)
         {
-            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0); // facing +X
+            var (controller, input, localEnt) = OnRamp(slopeDegrees, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0, terrain, wall); // facing +X
             input.SetKeyDown(GordianKey.W);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
 
@@ -342,39 +347,36 @@ namespace Gordian.Engine.Tests.World.Collision
             settings.MaxClimbSlopeDegrees = 30.0f;
             Assert.Equal(30.0f, settings.GetEffectiveMaxClimbSlope(profile));
 
-            var (controller, input, localEnt) = OnRamp(50.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0);
-            controller.Collision.MaxClimbSlopeDegrees = 55.0f;
+            var (controller, input, localEnt) = OnRamp(58.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction: 0);
+            controller.Collision.MaxClimbSlopeDegrees = 59.0f;
             input.SetKeyDown(GordianKey.W);
             for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
             Assert.True(localEnt.Position.Y < -1.5f, $"stuck at {localEnt.Position}");
         }
 
         /// <summary>
-        /// #610 round 3: under <see cref="ClimbRule.Path"/> a 50-degree face, steeper than the 46-degree limit, is climbed by
-        /// running across it at 45 degrees (the move rises at about 40 degrees), and still not by running straight up it;
-        /// under the default <see cref="ClimbRule.Face"/> neither climbs. The server's wall restriction keeps the face rule.
+        /// #610 round 4: Stone's own limit follows its setting, a terrain without one follows the general limit, and the
+        /// server's wall restriction caps each at its built-in value.
         /// </summary>
         [Fact]
-        public void PathRule_ClimbsASteepFaceAtAnAngle_NotStraightUp()
+        public void TerrainClimbLimits_FollowTheirSettings_AndTheServerCapsThem()
         {
-            float Climb(ClimbRule rule, byte direction)
-            {
-                var (controller, input, localEnt) = OnRamp(50.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction);
-                controller.Collision.ClimbRule = rule;
-                input.SetKeyDown(GordianKey.W);
-                for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
-                return -localEnt.Position.Y; // internal -Y is up
-            }
+            var settings = new CollisionSettings();
+            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Sand));
+            settings.SetTerrainClimbSlope(CollisionTerrain.Stone, 40.0f);
+            settings.MaxClimbSlopeDegrees = 70.0f;
+            Assert.Equal(40.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
+            Assert.Equal(70.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Sand));
 
-            Assert.True(Climb(ClimbRule.Path, 32) > 1.5f, "path rule, at an angle");
-            Assert.True(Climb(ClimbRule.Path, 0) < 0.5f, "path rule, straight up");
-            Assert.True(Climb(ClimbRule.Face, 32) < 0.5f, "face rule, at an angle");
-
-            var settings = new CollisionSettings { ClimbRule = ClimbRule.Path };
             var profile = new Gordian.Core.Config.SessionProfile();
-            Assert.Equal(ClimbRule.Path, settings.GetEffectiveClimbRule(profile));
             Gordian.Tests.Shared.SessionProfileTestExtensions.Restrict(profile, Gordian.Core.Config.FeatureRestrictions.WallCollisionOverride);
-            Assert.Equal(ClimbRule.Face, settings.GetEffectiveClimbRule(profile));
+            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Stone));
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(profile, CollisionTerrain.Sand));
+
+            settings.ResetClimbSlopes();
+            Assert.Equal(25.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Stone));
+            Assert.Equal(55.0f, settings.GetEffectiveMaxClimbSlope(null, CollisionTerrain.Grass));
         }
 
         /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>

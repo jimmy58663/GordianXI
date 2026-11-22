@@ -1695,7 +1695,7 @@ namespace Gordian.Engine.Actions
                 sb.AppendLine("  /moveto <x> <height> <y>  - Move to target coordinates, server order (/goto)");
             }
             sb.AppendLine("  /collision [layer] [on|off] - Toggle ground, walls or entities collision (/col)");
-            sb.AppendLine("  /collision slope [deg|default|face|path] - Steepest slope you walk up");
+            sb.AppendLine("  /collision slope [terrain] [deg|default] - Steepest slope you walk up");
             sb.AppendLine("  /anchor [on|off]          - Ignore knockback (off by default; the server can forbid it)");
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
@@ -2776,7 +2776,7 @@ namespace Gordian.Engine.Actions
         /// <summary>
         /// Handles <c>/collision [ground|walls|entities|all] [on|off]</c>: no arguments reports the state, a layer alone
         /// toggles it, and on/off alone applies to every layer. Layers the server protects stay on.
-        /// <c>/collision slope [degrees|default|face|path]</c> reports or sets the steepest slope the player walks up, and how it is measured (#610).
+        /// <c>/collision slope [terrain] [degrees|default]</c> reports or sets the steepest slope the player walks up, in general or on one terrain (#610).
         /// </summary>
         public PlayerActionResult ApplyCollisionCommand(string args)
         {
@@ -2817,33 +2817,57 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
-        /// <c>/collision slope [degrees|default|face|path]</c>: the steepest slope the local player walks up, and how it is
-        /// measured (#610).
+        /// <c>/collision slope [degrees|default]</c> and <c>/collision slope &lt;terrain&gt; [degrees|default]</c>: the steepest
+        /// slope the local player walks up, in general or on one terrain type (Stone has its own, 25 degrees; #610).
         /// </summary>
         private PlayerActionResult ApplyClimbSlopeCommand(string[] parts)
         {
             const ChatCommandResultKind Kind = ChatCommandResultKind.CollisionToggle;
-            if (parts.Length > 2) return PlayerActionResult.Warn("Usage: /collision slope [degrees|default|face|path]", Kind);
-            if (parts.Length == 2)
+            const string Usage = "Usage: /collision slope [<terrain>] [degrees|default] (1-89; terrain: stone, sand, grass, path, ...)";
+            static bool TryDegrees(string text, out float degrees) =>
+                float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out degrees)
+                && degrees >= 1f && degrees <= 89f;
+
+            if (parts.Length > 3) return PlayerActionResult.Warn(Usage, Kind);
+            CollisionTerrain? terrain = null;
+            int valueIndex = 1;
+            if (parts.Length >= 2 && !TryDegrees(parts[1], out _) && !parts[1].Equals("default", StringComparison.OrdinalIgnoreCase))
             {
-                if (parts[1].Equals("default", StringComparison.OrdinalIgnoreCase))
-                {
-                    Collision.MaxClimbSlopeDegrees = CollisionSettings.DefaultMaxClimbSlopeDegrees;
-                    Collision.ClimbRule = ClimbRule.Face;
-                }
-                else if (parts[1].Equals("face", StringComparison.OrdinalIgnoreCase)) Collision.ClimbRule = ClimbRule.Face;
-                else if (parts[1].Equals("path", StringComparison.OrdinalIgnoreCase)) Collision.ClimbRule = ClimbRule.Path;
-                else if (float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float degrees) && degrees >= 1f && degrees <= 89f)
-                    Collision.MaxClimbSlopeDegrees = degrees;
-                else return PlayerActionResult.Warn("Usage: /collision slope [degrees|default|face|path] (1-89)", Kind);
+                if (!Enum.TryParse(parts[1], ignoreCase: true, out CollisionTerrain parsed) || int.TryParse(parts[1], out _))
+                    return PlayerActionResult.Warn(Usage, Kind);
+                terrain = parsed;
+                valueIndex = 2;
             }
-            float effective = Collision.GetEffectiveMaxClimbSlope(_profile);
-            var rule = Collision.GetEffectiveClimbRule(_profile);
-            string ruleText = rule == ClimbRule.Path ? "measured along the move (path)" : "measured on the face (face)";
-            string summary = $"Collision: steepest climb {effective:0.#} degrees, {ruleText} (default {CollisionSettings.DefaultMaxClimbSlopeDegrees:0.#}, face).";
-            return effective < Collision.MaxClimbSlopeDegrees || rule != Collision.ClimbRule
+            else if (parts.Length == 3)
+            {
+                return PlayerActionResult.Warn(Usage, Kind);
+            }
+
+            if (parts.Length > valueIndex)
+            {
+                string value = parts[valueIndex];
+                bool reset = value.Equals("default", StringComparison.OrdinalIgnoreCase);
+                if (!reset && !TryDegrees(value, out _)) return PlayerActionResult.Warn(Usage, Kind);
+                TryDegrees(value, out float degrees);
+                if (terrain is { } t)
+                    Collision.SetTerrainClimbSlope(t, reset ? (t == CollisionTerrain.Stone ? CollisionSettings.DefaultStoneClimbSlopeDegrees : null) : degrees);
+                else if (reset) Collision.ResetClimbSlopes();
+                else Collision.MaxClimbSlopeDegrees = degrees;
+            }
+
+            var summary = new System.Text.StringBuilder($"Collision: steepest climb {Collision.GetEffectiveMaxClimbSlope(_profile):0.#} degrees");
+            bool limited = Collision.GetEffectiveMaxClimbSlope(_profile) < Collision.MaxClimbSlopeDegrees;
+            foreach (CollisionTerrain each in Enum.GetValues<CollisionTerrain>())
+            {
+                if (Collision.GetTerrainClimbSlope(each) is not { } own) continue;
+                float effective = Collision.GetEffectiveMaxClimbSlope(_profile, each);
+                limited |= effective < own;
+                summary.Append($", {each.ToString().ToLowerInvariant()} {effective:0.#}");
+            }
+            summary.Append($"; wall-bit faces are never climbed (defaults {CollisionSettings.DefaultMaxClimbSlopeDegrees:0.#}, stone {CollisionSettings.DefaultStoneClimbSlopeDegrees:0.#}).");
+            return limited
                 ? PlayerActionResult.Warn(summary + " The server limits it.", Kind)
-                : PlayerActionResult.Ok(summary, Kind);
+                : PlayerActionResult.Ok(summary.ToString(), Kind);
         }
 
         /// <summary>
