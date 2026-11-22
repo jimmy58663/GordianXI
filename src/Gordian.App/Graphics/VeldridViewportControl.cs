@@ -1422,7 +1422,7 @@ namespace Gordian.App.Graphics
                 float drawnDeg = drawn * (180.0f / MathF.PI);
                 if (Off(drawnDeg, tickDeg) > 15.0f || Off(camera.Yaw, tickDeg) > 15.0f)
                 {
-                    GordianLog.Warn(LogCategories.Lifecycle, $"Zone-in view check: tick heading {tickDeg:F0}, drawn {drawnDeg:F0}, camera yaw {camera.Yaw:F0}, tick camera yaw {lastTick.CameraYaw:F0}, entity direction {(cameraEntity?.Direction ?? 0)}.");
+                    GordianLog.Warn(LogCategories.Lifecycle, $"Zone-in view check: tick heading {tickDeg:F0}, drawn {drawnDeg:F0}, camera yaw {camera.Yaw:F0}, tick camera yaw {lastTick.CameraYaw:F0}, entity direction {(cameraEntity?.Direction ?? 0)} (wire; the others in degrees).");
                     view.ArrivalCheckFrames = 0;
                 }
             }

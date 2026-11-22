@@ -72,12 +72,65 @@ namespace Gordian.Engine.Tests.Input
             Assert.NotEqual(previousYaw, controller.CameraYaw);
             Assert.Equal(1, controller.ArrivalFacingCount);
 
+            // The screen goes black and is revealed: the zone-in hold ends.
+            controller.InputBlocked = true;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            controller.InputBlocked = false;
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(controller.ArrivalHeld);
+            Assert.Equal(2, controller.ArrivalFacingCount); // the reveal turns the camera behind it again
+
             input.SetKeyDown(GordianKey.W);
             controller.Update(TimeSpan.FromSeconds(0.5));
             Assert.True(localEnt.Position.Z < -2.0f, $"walked to {localEnt.Position}");
             Assert.True(MathF.Abs(localEnt.Position.X) < 0.1f, $"walked to {localEnt.Position}");
             Assert.Equal(64, localEnt.Direction);
-            Assert.Equal(1, controller.ArrivalFacingCount); // once per zone-in
+            Assert.Equal(2, controller.ArrivalFacingCount);
+        }
+
+        /// <summary>
+        /// #588 round 2 (the maintainer's logs of 2026-11-21): the S2C 0x00A came while the fade was still going, before
+        /// <see cref="PlayerLocomotionController.InputBlocked"/>, and a held key turned the player at the arrival point
+        /// (Valkurm Dunes to Selbina: 0x00A heading 63, turned to 1 within 0.13 s). From the zone-in until the reveal no
+        /// input moves or turns the player.
+        /// </summary>
+        [Fact]
+        public void ZoneIn_HeldKeys_DoNotTurnThePlayer_UntilTheReveal()
+        {
+            var (controller, input, world, _, localEnt) = CreateTestHarness();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            input.SetKeyDown(GordianKey.D); // held through the zone line
+
+            localEnt.Direction = 63;
+            world.NotifyZoneEntered(248);
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(16)); // fading, not yet black
+            Assert.True(controller.ArrivalHeld);
+            Assert.Equal(63, localEnt.Direction);
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+
+            controller.InputBlocked = true; // fully black
+            for (int i = 0; i < 30; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.Equal(63, localEnt.Direction);
+
+            controller.InputBlocked = false; // revealed: facing 63 with the camera behind it, then the key acts again
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.False(controller.ArrivalHeld);
+            Assert.Equal(63 * 360.0f / 256.0f, controller.CameraYaw, 2);
+            for (int i = 0; i < 10; i++) controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.NotEqual(Vector3.Zero, localEnt.Position);
+        }
+
+        /// <summary>With no loading screen gating the session (headless), the zone-in hold lets go after a few seconds.</summary>
+        [Fact]
+        public void ZoneIn_WithNoLoadingScreen_TheHoldEndsByItself()
+        {
+            var (controller, _, world, _, _) = CreateTestHarness();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            world.NotifyZoneEntered(248);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            Assert.True(controller.ArrivalHeld);
+            controller.Update(TimeSpan.FromSeconds(PlayerLocomotionController.ArrivalUngatedHoldSeconds));
+            Assert.False(controller.ArrivalHeld);
         }
 
         /// <summary>The server's FreezeFlag (S2C 0x037 flags1 bit 13) holds the player, and lets go when it clears (#511).</summary>
