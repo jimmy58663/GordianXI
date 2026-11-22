@@ -302,13 +302,6 @@ namespace Gordian.Engine.Input
         public const float BodyHeight = 1.6f;
 
         /// <summary>
-        /// The steepest slope, in degrees, the local player walks up on terrain without a limit of its own (#610):
-        /// <see cref="CollisionSettings.MaxClimbSlopeDegrees"/> (default <see cref="CollisionSettings.DefaultMaxClimbSlopeDegrees"/>;
-        /// Stone has its own, <see cref="CollisionSettings.DefaultStoneClimbSlopeDegrees"/>), capped while the server protects walls.
-        /// </summary>
-        public float MaxClimbSlopeDegrees => Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile);
-
-        /// <summary>
         /// The session's collision toggles (shared with <see cref="PlayerActionService.Collision"/> when there is one).
         /// </summary>
         public CollisionSettings Collision => _actionService?.Collision ?? _ownCollision;
@@ -1597,7 +1590,7 @@ namespace Gordian.Engine.Input
 
         /// <summary>
         /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
-        /// steeper than its climb limit (<see cref="CollisionSettings.GetEffectiveMaxClimbSlope(Gordian.Core.Config.SessionProfile?, CollisionTerrain, float)"/>:
+        /// steeper than its climb limit (<see cref="CollisionSettings.ClimbSlopeDegrees(CollisionTerrain, float)"/>:
         /// its terrain's, or the general one for Stone in a built plane),
         /// or carrying the wall bit, that rises more than a step.
         /// </summary>
@@ -1612,7 +1605,7 @@ namespace Gordian.Engine.Input
             // A face with the wall bit is never climbed (the maintainer's ask, round 3); any other face up to its terrain's limit.
             // Stone in a large flat plane is a built stair or ramp and gets the general limit (round 5).
             float planeArea = ground.Terrain == CollisionTerrain.Stone ? collision.GetPlaneArea(ground.TriangleIndex) : 0.0f;
-            float limit = Collision.GetEffectiveMaxClimbSlope(_actionService?.Profile, ground.Terrain, planeArea) * (MathF.PI / 180.0f);
+            float limit = CollisionSettings.ClimbSlopeDegrees(ground.Terrain, planeArea) * (MathF.PI / 180.0f);
             if (!face.IsWall && -ground.Normal.Y >= MathF.Cos(limit)) return false;
             float rise = MathF.Max(face.A.Y, MathF.Max(face.B.Y, face.C.Y)) - MathF.Min(face.A.Y, MathF.Min(face.B.Y, face.C.Y));
             if (rise <= StepUpHeight) return false;
