@@ -409,6 +409,22 @@ namespace Gordian.App.Graphics
             entity.ServerId == LocalPlayerServerId && LocalPlayerServerId != 0 ? entity.IsDrawn : entity.IsDrawnToOthers;
 
         /// <summary>
+        /// Runs the motion of an actor an event keeps hidden, so a gesture the script starts before showing it is already
+        /// under way when it appears (#614). Lower Delkfutt's Tower's event 38 starts the Wolfgang stand-in 0x010B8124's
+        /// <c>bk00</c> at 19.28 s and shows it at 19.65 s; with its motion paused while hidden, the gesture only started when
+        /// it was shown and its first frames blended out of the idle stance, a flash of the wrong stance on the shot change.
+        /// Retail's motion scheduler keeps running for a hidden actor (*inference* from the script: it times the swap with the
+        /// gesture already playing).
+        /// </summary>
+        private static void AdvanceHiddenEventActor(WorldEntity entity, EntityModel? model, float deltaSeconds)
+        {
+            if (model is not { Skeleton.Count: > 0 } || entity.IsMotionStopped) return;
+            float frameSeconds = entity.Animation.ClaimFrameTime(deltaSeconds);
+            bool engaged = entity.ClaimServerId != 0 || entity.AnimationState == 1;
+            entity.Animation.Advance(frameSeconds, AnimationStateClassifier.Classify(entity, engaged), entity.AnimationSub, model);
+        }
+
+        /// <summary>
         /// Renders all active, spawned entities in the world into the active command list.
         /// </summary>
         /// <summary>
@@ -562,7 +578,11 @@ namespace Gordian.App.Graphics
                     // An actor an event keeps hidden has its model built ahead (#459 round 3): Lower Delkfutt's Tower's events
                     // 38 and 39 swap three Wolfgang entities (0x010B8122-24) by hiding one and showing the next, 0.37 s apart,
                     // and one first built when shown was missing for the frames its build took.
-                    if (entity.IsEventHidden && entity.ServerId != localPlayerServerId) resourceManager?.RequestEntityModel(entity, out _);
+                    if (entity.IsEventHidden && entity.ServerId != localPlayerServerId && resourceManager != null)
+                    {
+                        resourceManager.RequestEntityModel(entity, out var hiddenModel);
+                        AdvanceHiddenEventActor(entity, hiddenModel, deltaSeconds);
+                    }
                     continue;
                 }
 

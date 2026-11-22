@@ -173,6 +173,12 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether the room shown is a second floor (the furniture there is the second floor's).</summary>
         bool OnSecondFloor { get; }
 
+        /// <summary>
+        /// Whether the character's own furniture belongs in the room shown (#591): the home nation's Mog House (or its second
+        /// floor) and not a visit to someone else's house. Elsewhere none is drawn and Layout is greyed.
+        /// </summary>
+        bool ShowsOwnFurniture => true;
+
         /// <summary>C2S 0x0FA: places (or moves) a furnishing at a grid cell.</summary>
         Task PlaceAsync(FurniturePlacement piece, bool secondFloor, byte x, byte level, byte z, byte rotation);
 

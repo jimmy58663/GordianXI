@@ -436,6 +436,89 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Same(list, h.Menus.Top);
         }
 
+        /// <summary>Two temporary items (container 3, 50 slots as LandSandBoat gives it): a usable Potion and a chestnut.</summary>
+        private static Harness WithTemporaryItems()
+        {
+            var h = new Harness();
+            h.Inventory.SetContainerSizes(ContainerId.TempItems, 50, 50);
+            h.Inventory.SetItem(ContainerId.TempItems, 1, Potion, 1, ItemLockFlag.Normal);
+            h.Inventory.SetItem(ContainerId.TempItems, 2, Chestnut, 1, ItemLockFlag.Normal);
+            return h;
+        }
+
+        [Fact]
+        public void TemporaryItems_StandAtTheTopOfTheItemsList_WithTheirContainersFraction()
+        {
+            // #596, retail on local LSB 2026-11-20: the temporary items first, then the inventory; the help bar's fraction is
+            // the selected row's container ("Items 2/50" on a temporary item, "10/30" on an inventory one).
+            var h = WithTemporaryItems();
+            var list = h.OpenFromMainMenu(4);
+            Assert.Equal(new[] { ContainerId.TempItems, ContainerId.TempItems }, list.ItemRows.Take(2).Select(r => r.Container));
+            Assert.Equal(new ushort[] { Potion, Chestnut }, list.ItemRows.Take(2).Select(r => r.ItemId));
+            Assert.All(list.ItemRows.Take(2), r => Assert.True(r.IsTemporary));
+            Assert.All(list.ItemRows.Skip(2), r => Assert.False(r.IsTemporary));
+            list.FirstRow = 0;
+            list.SelectedButtonId = 1;
+            Assert.Equal(new StockUiItemHelpBar("Items", 2, 50, StockUiItems.HelpSelectItem), list.ItemHelpBar);
+            list.SelectedButtonId = 3;
+            Assert.Equal(new StockUiItemHelpBar("Items", 7, 80, StockUiItems.HelpSelectItem), list.ItemHelpBar);
+        }
+
+        [Fact]
+        public void TemporaryItem_UsedFromTheItemsList_SendsItsOwnContainer()
+        {
+            var h = WithTemporaryItems();
+            var list = h.OpenFromMainMenu(4);
+            list.FirstRow = 0;
+            list.SelectedButtonId = 1; // the temporary Potion
+            h.Menus.Activate(); // Use / Drop
+            Assert.NotNull(h.Menus.Top!.ItemAction);
+            Assert.False(h.Menus.Top.IsGreyed(StockUiItems.UseButton));
+            h.Menus.Activate(); // Use
+            var use = Assert.Single(h.Uses);
+            Assert.Equal(ContainerId.TempItems, use.Container);
+            Assert.Equal(1, use.Slot);
+        }
+
+        [Fact]
+        public void CommandMenuItems_ListTheUsableTemporaryItemsFirst()
+        {
+            // #596: retail's command menu list shows the usable temporary items first ("2/2" on one, "4/10" on the inventory's).
+            var h = WithTemporaryItems();
+            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"))!;
+            Assert.Equal(new ushort[] { Potion, Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
+            Assert.Equal(ContainerId.TempItems, list.ItemRows[0].Container);
+            list.SelectedButtonId = 1;
+            Assert.Equal(new StockUiItemHelpBar("Items", 1, 2, StockUiItems.HelpSelectItem), list.ItemHelpBar);
+            list.SelectedButtonId = 2;
+            Assert.Equal(new StockUiItemHelpBar("Items", 3, 7, StockUiItems.HelpSelectItem), list.ItemHelpBar);
+            list.SelectedButtonId = 1;
+            h.Menus.Activate();
+            Assert.Equal(ContainerId.TempItems, Assert.Single(h.Uses).Container);
+        }
+
+        [Fact]
+        public void ManualSort_LeavesTheTemporaryItemsAtTheTop()
+        {
+            var h = WithTemporaryItems();
+            var list = h.OpenFromMainMenu(4);
+            h.Menus.ToggleItemOptions();
+            h.Menus.Top!.SelectedButtonId = StockUiItems.ManualSortButton;
+            h.Menus.Activate();
+            list.FirstRow = 0;
+            list.SelectedButtonId = 1; // a temporary item cannot be picked
+            h.Menus.Activate();
+            Assert.Null(list.ManualSortFrom);
+            // Chestnut (the inventory's first) onto Bronze Cap (its third): below it, the temporary items untouched.
+            list.SelectedButtonId = 3;
+            h.Menus.Activate();
+            list.SelectedButtonId = 5;
+            h.Menus.Activate();
+            Assert.Equal(new ushort[] { Potion, Chestnut, Potion, BronzeCap, Chestnut, EchoDrops, LeatherBandana, Brass, FireCrystal },
+                list.ItemRows.Select(r => r.ItemId));
+            Assert.Equal(ContainerId.Inventory, list.ItemRows[4].Container);
+        }
+
         [Fact]
         public void Options_ManualMovesTheFirstPickToTheSecondsPlace()
         {

@@ -709,8 +709,15 @@ namespace Gordian.Core.Animation
 
                 if (request.Motion == ActionMotion.EventMotion)
                 {
-                    // An event gesture kills the last action (XiEvents OpCodes/0x005B, KillLastAction) and starts at once.
-                    if (ActiveRoutine != null && _lastModel != null) EndAction(_lastModel, blend: true);
+                    // An event gesture kills the last action (XiEvents OpCodes/0x005B, KillLastAction) and starts at once. One
+                    // that follows another blends in from the pose the body is in, not through the idle stance (#614): Lower
+                    // Delkfutt's Tower's event 38 holds Wolfgang's knockback (bk00 ends in a held loop) until bk01 gets him up,
+                    // and event 39 chains sha0 / sir0 / sir1 / sha1; each handover flashed the standing idle for a moment.
+                    if (ActiveRoutine != null && _lastModel != null)
+                    {
+                        bool next = _actionRequest?.Motion == ActionMotion.EventMotion && ResolveEventMotion(_lastModel, request.Routine, out _) != null;
+                        EndAction(_lastModel, blend: true, keepPose: next);
+                    }
                     _queuedActions.RemoveAll(q => q.Motion == ActionMotion.EventMotion);
                     _queuedActions.Insert(0, request);
                     continue;
@@ -1092,7 +1099,13 @@ namespace Gordian.Core.Animation
             return Math.Max(routine.TotalTicks, last.StartTick + Math.Max(last.DurationTicks, 1));
         }
 
-        private void EndAction(EntityModel model, bool blend)
+        private void EndAction(EntityModel model, bool blend) => EndAction(model, blend, keepPose: false);
+
+        /// <summary>
+        /// Ends the playing action. With <paramref name="keepPose"/> the body stays on the action's clip where it is, for the
+        /// next action to blend in from (an event gesture replacing another, #614), instead of returning to the stance.
+        /// </summary>
+        private void EndAction(EntityModel model, bool blend, bool keepPose)
         {
             var routine = ActiveRoutine;
             var request = _actionRequest;
@@ -1124,8 +1137,9 @@ namespace Gordian.Core.Animation
                 ? Math.Max(routine.Segments[^1].BlendOutTicks / RoutineTicksPerSecond / _actionSpeed, 0.05f)
                 : BlendDuration;
             _actionSpeed = 1f;
-            AnimationClip? stanceClip = NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance);
             _blendingOutOfUnderlay = false;
+            if (keepPose) return;
+            AnimationClip? stanceClip = NpcStanceResolver.ResolveTargetClip(model, Current, CurrentStance);
             if (blend)
             {
                 SwitchToClip(stanceClip, blendOut, actionClipLoops, restart: true);

@@ -85,8 +85,14 @@ namespace Gordian.Engine.Ui
 
         private void RefreshFurniture()
         {
-            if (MogHouse is { } house) MogHouseLayout.SecondFloor = house.OnSecondFloor;
-            if (Inventory is { } inventory) MogHouseLayout.SetPieces(MogHouseFurniture.Snapshot(inventory, ItemLookup));
+            bool shown = true;
+            if (MogHouse is { } house)
+            {
+                MogHouseLayout.SecondFloor = house.OnSecondFloor;
+                shown = house.ShowsOwnFurniture;
+            }
+            // Your furniture stands only in your home nation's house, never in another city's or a host's (#591, #509).
+            if (Inventory is { } inventory) MogHouseLayout.SetPieces(shown ? MogHouseFurniture.Snapshot(inventory, ItemLookup) : new List<FurniturePlacement>());
         }
 
         /// <summary>
@@ -109,7 +115,11 @@ namespace Gordian.Engine.Ui
                 menu.LabelImages = open
                     ? new Dictionary<int, UiShapeReference> { [StockUiMogHouse.OpenHouseButton] = new(0, StockUiMogHouse.CloseMogLabelImage, StockUiParty.LabelGroup) }
                     : StockUiOpenMenu.NoLabelImages;
-                menu.SetGreyed(open ? new HashSet<int> { StockUiMogHouse.LayoutButton, StockUiMogHouse.RemodelButton } : null);
+                // Layout is greyed outside the home nation's house (#591) as well as while the house is open.
+                var greyed = new HashSet<int>();
+                if (open) { greyed.Add(StockUiMogHouse.LayoutButton); greyed.Add(StockUiMogHouse.RemodelButton); }
+                if (MogHouse is { ShowsOwnFurniture: false }) greyed.Add(StockUiMogHouse.LayoutButton);
+                menu.SetGreyed(greyed.Count > 0 ? greyed : null);
             }
             else if (menu.Name.Equals(StockUiMogHouse.SafeMenu, StringComparison.OrdinalIgnoreCase))
             {
@@ -190,6 +200,7 @@ namespace Gordian.Engine.Ui
             switch (action)
             {
                 case StockUiMogHouseAction.Layout:
+                    if (!house.ShowsOwnFurniture) return; // greyed: not your home nation's house, or a visit (#591)
                     BeginLayout(house);
                     break;
                 case StockUiMogHouseAction.OpenHouse:

@@ -623,6 +623,25 @@ namespace Gordian.Engine.Graphics
                         }
                         break;
 
+                    // FixedPointPositionVarianceSetup: the spawn moves by the next point of the list in turn (xi-model-viewer
+                    // ui/js/particle/ops/initializers.js). Windurst Woods 588's gold sparks (5059 g002) take their places
+                    // around Apururu's hand from list apur; without it they all sat on one spot (#233 round 2).
+                    case 0x4E:
+                    case 0x4F:
+                        if (Template.SpawnPoints is { Length: > 0 } spawnPoints)
+                        {
+                            var point = spawnPoints[_totalEmitted % spawnPoints.Length];
+                            if (p.SubOffsets is { } spread)
+                            {
+                                for (int i = 0; i < spread.Length; i++) spread[i] += point;
+                            }
+                            else
+                            {
+                                p.InitialPosition += point;
+                            }
+                        }
+                        break;
+
                     case 0x08: // RelativeVelocitySetup: velocity along the spawn offset direction
                         if (p.Transforms.TryGetValue(slot, out var relative) && p.InitialPosition.LengthSquared() > 0f)
                         {

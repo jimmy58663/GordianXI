@@ -13,7 +13,9 @@ namespace Gordian.App.Graphics
     /// <summary>
     /// The furniture of the character's own Mog House (#93), rebuilt every frame from the Mog Safes' placements: the retail client
     /// draws the pieces itself, the zone DAT has none of them. The piece in hand is drawn where it is held. A piece without a mesh
-    /// (mannequins, the statues) is left out. A visit to another character's house still shows the character's own furniture.
+    /// (mannequins, the statues) is left out. Only the home nation's house (and its second floor) shows the character's own
+    /// furniture: in another city's house or on a visit the layout holds no pieces (#591,
+    /// <c>StockUiMenuController.RefreshFurniture</c>), so nothing is drawn.
     /// </summary>
     public static class MogHouseFurnitureScene
     {

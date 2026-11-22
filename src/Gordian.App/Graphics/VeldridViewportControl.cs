@@ -643,6 +643,8 @@ namespace Gordian.App.Graphics
                     _renderer.SkyDomeRenderer?.UpdateDome(Environment);
                     GordianLog.Info(LogCategories.Graphics, $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
                 }
+                // Without keyframes the weather still picks the zone's weather effect directories (#613).
+                else _weatherFade.ApplyTo(Environment);
             }
         }
 
@@ -700,7 +702,7 @@ namespace Gordian.App.Graphics
                 {
                     // Over an interactive ImGui window (#380) the cursor is the shape it asks for.
                     if (ImGuiInput.WantCaptureMouse) return ImGuiSystemCursor(ImGuiInput.MouseCursor);
-                    return StockUi.PointerDrawn ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null;
+                    return StockUi.PointerDrawn || _activeSession?.ActionService.UiPointer.Hidden == true ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null;
                 });
                 var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
 
@@ -1025,6 +1027,13 @@ namespace Gordian.App.Graphics
                                         Environment.SetTimeOfDay(vanaHour);
                                         _weatherFade.ApplyTo(Environment);
                                         _renderer.SkyDomeRenderer?.UpdateDome(Environment);
+                                    }
+                                    else
+                                    {
+                                        // A zone without 0x2F keyframes (Lower Delkfutt's Tower's stage zone 540) still runs its
+                                        // weather's effect directories: event 36 sets weather 16, whose weat/aura holds the
+                                        // crystal's column, rays and sparks (#613). Before, the weather never reached the renderer.
+                                        _weatherFade.ApplyTo(Environment);
                                     }
                                 }
                             }
@@ -1925,7 +1934,23 @@ namespace Gordian.App.Graphics
             StockUi.CameraBearing = Gordian.Engine.Ui.StockUiCompass.BearingOf(layoutView ? 0f : -Camera.Forward.X, layoutView ? 1f : Camera.Forward.Z);
             StockUi.ViewProjection = Camera.ViewProjectionMatrix;
             StockUi.Render(_stockUiRenderer, _activeSession, framebuffer, width, height, cursor, _namePlateAnchors, subCursor);
+            if (StockUi.PointerHidden && !_pointerWasHidden)
+            {
+                // Cancel hid the pointer (#605): take the cursor away now, not at the next mouse message.
+                var hwnd = _childHwnd;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (OperatingSystem.IsWindows()) Win32ChildWindowHelper.RefreshCursor(hwnd);
+                    CursorRefreshRequested?.Invoke();
+                });
+            }
+            _pointerWasHidden = StockUi.PointerHidden;
         }
+
+        private bool _pointerWasHidden;
+
+        /// <summary>Raised on the UI thread when the viewport's cursor should be picked again without a mouse move (#605).</summary>
+        public event Action? CursorRefreshRequested;
 
         private readonly System.Collections.Generic.List<NamePlateAnchor> _namePlateAnchors = new();
 

@@ -142,7 +142,8 @@ namespace Gordian.App.Graphics
             uint targetId = session.ActionService.CurrentTarget?.ServerId ?? 0;
             uint subTargetId = session.ActionService.SubTargeting?.Current.ServerId ?? 0;
             var magnified = MagnifiedPlates(session);
-            bool inStageZone = session.World.EventZoneId != 0;
+            // A stage zone, or the session's own zone after 0x34 remade the scene's actors (#614).
+            bool inStageZone = session.World.EventZoneId != 0 || session.World.EventActorsRemade;
 
             NamePlateBounds? target = null;
             foreach (var anchor in ordered)

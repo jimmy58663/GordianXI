@@ -11,7 +11,7 @@ namespace Gordian.Core.World
     /// 0x00A at every zone-in (<c>SubMapNumber</c>), by the server's S2C 0x10E answer, and by what the client tells the
     /// server with C2S 0x0F2.</item>
     /// <item><see cref="IndoorRoom"/>: the indoor room an event opened (event opcode 0x75 sub 0,
-    /// <c>OpenIndoorNoSend</c>), -1 when none. A zone-in clears it.</item>
+    /// <c>OpenIndoorNoSend</c>), -1 when none. A zone-in and the event's end clear it.</item>
     /// <item><see cref="RequestPending"/>: C2S 0x0EB was sent (event opcode 0xA6 sub 0) and S2C 0x10E has not answered;
     /// the event waits on it (0xA6 sub 1).</item>
     /// </list>
@@ -62,6 +62,12 @@ namespace Gordian.Core.World
         {
             SetSubMapNumber(unchecked((int)mapNum));
             Volatile.Write(ref _requestPending, 0);
+        }
+
+        /// <summary>The event that opened an indoor room ended (#233): the room is no longer shown where the player is not.</summary>
+        public void CloseIndoorRoom()
+        {
+            if (Interlocked.Exchange(ref _indoorRoom, -1) != -1) IndoorRoomChanged?.Invoke(-1);
         }
 
         /// <summary>Event opcode 0x75 sub 0: the event opens an indoor room without telling the server.</summary>

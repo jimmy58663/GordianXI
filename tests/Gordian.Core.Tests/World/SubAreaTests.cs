@@ -52,6 +52,36 @@ namespace Gordian.Core.Tests.World
             Assert.Equal(0, ZoneSubAreas.FindActive(new[] { record }, new Vector3(20, 0, 1)));
         }
 
+        /// <summary>
+        /// An indoor room an event opens (0x75 sub 0, #233: Windurst Woods' event 588 opens Apururu's house, 423) is near
+        /// and active wherever the player stands, until the event closes it.
+        /// </summary>
+        [Fact]
+        public void Tracker_ShowsTheRoomAnEventOpens_UntilItCloses()
+        {
+            var street = Floor(-50, -50, 50, 50);
+            street.SubAreaVolumes = new[] { new ZoneInteraction("m6t9", Vector3.Zero, 0f, new Vector3(4, 5, 4), Param: 462) };
+            var world = new WorldState { Collision = street };
+            var previous = SubAreaTracker.InteriorCollisionLoader;
+            SubAreaTracker.InteriorCollisionLoader = _ => null;
+            try
+            {
+                world.SubMap.OpenIndoorRoom(462);
+                world.SubAreas.Update(new Vector3(-40, 0, 0));
+                Assert.Equal(new[] { 462 }, world.SubAreas.NearSubAreas);
+                Assert.Equal(462, world.SubAreas.ActiveSubArea);
+
+                world.SubMap.CloseIndoorRoom();
+                world.SubAreas.Update(new Vector3(-40, 0, 0));
+                Assert.Empty(world.SubAreas.NearSubAreas);
+                Assert.Equal(0, world.SubAreas.ActiveSubArea);
+            }
+            finally
+            {
+                SubAreaTracker.InteriorCollisionLoader = previous;
+            }
+        }
+
         [Fact]
         public void Tracker_WalksNearInteriors_AndHoldsTheOneUnderfoot()
         {
