@@ -216,9 +216,10 @@ namespace Gordian.Engine.Tests.World.Collision
         /// still walked up.
         /// </summary>
         [Theory]
-        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 7.0f)]
-        [InlineData(234, -146.0f, -1.9f, -44.0f, 3.0f, 100.0f)]
-        public void ClimbLimit_StopsTheValkurmRock_AndKeepsBastoksRamp(int zoneId, float x, float height, float z, float minRise, float maxRise)
+        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 7.0f, ClimbRule.Face)]
+        [InlineData(234, -146.0f, -1.9f, -44.0f, 3.0f, 100.0f, ClimbRule.Face)]
+        [InlineData(103, 86.78f, -0.98f, -103.80f, 0.0f, 100.0f, ClimbRule.Path)] // reported only: round 3 compares it in game
+        public void ClimbLimit_StopsTheValkurmRock_AndKeepsBastoksRamp(int zoneId, float x, float height, float z, float minRise, float maxRise, ClimbRule rule)
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
@@ -241,6 +242,7 @@ namespace Gordian.Engine.Tests.World.Collision
                         world.UpsertEntity(me);
                         var input = new InputState();
                         var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = h * 22.5f };
+                        controller.Collision.ClimbRule = rule;
                         input.SetKeyDown(GordianKey.W);
                         float highest = me.Position.Y;
                         for (int i = 0; i < 300; i++)
@@ -252,7 +254,7 @@ namespace Gordian.Engine.Tests.World.Collision
                     }
                 }
             }
-            _output.WriteLine($"Zone {zoneId}: highest climb {best:F2} yalms");
+            _output.WriteLine($"Zone {zoneId} ({rule}): highest climb {best:F2} yalms");
             Assert.InRange(best, minRise, maxRise);
         }
     }

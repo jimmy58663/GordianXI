@@ -82,6 +82,21 @@ namespace Gordian.Core.World.Collision
                 : _maxClimbSlopeDegrees;
 
         /// <summary>
+        /// How the climb limit is measured (#610 round 3): <see cref="ClimbRule.Face"/> (the default) stops a climb onto any
+        /// face steeper than the limit; <see cref="ClimbRule.Path"/> stops only a move whose own rise along its direction is
+        /// steeper, so running across a steep face at an angle climbs it. Set with <c>/collision slope face|path</c> to
+        /// compare with retail at the Valkurm Dunes rock.
+        /// </summary>
+        public ClimbRule ClimbRule { get; set; } = ClimbRule.Face;
+
+        /// <summary>
+        /// The climb rule in force: <see cref="ClimbRule.Face"/> while the server protects wall collision, since the path
+        /// rule climbs more.
+        /// </summary>
+        public ClimbRule GetEffectiveClimbRule(SessionProfile? profile) =>
+            profile != null && profile.IsRestricted(FeatureRestrictions.WallCollisionOverride) ? ClimbRule.Face : ClimbRule;
+
+        /// <summary>
         /// Parses a layer name used by the <c>/collision</c> command.
         /// </summary>
         public static bool TryParseLayer(string name, out CollisionLayers layer)
@@ -96,5 +111,15 @@ namespace Gordian.Core.World.Collision
             };
             return layer != CollisionLayers.None;
         }
+    }
+
+    /// <summary>How the steepest-climb limit is measured (#610).</summary>
+    public enum ClimbRule
+    {
+        /// <summary>A climb onto a face steeper than the limit is stopped, whatever the direction of the move.</summary>
+        Face,
+
+        /// <summary>A climb is stopped only when the move's own rise over its horizontal length is steeper than the limit.</summary>
+        Path,
     }
 }

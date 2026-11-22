@@ -349,6 +349,34 @@ namespace Gordian.Engine.Tests.World.Collision
             Assert.True(localEnt.Position.Y < -1.5f, $"stuck at {localEnt.Position}");
         }
 
+        /// <summary>
+        /// #610 round 3: under <see cref="ClimbRule.Path"/> a 50-degree face, steeper than the 46-degree limit, is climbed by
+        /// running across it at 45 degrees (the move rises at about 40 degrees), and still not by running straight up it;
+        /// under the default <see cref="ClimbRule.Face"/> neither climbs. The server's wall restriction keeps the face rule.
+        /// </summary>
+        [Fact]
+        public void PathRule_ClimbsASteepFaceAtAnAngle_NotStraightUp()
+        {
+            float Climb(ClimbRule rule, byte direction)
+            {
+                var (controller, input, localEnt) = OnRamp(50.0f, new Vector3(-2.0f, 0.0f, 0.0f), direction);
+                controller.Collision.ClimbRule = rule;
+                input.SetKeyDown(GordianKey.W);
+                for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60.0));
+                return -localEnt.Position.Y; // internal -Y is up
+            }
+
+            Assert.True(Climb(ClimbRule.Path, 32) > 1.5f, "path rule, at an angle");
+            Assert.True(Climb(ClimbRule.Path, 0) < 0.5f, "path rule, straight up");
+            Assert.True(Climb(ClimbRule.Face, 32) < 0.5f, "face rule, at an angle");
+
+            var settings = new CollisionSettings { ClimbRule = ClimbRule.Path };
+            var profile = new Gordian.Core.Config.SessionProfile();
+            Assert.Equal(ClimbRule.Path, settings.GetEffectiveClimbRule(profile));
+            Gordian.Tests.Shared.SessionProfileTestExtensions.Restrict(profile, Gordian.Core.Config.FeatureRestrictions.WallCollisionOverride);
+            Assert.Equal(ClimbRule.Face, settings.GetEffectiveClimbRule(profile));
+        }
+
         /// <summary>#610: a steep slope is still walked down, and across (along its contour) without sliding up it.</summary>
         [Fact]
         public void SteepSlope_IsWalkedDownAndAcross()
