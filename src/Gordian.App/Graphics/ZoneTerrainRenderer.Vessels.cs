@@ -78,11 +78,12 @@ namespace Gordian.App.Graphics
                     ZoneSubmeshPass.Cutout => _cutoutPipeline,
                     _ => _pipeline
                 };
-                _commandList.SetPipeline(ForSubmesh(pipeline, submesh.NoCull));
+                pipeline = ForSubmesh(pipeline, submesh);
+                _commandList.SetPipeline(pipeline);
                 _commandList.SetGraphicsResourceSet(0, sub ? subScene.Set : _sceneResourceSet);
                 _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(submesh.TextureName, textures));
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
-                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                BindVertexBuffers(submesh, pipeline);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 _commandList.UpdateBuffer(buffer, 0, ref baseUniform);

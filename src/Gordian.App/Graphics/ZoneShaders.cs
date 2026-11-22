@@ -294,6 +294,65 @@ void main()
 ";
 
         /// <summary>
+        /// Heat haze (#603): a Distortion generator's quad (linked data type 0x22) samples a copy of the scene drawn so far
+        /// at its own pixel, nudged by the generator's haze offset (<c>WeatherParams.z</c>, in the quad's texture units) in
+        /// a wave that runs at a few hertz (<c>WeatherParams.w</c> = time in seconds), and blends it over a soft disc whose
+        /// strength is the particle's alpha (its clock gate). The client's own warp is not decoded: the shape follows the
+        /// retail capture of West Ronfaure's torches (a shimmer 3-11 Hz, no rigid shift, about 1 grey level of change; see
+        /// docs/rendering/particles.md) and xi-model-viewer's refraction pass (ui/js/particleDrawer.js, a scene grab nudged
+        /// by the haze offset over a radial falloff), written anew.
+        /// </summary>
+        public const string FragmentShaderDistortionGlsl = @"#version 450
+
+layout(location = 0) in vec2 fsin_TexCoord;
+layout(location = 1) in vec4 fsin_Color;
+layout(location = 2) in float fsin_Fog;
+
+layout(location = 0) out vec4 fsout_Color;
+
+layout(set = 0, binding = 0) uniform ZoneSceneUniforms
+{
+    mat4 World;
+    mat4 View;
+    mat4 Projection;
+    vec4 SunDirection;
+    vec4 SunColor;
+    vec4 AmbientColor;
+    vec4 FogColor;
+    vec4 FogParams;
+    vec4 EyePosition;
+    vec4 WeatherParams;
+    vec4 SkyTextureFactor;
+    vec4 SkyLayerParams;
+};
+
+layout(set = 1, binding = 0) uniform texture2D uScene;
+layout(set = 1, binding = 1) uniform sampler uSampler;
+
+void main()
+{
+    vec2 size = vec2(textureSize(sampler2D(uScene, uSampler), 0));
+    vec2 c = fsin_TexCoord - 0.5;
+    float falloff = clamp(1.0 - 2.0 * length(c), 0.0, 1.0);
+    falloff *= falloff;
+    float strength = clamp(2.0 * SkyTextureFactor.a * fsin_Color.a * 2.0, 0.0, 1.0) * fsin_Fog * falloff;
+    if (strength < 0.004)
+    {
+        discard;
+    }
+    // The haze offset in pixels: texture units over texture units per pixel.
+    float uvPerPixel = max(abs(dFdx(fsin_TexCoord.x)) + abs(dFdy(fsin_TexCoord.x)), 1e-6);
+    float pixels = WeatherParams.z / uvPerPixel;
+    float t = WeatherParams.w * 6.2831853;
+    vec2 wave = vec2(sin(t * 6.0 + fsin_TexCoord.y * 11.0) + 0.5 * sin(t * 9.7 + fsin_TexCoord.x * 7.0),
+                     0.6 * sin(t * 4.3 + fsin_TexCoord.x * 9.0 + fsin_TexCoord.y * 5.0));
+    vec2 screen = gl_FragCoord.xy / size;
+    vec2 uv = clamp(screen + wave * pixels * falloff / size, vec2(0.0), vec2(1.0));
+    fsout_Color = vec4(texture(sampler2D(uScene, uSampler), uv).rgb, strength);
+}
+";
+
+        /// <summary>
         /// Vertex shader for world-space zone effects driven by Section 0x05 generators (sea surfaces, sunset glints on
         /// the water). Paired with <see cref="FragmentShaderWeatherSkyGlsl"/>, whose two modulate-2x stages it feeds.
         /// With lighting enabled (SkyLayerParams.z), the vertex color is lit like the client's particle shader:

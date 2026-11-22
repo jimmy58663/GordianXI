@@ -95,6 +95,74 @@ namespace Gordian.App.Tests.Graphics
                 DestroyWindow(hwnd);
             }
         }
+        /// <summary>
+        /// Lower Delkfutt's Tower's event 36 (#613): stage zone 540's map scheduler <c>gass</c> loops <c>set1</c>, which starts
+        /// <c>pwp2</c> / <c>pwp3</c>, camera-following <c>2fus</c> meshes (a soft band around the eye, vertex alpha up to 0x96)
+        /// that reverse-subtract a green colour from the view. Two renderers run the same frames; the one that played
+        /// <c>gass</c> loses green against the other, more than red. The overlay is faint as authored (its alpha curve
+        /// <c>aura</c> peaks at 0.077), so it is not retail's strong magenta grade after the white flash (#612's lighting).
+        /// </summary>
+        [Fact]
+        public void LowerDelkfuttCrystalLine_GassSubtractsGreenFromTheView()
+        {
+            if (!OperatingSystem.IsWindows() || !Directory.Exists(GameDirectory)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            if (!rm.TryLoadZone(540, out var zone, out var textures)) return;
+            Assert.Contains(zone.EffectLayers, l => l.Name == "pwp2" && l.FollowCamera);
+
+            const int w = 320, h = 240;
+            IntPtr hwnd = CreateWindowExW(0, "static", "Test", unchecked((int)0x80000000), 0, 0, w, h, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            var devMgr = new VeldridDeviceManager();
+            devMgr.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), w, h, GraphicsBackendPreference.Direct3D11, vsync: false);
+            var gd = devMgr.Device!;
+            try
+            {
+                var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;
+                var rtColor = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(w, h, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.RenderTarget | NeoVeldrid.TextureUsage.Sampled));
+                var rtDepth = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(w, h, 1, 1, NeoVeldrid.PixelFormat.R32_Float, NeoVeldrid.TextureUsage.DepthStencil));
+                var fb = gd.ResourceFactory.CreateFramebuffer(new NeoVeldrid.FramebufferDescription(rtDepth, rtColor));
+                var staging = gd.ResourceFactory.CreateTexture(NeoVeldrid.TextureDescription.Texture2D(w, h, 1, 1, colorTarget.Format, NeoVeldrid.TextureUsage.Staging));
+                var cl = gd.ResourceFactory.CreateCommandList();
+                var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
+                camera.Update(new Vector3(0f, 10f, 0f), 10.0f, 0.0f, 40.0f, (float)w / h);
+                // The weather's own effects (the column, sparks) are random; under fine weather only the overlay moves.
+                var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
+                env.WeatherId = "fine";
+                (double R, double G, double B) RenderMean(bool gass, string dump)
+                {
+                    var world = new WorldState { CurrentZoneId = 540 };
+                    var renderer = new ZoneTerrainRenderer(gd) { World = world };
+                    renderer.LoadZone(zone, textures);
+                    if (gass) world.PostMapScheduler("gass", 0, 0);
+                    // pwp3 (born at frame 45, 120 frames) is at its brightest about 60 frames in.
+                    for (int i = 0; i < 105; i++) renderer.Render(camera, env, 1 / 60f, w, h, entities: Array.Empty<WorldEntity>(), resourceManager: rm, present: false, targetFramebuffer: fb);
+                    cl.Begin(); cl.CopyTexture(rtColor, staging); cl.End(); gd.SubmitCommands(cl); gd.WaitForIdle();
+                    var map = gd.Map(staging, NeoVeldrid.MapMode.Read);
+                    var rgba = new byte[w * h * 4];
+                    for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(map.Data + (int)(y * map.RowPitch), rgba, y * w * 4, w * 4);
+                    gd.Unmap(staging);
+                    renderer.Dispose();
+                    if (Environment.GetEnvironmentVariable("GORDIAN_LDT_DUMP") is { } folder) StockUiRendererTests.SavePng(Path.Combine(folder, dump), rgba, w, h);
+                    double r = 0, g = 0, b = 0;
+                    for (int i = 0; i < rgba.Length; i += 4) { r += rgba[i]; g += rgba[i + 1]; b += rgba[i + 2]; }
+                    return (r / (w * h), g / (w * h), b / (w * h));
+                }
+
+                var plain = RenderMean(gass: false, "ldt-plain.png");
+                var graded = RenderMean(gass: true, "ldt-gass.png");
+                _out.WriteLine($"mean RGB without gass {plain}, with it {graded}");
+                // Measured 2026-11-22: green 71.40 -> 70.83, red 66.00 -> 65.67 (faint, as authored: curve aura peaks at 0.077).
+                Assert.True(graded.G < plain.G - 0.25, $"gass should take green out of the view: {plain.G:F2} -> {graded.G:F2}");
+                Assert.True(plain.G - graded.G > plain.R - graded.R, $"more green than red should go: without {plain}, with {graded}");
+            }
+            finally
+            {
+                devMgr.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
             /// <summary>
         /// Alzadaal's door _20t (#227, #232): with its door entity in the world, the door's intc plays map1 and its idle
         /// meshes g000-g009 (ZoneActor0xA) are bound to the door and drawn there; opening plays stat on the door.

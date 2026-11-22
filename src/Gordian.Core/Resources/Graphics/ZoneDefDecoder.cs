@@ -320,6 +320,8 @@ namespace Gordian.Core.Resources.Graphics
         {
             var srcVerts = template.Vertices;
             var dstVerts = new MeshVertex[srcVerts.Length];
+            var srcWind = template.WindDeltas;
+            Vector3[]? dstWind = srcWind != null && srcWind.Length == srcVerts.Length ? new Vector3[srcVerts.Length] : null;
 
             Vector3 minBounds = new(float.MaxValue);
             Vector3 maxBounds = new(float.MinValue);
@@ -344,6 +346,14 @@ namespace Gordian.Core.Resources.Graphics
                 maxBounds = Vector3.Max(maxBounds, displayPos);
 
                 dstVerts[v] = new MeshVertex(displayPos, displayNormal, sv.TexCoord, sv.ColorRgba);
+
+                if (dstWind != null)
+                {
+                    // The wind offset is a direction: rotated and scaled with the placement, not moved, then taken to
+                    // display space like the normal.
+                    var worldWind = Vector3.TransformNormal(srcWind![v], transform);
+                    dstWind[v] = new Vector3(-worldWind.X, -worldWind.Y, worldWind.Z);
+                }
             }
 
             int[] indices = new int[template.Indices.Length];
@@ -367,6 +377,7 @@ namespace Gordian.Core.Resources.Graphics
                 MaxBounds = maxBounds,
                 IsBlend = template.IsBlend,
                 NoCull = template.NoCull,
+                WindDeltas = dstWind,
                 IsFoliage = template.IsFoliage || template.Name.StartsWith("_") || placementName.StartsWith("_"),
                 IsWater = template.IsBlend &&
                           (template.IsWater || IsWaterMesh(template.Name, template.TextureName) || IsWaterMesh(placementName, template.TextureName))

@@ -116,6 +116,16 @@ namespace Gordian.App.Graphics
         // Back-face-culled variants of the terrain pipelines, for zone meshes without the double-sided flag.
         private readonly Dictionary<Pipeline, Pipeline> _culledPipelines = new();
 
+        // The swaying variant of each zone mesh pipeline and its culled copy (#606), and the set of those variants.
+        private readonly Dictionary<Pipeline, Pipeline> _windPipelines = new();
+        private readonly HashSet<Pipeline> _windPipelineSet = new();
+
+        /// <summary>
+        /// Whether zone meshes with wind offsets (trees, grass, webs) sway (#606). On by default, as in retail; off draws
+        /// them at their authored pose.
+        /// </summary>
+        public bool EnableWindSway { get; set; } = true;
+
         /// <summary>
         /// Winding of a zone triangle's front face on screen. Retail zone meshes (Section 0x2E) wind their triangles so
         /// the stored normal points opposite (b - a) x (c - a) (99.4% of culled triangles in Bibiki Bay and Southern
@@ -142,6 +152,20 @@ namespace Gordian.App.Graphics
         /// </summary>
         private readonly Pipeline[,,] _culledEffectPipelines = new Pipeline[5, 2, 2];
         private Pipeline _lensFlarePipeline = null!;
+
+        // Heat haze (#603): the Distortion quads queued this frame, the pipeline that draws them over a copy of the scene, and
+        // whether last frame had any (which draws this frame offscreen, where the scene can be copied).
+        private Pipeline _distortionPipeline = null!;
+        private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform)> _pendingDistortions = new();
+        private Texture? _distortionSceneCopy;
+        private ResourceSet? _distortionSceneSet;
+        private bool _drewDistortion;
+
+        /// <summary>Whether heat-haze distortions (#603) are drawn. On by default, as in retail.</summary>
+        public bool EnableHeatHaze { get; set; } = true;
+
+        /// <summary>Heat-haze quads drawn last frame (#603).</summary>
+        public int DistortionDraws { get; private set; }
         private readonly List<(GpuWeatherSkySubmesh Mesh, ZoneSceneUniform Uniform, ResourceSet Texture)> _pendingLensFlares = new();
         private readonly Dictionary<ParticleAttachType, (Vector3 Eye, Vector3 Direction, bool Visible)> _lightSourceVisibility = new();
         private CommandList _commandList = null!;
@@ -396,6 +420,12 @@ namespace Gordian.App.Graphics
             public bool IsWater { get; init; }
             public Vector2 UVScroll { get; init; }
 
+            /// <summary>
+            /// The per-vertex wind offsets (#606, <see cref="MeshGroup.WindDeltas"/>), vertex stream 1 of the swaying
+            /// pipelines; null for a submesh that does not sway.
+            /// </summary>
+            public DeviceBuffer? WindBuffer { get; init; }
+
             /// <summary>The pass and render state this submesh draws with (#251).</summary>
             public ZoneSubmeshPass Pass => ZoneSubmeshPasses.Classify(IsBlend, IsFoliage, IsWater);
 
@@ -449,7 +479,7 @@ namespace Gordian.App.Graphics
                     OwnsBuffers = false,
                     Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount,
                     MinBounds = MinBounds, MaxBounds = MaxBounds, IsBlend = IsBlend, NoCull = NoCull, IsFoliage = IsFoliage, IsWater = IsWater,
-                    UVScroll = UVScroll, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
+                    UVScroll = UVScroll, WindBuffer = WindBuffer, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
                     DoorId = DoorId, SubAreaLink = SubAreaLink, Visibility = Visibility, DoorPart = DoorPart, DoorPlacement = DoorPlacement,
                 };
             }
@@ -460,6 +490,7 @@ namespace Gordian.App.Graphics
                 {
                     VertexBuffer?.Dispose();
                     IndexBuffer?.Dispose();
+                    WindBuffer?.Dispose();
                 }
                 LightSet?.Dispose();
                 LightRefsBuffer?.Dispose();
@@ -623,6 +654,13 @@ namespace Gordian.App.Graphics
             Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
             Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsWaterDesc);
             Shader[] weatherSkyShaders = factory.CreateFromSpirv(vsWeatherSkyDesc, fsWeatherSkyDesc);
+            // The swaying variants (#606): the same stages with the wind offset added in the vertex shader.
+            var vsWindDesc = new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(TerrainShaders.WithWind(TerrainShaders.VertexShaderGlsl)), "main");
+            var vsWindDecalDesc = new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(TerrainShaders.WithWind(TerrainShaders.VertexShaderDecalGlsl)), "main");
+            Shader[] windOpaqueShaders = factory.CreateFromSpirv(vsWindDesc, fsOpaqueDesc);
+            Shader[] windDecalShaders = factory.CreateFromSpirv(vsWindDecalDesc, fsBlendDesc);
+            Shader[] windCutoutShaders = factory.CreateFromSpirv(vsWindDesc, fsCutoutDesc);
+            Shader[] windBlendShaders = factory.CreateFromSpirv(vsWindDesc, fsBlendDesc);
             var vsZoneEffectDesc = new ShaderDescription(
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderZoneEffectGlsl),
@@ -635,6 +673,9 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
+            // Stream 1 of the swaying pipelines: one wind offset (3 x f32) per vertex (#606).
+            var windLayout = new VertexLayoutDescription(
+                new VertexElementDescription("WindDelta", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0));
 
             // Same 36-byte MeshVertex buffers, minus Normal, which the weather-sky vertex shader does not read.
             var weatherSkyVertexLayout = new VertexLayoutDescription(36,
@@ -663,6 +704,7 @@ namespace Gordian.App.Graphics
             };
             _pipeline = factory.CreateGraphicsPipeline(pipelineDesc);
             _culledPipelines[_pipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(pipelineDesc));
+            AddWindVariants(factory, _pipeline, pipelineDesc, new ShaderSetDescription(new[] { vertexLayout, windLayout }, windOpaqueShaders));
 
             // 6. Blended Terrain Surfaces & Decals Graphics Pipeline (multi-texture sand/grass/cliff transitions)
             // Authored with 0x8000 blend flag in FFXI; rendered using VertexShaderDecalGlsl with a linear
@@ -691,6 +733,7 @@ namespace Gordian.App.Graphics
             };
             _terrainBlendPipeline = factory.CreateGraphicsPipeline(terrainBlendPipelineDesc);
             _culledPipelines[_terrainBlendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(terrainBlendPipelineDesc));
+            AddWindVariants(factory, _terrainBlendPipeline, terrainBlendPipelineDesc, new ShaderSetDescription(new[] { vertexLayout, windLayout }, windDecalShaders));
 
             // 7. Cutout Foliage Graphics Pipeline (4.0 * vColor.a * tex.a < 0.375 discard; depth writing enabled)
             var cutoutPipelineDesc = new GraphicsPipelineDescription
@@ -713,6 +756,7 @@ namespace Gordian.App.Graphics
             };
             _cutoutPipeline = factory.CreateGraphicsPipeline(cutoutPipelineDesc);
             _culledPipelines[_cutoutPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(cutoutPipelineDesc));
+            AddWindVariants(factory, _cutoutPipeline, cutoutPipelineDesc, new ShaderSetDescription(new[] { vertexLayout, windLayout }, windCutoutShaders));
 
             // 7. Alpha-Blended Graphics Pipeline (for translucent water foam, decals, fog, surf)
             var blendPipelineDesc = new GraphicsPipelineDescription
@@ -735,6 +779,7 @@ namespace Gordian.App.Graphics
             };
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
             _culledPipelines[_blendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(blendPipelineDesc));
+            AddWindVariants(factory, _blendPipeline, blendPipelineDesc, new ShaderSetDescription(new[] { vertexLayout, windLayout }, windBlendShaders));
             
             // 8. Alpha-Blended Water Graphics Pipeline (translucent water surfaces with linear W-scaled depth bias)
             // Authored with VertexShaderWaterGlsl (z - 0.00025 * w) to cleanly win depth testing over shallow seabed
@@ -846,6 +891,12 @@ namespace Gordian.App.Graphics
                     }
                 }
             }
+
+            // 9f. Heat-haze Pipeline (#603): Distortion quads blended over a copy of the scene, depth-tested, no depth write.
+            var distortionDesc = weatherSkyPipelineDesc;
+            distortionDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, factory.CreateFromSpirv(vsZoneEffectDesc,
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderDistortionGlsl), "main")));
+            _distortionPipeline = factory.CreateGraphicsPipeline(distortionDesc);
 
             // 9d. Lens-flare Pipeline: screen-space additive sprites drawn over the finished scene, no depth test
             var lensFlareDesc = weatherSkyAdditiveDesc;
@@ -1148,7 +1199,7 @@ namespace Gordian.App.Graphics
                             var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf);
                             (vessel ? VesselSubmeshes : doorId.Length > 0 ? DoorSubmeshes : platformId.Length > 0 ? PlatformSubmeshes : ZoneSubmeshes).Add(submesh);
                             vertCount += group.Vertices.Length;
-                            bytes += submesh.VertexBuffer.SizeInBytes + submesh.IndexBuffer.SizeInBytes;
+                            bytes += submesh.VertexBuffer.SizeInBytes + submesh.IndexBuffer.SizeInBytes + (submesh.WindBuffer?.SizeInBytes ?? 0);
                         }
                     }
                 }
@@ -1238,6 +1289,20 @@ namespace Gordian.App.Graphics
                 BufferUsage.IndexBuffer));
             gd.UpdateBuffer(ib, 0, ushortIndices);
 
+            // A swaying mesh (#606) carries its wind offsets in a second stream; its bounds grow by the largest offset so
+            // frustum culling never drops a leaf leaning out of the authored box.
+            DeviceBuffer? windBuffer = null;
+            Vector3 minBounds = group.MinBounds, maxBounds = group.MaxBounds;
+            if (group.WindDeltas is { } wind && wind.Length == group.Vertices.Length)
+            {
+                windBuffer = factory.CreateBuffer(new BufferDescription((uint)(wind.Length * 12), BufferUsage.VertexBuffer));
+                gd.UpdateBuffer(windBuffer, 0, wind);
+                var reach = Vector3.Zero;
+                foreach (var d in wind) reach = Vector3.Max(reach, Vector3.Abs(d));
+                minBounds -= reach;
+                maxBounds += reach;
+            }
+
             DeviceBuffer? lightRefs = null;
             ResourceSet? lightSet = null;
             if (pointLightSlots.Length > 0)
@@ -1259,8 +1324,9 @@ namespace Gordian.App.Graphics
                 VertexBuffer = vb,
                 IndexBuffer = ib,
                 IndexCount = (uint)ushortIndices.Length,
-                MinBounds = group.MinBounds,
-                MaxBounds = group.MaxBounds,
+                MinBounds = minBounds,
+                MaxBounds = maxBounds,
+                WindBuffer = windBuffer,
                 IsBlend = group.IsBlend,
                 NoCull = group.NoCull,
                 IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
@@ -1384,7 +1450,8 @@ namespace Gordian.App.Graphics
                 EyePosition = new Vector4(camera.Position, 1.0f),
                 WeatherParams = Vector4.Zero,
                 MoonColor = new Vector4(environment.MoonColor, 1.0f),
-                TerrainTone = TerrainTone
+                // TerrainTone.z carries the wind factor the swaying zone meshes lean by (#606).
+                TerrainTone = new Vector4(TerrainTone.X, TerrainTone.Y, ZoneWind.Factor(_cloudAccumulatedTime), TerrainTone.W)
             };
 
             // A voyage zone moves its scenery past the vessel (#403); everything drawn with the scene uniform's World moves with it.
@@ -1415,7 +1482,9 @@ namespace Gordian.App.Graphics
             // A blur aura on screen (#82) draws offscreen too: its edge blur samples the avatar as drawn.
             bool postProcess = EnablePostProcess && (presentation != null &&
                                (blur.IsActive || dissolve.Sequence != 0 || presentation.IsCameraHeld || presentation.TryGetCamera(out _))
-                               || _entityRenderer is { DrewBlurAura: true, EnableAuraSmear: true });
+                               || _entityRenderer is { DrewBlurAura: true, EnableAuraSmear: true }
+                               // Heat haze on screen last frame (#603): it refracts a copy of the scene, which needs it offscreen.
+                               || (_drewDistortion && EnableHeatHaze));
             if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
             else _postProcess?.Invalidate();
 
@@ -1565,7 +1634,7 @@ namespace Gordian.App.Graphics
                     // Solid opaque terrain, rocks, placed structures, dock posts, palisades
                     _ => _pipeline
                 };
-                targetPipeline = ForSubmesh(targetPipeline, submesh.NoCull);
+                targetPipeline = ForSubmesh(targetPipeline, submesh);
 
                 var sceneSet = SceneSetFor(submesh);
                 if (currentBoundPipeline != targetPipeline)
@@ -1587,7 +1656,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(1, texSet);
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
-                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                BindVertexBuffers(submesh, targetPipeline);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
@@ -1671,7 +1740,7 @@ namespace Gordian.App.Graphics
                 }
 
                 bool isWater = submesh.Pass == ZoneSubmeshPass.Water;
-                var targetPipeline = isWater ? _waterPipeline : ForSubmesh(_blendPipeline, submesh.NoCull);
+                var targetPipeline = isWater ? _waterPipeline : ForSubmesh(_blendPipeline, submesh);
                 var targetSet0 = isWater ? _waterResourceSet : SceneSetFor(submesh);
                 if (currentBoundBlendPipeline != targetPipeline)
                 {
@@ -1704,7 +1773,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(1, texSet);
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
-                _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+                BindVertexBuffers(submesh, targetPipeline);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
@@ -1829,6 +1898,10 @@ namespace Gordian.App.Graphics
                 visible++;
             }
 
+            // Pass 3b: Heat haze (#603) over everything drawn so far.
+            DistortionDraws = DrawDistortions(postProcess ? sceneTarget : null);
+            draws += DistortionDraws;
+
             // Pass 4: Lens flares (sun and moon), screen-space over the finished scene
             if (_pendingLensFlares.Count > 0)
             {
@@ -1883,6 +1956,38 @@ namespace Gordian.App.Graphics
         /// </summary>
         private Pipeline ForSubmesh(Pipeline pipeline, bool noCull) =>
             noCull || DisableZoneBackFaceCulling || !_culledPipelines.TryGetValue(pipeline, out var culled) ? pipeline : culled;
+
+        /// <summary>
+        /// The pipeline a zone submesh draws with (<see cref="ForSubmesh(Pipeline, bool)"/>), in its swaying variant when the
+        /// submesh has wind offsets (#606) and <see cref="EnableWindSway"/> is on.
+        /// </summary>
+        private Pipeline ForSubmesh(Pipeline pipeline, GpuSubmesh submesh)
+        {
+            var chosen = ForSubmesh(pipeline, submesh.NoCull);
+            return submesh.WindBuffer != null && EnableWindSway && _windPipelines.TryGetValue(chosen, out var windy) ? windy : chosen;
+        }
+
+        /// <summary>Binds a zone submesh's vertex streams for <paramref name="pipeline"/>: its wind offsets too when that is a swaying pipeline.</summary>
+        private void BindVertexBuffers(GpuSubmesh submesh, Pipeline pipeline)
+        {
+            _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+            if (submesh.WindBuffer != null && _windPipelineSet.Contains(pipeline)) _commandList.SetVertexBuffer(1, submesh.WindBuffer);
+        }
+
+        /// <summary>Creates the swaying variants of a zone mesh pipeline and of its back-face-culled copy (#606).</summary>
+        private void AddWindVariants(ResourceFactory factory, Pipeline basePipeline, GraphicsPipelineDescription description, ShaderSetDescription windShaders)
+        {
+            description.ShaderSet = windShaders;
+            var windy = factory.CreateGraphicsPipeline(description);
+            _windPipelines[basePipeline] = windy;
+            _windPipelineSet.Add(windy);
+            if (_culledPipelines.TryGetValue(basePipeline, out var culled))
+            {
+                var windyCulled = factory.CreateGraphicsPipeline(WithBackFaceCulling(description));
+                _windPipelines[culled] = windyCulled;
+                _windPipelineSet.Add(windyCulled);
+            }
+        }
 
         private void BuildFallbackScene()
         {
@@ -2302,6 +2407,16 @@ namespace Gordian.App.Graphics
                 _pendingLensFlares.Add((skyMesh, layerUniform, texSet));
                 return true;
             }
+            if (layer.IsDistortion)
+            {
+                if (!EnableHeatHaze) return false;
+                // The haze offset (yalms) in the quad's texture units: the unit quad spans 2 x its particle's scale.
+                float scale = MathF.Max(new Vector3(world.M11, world.M12, world.M13).Length(), 1e-4f);
+                layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, layer.HazeOffset / (2.0f * scale), _cloudAccumulatedTime);
+                layerUniform.SkyLayerParams = new Vector4(layer.FogEnabled ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+                _pendingDistortions.Add((skyMesh, layerUniform));
+                return true;
+            }
 
             _commandList.UpdateBuffer(skyMesh.UniformBuffer, 0, ref layerUniform);
             _commandList.SetGraphicsResourceSet(0, skyMesh.ResourceSet);
@@ -2310,6 +2425,46 @@ namespace Gordian.App.Graphics
             _commandList.SetIndexBuffer(skyMesh.IndexBuffer, IndexFormat.UInt16);
             _commandList.DrawIndexed(skyMesh.IndexCount, 1, 0, 0, 0);
             return true;
+        }
+
+        /// <summary>
+        /// Draws the heat-haze quads queued this frame (#603) over a copy of the scene drawn so far. Without an offscreen
+        /// scene (<paramref name="scene"/> null) nothing can be copied: the quads are dropped and the next frame is drawn
+        /// offscreen. Returns the draws.
+        /// </summary>
+        private int DrawDistortions(Framebuffer? scene)
+        {
+            _drewDistortion = _pendingDistortions.Count > 0;
+            if (_pendingDistortions.Count == 0) return 0;
+            int drawn = 0;
+            if (scene is { ColorTargets.Count: > 0 })
+            {
+                var color = scene.ColorTargets[0].Target;
+                if (_distortionSceneCopy == null || _distortionSceneCopy.Width != color.Width || _distortionSceneCopy.Height != color.Height ||
+                    _distortionSceneCopy.Format != color.Format)
+                {
+                    _distortionSceneSet?.Dispose();
+                    _distortionSceneCopy?.Dispose();
+                    var factory = _gd.ResourceFactory;
+                    _distortionSceneCopy = factory.CreateTexture(TextureDescription.Texture2D(color.Width, color.Height, 1, 1, color.Format, TextureUsage.Sampled));
+                    _distortionSceneSet = factory.CreateResourceSet(new ResourceSetDescription(_textureLayout, _distortionSceneCopy, _gd.LinearSampler));
+                }
+                _commandList.CopyTexture(color, _distortionSceneCopy);
+                _commandList.SetPipeline(_distortionPipeline);
+                foreach (var (mesh, uniform) in _pendingDistortions)
+                {
+                    var u = uniform;
+                    _commandList.UpdateBuffer(mesh.UniformBuffer, 0, ref u);
+                    _commandList.SetGraphicsResourceSet(0, mesh.ResourceSet);
+                    _commandList.SetGraphicsResourceSet(1, _distortionSceneSet!);
+                    _commandList.SetVertexBuffer(0, mesh.VertexBuffer);
+                    _commandList.SetIndexBuffer(mesh.IndexBuffer, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(mesh.IndexCount, 1, 0, 0, 0);
+                    drawn++;
+                }
+            }
+            _pendingDistortions.Clear();
+            return drawn;
         }
 
         /// <summary>
@@ -3218,6 +3373,9 @@ namespace Gordian.App.Graphics
             _entityRenderer?.Dispose();
             _skyDomeRenderer?.Dispose();
             _postProcess?.Dispose();
+            _distortionPipeline?.Dispose();
+            _distortionSceneSet?.Dispose();
+            _distortionSceneCopy?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();
             _terrainBlendPipeline?.Dispose();
@@ -3225,6 +3383,9 @@ namespace Gordian.App.Graphics
             _blendPipeline?.Dispose();
             foreach (var culled in _culledPipelines.Values) culled.Dispose();
             _culledPipelines.Clear();
+            foreach (var windy in _windPipelineSet) windy.Dispose();
+            _windPipelineSet.Clear();
+            _windPipelines.Clear();
             _waterPipeline?.Dispose();
             _weatherSkyPipeline?.Dispose();
             _weatherSkyAdditivePipeline?.Dispose();

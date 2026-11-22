@@ -89,6 +89,12 @@ namespace Gordian.Core.Resources.Graphics
         }
 
         /// <summary>
+        /// Wind offsets at least this large (sum of the components' magnitudes, yalms) are read as corrupt and dropped. The
+        /// largest in retail zone DATs is far below it (see docs/rendering/viewport-and-terrain.md, "Wind sway").
+        /// </summary>
+        private const float MaxWindDelta = 50f;
+
+        /// <summary>
         /// Decodes a decrypted Section 0x2E zone mesh payload into structured 3D MeshGroups.
         /// Clean-room implementation referencing xi-model-viewer (https://github.com/vekien/xi-model-viewer)
         /// and xi-tools (xi/zone/xi_export.py).
@@ -171,6 +177,8 @@ namespace Gordian.Core.Resources.Graphics
                 int vertStart = p + 20;
 
                 var vertices = new MeshVertex[numVerts];
+                Vector3[]? windDeltas = vertexBlend ? new Vector3[numVerts] : null;
+                bool anyWind = false;
                 Vector3 minBounds = new(float.MaxValue);
                 Vector3 maxBounds = new(float.MinValue);
 
@@ -201,7 +209,17 @@ namespace Gordian.Core.Resources.Graphics
                     int cOff;
                     if (vertexBlend)
                     {
-                        // Stride 48: pos(12), blendDelta(12), normal(12), color BGRA(4), uv(8)
+                        // Stride 48: pos(12), blendDelta(12), normal(12), color BGRA(4), uv(8). The delta is the wind
+                        // offset the client blends in by its wind factor (see WindDeltas).
+                        float bx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 12, 4));
+                        float by = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 16, 4));
+                        float bz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 20, 4));
+                        if (float.IsFinite(bx) && float.IsFinite(by) && float.IsFinite(bz)
+                            && MathF.Abs(bx) + MathF.Abs(by) + MathF.Abs(bz) < MaxWindDelta)
+                        {
+                            windDeltas![v] = new Vector3(bx, by, bz);
+                            anyWind |= bx != 0f || by != 0f || bz != 0f;
+                        }
                         nx = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 24, 4));
                         ny = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 28, 4));
                         nz = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(vo + 32, 4));
@@ -324,7 +342,8 @@ namespace Gordian.Core.Resources.Graphics
                         IsBlend = blend,
                         NoCull = noCull,
                         IsFoliage = meshName.StartsWith("_"),
-                        IsWater = ZoneDefDecoder.IsWaterSurface(blend, meshName, texName)
+                        IsWater = ZoneDefDecoder.IsWaterSurface(blend, meshName, texName),
+                        WindDeltas = anyWind ? windDeltas : null
                     });
                 }
 
