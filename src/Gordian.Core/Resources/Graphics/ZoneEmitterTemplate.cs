@@ -78,6 +78,14 @@ namespace Gordian.Core.Resources.Graphics
         public Dictionary<ushort, Vector3[]> PointLists { get; } = new();
 
         /// <summary>
+        /// The Section 0x3E point list the generator's initializer 0x4E / 0x4F (FixedPointPositionVarianceSetup) names: each
+        /// new particle's spawn position moves by the next point in turn (the generator's emitted count modulo the point
+        /// count). Format and rule referenced from xi-model-viewer (https://github.com/vekien/xi-model-viewer,
+        /// <c>ui/js/particle/ops/initializers.js</c>). Null when the generator has no such op or the list is missing.
+        /// </summary>
+        public Vector3[]? SpawnPoints { get; set; }
+
+        /// <summary>
         /// The curve of <see cref="ParticleGeneratorDefinition.EmissionClockKeyFrameId"/> (section 1 op 0x17), resolved like
         /// the slot curves: each emission makes the authored count times its value at the time of day. Null: no such op.
         /// </summary>

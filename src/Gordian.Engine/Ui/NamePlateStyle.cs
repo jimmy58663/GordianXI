@@ -90,7 +90,10 @@ namespace Gordian.Engine.Ui
         /// event 36 (540) is drawn without a plate in retail, the named ones and the "???" too, while the player's own
         /// plate shows in the wide shots (459-psoxja-cs2.mp4, 459-lower-delkfutt-cs36-rerun.mp4, 2026-11-08). *Inference*:
         /// 0x34 deletes the actors and makes them again for the stage zone (XiEvents OpCodes/0x0034), whose id has no entity
-        /// list DAT to name NPCs from.
+        /// list DAT to name NPCs from. The caller passes true too after 0x34 reopened the session's own zone
+        /// (<c>WorldState.EventActorsRemade</c>, #614): Lower Delkfutt's Tower's event 38 (<c>34 184</c> in zone 184) shows no
+        /// NPC plate in retail (Zone184_CS36-39.mp4), so the entity list is not the reason; *inference* that remade actors
+        /// carry none.
         /// </summary>
         public static bool ShowsName(WorldEntity entity, NamePlateFlags flags, bool inStageZone = false)
         {

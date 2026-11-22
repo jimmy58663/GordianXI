@@ -1195,7 +1195,7 @@ namespace Gordian.Engine.Events
                     return;
                 case 0x34:
                 case 0x35:
-                    ExecOpenZone();
+                    ExecOpenZone(op == 0x34);
                     return;
                 case 0x4E:
                 {
@@ -1764,11 +1764,11 @@ namespace Gordian.Engine.Events
             }
         }
 
-        private void ExecOpenZone()
+        private void ExecOpenZone(bool removesActors)
         {
             if (_zoneOpenFrames < 0f)
             {
-                _host.OpenEventZone(GetWork(1));
+                _host.OpenEventZone(GetWork(1), removesActors);
                 _zoneOpenFrames = 0f;
                 _retFlag = true;
                 return;

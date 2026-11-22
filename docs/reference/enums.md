@@ -178,6 +178,8 @@ Rain (6) and squall (7) wet the ground: the footstep sounds and foot effects use
 
 The client's English weather name table (`ROM/165/79`, `DMsgCategory.WeatherNames`, read for the forecast lines, [#125](https://github.com/jimmy58663/GordianXI/issues/125)) lists the same ids in order, each row a noun and an adjective: 0 "fine patches" / "fine", 1 "sunshine" / "sunny", 2 "clouds" / "cloudy", 3 "fog" / "foggy", 4 "hot spells" / "hot", 6 "rain" / "rainy", 10 "winds" / "windy" ... 19 "darkness" / "dark" (some adjectives repeat the noun: "sand storms", "gales", "thunderstorms", "auroras", "stellar glare"). **Differs from LandSandBoat / xi-tools:** they call id 0 none; the client's table names it fine weather, which fits GordianXI's `fine` directory for 0 (the Japanese table `ROM/165/65` has 40 rows, the 20 names followed by rows starting `fine`, `suny`). The weather forecast files ([events/vm.md](../events/vm.md#weather-forecast-0x72)) use ids 1-19 and 0xFF for an empty slot.
 
+The compass above the log shows the elemental weathers' element as icons at its top left, one for 4, 6, 8, ... 18 and two for the double weathers 5, 7, ... 19; 0-3 show none (`StockUiCompass.WeatherIcons`, [#604](https://github.com/jimmy58663/GordianXI/issues/604); retail on local LSB 2026-11-20 for 1, 4, 5 and 18, the other pairs by the same element order).
+
 ## Server animation status
 
 Two LandSandBoat enumerations are both called "status"; they travel in different bytes.
@@ -288,7 +290,7 @@ Modes: 0 the area entered from, 1-4 the city area above (offered by `MogHouseExi
 
 ## Item containers, equipment slots and item targets
 
-`ContainerId` (`InventoryPackets.cs`; the `Category` of C2S 0x028 / 0x029 / 0x037 / 0x03A / 0x050 and S2C 0x01C-0x020 / 0x050, LandSandBoat `CONTAINER_ID`): 0 Inventory, 1 Mog Safe, 2 Storage, 3 Temporary Items, 4 Mog Locker, 5 Mog Satchel, 6 Mog Sack, 7 Mog Case, 8 Mog Wardrobe, 9 Mog Safe 2, 10-16 Mog Wardrobe 2-8, 17 Recycle Bin. Items are used from 0, 3, 8, 10-16 and worn from 0, 8, 10-16 (LandSandBoat `0x037_item_use.cpp`, `0x050_equip_set.cpp`; `StockUiItems.UsableContainers` / `EquippableContainers`, #351 / #352). S2C 0x01C gives each size as 1 + its slots.
+`ContainerId` (`InventoryPackets.cs`; the `Category` of C2S 0x028 / 0x029 / 0x037 / 0x03A / 0x050 and S2C 0x01C-0x020 / 0x050, LandSandBoat `CONTAINER_ID`): 0 Inventory, 1 Mog Safe, 2 Storage, 3 Temporary Items, 4 Mog Locker, 5 Mog Satchel, 6 Mog Sack, 7 Mog Case, 8 Mog Wardrobe, 9 Mog Safe 2, 10-16 Mog Wardrobe 2-8, 17 Recycle Bin. Items are used from 0, 3, 8, 10-16 and worn from 0, 8, 10-16 (LandSandBoat `0x037_item_use.cpp`, `0x050_equip_set.cpp`; `StockUiItems.UsableContainers` / `EquippableContainers`, #351 / #352). S2C 0x01C gives each size as 1 + its slots. The Temporary Items (3, 50 slots on LSB, `charutils` `AddBuff(50)`) are listed first in the stock Items lists, names pale peach, and their own fraction on the help bar ([#596](https://github.com/jimmy58663/GordianXI/issues/596)).
 
 `EquipSlotId` (S2C 0x050 / C2S 0x050 `EquipKind`, LandSandBoat `SLOTTYPE`): 0 Main, 1 Sub, 2 Ranged, 3 Ammo, 4 Head, 5 Body, 6 Hands, 7 Legs, 8 Feet, 9 Neck, 10 Waist, 11 Ear1, 12 Ear2, 13 Ring1, 14 Ring2, 15 Back, 16-17 linkshells. A DAT item's `EquipSlotsMask` bit n is slot n (`StockUiItems.FitsSlot`); its `JobsMask` bit n is `JobId` n.
 

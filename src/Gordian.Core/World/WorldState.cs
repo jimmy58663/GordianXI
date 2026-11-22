@@ -123,6 +123,7 @@ namespace Gordian.Core.World
                         _currentZoneId = value;
                         _collision = null;
                         _eventZoneId = 0;
+                        _eventActorsRemade = false;
                         _mapSchedulers.Clear();
                         _actorEffects.Clear();
                         _zoneSounds.Clear();
@@ -198,6 +199,21 @@ namespace Gordian.Core.World
         {
             get => (ushort)_eventZoneId;
             set => _eventZoneId = value;
+        }
+
+        private volatile bool _eventActorsRemade;
+
+        /// <summary>
+        /// Whether the running event has deleted and remade its actors with opcode 0x34 (XiEvents OpCodes/0x0034), whatever
+        /// zone it opened, the session's own included, until 0x35 takes the scene back or the event ends (#614). While set,
+        /// NPCs draw no name plate, as in a stage zone (<see cref="EventZoneId"/>): Lower Delkfutt's Tower's event 38 runs
+        /// <c>34 184</c> in zone 184 and retail draws no plate over Auchefort, Crooked Arrow, Wolfgang or Neraf-Najiruf
+        /// (Zone184_CS36-39.mp4). Cleared by a zone change.
+        /// </summary>
+        public bool EventActorsRemade
+        {
+            get => _eventActorsRemade;
+            set => _eventActorsRemade = value;
         }
 
         /// <summary>The zone the viewport should draw for this session: the event's zone, else the map zone.</summary>

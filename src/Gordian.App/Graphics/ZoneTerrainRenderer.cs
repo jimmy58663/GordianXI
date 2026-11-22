@@ -2408,8 +2408,9 @@ namespace Gordian.App.Graphics
             foreach (var (layer, emitter) in instance.Emitters)
             {
                 if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
+                // A child generator rides its parent's attachment, not its own header's (#593).
                 Vector3 joint = Skeleton.ResolveJointReference(anchor.Skeleton, pose.Translations, pose.Rotations, pose.Scales,
-                    ActorEffectInstance.GetJointReference(emitter.Template.Definition));
+                    ActorEffectInstance.GetJointReference(instance.PlacementOf(emitter.Template)));
                 Matrix4x4 frame = DisplayFlip * Matrix4x4.CreateTranslation(joint) * anchor.ModelToWorld;
                 foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, distance, emitter, frame, OnModel: true));
             }
@@ -2547,18 +2548,20 @@ namespace Gordian.App.Graphics
                     if (emitter.Particles.Count == 0 || !byLayer.TryGetValue(layer, out var meshes)) continue;
                     Matrix4x4 frame;
                     float sortDistance = distance;
-                    if (SceneEffectPlayer.FollowsCameraPosition(emitter.Template))
+                    // A child generator is placed by its parent's attachment and space, not its own header's (#593).
+                    var placement = slot.Player.Instance.PlacementOf(emitter.Template);
+                    if (SceneEffectPlayer.FollowsCameraPosition(placement))
                     {
                         frame = DisplayFlip * slot.FollowToWorld;
                     }
-                    else if (SceneEffectPlayer.IsCameraSpace(emitter.Template))
+                    else if (SceneEffectPlayer.IsCameraSpace(placement))
                     {
                         frame = _cameraToWorld;
                         sortDistance = 0.0f;
                     }
                     else
                     {
-                        frame = DisplayFlip * JointFrame(emitter.Template.Definition, anchor) * slot.ModelToWorld;
+                        frame = DisplayFlip * JointFrame(placement, anchor) * slot.ModelToWorld;
                     }
                     foreach (var mesh in meshes) _effectDrawList.Add(new EffectDraw(mesh, sortDistance, emitter, frame));
                 }

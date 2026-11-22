@@ -78,6 +78,20 @@ namespace Gordian.Core.World
             {
                 bool changed = ZoneSubAreas.FindNear(volumes, position, ZoneSubAreas.NearMargin, _near);
                 active = ZoneSubAreas.FindActive(volumes, position);
+                // An indoor room an event opened (0x75 sub 0) is drawn and its plug hidden wherever the player stands (#233):
+                // Windurst Woods' event 588 opens interior 423 (Apururu's house, file 523) for its first scene, which its
+                // camera shows from inside while the player stands in the street.
+                int eventRoom = _world.SubMap.IndoorRoom;
+                if (eventRoom > 0 && HasVolume(volumes, eventRoom))
+                {
+                    if (!_near.Contains(eventRoom))
+                    {
+                        _near.Add(eventRoom);
+                        _near.Sort();
+                        changed = true;
+                    }
+                    active = eventRoom;
+                }
                 foreach (var (id, interior) in _interiors)
                 {
                     if (interior == null) continue;
@@ -97,6 +111,15 @@ namespace Gordian.Core.World
                 GordianLog.Debug(LogCategories.SubArea, $"Zone {_world.CurrentZoneId}: interior {active} (near {string.Join(",", _nearSnapshot)}).");
                 ActiveChanged?.Invoke(active);
             }
+        }
+
+        private static bool HasVolume(IReadOnlyList<Gordian.Core.Resources.Graphics.ZoneInteraction> volumes, int id)
+        {
+            foreach (var volume in volumes)
+            {
+                if (volume.Param == id) return true;
+            }
+            return false;
         }
 
         /// <summary>Over an interior's collision floor: its bounds in XZ, and between its floor and ceiling (+Y is down).</summary>

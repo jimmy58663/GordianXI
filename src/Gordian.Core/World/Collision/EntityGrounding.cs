@@ -57,6 +57,13 @@ namespace Gordian.Core.World.Collision
         public const float EventStepUpHeight = 2.5f;
 
         /// <summary>
+        /// The up component (of the unit normal) below which an event's near floor counts as a steep face that a flat floor
+        /// up to <see cref="EventStepUpHeight"/> above replaces (#614; GordianXI's choice: the face in zone 540 is 0.60,
+        /// its dais floor 0.97).
+        /// </summary>
+        public const float EventFlatFloorNormalY = 0.8f;
+
+        /// <summary>
         /// Where an event draws an entity it does not keep at its placed height: the floor within a step of the event
         /// position, as for any character, else a floor up to <see cref="EventStepUpHeight"/> above it (a walk whose height
         /// runs below a floor it is crossing). Trying the near floor first keeps an actor standing at the foot of a ledge on
@@ -91,8 +98,49 @@ namespace Gordian.Core.World.Collision
                     MaxFallDistance, out var under) &&
                 (!found || under.Height <= near.Height + MovingPlatforms.LevelTolerance))
                 return under.Height;
-            if (found) return near.Height;
+            if (found)
+            {
+                // A floor a little more than a step above that is nearer the event height wins over one further below (#614):
+                // Lower Delkfutt's Tower's event 39 runs Wolfgang down to the boy (stage zone 540, z -100.5 to -98.75) over a
+                // steep face (normal 0.60) that slopes 2 yalms under the dais floor, which lies 0.51 above his event height.
+                // The near search took the face and he sank into the floor. Buntz (Port Jeuno 324) stands on his floor at the
+                // foot of a ledge 1.2 yalms up, which is further from his height, so he stays on the ground.
+                if (near.Height > position.Y
+                    && collision!.TryGetSteppedGround(position, EventStepUpHeight, MaxFallDistance, FootRadius, out var upper)
+                    && upper.Height < near.Height
+                    && (MathF.Abs(upper.Height - position.Y) < MathF.Abs(near.Height - position.Y)
+                        || (near.Normal.Y > -EventFlatFloorNormalY && upper.Normal.Y <= -EventFlatFloorNormalY)))
+                {
+                    return upper.Height;
+                }
+                // On a steep face with no flat floor over it, the flat floor a foot's width away nearest the event height
+                // (#614 round 1: Wolfgang still dipped 0.7 yalm for a tenth of a second at z -100.5 to -100.1, where the face
+                // runs between the corridor floor and the dais with nothing flat above it).
+                if (near.Normal.Y > -EventFlatFloorNormalY && FlatFloorAround(position, collision!) is { } beside) return beside;
+                return near.Height;
+            }
             return collision == null ? position.Y : GetDisplayHeight(position, collision, EventStepUpHeight);
+        }
+
+        /// <summary>
+        /// The flat floor (up component at least <see cref="EventFlatFloorNormalY"/>) within <see cref="EventStepUpHeight"/>
+        /// of <paramref name="position"/>'s height, probed <see cref="FootRadius"/> away along the four axes, nearest that
+        /// height; null when there is none.
+        /// </summary>
+        private static float? FlatFloorAround(Vector3 position, ZoneCollisionMesh collision)
+        {
+            float? best = null;
+            Span<Vector3> offsets = stackalloc Vector3[]
+            {
+                new(FootRadius, 0f, 0f), new(-FootRadius, 0f, 0f), new(0f, 0f, FootRadius), new(0f, 0f, -FootRadius),
+            };
+            foreach (var offset in offsets)
+            {
+                if (!collision.TryGetGround(position + offset, EventStepUpHeight, EventStepUpHeight, out var hit)
+                    || hit.Normal.Y > -EventFlatFloorNormalY) continue;
+                if (best is not { } current || MathF.Abs(hit.Height - position.Y) < MathF.Abs(current - position.Y)) best = hit.Height;
+            }
+            return best;
         }
 
         /// <summary>As <see cref="GetDisplayHeight(Vector3, ZoneCollisionMesh?)"/>, with the floor allowed up to <paramref name="stepUp"/> above.</summary>

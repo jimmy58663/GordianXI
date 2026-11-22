@@ -117,6 +117,34 @@ namespace Gordian.App.Graphics
         [DllImport("user32.dll")]
         private static extern IntPtr SetCursor(IntPtr hCursor);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X, Y;
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetCursorPos(out POINT point);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(POINT point);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        /// <summary>
+        /// Asks the child window to pick its cursor again now (a WM_SETCURSOR as a mouse move would send), when the
+        /// pointer is over it: the cursor query's answer changed without the mouse moving (#605, Cancel hides it). Call on
+        /// the thread that owns the window.
+        /// </summary>
+        public static void RefreshCursor(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !GetCursorPos(out var point) || WindowFromPoint(point) != hwnd) return;
+            const int WM_MOUSEMOVE = 0x0200;
+            SendMessage(hwnd, WM_SETCURSOR, hwnd, (IntPtr)(HTCLIENT | (WM_MOUSEMOVE << 16)));
+        }
+
         [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
         private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
 
