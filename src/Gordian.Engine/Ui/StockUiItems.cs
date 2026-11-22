@@ -64,6 +64,15 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public bool IsTemporary => Container == ContainerId.TempItems && !IsStorageOptions;
 
+        /// <summary>
+        /// Whether the item can be used (<see cref="StockUiItems.IsUsable"/>): retail draws these names pale yellow in the main
+        /// menu's and the command menu's Items lists (#624), temporary items keeping their peach.
+        /// </summary>
+        public bool Usable { get; init; }
+
+        /// <summary>The item DAT's valid targets (LandSandBoat <c>TARGETTYPE</c> bits, <see cref="StockUiItems.TargetSelf"/> ...); 0 when not known.</summary>
+        public ushort ValidTargets { get; init; }
+
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
     }
@@ -323,6 +332,23 @@ namespace Gordian.Engine.Ui
             record != null && (IsCrystal((ushort)record.ItemId) || ((record.Flags & CanUseFlag) != 0 && record.ValidTargets != 0));
 
         /// <summary>
+        /// Whether an item with these DAT valid targets can be used on a command menu target of this kind (#625): retail's
+        /// command menu Items list leaves out the items the target cannot take (the retail client on local LSB, 2026-11-20,
+        /// <c>596-temp-items-command-list-on-inventory.png</c>: on yourself only the items whose targets include self). The
+        /// kinds map to the bits as <c>PlayerActionService</c> checks an item's target when it is used: yourself the self bit;
+        /// another player or a trust the party, alliance, player or dead-player bits; a pet the pet, party or player bits; a
+        /// monster the enemy bit. PROVISIONAL beyond yourself: the other targets' lists are not checked against retail.
+        /// </summary>
+        public static bool CanTarget(ushort validTargets, StockUiTargetKind kind) => kind switch
+        {
+            StockUiTargetKind.Self => (validTargets & TargetSelf) != 0,
+            StockUiTargetKind.Player or StockUiTargetKind.Trust => (validTargets & (TargetParty | TargetAlliance | TargetPlayer | TargetPlayerDead)) != 0,
+            StockUiTargetKind.Pet => (validTargets & (TargetPet | TargetParty | TargetPlayer)) != 0,
+            StockUiTargetKind.Monster => (validTargets & TargetEnemy) != 0,
+            _ => validTargets != 0,
+        };
+
+        /// <summary>
         /// Whether an item is equipment: DAT item type 4 (weapons, ammo, instruments) or 5 (armour, shields). Other types can
         /// carry a non-zero equip mask in the same field (a Linkshell's reads 0x01), so the mask alone does not say; a record
         /// without a type (tests, hand-made records) falls back to the mask.
@@ -398,9 +424,16 @@ namespace Gordian.Engine.Ui
             {
                 if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId || item.Count == 0) continue;
                 var record = StockUiShop.Lookup(lookup, item.ItemId);
-                if (usableOnly && !IsUsable(lookup?.Invoke(item.ItemId))) continue;
+                var known = lookup?.Invoke(item.ItemId);
+                bool usable = IsUsable(known);
+                if (usableOnly && !usable) continue;
                 rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
-                    Equipped: equipped.Contains((container, item.Slot))) { LinkshellColor = LinkshellColorOf(item.ItemId, item.ExtData) });
+                    Equipped: equipped.Contains((container, item.Slot)))
+                {
+                    LinkshellColor = LinkshellColorOf(item.ItemId, item.ExtData),
+                    Usable = usable,
+                    ValidTargets = known?.ValidTargets ?? 0,
+                });
             }
             return rows;
         }

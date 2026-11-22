@@ -381,6 +381,19 @@ namespace Gordian.Engine.Ui
             return rows;
         }
 
+        /// <summary>
+        /// The command menu's Items list keeps only the items its target can take (#625, <see cref="StockUiItems.CanTarget"/>):
+        /// on yourself, Carrot Broth-like items for others are left out. The main menu's list is not filtered.
+        /// </summary>
+        private static List<StockUiItemRow> ForTarget(List<StockUiItemRow> rows, StockUiTargetContext? target)
+        {
+            if (target is not { } t) return rows;
+            // A crystal is used on yourself (synthesis) whatever its record says (the DAT's crystals carry the self bit).
+            rows.RemoveAll(row => !StockUiItems.CanTarget(row.ValidTargets, t.Kind)
+                && !(t.Kind == StockUiTargetKind.Self && StockUiItems.IsCrystal(row.ItemId)));
+            return rows;
+        }
+
         /// <summary>The number of temporary item rows at the top of an item list (<see cref="WithTemporaryItems"/>).</summary>
         private static int TemporaryRowCount(IReadOnlyList<StockUiItemRow> rows)
         {
@@ -441,7 +454,7 @@ namespace Gordian.Engine.Ui
             {
                 StockUiItemListKind.Equipment when menu.EquipSetNumber > 0 => StockUiEquipSets.SetRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, MenuMessageText),
                 StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
-                StockUiItemListKind.Usable => WithTemporaryItems(OrderedRows(ContainerId.Inventory, usableOnly: true), usableOnly: true),
+                StockUiItemListKind.Usable => ForTarget(WithTemporaryItems(OrderedRows(ContainerId.Inventory, usableOnly: true), usableOnly: true), menu.ItemTarget),
                 StockUiItemListKind.Crystals => StockUiSynthesis.CrystalRows(OrderedRows(ContainerId.Inventory)),
                 StockUiItemListKind.SynthesisMaterials when menu.Parent is { IsSynthesisGrid: true } grid =>
                     StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),

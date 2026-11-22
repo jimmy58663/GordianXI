@@ -485,7 +485,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             // #596: retail's command menu list shows the usable temporary items first ("2/2" on one, "4/10" on the inventory's).
             var h = WithTemporaryItems();
-            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"))!;
+            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
             Assert.Equal(new ushort[] { Potion, Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
             Assert.Equal(ContainerId.TempItems, list.ItemRows[0].Container);
             list.SelectedButtonId = 1;
@@ -737,13 +737,40 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void CommandMenuItems_LeaveOutTheItemsTheTargetCannotTake()
+        {
+            // #625, retail on local LSB 2026-11-20: the command menu's list keeps only what the target can take. Another player
+            // takes the Potion (self | party) but not the self-only Echo Drops or a crystal; a monster takes neither.
+            var h = new Harness();
+            var friend = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"))!;
+            Assert.Equal(new ushort[] { Potion }, friend.ItemRows.Select(r => r.ItemId));
+            var rabbit = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Monster, 0x01000002, "Wild Rabbit"))!;
+            Assert.Empty(rabbit.ItemRows);
+            // The main menu's list is not filtered, and marks the usable items (#624: drawn pale yellow).
+            var all = new Harness().OpenFromMainMenu(4);
+            Assert.Contains(all.ItemRows, r => r.ItemId == EchoDrops && r.Usable);
+            Assert.Contains(all.ItemRows, r => r.ItemId == Chestnut && !r.Usable);
+            Assert.Contains(all.ItemRows, r => r.ItemId == FireCrystal && r.Usable);
+        }
+
+        [Theory]
+        [InlineData(StockUiItems.TargetSelf, StockUiTargetKind.Self, true)]
+        [InlineData(StockUiItems.TargetSelf, StockUiTargetKind.Player, false)]
+        [InlineData(StockUiItems.TargetParty, StockUiTargetKind.Trust, true)]
+        [InlineData(StockUiItems.TargetPet, StockUiTargetKind.Pet, true)]
+        [InlineData(StockUiItems.TargetEnemy, StockUiTargetKind.Monster, true)]
+        [InlineData(StockUiItems.TargetSelf | StockUiItems.TargetParty, StockUiTargetKind.Monster, false)]
+        public void CanTarget_MapsTheDatTargetBitsToTheCommandMenuTarget(ushort validTargets, StockUiTargetKind kind, bool expected) =>
+            Assert.Equal(expected, StockUiItems.CanTarget(validTargets, kind));
+
+        [Fact]
         public void CommandMenuItems_ListOnlyUsableItems_AndUseThemAtOnce()
         {
             var rows = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"));
             Assert.Contains(rows, r => r.Label == StockUiCommandMenu.Items && r.Entry.Command == StockUiMenuCommand.Items && !r.Greyed);
 
             var h = new Harness();
-            var target = new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend");
+            var target = new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot");
             var list = h.Menus.OpenItems(null, target)!;
             Assert.Equal(StockUiItemListKind.Usable, list.ItemListKind);
             Assert.Equal(new ushort[] { Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));

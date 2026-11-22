@@ -299,7 +299,8 @@ namespace Gordian.Engine.Sessions
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
             // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...". Named monsters (NamedFlag, #334) take none.
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
-                id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
+                id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },
+                id => World.TryGetByServerId(id, out var e) ? Gordian.Engine.Events.MessageEntity.SexOf(e) : null);
             // Every log line also goes to the character's chat log file (#565).
             _chatLogFile = new Ui.ChatLogFileWriter(Chat.Log, () => ServerName, () => CharacterName);
             // The server message (S2C 0x04D, #117): asked for once, when the first zone-in after login completes; /servmes

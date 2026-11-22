@@ -34,6 +34,16 @@ namespace Gordian.Core.Resources.Tables
         public const int BattleMessagesFileId = 7027;
         public const int BattleMessagesJapaneseFileId = 7026;
 
+        /// <summary>
+        /// The monster ability names (English 7035 = ROM/27/80, Japanese 7034 = ROM/27/79; 4864 / 5120 entries in the same
+        /// dialog format, xi-tools <c>docs/retail/update_september_10_2026.md</c>). Entry n names LandSandBoat mob skill
+        /// 256 + n (read from the file against <c>mob_skills.sql</c>, 2026-11-22: 257 foot_kick = 1 "Foot Kick", 512
+        /// heat_wave = 256 "Heat Wave", 910 meteorite = 654 "Meteorite", 952 spike_flail = 696 "Spike Flail").
+        /// **Beyond xi-tools:** the id offset.
+        /// </summary>
+        public const int MonsterAbilityNamesFileId = 7035;
+        public const int MonsterAbilityNamesJapaneseFileId = 7034;
+
         private readonly Func<int, byte[]?>? _loader;
         private readonly object _sync = new();
         private ZoneDialogTable? _system;

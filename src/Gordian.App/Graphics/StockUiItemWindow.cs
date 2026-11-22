@@ -53,6 +53,13 @@ namespace Gordian.App.Graphics
         /// </summary>
         internal static readonly UiColor TemporaryTint = new(0x80, 0x74, 0x63, 0x80);
 
+        /// <summary>
+        /// Usable items' names in the main menu's and the command menu's Items lists (#624): pale yellow, sampled peak
+        /// (255, 255, 194) on the retail client on local LSB (2026-11-20, <c>596-temp-items-main-list-on-inventory.png</c>:
+        /// the crystals and Silent Oil; Carrot Broth, a jug with no CanUse flag, stays white).
+        /// </summary>
+        internal static readonly UiColor UsableTint = new(0x80, 0x80, 0x61, 0x80);
+
         /// <summary>The row under the cursor (retail capture: peak (255, 255, 220), pale yellow).</summary>
         private static readonly UiColor SelectedRowTint = new(0x80, 0x80, 0x6E, 0x80);
 
@@ -140,7 +147,8 @@ namespace Gordian.App.Graphics
                     continue;
                 }
                 UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
-                    : row.IsTemporary ? TemporaryTint : row.SetAction != StockUiSetRowAction.None ? SetActionTint : null;
+                    : row.IsTemporary ? TemporaryTint : row.SetAction != StockUiSetRowAction.None ? SetActionTint
+                    : row.Usable && menu.ItemListKind is StockUiItemListKind.Items or StockUiItemListKind.Usable ? UsableTint : null;
                 // A linkpearl, sack or shell takes its linkshell's colour (#490 round 1).
                 UiColor? iconTint = null;
                 if (row.LinkshellColor != 0)
