@@ -282,6 +282,12 @@ namespace Gordian.Engine.Events
         {
         }
 
+        /// <summary>
+        /// As <see cref="OpenEventZone(int)"/>, telling 0x34 (<paramref name="removesActors"/>: the scene's actors are
+        /// deleted and made again, the session's own zone included) from 0x35 (the scene goes back). Default: the plain call.
+        /// </summary>
+        void OpenEventZone(int zoneId, bool removesActors) => OpenEventZone(zoneId);
+
         /// <summary>Whether the zone of <see cref="OpenEventZone"/> is still loading (0x34 / 0x35 wait for it).</summary>
         bool IsEventZoneLoading => false;
 

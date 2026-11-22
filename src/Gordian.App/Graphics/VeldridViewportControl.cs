@@ -643,6 +643,8 @@ namespace Gordian.App.Graphics
                     _renderer.SkyDomeRenderer?.UpdateDome(Environment);
                     GordianLog.Info(LogCategories.Graphics, $"Applied Zone {zoneId} 0x2F environment lighting and sky dome slices (weather={weather}, hour={vanaHour:F1}).");
                 }
+                // Without keyframes the weather still picks the zone's weather effect directories (#613).
+                else _weatherFade.ApplyTo(Environment);
             }
         }
 
@@ -1025,6 +1027,13 @@ namespace Gordian.App.Graphics
                                         Environment.SetTimeOfDay(vanaHour);
                                         _weatherFade.ApplyTo(Environment);
                                         _renderer.SkyDomeRenderer?.UpdateDome(Environment);
+                                    }
+                                    else
+                                    {
+                                        // A zone without 0x2F keyframes (Lower Delkfutt's Tower's stage zone 540) still runs its
+                                        // weather's effect directories: event 36 sets weather 16, whose weat/aura holds the
+                                        // crystal's column, rays and sparks (#613). Before, the weather never reached the renderer.
+                                        _weatherFade.ApplyTo(Environment);
                                     }
                                 }
                             }

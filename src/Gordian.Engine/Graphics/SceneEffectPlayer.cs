@@ -75,7 +75,10 @@ namespace Gordian.Engine.Graphics
         }
 
         /// <summary>Whether the generator draws in front of the camera (setup flag 0x04: the blink's black cards and masks).</summary>
-        public static bool IsCameraSpace(ZoneEmitterTemplate template) => template.Definition.Setup?.FollowCamera == true;
+        public static bool IsCameraSpace(ZoneEmitterTemplate template) => IsCameraSpace(template.Definition);
+
+        /// <summary>As <see cref="IsCameraSpace(ZoneEmitterTemplate)"/>, for the generator that places a template (<see cref="ActorEffectInstance.PlacementOf"/>).</summary>
+        public static bool IsCameraSpace(ParticleGeneratorDefinition placement) => placement.Setup?.FollowCamera == true;
 
         /// <summary>
         /// Whether a scene generator follows the camera across the ground in the scene's own orientation, rather than
@@ -87,8 +90,11 @@ namespace Gordian.Engine.Graphics
         /// <c>fls?</c> / <c>zero</c> flashes). The height is not followed: the sea stays at its level, as the camera climbs
         /// to Bahamut (*inferred*: followed, the camera would sit in the sea plane).
         /// </summary>
-        public static bool FollowsCameraPosition(ZoneEmitterTemplate template) =>
-            template.Definition.Setup is { FollowCamera: true, LocalPositionInCameraSpace: false };
+        public static bool FollowsCameraPosition(ZoneEmitterTemplate template) => FollowsCameraPosition(template.Definition);
+
+        /// <summary>As <see cref="FollowsCameraPosition(ZoneEmitterTemplate)"/>, for the generator that places a template (<see cref="ActorEffectInstance.PlacementOf"/>).</summary>
+        public static bool FollowsCameraPosition(ParticleGeneratorDefinition placement) =>
+            placement.Setup is { FollowCamera: true, LocalPositionInCameraSpace: false };
 
         /// <summary>Starts a routine of the file as task <paramref name="taskId"/>; false when the file has no such routine.</summary>
         public bool Start(int taskId, string routine)
@@ -164,7 +170,9 @@ namespace Gordian.Engine.Graphics
             Advance(frames);
             foreach (var (_, emitter) in Instance.Emitters)
             {
-                emitter.Update(frames, FollowsCameraPosition(emitter.Template) ? followFrame : IsCameraSpace(emitter.Template) ? cameraFrame : actorFrame);
+                // A child generator runs in its parent's space (#593), as it is drawn.
+                var placement = Instance.PlacementOf(emitter.Template);
+                emitter.Update(frames, FollowsCameraPosition(placement) ? followFrame : IsCameraSpace(placement) ? cameraFrame : actorFrame);
             }
         }
 
