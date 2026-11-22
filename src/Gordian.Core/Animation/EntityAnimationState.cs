@@ -130,6 +130,28 @@ namespace Gordian.Core.Animation
         /// <summary>The request of the action playing now (its motion and hand, #41), or null.</summary>
         public ActionRequest? ActiveRequest => _actionRequest;
 
+        /// <summary>
+        /// Whether an event gesture (opcode 0x5B and its kin) is playing or waiting to start. Read by the renderer thread, which
+        /// owns the queue; the incoming queue is a snapshot-safe concurrent queue. An event actor under MotStopFlag still plays
+        /// its event gestures (<c>WorldEntity.IsMotionFrozen</c>, #583).
+        /// </summary>
+        public bool HasEventGesture
+        {
+            get
+            {
+                if (_actionRequest?.Motion == ActionMotion.EventMotion) return true;
+                foreach (var queued in _queuedActions)
+                {
+                    if (queued.Motion == ActionMotion.EventMotion) return true;
+                }
+                foreach (var incoming in _incomingActions)
+                {
+                    if (incoming.Motion == ActionMotion.EventMotion) return true;
+                }
+                return false;
+            }
+        }
+
         /// <summary>The model the state last advanced with, or null.</summary>
         public EntityModel? Model => _lastModel;
 

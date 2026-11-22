@@ -684,6 +684,16 @@ namespace Gordian.Core.Network.Crypto
             }
         }
 
+        /// <summary>
+        /// Deciphers the whole 8-byte blocks of <paramref name="data"/> in place with the current key and checks nothing (the
+        /// search server's answer diagnosis tries several block ranges and hash rules on its own).
+        /// </summary>
+        internal void DecipherWholeBlocks(Span<byte> data)
+        {
+            if (!IsKeyInitialized) return;
+            DecipherBlocks(data, data.Length / 8);
+        }
+
         private void DecipherBlocks(Span<byte> data, int blockCount)
         {
             for (int b = 0; b < blockCount; b++)

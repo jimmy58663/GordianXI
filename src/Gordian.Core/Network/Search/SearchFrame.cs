@@ -45,6 +45,12 @@ namespace Gordian.Core.Network.Search
         public readonly record struct AnswerKey(uint Seed, uint PayloadTail)
         {
             public bool IsEmpty => Seed == 0 && PayloadTail == 0;
+
+            /// <summary>
+            /// The same 4 request bytes as <see cref="PayloadTail"/> as they went on the wire (enciphered). LandSandBoat keys its
+            /// answers by the plain bytes; the retail diagnosis (#578) also tries these.
+            /// </summary>
+            public uint CipherTail { get; init; }
         }
 
         /// <summary>
@@ -74,6 +80,7 @@ namespace Gordian.Core.Network.Search
                 suite.EncryptAndSign(frame, HeaderSize, payloadLength);
             }
             BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(total - 4, 4), seed);
+            answerKey = answerKey with { CipherTail = BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(body.Length - 4, 4)) };
             return frame;
         }
 
@@ -95,7 +102,7 @@ namespace Gordian.Core.Network.Search
             return true;
         }
 
-        private static LegacyBlowfishCryptoSuite NewSuite(uint seed, uint? payloadTail)
+        internal static LegacyBlowfishCryptoSuite NewSuite(uint seed, uint? payloadTail)
         {
             Span<byte> keyString = stackalloc byte[24];
             KeyConstant.CopyTo(keyString);
@@ -147,10 +154,11 @@ namespace Gordian.Core.Network.Search
             if (BinaryPrimitives.ReadUInt16LittleEndian(frame.Slice(0, 2)) != frame.Length) return false;
 
             uint seed = BinaryPrimitives.ReadUInt32LittleEndian(frame.Slice(frame.Length - 4, 4));
+            uint cipherTail = BinaryPrimitives.ReadUInt32LittleEndian(frame.Slice(frame.Length - 24, 4));
             using var suite = NewSuite(seed, null);
             if (!suite.TryDecryptAndVerify(frame.Slice(0, frame.Length - 4), HeaderSize, out _)) return false;
 
-            answerKey = new AnswerKey(seed, BinaryPrimitives.ReadUInt32LittleEndian(frame.Slice(frame.Length - 24, 4)));
+            answerKey = new AnswerKey(seed, BinaryPrimitives.ReadUInt32LittleEndian(frame.Slice(frame.Length - 24, 4))) { CipherTail = cipherTail };
             return true;
         }
     }

@@ -145,6 +145,13 @@ namespace Gordian.Core.Network.Search
         /// <summary>How long a request waits for its answers; the server closes an idle connection after 10 seconds.</summary>
         public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(8);
 
+        /// <summary>
+        /// Accept an answer whose hash fits no known layout when a key deciphers a header that answers the request (the answer
+        /// type LandSandBoat sends for it, plausible data length). Set for retail's search server (#578), whose answers fail
+        /// LandSandBoat's hash check; LandSandBoat's answers must verify.
+        /// </summary>
+        public bool AcceptUnverifiedAnswers { get; set; }
+
         /// <summary>Sends a request body (see <see cref="SearchRequestBuilder"/>) and collects its answers.</summary>
         public async Task<SearchExchange> ExchangeAsync(byte[] body, CancellationToken cancellationToken = default)
         {
@@ -163,16 +170,39 @@ namespace Gordian.Core.Network.Search
                 while (true)
                 {
                     byte[]? answer = await connection.ReadFrameAsync(timeout.Token).ConfigureAwait(false);
-                    if (answer == null) return new SearchExchange(contents, false);
-
-                    if (!SearchFrame.TryDecryptResponse(answer, answerKey, out var content))
+                    if (answer == null)
                     {
-                        GordianLog.Warn(LogCategories.Search, "A search server answer failed its length or hash check and was dropped.");
-                        continue;
+                        GordianLog.Debug(LogCategories.Search, $"The search server closed the connection after {contents.Count} answers to request type 0x{body[0x0B]:X2}.");
+                        return new SearchExchange(contents, false);
                     }
-                    contents.Add(content.ToArray());
-                    if (new SearchAnswerHeader(content).IsFinal) return new SearchExchange(contents, true);
+
+                    byte[] wire = (byte[])answer.Clone();
+                    byte[] plain;
+                    if (SearchFrame.TryDecryptResponse(answer, answerKey, out var content))
+                    {
+                        plain = content.ToArray();
+                    }
+                    else
+                    {
+                        // #578: say how the answer differs from LandSandBoat's (sizes, header, the key and hash rules that fit;
+                        // never payload or key bytes), and keep it when it is verified another way or plausibly answers.
+                        var diagnosis = SearchAnswerDiagnosis.Diagnose(wire, answerKey, body[0x0B]);
+                        bool keep = diagnosis.Content != null && (diagnosis.Verified || (AcceptUnverifiedAnswers && diagnosis.Plausible));
+                        GordianLog.Warn(LogCategories.Search,
+                            $"A search server answer failed the LandSandBoat hash check ({diagnosis.Describe(body[0x0B], frame.Length)}); " +
+                            (keep ? "kept." : "dropped."));
+                        if (!keep) continue;
+                        plain = diagnosis.Content!;
+                    }
+                    contents.Add(plain);
+                    if (new SearchAnswerHeader(plain).IsFinal) return new SearchExchange(contents, true);
                 }
+            }
+            catch (InvalidDataException ex)
+            {
+                // A length word out of range: the frames after an answer whose length word does not cover it all (#578).
+                GordianLog.Warn(LogCategories.Search, $"Search request type 0x{body[0x0B]:X2}: {ex.Message} (after {contents.Count} answers); the connection was dropped.");
+                return new SearchExchange(contents, false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

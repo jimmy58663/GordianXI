@@ -961,6 +961,16 @@ namespace Gordian.Core.World
         public bool IsMotionStopped { get; set; }
 
         /// <summary>
+        /// Whether the renderer holds the entity's motion still: <see cref="IsMotionStopped"/>, unless the entity is an event
+        /// actor with an event gesture playing or waiting (#583). Retail's still-standing town NPCs can carry MotStopFlag (on
+        /// retail Balasiel stayed in his idle pose through Southern San d'Oria event 597 while his head, which already
+        /// followed the event's look through the flag, turned; LandSandBoat sends no flag for him and the scene plays). The
+        /// event gestures play as the event look does; the idle in between stays frozen. *Inferred from that report and the
+        /// head-look exception; the maintainer's retail log (the event actor lines) confirms whether the flag is set.*
+        /// </summary>
+        public bool IsMotionFrozen => IsMotionStopped && !(IsInEvent && Animation.HasEventGesture);
+
+        /// <summary>
         /// The server's CliPriorityFlag (Flags3 bit 5): drawn past the client's entity limit. GordianXI has no entity limit, so
         /// every entity is drawn already.
         /// </summary>

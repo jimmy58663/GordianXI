@@ -462,4 +462,6 @@ The other XiPackets folders are covered in [session-and-packets.md](session-and-
 | C2S | `0x08` | `TCP_SEARCH_COMMENT` | `built` | 0x10 player id. `BuildSearchComment`. |
 | S2C | `0x88` | search comment | `decoded` | 0x18 player id, 0x1C length, 0x1E text of up to 123 characters padded with spaces. LSB sends nothing for an empty comment. `SearchCommentPage`. |
 
+**Retail ([#578](https://github.com/jimmy58663/GordianXI/issues/578)):** retail's answers fail LSB's hash check. The layout retail uses is not known yet; `SearchAnswerDiagnosis` logs which key and hash layout fit each failed answer, and retail answers whose header carries the expected answer type are kept (see [session-and-packets.md](session-and-packets.md#search-cache-server-119)). The row gets a **Differs from LandSandBoat** note once a retail log settles it.
+
 Status of the pieces: the client, state (`SearchState`), service (`SearchService`) and `/sea` are done and unit tested against frames built by an independent writer; nothing here has run against a live LSB search server yet, the Auction House window ([#90](https://github.com/jimmy58663/GordianXI/issues/90)) reads category lists and price histories through `SearchService` (still unchecked against a live server); the party list window does not read `SearchState` yet.
