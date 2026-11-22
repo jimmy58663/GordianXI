@@ -66,9 +66,13 @@ namespace Gordian.Core.World.Collision
         public const float CellSize = 4.0f;
 
         /// <summary>
-        /// Triangles whose normal is flatter than this (|normal.Y|) are walls for ground queries.
+        /// Triangles whose normal is flatter than this (|normal.Y|, faces at 60 degrees or steeper) are walls for ground
+        /// queries, the same boundary as <see cref="MaxWallNormalY"/>: a wall face is never standable ground, whatever its
+        /// height (#632). Retail evidence: Southern San d'Oria's ramp strip, whose side bevel is climbed where it is 59.9
+        /// degrees (normal Y -0.5017) and blocks from y = 4.000 where it is 60.0 (-0.49997). Until #632 it was 0.1 (84
+        /// degrees), so the feet rode up 60-84 degree wall faces lower than a step.
         /// </summary>
-        public const float MinFloorNormalY = 0.1f;
+        public const float MinFloorNormalY = MaxWallNormalY;
 
         private readonly CollisionTriangle[] _triangles;
         private readonly float _minX;
@@ -599,6 +603,81 @@ namespace Gordian.Core.World.Collision
             }
 
             return new Vector3(position.X, end.Y, position.Y);
+        }
+
+        /// <summary>
+        /// How far above the feet (yalms) a wall face must reach to stop the feet (<see cref="CrossesLowWall"/>): a riser the
+        /// foot rounding has lifted the feet onto, or a seam a hair proud of the floor, is passed.
+        /// </summary>
+        public const float LowWallTolerance = 0.01f;
+
+        /// <summary>
+        /// Whether the feet, moving from <paramref name="start"/> to <paramref name="end"/> (internal space, feet heights),
+        /// would pass through the front face of a wall (|normal.Y| below <see cref="MaxWallNormalY"/>) lower than the body's
+        /// wall spheres (<see cref="ResolveWalls"/> starts at <paramref name="stepUp"/>), i.e. step over a short wall (#632).
+        /// Retail stops the player at such faces of any height, e.g. Southern San d'Oria's 0.15-yalm ramp strip. A wall is
+        /// passed only where the foot rounding (<see cref="TryGetSteppedGround"/> with <paramref name="footRadius"/>) has
+        /// already lifted the feet to its top where the move meets it: a stair riser under a level tread. The test is
+        /// geometric (the move's path against the face), so it does not depend on how far one tick moves. On a hit,
+        /// <paramref name="wallNormal"/> is the nearest such face's normal and <paramref name="distance"/> the horizontal
+        /// distance along the move to it.
+        /// </summary>
+        public bool CrossesLowWall(Vector3 start, Vector3 end, float stepUp, float footRadius, float maxDrop, out Vector3 wallNormal, out float distance)
+        {
+            wallNormal = default;
+            distance = float.MaxValue;
+            if (_triangles.Length == 0) return false;
+            Vector2 move = new(end.X - start.X, end.Z - start.Z);
+            float length = move.Length();
+            if (length < 1e-5f) return false;
+            var direction = new Vector3(move.X / length, 0.0f, move.Y / length);
+
+            // The feet at the move's end, so a path over rising ground (a ramp up to a curb) is followed, not cut under.
+            float endFeet = TryGetSteppedGround(end with { Y = start.Y }, stepUp, maxDrop, footRadius, out var endGround)
+                ? endGround.Height : start.Y;
+            var low = new Vector3(start.X, start.Y - LowWallTolerance, start.Z); // internal -Y is up
+            var along = new Vector3(end.X, endFeet - LowWallTolerance, end.Z) - low;
+            float alongLength = along.Length();
+            Vector3 alongDirection = along / alongLength;
+
+            int cx0 = Math.Max((int)MathF.Floor((MathF.Min(start.X, end.X) - _minX) / CellSize), 0);
+            int cx1 = Math.Min((int)MathF.Floor((MathF.Max(start.X, end.X) - _minX) / CellSize), _columns - 1);
+            int cz0 = Math.Max((int)MathF.Floor((MathF.Min(start.Z, end.Z) - _minZ) / CellSize), 0);
+            int cz1 = Math.Min((int)MathF.Floor((MathF.Max(start.Z, end.Z) - _minZ) / CellSize), _rows - 1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            {
+                for (int cx = cx0; cx <= cx1; cx++)
+                {
+                    int cell = (cz * _columns) + cx;
+                    for (int k = _cellStart[cell], stop = _cellStart[cell + 1]; k < stop; k++)
+                    {
+                        ref readonly var t = ref _triangles[_cellTriangles[k]];
+                        if (MathF.Abs(t.Normal.Y) >= MaxWallNormalY) continue;
+                        if (Vector3.Dot(direction, t.Normal) >= 0.0f) continue; // moving out of the face, not into it
+
+                        // Where does the move meet the face just above the feet: level with the start, or along the ground?
+                        float hit = RayTriangleDistance(low, direction, t.A, t.B, t.C);
+                        if (hit < 0.0f || hit > length)
+                        {
+                            float sloped = RayTriangleDistance(low, alongDirection, t.A, t.B, t.C);
+                            if (sloped < 0.0f || sloped > alongLength) continue;
+                            hit = sloped * (length / alongLength); // horizontal distance along the move
+                        }
+
+                        // The feet there, coming from the start's side: a level tread beyond lifts them onto its edge.
+                        var near = new Vector3(start.X + (direction.X * MathF.Max(hit - 1e-3f, 0.0f)), start.Y,
+                            start.Z + (direction.Z * MathF.Max(hit - 1e-3f, 0.0f)));
+                        float feet = TryGetSteppedGround(near, stepUp, maxDrop, footRadius, out var ground) ? ground.Height : start.Y;
+
+                        // Blocked when the face still stands above those feet.
+                        float lifted = RayTriangleDistance(new Vector3(start.X, feet - LowWallTolerance, start.Z), direction, t.A, t.B, t.C);
+                        if (lifted < 0.0f || lifted > length || hit >= distance) continue;
+                        wallNormal = t.Normal;
+                        distance = hit;
+                    }
+                }
+            }
+            return distance < float.MaxValue;
         }
 
         /// <summary>

@@ -84,6 +84,8 @@ namespace Gordian.Engine.Tests.World.Collision
                 // Walls on, as in play: the stairwell's railings and side walls must not get in the way.
                 var moved = collision.ResolveWalls(feet, feet with { X = feet.X - 0.01f }, PlayerLocomotionController.BodyRadius, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.BodyHeight);
                 Assert.True(MathF.Abs(moved.Z - feet.Z) < 0.05f && moved.X < feet.X, $"blocked at {feet}");
+                // The risers are wall faces (#632), but the foot rounding lifts the feet onto each tread first.
+                Assert.False(collision.CrossesLowWall(feet, moved, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.FootRadius, 60.0f, out _, out _), $"riser blocks at {feet}");
                 feet = moved;
                 Assert.True(collision.TryGetSteppedGround(feet, PlayerLocomotionController.StepUpHeight, 60.0f, PlayerLocomotionController.FootRadius, out var ground));
                 feet.Y = ground.Height;
@@ -206,6 +208,78 @@ namespace Gordian.Engine.Tests.World.Collision
             float w = Vector3.Dot(direction, q) * inv;
             if (w < 0.0f || u + w > 1.0f) return -1.0f;
             return Vector3.Dot(e2, q) * inv;
+        }
+
+        /// <summary>
+        /// #632: Southern San d'Oria's ramp strip (zone 230, the 1-yalm strip at x 7.09-7.91, 0.15 above the ramp along its
+        /// east edge). Walking west from the gutter east of it, retail climbs onto the strip at (8.216, 1.858, 3.863), where
+        /// its side bevel is a 59.9-degree floor, and is blocked from y = 4.000 on, where the bevel is a 60.0-degree wall over
+        /// a short vertical face; at the strip's north end retail walks round it at y = 27.878 and is blocked where the
+        /// strip starts at y = 28. The rule must hold at any locomotion tick rate (the prototype's gap blocked only at 60 Hz).
+        /// Server (x, height, y) = internal (X, Y, Z).
+        /// </summary>
+        [Theory]
+        [InlineData(3.863f, 1.9f, true, 60)]
+        [InlineData(3.863f, 1.9f, true, 30)]
+        [InlineData(3.863f, 1.9f, true, 20)]
+        [InlineData(4.1f, 1.9f, false, 60)]
+        [InlineData(4.1f, 1.9f, false, 30)]
+        [InlineData(4.1f, 1.9f, false, 20)]
+        [InlineData(4.5f, 1.9f, false, 30)]
+        [InlineData(27.878f, 0.0f, true, 60)]
+        [InlineData(27.878f, 0.0f, true, 20)]
+        [InlineData(28.1f, 0.0f, false, 60)]
+        [InlineData(28.1f, 0.0f, false, 30)]
+        [InlineData(28.1f, 0.0f, false, 20)]
+        public void LowWalls_SanDoriaRampStrip_StopsWhereRetailDoes(float z, float height, bool crosses, int hertz)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(230);
+            if (collision == null) return;
+
+            var start = new Vector3(8.4f, height, z);
+            Assert.True(collision.TryGetGround(start with { Y = start.Y - 1.0f }, 0.0f, 2.0f, out var ground));
+            var world = new Gordian.Core.World.WorldState { Collision = collision };
+            var player = new Gordian.Core.World.LocalPlayerState { ServerId = 1 };
+            var me = new Gordian.Core.World.PlayerEntity(1, 1) { Position = start with { Y = ground.Height }, Direction = 128, IsSpawned = true };
+            world.UpsertEntity(me);
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = 180.0f };
+            input.SetKeyDown(GordianKey.W); // camera yaw 180: runs toward -X
+            // Blocked means never onto the strip while level with its 60-degree side (from y 4) or its end (from y 28);
+            // sliding south along the face and climbing on south of that is retail's boundary, not a crossing.
+            float boundary = z < 10.0f ? 4.0f : 28.0f;
+            bool onStripPastBoundary = false;
+            for (int i = 0; i < hertz; i++)
+            {
+                controller.Update(TimeSpan.FromSeconds(1.0 / hertz));
+                onStripPastBoundary |= me.Position.X < 7.95f && me.Position.Z >= boundary;
+            }
+
+            _output.WriteLine($"z {z} at {hertz} Hz: from x 8.4 (height {ground.Height:F3}) to {me.Position}");
+            if (crosses) Assert.True(me.Position.X < 7.5f, $"stopped at {me.Position}");
+            else Assert.False(onStripPastBoundary, $"crossed the face, now at {me.Position}");
+        }
+
+        /// <summary>
+        /// #632: wall faces are never standable ground, so no ground query lands on a face at 60 degrees or steeper.
+        /// </summary>
+        [Fact]
+        public void Ground_NeverStandsOnWallFaces_SanDoriaRampStrip()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(230);
+            if (collision == null) return;
+
+            // Over the 60.0-degree bevel (x 7.913-8.0 at y 5) the bevel is the only face: no floor within a step.
+            Assert.False(collision.TryGetGround(new Vector3(7.95f, 1.6f, 5.0f), 0.5f, 0.3f, out var hit), $"stood on {hit.Height} n={hit.Normal}");
+            // Over the 59.9-degree bevel (y 3.5) the face is a floor.
+            Assert.True(collision.TryGetGround(new Vector3(7.95f, 1.8f, 3.5f), 0.5f, 0.5f, out hit));
+            Assert.True(-hit.Normal.Y >= ZoneCollisionMesh.MaxWallNormalY);
         }
 
         /// <summary>

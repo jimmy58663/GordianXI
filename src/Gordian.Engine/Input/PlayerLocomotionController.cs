@@ -1527,6 +1527,12 @@ namespace Gordian.Engine.Input
                 // The shaft doors keep the player out of an elevator shaft unless its platform is at the player's level.
                 if (MovingPlatforms.EntersEmptyShaft(_platforms, start, target, StepUpHeight)) target = start;
 
+                // Wall faces lower than a step stop the feet too, unless the foot rounding lifts them over (#632).
+                if ((layers & CollisionLayers.Ground) != 0 && !_airborne && target != start)
+                {
+                    target = LimitLowWalls(collision, start, target);
+                }
+
                 // Never step off the collision mesh onto nothing (a gap, a cliff top out of reach): stay put instead.
                 if ((layers & CollisionLayers.Ground) != 0 &&
                     TryFindGround(collision, start, 0.0f, out _) &&
@@ -1587,6 +1593,46 @@ namespace Gordian.Engine.Input
             }
             return start;
         }
+
+        /// <summary>
+        /// Keeps the local player's feet from stepping over a wall face lower than a step (#632,
+        /// <see cref="ZoneCollisionMesh.CrossesLowWall"/>): a move into one keeps only its part along the face, re-checked
+        /// against walls; with nothing left, the player stops just short of the face (where the stop is does not depend on
+        /// the tick size). Stair risers under level treads are still climbed, since the foot rounding lifts the feet onto
+        /// each tread before its riser.
+        /// </summary>
+        private Vector3 LimitLowWalls(ZoneCollisionMesh collision, Vector3 start, Vector3 target)
+        {
+            if (!collision.CrossesLowWall(start, target, StepUpHeight, FootRadius, MaxFallDistance, out Vector3 normal, out float distance)) return target;
+
+            var across = new Vector2(normal.X, normal.Z);
+            if (across.LengthSquared() > 1e-8f)
+            {
+                across = Vector2.Normalize(across);
+                var move = new Vector2(target.X - start.X, target.Z - start.Z);
+                move -= across * Vector2.Dot(move, across); // only the part along the face
+                if (move.LengthSquared() > 1e-8f)
+                {
+                    var slid = collision.ResolveWalls(start, new Vector3(start.X + move.X, start.Y, start.Z + move.Y), BodyRadius, StepUpHeight, BodyHeight);
+                    if (TryFindGround(collision, slid, 0.0f, out _)
+                        && !collision.CrossesLowWall(start, slid, StepUpHeight, FootRadius, MaxFallDistance, out _, out _)) return slid;
+                }
+            }
+
+            // Up to the face, a hair short of it, if there is floor there and nothing else in the way.
+            var full = new Vector2(target.X - start.X, target.Z - start.Z);
+            float reach = distance - LowWallClearance;
+            if (reach > 0.0f)
+            {
+                var stop = start + (new Vector3(full.X, 0.0f, full.Y) * (reach / full.Length()));
+                if (TryFindGround(collision, stop, 0.0f, out _)
+                    && !collision.CrossesLowWall(start, stop, StepUpHeight, FootRadius, MaxFallDistance, out _, out _)) return stop;
+            }
+            return start;
+        }
+
+        /// <summary>How far short of a low wall face (yalms) a blocked move stops (#632).</summary>
+        private const float LowWallClearance = 0.01f;
 
         /// <summary>
         /// Whether the floor at <paramref name="target"/> is higher than the feet at <paramref name="start"/> and on a face
