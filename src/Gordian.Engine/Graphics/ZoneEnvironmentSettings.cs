@@ -165,6 +165,11 @@ namespace Gordian.Engine.Graphics
             MoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.TerrainMoonColor, diffuseMult);
             if (keyframe.Indoors) SunDirection = IndoorLightDirection(keyframe.TerrainMoonColor);
             AmbientColor = AmbientToLight(keyframe.TerrainAmbientColor);
+            if (keyframe.Indoors)
+            {
+                SunColor = IndoorDiffuseToLight(keyframe.TerrainSunColor, diffuseMult);
+                AmbientColor = IndoorAmbientToLight(keyframe.TerrainAmbientColor);
+            }
             float modelDiffuseMult = keyframe.ModelDiffuseMult > 0f ? keyframe.ModelDiffuseMult : 1.0f;
             ModelSunColor = DiffuseToLight(keyframe.ModelSunColor, modelDiffuseMult);
             ModelMoonColor = keyframe.Indoors ? Vector3.Zero : DiffuseToLight(keyframe.ModelMoonColor, modelDiffuseMult);
@@ -197,7 +202,15 @@ namespace Gordian.Engine.Graphics
             // field (xi-tools docs/zone/lod-draw-distance.md "Fog and draw distance coupling"), and retail draws far
             // mountains and islands textured where the authored fog end alone fogs them into silhouettes (round 1,
             // 2026-10-31, image-17 / image-19 / image-20).
-            if (!keyframe.Indoors)
+            if (keyframe.Indoors)
+            {
+                // Indoors the authored fog scales with the draw distance too, but keeps its start and is not stretched
+                // to the draw-distance cut (#612 round 2): Garlaige's far corridor at about 45 yalms is 45 against
+                // retail's 53 this way, and was 6 (black) with the authored 0-61.7 yalm fog.
+                FogStart *= DrawDistanceMultiplier;
+                FogEnd *= DrawDistanceMultiplier;
+            }
+            else
             {
                 FogStart *= DrawDistanceMultiplier;
                 FogEnd *= DrawDistanceMultiplier;
@@ -308,6 +321,32 @@ namespace Gordian.Engine.Graphics
             var d = new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
             return IsDark(d) ? d * DarkLightBias : d;
         }
+
+        /// <summary>
+        /// The indoor terrain ambient: byte / 255 (not / 510) with the dark lift, capped at <see cref="MaxAmbient"/>.
+        /// <para>
+        /// Calibration (#612 round 2, 2026-11-21, offscreen at the LSB arrival points against retail captures on local LSB,
+        /// `612-garlaige-zone-in-retail.png`, `612-eldieme-zone-in-retail.png`, `612-crawlers-nest-zone-in-retail.png`, and
+        /// the maintainer's image-1..6): with the outdoor conversion every wall the indoor light does not reach rendered at
+        /// about half of retail (Garlaige's low walls 24 against 46, its brick walls 25 against 47) while floors matched.
+        /// Doubling the ambient and dropping the dark lift from the directional light (<see cref="IndoorDiffuseToLight"/>)
+        /// brings the walls to 40-51 and keeps the floor at 73 against 78. An inference fitted to retail, not a documented
+        /// formula.
+        /// </para>
+        /// </summary>
+        public static Vector3 IndoorAmbientToLight(Vector4 authored)
+        {
+            var c = new Vector3(authored.X, authored.Y, authored.Z);
+            var bias = IsDark(c) ? DarkLightBias : Vector3.One;
+            return Vector3.Min(c * bias, new Vector3(MaxAmbient));
+        }
+
+        /// <summary>
+        /// The indoor directional light: byte / 255 times the light power, without the dark lift outdoor lights take
+        /// (see <see cref="IndoorAmbientToLight"/> for the calibration).
+        /// </summary>
+        public static Vector3 IndoorDiffuseToLight(Vector4 authored, float diffuseMult) =>
+            new Vector3(authored.X, authored.Y, authored.Z) * diffuseMult;
 
         /// <summary>The per-channel lift xim gives dark environment lights (xi-model-viewer environment.js <c>BIAS</c>).</summary>
         public static readonly Vector3 DarkLightBias = new(1.40f, 1.36f, 1.45f);

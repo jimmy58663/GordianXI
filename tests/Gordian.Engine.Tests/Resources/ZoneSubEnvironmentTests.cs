@@ -58,6 +58,41 @@ namespace Gordian.Engine.Tests.Resources
         }
 
         [Fact]
+        public void IndoorOnlyZone_IgnoresTheWeather_OutdoorZoneDoesNot()
+        {
+            // #612 round 2: Eldieme's dust keyframe (brown 0-39.5 yalm fog) is not shown inside; indoor zones keep fine.
+            var indoor = new ZoneEnvironmentData();
+            indoor.AddKeyframe("fine", new EnvironmentKeyframe { Indoors = true, TerrainFogEnd = 84f });
+            indoor.AddKeyframe("dust", new EnvironmentKeyframe { Indoors = true, TerrainFogEnd = 39.5f });
+            Assert.True(indoor.IsIndoorOnly);
+            Assert.Equal(84f, indoor.Interpolate(12f, "dust")!.TerrainFogEnd);
+
+            var outdoor = new ZoneEnvironmentData();
+            outdoor.AddKeyframe("fine", new EnvironmentKeyframe { TerrainFogEnd = 300f });
+            outdoor.AddKeyframe("dust", new EnvironmentKeyframe { TerrainFogEnd = 200f });
+            Assert.False(outdoor.IsIndoorOnly);
+            Assert.Equal(200f, outdoor.Interpolate(12f, "dust")!.TerrainFogEnd);
+        }
+
+        [Fact]
+        public void IndoorKeyframe_TakesTheIndoorLightConversion_AndScaledFog()
+        {
+            // #612 round 2: indoor ambient byte/255 with the dark lift, directional light without the lift, fog x multiplier.
+            var ambient = new Vector4(0x41 / 255f, 0x45 / 255f, 0x49 / 255f, 1f); // Garlaige Citadel
+            var sun = new Vector4(0x36 / 255f, 0x3E / 255f, 0x45 / 255f, 1f);
+            var settings = new ZoneEnvironmentSettings();
+            settings.ApplyKeyframe(new EnvironmentKeyframe
+            {
+                Indoors = true, TerrainAmbientColor = ambient, TerrainSunColor = sun, TerrainDiffuseMult = 1.98f,
+                TerrainFogStart = 0f, TerrainFogEnd = 61.7f,
+            });
+            Assert.Equal(2f * ZoneEnvironmentSettings.AmbientToLight(ambient).X, settings.AmbientColor.X, 4);
+            Assert.Equal(0x36 / 255f * 1.98f, settings.SunColor.X, 4);
+            Assert.Equal(0f, settings.FogStart);
+            Assert.Equal(61.7f * settings.DrawDistanceMultiplier, settings.FogEnd, 3);
+        }
+
+        [Fact]
         public void LowerDelkfuttsTower_IsLitByItsIndoorWeatherKeyframes()
         {
             // #612: every 0x2F of zone 184 (weat/<weather>/0000) carries the indoor flag; they are the zone's own

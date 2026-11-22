@@ -219,15 +219,27 @@ namespace Gordian.App.Graphics
 
         /// <summary>
         /// Whether a generator layer is drawn with the decal depth bias, so it wins the depth test against the zone surface it
-        /// lies on: a world effect that writes no depth (a cave mouth's fog gradient), or a static zone overlay with a
-        /// negative generator z offset (op 0x30) even though it writes depth. East Ronfaure's gate-interior light overlay
+        /// lies on: a world effect that writes no depth (a cave mouth's fog gradient).
+        /// </summary>
+        internal static bool TakesDecalBias(WeatherSkyLayer layer) => layer.IsWorldEffect && !layer.DepthWrite;
+
+        /// <summary>
+        /// How far toward the eye a static zone overlay that writes depth and carries a negative generator z offset (op 0x30)
+        /// is depth-tested, in yalms along the view ray (0 for any other layer). East Ronfaure's gate-interior light overlay
         /// <c>gin1</c> (<c>f_ro/mode/ligh/g_li/san_</c>, zones 101 and 81) copies the gatehouse walls, floor and ceiling,
-        /// writes depth and carries -1.5; drawn without a bias it z-fought the walls it copies, as dark blotches with
-        /// hatched edges that moved with the camera (#592). The offset itself (1.5 yalms) is not applied as a distance:
+        /// writes depth and carries -1.5; drawn without a pull it z-fought the walls it copies, as dark blotches with hatched
+        /// edges that moved with the camera (#592). The decal bias (0.00015 of clip w) fixed that but is a constant in
+        /// depth-buffer units: with the 0.1 near plane it pulls 0.15 yalms at 10 yalms and 1.4 yalms at 30, so the copies of
+        /// the ceiling beams' far sides showed through the beams as jagged lit wedges (#592 round 2, image-7 against retail
+        /// image-8). A fixed <see cref="StaticOverlayPullDistance"/> along the view ray clears the z-fight on the 32-bit
+        /// float depth buffer without reaching through the beams. The authored offset itself (1.5 yalms) is not applied:
         /// pulling the overlay that far would light actors near the walls.
         /// </summary>
-        internal static bool TakesDecalBias(WeatherSkyLayer layer, bool staticSurface) =>
-            layer.IsWorldEffect && (!layer.DepthWrite || (staticSurface && layer.DepthOffset < 0));
+        internal static float StaticOverlayPull(WeatherSkyLayer layer, bool staticSurface) =>
+            staticSurface && layer.IsWorldEffect && layer.DepthWrite && layer.DepthOffset < 0 ? -StaticOverlayPullDistance : 0.0f;
+
+        /// <summary>The static overlay pull (#592): 0.05 yalms, about 8 depth-buffer steps at 100 yalms, a tenth of a beam.</summary>
+        internal const float StaticOverlayPullDistance = 0.05f;
         /// <summary>
         /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
         /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
@@ -2275,7 +2287,9 @@ namespace Gordian.App.Graphics
                     ? 2.0f + layer.DepthOffset
                     : pullDepth && layer.DepthOffset < 0 && layer.DepthOffset >= -MaxPullDepth
                         ? -1.0f + layer.DepthOffset
-                        : TakesDecalBias(layer, staticSurface) ? 1.0f : 0.0f);
+                        : StaticOverlayPull(layer, staticSurface) is < 0.0f and var overlayPull
+                            ? -1.0f + overlayPull
+                            : TakesDecalBias(layer) ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
