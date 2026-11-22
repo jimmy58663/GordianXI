@@ -17,6 +17,8 @@ namespace Gordian.Engine.Graphics
     /// <param name="MoonPhase">Moon phase index (0-11) for moon-phase tints.</param>
     /// <param name="ViewerInSubEnvironment">True while the floor under the camera links a sub-environment (a cave or
     /// interior, e.g. <c>ev01</c>): camera-following and camera-anchored weather effects stop emitting there.</param>
+    /// <param name="EmitDistanceScale">Scale on each generator's own cull distance (Section 1 op 0x0A): the client's
+    /// draw-distance multiplier for zone effects (#612), 1 elsewhere.</param>
     public readonly record struct ZoneParticleFrame(
         Vector3 CameraRawPosition,
         float DayFraction,
@@ -24,7 +26,8 @@ namespace Gordian.Engine.Graphics
         Vector3 CameraRawForward = default,
         int DayOfWeek = 0,
         int MoonPhase = 0,
-        bool ViewerInSubEnvironment = false);
+        bool ViewerInSubEnvironment = false,
+        float EmitDistanceScale = 1.0f);
 
     /// <summary>
     /// A particle's velocity state for one allocation slot (position, rotation or scale transform).
@@ -239,6 +242,7 @@ namespace Gordian.Engine.Graphics
         private const float MaxStepFrames = 4.0f;
         private readonly Random _random;
         private Vector3 _cameraRawPosition;
+        private float _emitDistanceScale = 1.0f;
         private Vector3 _cameraRawForward;
         private Vector3 _daylightColor = Vector3.One;
         private float _dayFraction;
@@ -304,6 +308,7 @@ namespace Gordian.Engine.Graphics
         private void Step(float frames, in ZoneParticleFrame frame)
         {
             _cameraRawPosition = frame.CameraRawPosition;
+            _emitDistanceScale = frame.EmitDistanceScale;
             _cameraRawForward = frame.CameraRawForward;
             _daylightColor = frame.DaylightColor;
             _dayFraction = frame.DayFraction;
@@ -330,7 +335,7 @@ namespace Gordian.Engine.Graphics
             if (IsDoneEmitting()) return;
 
             bool culled = Def.MaxEmitDistance > 0.0f &&
-                          Vector3.Distance(frame.CameraRawPosition, Template.RawBasePosition) > Def.MaxEmitDistance;
+                          Vector3.Distance(frame.CameraRawPosition, Template.RawBasePosition) > Def.MaxEmitDistance * frame.EmitDistanceScale;
             if (culled) return;
 
             // Camera-attached weather (rain, snow) only emits while the viewer is in the main environment, which keeps
@@ -792,7 +797,7 @@ namespace Gordian.Engine.Graphics
             // A particle is drawn the frame it is born, before its updaters run. It takes its birth mesh weights now, or 324's
             // blink would open the eye for a frame before closing it, and the gates on its alpha (time of day, distance), or a
             // West Ronfaure brazier that is off by day would flash on each emission (TESTING-2026-11-03 captures).
-            var birthFrame = new ZoneParticleFrame(_cameraRawPosition, _dayFraction, _daylightColor);
+            var birthFrame = new ZoneParticleFrame(_cameraRawPosition, _dayFraction, _daylightColor, EmitDistanceScale: _emitDistanceScale);
             foreach (var op in Def.Updaters)
             {
                 if (op.OpCode is >= 0x1E and <= 0x22 or 0x6E or 0x2E or 0x3F or 0x48) ApplyUpdater(p, op, 0f, birthFrame);
@@ -1156,8 +1161,10 @@ namespace Gordian.Engine.Graphics
 
                 case 0x2E: // DrawDistanceUpdater: fade by distance to the particle
                 {
+                    // The fade is the generator's draw distance, so it scales with the client's multiplier like the cull
+                    // (op 0x0A): Eldieme's torch lights fade out by 22 yalms unscaled, before the camera reaches them (#612).
                     float distance = Vector3.Distance(frame.CameraRawPosition, p.WorldPosition);
-                    MultiplyAlpha(p, FallOff(distance, op.Float(0), op.Float(1)));
+                    MultiplyAlpha(p, FallOff(distance, op.Float(0) * frame.EmitDistanceScale, op.Float(1) * frame.EmitDistanceScale));
                     break;
                 }
                 case 0x2F: // VelocityRotationUpdater: velocity collapses onto +X, turned by the particle's rotation

@@ -216,6 +216,30 @@ namespace Gordian.App.Graphics
         /// many yalms along the view ray instead (*inference*), leaving the drawn position alone.
         /// </summary>
         internal const float MaxPullDepth = 1.0f;
+
+        /// <summary>
+        /// Whether a generator layer is drawn with the decal depth bias, so it wins the depth test against the zone surface it
+        /// lies on: a world effect that writes no depth (a cave mouth's fog gradient).
+        /// </summary>
+        internal static bool TakesDecalBias(WeatherSkyLayer layer) => layer.IsWorldEffect && !layer.DepthWrite;
+
+        /// <summary>
+        /// How far toward the eye a static zone overlay that writes depth and carries a negative generator z offset (op 0x30)
+        /// is depth-tested, in yalms along the view ray (0 for any other layer). East Ronfaure's gate-interior light overlay
+        /// <c>gin1</c> (<c>f_ro/mode/ligh/g_li/san_</c>, zones 101 and 81) copies the gatehouse walls, floor and ceiling,
+        /// writes depth and carries -1.5; drawn without a pull it z-fought the walls it copies, as dark blotches with hatched
+        /// edges that moved with the camera (#592). The decal bias (0.00015 of clip w) fixed that but is a constant in
+        /// depth-buffer units: with the 0.1 near plane it pulls 0.15 yalms at 10 yalms and 1.4 yalms at 30, so the copies of
+        /// the ceiling beams' far sides showed through the beams as jagged lit wedges (#592 round 2, image-7 against retail
+        /// image-8). A fixed <see cref="StaticOverlayPullDistance"/> along the view ray clears the z-fight on the 32-bit
+        /// float depth buffer without reaching through the beams. The authored offset itself (1.5 yalms) is not applied:
+        /// pulling the overlay that far would light actors near the walls.
+        /// </summary>
+        internal static float StaticOverlayPull(WeatherSkyLayer layer, bool staticSurface) =>
+            staticSurface && layer.IsWorldEffect && layer.DepthWrite && layer.DepthOffset < 0 ? -StaticOverlayPullDistance : 0.0f;
+
+        /// <summary>The static overlay pull (#592): 0.05 yalms, about 8 depth-buffer steps at 100 yalms, a tenth of a beam.</summary>
+        internal const float StaticOverlayPullDistance = 0.05f;
         /// <summary>
         /// The zone effect pass's order: depth-writing layers first, then the static surface layers, then the particles (zone
         /// emitters and every actor, weapon, scene, action, foot and interior effect), each group back to front. A surface is
@@ -2094,7 +2118,7 @@ namespace Gordian.App.Graphics
                 if (layer.IsWorldEffect && (layer.IsEntranceOverlay || CullSingleSidedWorldEffects) && !skyMesh.NoCull) cullFront = scale.X * scale.Y * scale.Z < 0.0f ? 1 : 0;
             }
 
-            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront);
+            return SubmitGeneratorDraw(skyMesh, world, uvOrFlareCenter, layerType, textureFactor, sceneUniform, ref currentPipeline, cullFront, staticSurface: true);
         }
 
         /// <summary>
@@ -2211,7 +2235,8 @@ namespace Gordian.App.Graphics
             ref Pipeline? currentPipeline,
             int cullFront = -1,
             bool pushDepth = false,
-            bool pullDepth = false)
+            bool pullDepth = false,
+            bool staticSurface = false)
         {
             var layer = skyMesh.Layer;
             // Shader blend output: 0 = straight alpha, 1 = premultiplied (additive / reverse subtract), 2 = darken by alpha.
@@ -2262,7 +2287,9 @@ namespace Gordian.App.Graphics
                     ? 2.0f + layer.DepthOffset
                     : pullDepth && layer.DepthOffset < 0 && layer.DepthOffset >= -MaxPullDepth
                         ? -1.0f + layer.DepthOffset
-                        : layer.IsWorldEffect && !layer.DepthWrite ? 1.0f : 0.0f);
+                        : StaticOverlayPull(layer, staticSurface) is < 0.0f and var overlayPull
+                            ? -1.0f + overlayPull
+                            : TakesDecalBias(layer) ? 1.0f : 0.0f);
 
             ResourceSet texSet = string.IsNullOrWhiteSpace(skyMesh.TextureName)
                 ? _textureCache.NeutralResourceSet
@@ -2579,7 +2606,10 @@ namespace Gordian.App.Graphics
             }
             var frame = new ZoneParticleFrame(ToDisplay(eye), environment.TimeOfDayHours / 24.0f, StrongestLight(environment),
                 ToDisplay(forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
-                IsViewerInSubEnvironment(camera.Position));
+                // An indoor zone (a dungeon, #612) keeps camera-attached weather out, as a sub-environment does.
+                environment.Indoors || IsViewerInSubEnvironment(camera.Position),
+                // Generators' own cull distances scale with the draw distance, as placements' do (#70, #612).
+                EmitDistanceScale: environment.DrawDistanceMultiplier);
             // The vessel's own emitters (its wake, lamps, the sea around it) see the eye where it is.
             var vesselFrame = _sceneryTransform.IsIdentity ? frame : frame with { CameraRawPosition = ToDisplay(camera.Position), CameraRawForward = ToDisplay(camera.Forward) };
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;

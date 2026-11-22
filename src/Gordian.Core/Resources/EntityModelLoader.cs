@@ -1140,7 +1140,61 @@ namespace Gordian.Core.Resources
                 return null;
             }
 
+            // A part model (#608) names the model it is built on: compose that base with this DAT's parts.
+            var parts = new List<(byte[] Dat, int FileId)>();
+            byte[] primary = dat;
+            int primaryFile = fileId;
+            var seen = new HashSet<uint> { modelId };
+            while (parts.Count < MaxBaseModelDepth && FindBaseModel(primary) is uint baseId && seen.Add(baseId))
+            {
+                int baseFile = CharacterEquipmentResolver.GetMonsterFileId(baseId);
+                if (baseFile == CharacterEquipmentResolver.NoModelFileId || datByFileId(baseFile) is not { Length: > 0 } baseDat) break;
+                parts.Insert(0, (primary, primaryFile));
+                primary = baseDat;
+                primaryFile = baseFile;
+            }
+
+            if (parts.Count > 0)
+            {
+                GordianLog.Debug(LogCategories.Res, $"Monster_{modelId}: built on {DecodedTexture.FileLabel(primaryFile)} with {parts.Count} part DAT(s) (#608).");
+                return AssembleModel(primary, parts.ConvertAll(p => (ReadOnlyMemory<byte>)p.Dat), $"Monster_{modelId}",
+                    gearOcclusion: new GearOcclusion(), primarySource: DecodedTexture.FileLabel(primaryFile),
+                    extraSources: parts.ConvertAll(p => (string?)DecodedTexture.FileLabel(p.FileId)));
+            }
+
             return AssembleModel(dat, null, $"Monster_{modelId}", gearOcclusion: new GearOcclusion(), primarySource: DecodedTexture.FileLabel(fileId));
+        }
+
+        /// <summary>How many base models a part model may chain through (<see cref="FindBaseModel"/>).</summary>
+        private const int MaxBaseModelDepth = 3;
+
+        /// <summary>
+        /// The model a part DAT is built on, or null for a complete model. A part DAT carries no skeleton; its
+        /// <c>init</c> routine names the base with routine op 0x98 (u32 model id at +0x08). The Mamool Ja, Lamia, Troll and
+        /// automaton NPCs that S2C 0x00E sends as SubKind 6 (#608) use such DATs: Molaal Ja's 1626 (<c>ROM4/8/22</c>: only
+        /// the texture <c>tue</c> and the weapon mesh <c>wep3</c>) names 1625 (<c>ROM4/8/21</c>, the Mamool Ja mage pack:
+        /// skeleton <c>rizm</c>, body <c>hh_b</c>, motions), Golaal Ja's 1603 names the sword pack 1600, and the automaton
+        /// 1977 (Harlequin frame and head, LandSandBoat <c>calculateAutomatonModel</c>) names the automaton base 1976
+        /// (skeleton <c>auto</c> and motions, no meshes).
+        /// <para>
+        /// **Beyond XiPackets / LandSandBoat / xi-tools:** none of them documents routine op 0x98 (xi-tools'
+        /// <c>0x98</c> is the event opcode). Its meaning here is an *inference* from the retail DATs (2026-11-20).
+        /// </para>
+        /// </summary>
+        public static uint? FindBaseModel(ReadOnlySpan<byte> datBytes)
+        {
+            var headers = DatSectionWalker.ReadHeaders(datBytes);
+            uint? baseId = null;
+            foreach (var h in headers)
+            {
+                if (h.DataOffset + h.DataSizeBytes > datBytes.Length) continue;
+                if (h.TypeCode == DatSectionType.Skeleton) return null;
+                if (baseId == null && h.TypeCode == DatSectionType.EffectRoutine && h.DatId.Trim() == "init")
+                {
+                    baseId = MotionRoutineDecoder.FindBaseModel(datBytes.Slice(h.DataOffset, h.DataSizeBytes));
+                }
+            }
+            return baseId;
         }
     }
 }

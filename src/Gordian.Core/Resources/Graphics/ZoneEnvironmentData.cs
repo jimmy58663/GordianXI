@@ -215,9 +215,31 @@ namespace Gordian.Core.Resources.Graphics
 
         /// <summary>
         /// Interpolates lighting, fog, and sky dome slices for the given time of day (in hours, e.g. 14.5 for 2:30 PM).
+        /// An indoor zone (see <see cref="IsIndoorOnly"/>) ignores the weather and keeps its fair-weather keyframes.
         /// </summary>
         public EnvironmentKeyframe? Interpolate(float timeOfDayHours, string? weather = null) =>
-            Interpolate(_weatherKeyframes, timeOfDayHours, weather);
+            Interpolate(_weatherKeyframes, timeOfDayHours, IsIndoorOnly ? null : weather);
+
+        /// <summary>
+        /// True when every weather keyframe carries the indoor flag (a dungeon, a Mog House room, a stage zone). Such a
+        /// zone shows no weather (#612 round 2): Eldieme authors a <c>dust</c> keyframe with a brown 0-39.5 yalm fog that
+        /// retail does not show inside, so its own fair-weather lighting and fog stay whatever the server's weather.
+        /// </summary>
+        public bool IsIndoorOnly
+        {
+            get
+            {
+                if (_weatherKeyframes.Count == 0) return false;
+                foreach (var frames in _weatherKeyframes.Values)
+                {
+                    foreach (var frame in frames)
+                    {
+                        if (!frame.Indoors) return false;
+                    }
+                }
+                return true;
+            }
+        }
 
         private static EnvironmentKeyframe? Interpolate(Dictionary<string, List<EnvironmentKeyframe>> source, float timeOfDayHours, string? weather)
         {

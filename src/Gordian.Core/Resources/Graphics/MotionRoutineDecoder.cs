@@ -63,6 +63,7 @@ namespace Gordian.Core.Resources.Graphics
         private const byte OpSpellEffect = 0x19;
         private const byte OpControlLock = 0x2E;
         private const byte OpSetStance = 0x8C;
+        private const byte OpBaseModel = 0x98;
 
         /// <summary>
         /// The shared hit routines a link to which marks the moment the result shows: <c>dada</c> (melee), <c>mdam</c>
@@ -164,6 +165,31 @@ namespace Gordian.Core.Resources.Graphics
                 SpellEffects = spellEffects ?? (IReadOnlyList<RoutineSpellEffect>)Array.Empty<RoutineSpellEffect>(),
                 Stance = stance
             };
+        }
+
+        /// <summary>
+        /// The model id a part model's <c>init</c> routine builds on: the first op 0x98 command's u32 at +0x08, or null
+        /// when the routine has none (see <c>EntityModelLoader.FindBaseModel</c>, #608). *Inference* from the retail DATs:
+        /// no reference documents this routine op.
+        /// </summary>
+        public static uint? FindBaseModel(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < 0x20) return null;
+            int p = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(0x14)) - 16;
+            if (p < 0 || p >= payload.Length) return null;
+            while (p + 8 <= payload.Length)
+            {
+                byte op = payload[p];
+                if (op == OpEnd) break;
+                int sizeBytes = Math.Max(1, BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(p + 1)) & 0x1F) * 4;
+                if (op == OpBaseModel && sizeBytes >= 12 && p + 12 <= payload.Length)
+                {
+                    uint id = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(p + 8));
+                    return id is > 0 and < 0x10000 ? id : null;
+                }
+                p += sizeBytes;
+            }
+            return null;
         }
 
         /// <summary>

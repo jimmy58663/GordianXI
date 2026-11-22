@@ -61,7 +61,7 @@ namespace Gordian.Engine.Tests.Graphics
         [Theory]
         [InlineData(false, 3.0f, 900.0f, 1200.0f)]
         [InlineData(false, 1.0f, 300.0f, 400.0f)]
-        [InlineData(true, 3.0f, 0.0f, 400.0f)] // indoors the authored fog stays
+        [InlineData(true, 3.0f, 0.0f, 1200.0f)] // indoors the authored start stays, both ends scale (#612 round 2)
         public void ApplyKeyframe_MovesTheOutdoorFogWithTheMultiplier(bool indoors, float multiplier, float fogStart, float fogEnd)
         {
             var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = multiplier };
@@ -72,7 +72,7 @@ namespace Gordian.Engine.Tests.Graphics
 
         [Theory]
         [InlineData(false, 3.0f, 679.5f, 906.0f)] // Valkurm mist: stretched out to the 906-yalm cut
-        [InlineData(true, 3.0f, 0.0f, 148.5f)]    // indoors the authored fog stays
+        [InlineData(true, 3.0f, 0.0f, 445.5f)]    // indoors scaled, not stretched to the cut (#612 round 2)
         public void ApplyKeyframe_NeverClosesTheOutdoorFogBeforeTheDrawDistance(bool indoors, float multiplier, float fogStart, float fogEnd)
         {
             var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = multiplier };
