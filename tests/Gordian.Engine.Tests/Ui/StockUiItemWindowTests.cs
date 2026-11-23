@@ -790,6 +790,23 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void EnchantedEquipment_GreysUseWhileItsDelayRuns_AndEnablesItWhenTheDelayEnds()
+        {
+            // Round 2 (retail): Use / Drop greys Use while the equip or reuse delay runs, and Use comes back when it ends.
+            var t0 = DateTime.UtcNow;
+            var h = WithPouch(ContainerId.Inventory, 9, t0);
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, (ushort)BulletPouch.ItemId);
+            h.Menus.Activate();
+            var action = h.Menus.Top!;
+            Assert.Equal(BulletPouch.ItemId, action.ItemAction!.Value.ItemId);
+            Assert.True(action.IsGreyedAt(StockUiItems.UseButton, t0.AddSeconds(5)));
+            Assert.False(action.IsGreyedAt(StockUiItems.UseButton, t0.AddSeconds(11)));
+            Assert.True(action.IsGreyedAt(StockUiItems.DropButton, t0.AddSeconds(11))); // worn
+        }
+
+        [Fact]
         public void EnchantedEquipment_WornFromAWardrobe_IsInTheCommandMenuOnly()
         {
             var h = WithPouch(ContainerId.Wardrobe, 2, DateTime.UtcNow.AddMinutes(-1));

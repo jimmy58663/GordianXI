@@ -790,7 +790,11 @@ namespace Gordian.Engine.Ui
             if (row.Equipped || row.Container == ContainerId.RecycleBin) greyed.Add(StockUiItems.DropButton);
             var menu = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null) { ItemAction = row };
             menu.SetGreyed(greyed.Count > 0 ? greyed : null);
-            menu.SelectedButtonId = usable || greyed.Contains(StockUiItems.DropButton) ? StockUiItems.UseButton : StockUiItems.DropButton;
+            // Worn enchanted equipment: Use is greyed while its equip or reuse delay runs, and comes back when it ends
+            // (the maintainer on retail, round 2 of the 2026-11-22 test).
+            bool waiting = usable && row.UsableAtUtc is { } usableAt && usableAt > DateTime.UtcNow;
+            if (waiting) menu.SetGreyedUntil(StockUiItems.UseButton, row.UsableAtUtc!.Value);
+            menu.SelectedButtonId = usable && !waiting || greyed.Contains(StockUiItems.DropButton) ? StockUiItems.UseButton : StockUiItems.DropButton;
             lock (_sync) PushOpen(menu);
             Changed?.Invoke();
         }
