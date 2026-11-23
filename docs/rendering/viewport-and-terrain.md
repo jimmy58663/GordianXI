@@ -176,7 +176,7 @@ Verification: `dotnet test --filter SharedDeviceAndZoneCacheTests` (headless D3D
 
 Retail moves trees, grass and webs that GordianXI drew still: the Valkurm Dunes trees outside Selbina, Crawlers' Nest's webs at server (331.8, -32.8, -12.6) and La Theine Plateau's grass tufts at (-558.7, 0, 676.6) (x, height, y; the maintainer, 2026-11-18 and 2026-11-22). It is one mechanism in the mesh data, not a routine, an op or the weather.
 
-- **The data.** A Section 0x2E mesh whose config word (+4) has bit 1 set stores 48-byte vertices: position, a second vector, normal, colour, UV (xi-tools `docs/zone/format.md`, "vertex-blend"). The client draws the vertex at `position + windFactor * second`, the factor one value for every mesh, a triangle wave from 0 to 1 and back, two seconds each way (xim's WindFactor, as xi-model-viewer `ui/js/renderer.js` ports it). `ZoneMeshDecoder` read the 48-byte layout but dropped the second vector.
+- **The data.** A Section 0x2E mesh whose config word (+4) has bit 1 set stores 48-byte vertices: position, a second vector, normal, colour, UV (xi-tools `docs/zone/format.md`, "vertex-blend"). The client draws the vertex at `position + windFactor * second`, the factor one value for every mesh. xi-model-viewer `ui/js/renderer.js` (after xim's WindFactor) makes it a triangle wave from 0 to 1 and back, two seconds each way; retail's is a gust (below). `ZoneMeshDecoder` read the 48-byte layout but dropped the second vector.
 - **The three cases** (dumped 2026-11-22, a temporary test on the retail install): the placements at the maintainer's spots have no BlockID (so not the generator-bound path, xi-tools "Generator-bound objects") and all carry wind offsets: Crawlers' Nest's webs `_dad_w09_m` (2.9 and 4.5 yalms either side; 82 placements, offsets up to 0.16 yalm, texture `dav_wf`), La Theine's tufts `_kusa_001_m`-`_kusa_003_m` (offsets up to 0.15; the zone's `_rat_w*` trees too, 16,114 of its 33,124 placed submeshes sway), Valkurm's trees `_kin_w*` (3,295 of 11,180, offsets up to 1.53 yalms on `_kin_w01b`).
 - **Census, zones 0-299:** 69 zones; 245,760 of 2,661,060 placed submeshes sway, nearly all alpha-tested foliage (`_` names), a few blended (Valkurm 78, zone 109 160) and opaque ones (Konschtat 15 and zone 108 2,560 each, zones 111 / 134 / 136 about 1,400-2,000: `con_w*`, `gar_w*` trees without the `_` prefix). The largest offset is 3.19 yalms (Jugner Forest's `kino_a01`). Zones: 2, 4, 5, 7, 8, 15, 24, 25, 39-41, 44, 45, 65, 70, 84, 95-98, 102-111, 113-128, 132, 134, 136, 147, 171, 187, 188, 191, 197, 215, 216, 233, 238-241, 243, 247, 250, 282, 285, 296, 297. **Beyond xi-tools / xi-model-viewer:** the census. West Ronfaure (100) has none, so #603's heat haze is something else ([particles.md](particles.md#heat-haze-603)).
 - **GordianXI.** `MeshGroup.WindDeltas` keeps the offsets (null for a mesh that does not sway; placed by the rotation and scale like a normal, `ZoneDefDecoder.InstantiateSubmesh`). `ZoneTerrainRenderer` uploads them as a second vertex stream and draws those submeshes with swaying variants of its opaque, cutout, decal and blend pipelines (`TerrainShaders.WithWind`: the offset times `TerrainTone.z` added before the world transform; normals as authored, as in xim); their bounds grow by the largest offset so culling keeps a leaning leaf. The factor is `ZoneWind.Factor` on the renderer's clock. Zone placements, building interiors and vessels sway; door leaves, elevators and furniture draw static. `EnableWindSway` turns it off.
@@ -186,7 +186,44 @@ Retail moves trees, grass and webs that GordianXI drew still: the Valkurm Dunes 
   - **Pipeline switches.** Swaying and still submeshes alternate in authored order, so most draws switched between the plain and the swaying pipeline. With the sway on, every zone submesh now draws with the swaying variant, a still one bound to a shared zero offset stream (`_zeroWindBuffer`, 65,536 vertices). The pipeline sequence is the same as `main`'s.
   - With both fixes: 249-283 FPS, scene CPU 1.9-2.3 ms, against `main`'s 267 (2.1 ms) measured in between. Launches of the same build vary by about 15 FPS. In Debug, #623 runs 162 FPS (4.4 ms) and the round 1 test branch 145 (5.1 ms) at the same spot. The scene is CPU-bound (GPU under 1 ms).
 - **Retail check (round 1):** retail's sway does not grow in windy weather (the maintainer, 2026-11-22), so the fixed factor stays.
-- **Open:** retail's exact period. To compare in game: time one sway of a Valkurm tree outside Selbina.
+- **Retail's curve (round 2).** The maintainer saw that Valkurm's trees do not swing steadily but in a pattern (video `20261123-2024-07.1327080.mp4`, retail at night, the palms on the hill outside Selbina, 30 fps, 16 s). Measured by phase correlation on four 64-pixel crown patches, frame by frame:
+  - One waveform carries 79 % of the motion (SVD of the eight x/y series). It repeats every **5.15 s** (autocorrelation 155 frames; folding 5.15 s), three times in the video.
+  - One cycle: from rest the crown leans out to full over about 1.9 s and holds there about 0.3 s, relaxes half way (0.52 at 0.55 of the cycle), leans out again to 0.87 (0.7 of the cycle) and settles back to rest. The holds are in the game's motion, not the video: the in-between frames keep moving.
+  - `ZoneWind.Factor` is that cycle: four harmonics fitted to it (11 % RMS residual), scaled to run from 0 to 1. **Differs from xi-model-viewer / xim.**
+  - The data holds no timing: the mesh header (`+4` config) has only the strip and vertex-blend bits, and the 48-byte vertex only the position and the offset (xi-tools `docs/zone/format.md`). So the period and shape come from the video alone.
+  - **Open (PROVISIONAL):** which end is the authored pose (taken as the rest before the lean). The two smaller palms move at other points of the cycle, so retail may give each mesh or position its own phase; one shared factor matches the two big crowns only. Settle with a video of one tree up close and its server position.
+
+## Frame cost (#606 round 2)
+
+The maintainer measured Konschtat Highlands at server (-227.63, 70.98, 769.83): about 95-100 FPS facing heading 33 (down the valley) and about 170 facing 174 (TESTING-2026-11-22 C2, Debug build). Crawlers' Nest runs 299 (1.6 ms scene CPU, 275 draw calls).
+
+**What costs the frame (offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, a scratch harness rendering zone 108 at the spot, 2026-11-23).** The maintainer's Debug client was running throughout, so absolute times vary by about 1 ms between runs; the comparisons are within one run.
+
+| View | Draw calls | Placements in view | Frame |
+|---|---|---|---|
+| heading 33 | 5,332 | 5,610 | 5.6-5.9 ms |
+| heading 174 | 135 | 416 | 1.8-2.2 ms |
+| heading 33, sway off | 5,332 | 5,610 | 5.7-5.9 ms (no change) |
+| heading 33, `main` (no sway, no haze) | 5,332 | 5,605 | 5.6 ms |
+| heading 33, draw distance multiplier 2 / 1.5 / 1 | 2,347 / 1,302 / 735 | | 3.7 / 3.0 / 2.5 ms |
+
+- **Not the sway or the haze.** They cost about 0.3 ms here. `main` without either draws the same 5,332 calls.
+- **The cost is the draw calls** (a sampled trace of the render thread: CPU-bound, the driver's binds about 60 % of it). Looking down the valley, the camera sees 906 yalms (the global draw distance 302 times `ZoneVisibility.DefaultDrawDistanceMultiplier` 3). Within that:
+  - 2,371 flower quads `_con_han*`, two triangles each, one draw call apiece. Their own draw distance is 200 yalms, times 3 = 600.
+  - About 860 terrain pieces, each a base and a blended decal.
+  - About 1,500 more distant terrain and rock pieces.
+- **The multiplier is GordianXI's.** 3 was chosen so the Manaclipper's far islands draw (#70). Retail's value was never measured, and it also stretches each placement's own distance. Applied to the own distances only, 1 instead of 3 leaves 3,409 placements in view instead of 5,610.
+
+**Static batching (built).** Pass 1 now draws small still submeshes together (`ZoneTerrainRenderer.EnableStaticBatching`, default on):
+- **Which submeshes.** Opaque or alpha-tested, no wind, no UV scroll, at most 3,072 indices, and a placement without a blended decal (not a door, platform or vessel). At load their vertices go into shared 65,536-vertex chunks (`BatchVertexPool`) and their indices are rebased into the chunk. Every other draw of the submesh (pass 3, the AoE guide) is unchanged.
+- **How they draw.** Each frame the visible ones wait, grouped by pipeline, scene set, texture, light set and chunk, and are drawn at the end of pass 1: one call per group, their indices copied into a per-frame index buffer.
+- **Why the picture is the same.** They write depth. The only order that could show is against blended decals, which are drawn with a depth bias, so props stay after the decals as before. A placement's own base, which its decal composites over, never batches.
+- **Checked offscreen.** With the clock stopped and after warm-up, batched and unbatched frames are pixel-identical in Konschtat (108), La Theine (102), Crawlers' Nest (197), Valkurm (103) and Southern San d'Oria (230), four headings each. The first frames after a load differed in a few scattered pixels whichever came first. `StaticBatchingRenderTests` keeps the Konschtat case.
+- **Result.** At Konschtat heading 33: 5,332 to 2,816 draw calls, about 0.6-1.4 ms less per frame (15-20 %). Elsewhere the saving is smaller: La Theine 1,395 to 961 at one heading, Southern San d'Oria 363 to 183.
+
+**Still to decide:**
+- **The draw distance multiplier.** At 1 the valley view costs 2.5 ms (735 calls). A retail look down the valley would show how far retail draws the flowers and the far hills. A setting (#195) would let older cards trade distance for frame rate.
+- **Remaining per-draw cost.** Each unbatched submesh binds its own index buffer (`SetIndexBuffer` was about 14 % of the render thread). Pooling the zone's index buffers like the vertex chunks would remove most of it.
 
 ## AoE range guide (#356)
 

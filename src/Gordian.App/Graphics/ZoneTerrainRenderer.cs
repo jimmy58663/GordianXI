@@ -126,6 +126,31 @@ namespace Gordian.App.Graphics
         private const int ZeroWindVertices = 65536;
 
         /// <summary>
+        /// Whether pass 1 draws the visible small still submeshes of a vertex chunk that share a pipeline, texture and light
+        /// set in one call (#606 round 2, <see cref="BatchVertexPool"/>). On by default; off draws each on its own, as
+        /// before. The picture is the same either way: only opaque and alpha-tested meshes of placements without a blended
+        /// decal batch, and they write depth, so their order against the rest of pass 1 does not show.
+        /// </summary>
+        public bool EnableStaticBatching { get; set; } = true;
+
+        // Pass 1's batches waiting to be drawn (FlushBatches), by state; reused every frame.
+        private readonly Dictionary<(Pipeline Pipeline, ResourceSet SceneSet, string Texture, ResourceSet? Lights, DeviceBuffer Chunk), int> _batchIndex = new();
+        private readonly List<PendingBatch> _batches = new();
+        private int _batchCount;
+        private ushort[] _batchIndexScratch = new ushort[1 << 16];
+        private DeviceBuffer? _batchIndexBuffer;
+        private uint _batchIndexUsed;
+        private readonly List<DeviceBuffer> _retiredBatchBuffers = new();
+
+        private sealed class PendingBatch
+        {
+            public Pipeline Pipeline = null!;
+            public ResourceSet SceneSet = null!;
+            public readonly List<GpuSubmesh> Members = new();
+            public uint IndexCount;
+        }
+
+        /// <summary>
         /// Whether zone meshes with wind offsets (trees, grass, webs) sway (#606). On by default, as in retail; off draws
         /// them at their authored pose.
         /// </summary>
@@ -445,6 +470,18 @@ namespace Gordian.App.Graphics
             /// <summary>Whether <see cref="WindBuffer"/> is this submesh's own (disposed with it) rather than a pool's.</summary>
             public bool OwnsWindBuffer { get; init; } = true;
 
+            /// <summary>
+            /// Whether <see cref="VertexBuffer"/> is this submesh's own rather than a <see cref="BatchVertexPool"/> chunk shared
+            /// with other small still submeshes; a pooled submesh's indices are rebased into its chunk.
+            /// </summary>
+            public bool OwnsVertexBuffer { get; init; } = true;
+
+            /// <summary>
+            /// For a pooled submesh (<see cref="OwnsVertexBuffer"/> false), its indices into the chunk, kept on the CPU so a
+            /// frame can draw every visible submesh of a chunk with the same state in one call (#606 round 2); null otherwise.
+            /// </summary>
+            public ushort[]? BatchIndices { get; init; }
+
             /// <summary>The pass and render state this submesh draws with (#251).</summary>
             public ZoneSubmeshPass Pass => ZoneSubmeshPasses.Classify(IsBlend, IsFoliage, IsWater);
 
@@ -498,7 +535,7 @@ namespace Gordian.App.Graphics
                     OwnsBuffers = false,
                     Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount,
                     MinBounds = MinBounds, MaxBounds = MaxBounds, IsBlend = IsBlend, NoCull = NoCull, IsFoliage = IsFoliage, IsWater = IsWater,
-                    UVScroll = UVScroll, WindBuffer = WindBuffer, WindOffset = WindOffset, OwnsWindBuffer = false, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
+                    UVScroll = UVScroll, WindBuffer = WindBuffer, WindOffset = WindOffset, OwnsWindBuffer = false, OwnsVertexBuffer = false, BatchIndices = BatchIndices, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
                     DoorId = DoorId, SubAreaLink = SubAreaLink, Visibility = Visibility, DoorPart = DoorPart, DoorPlacement = DoorPlacement,
                 };
             }
@@ -507,7 +544,7 @@ namespace Gordian.App.Graphics
             {
                 if (OwnsBuffers)
                 {
-                    VertexBuffer?.Dispose();
+                    if (OwnsVertexBuffer) VertexBuffer?.Dispose();
                     IndexBuffer?.Dispose();
                     if (OwnsWindBuffer) WindBuffer?.Dispose();
                 }
@@ -1214,6 +1251,17 @@ namespace Gordian.App.Graphics
                     if (group.Indices.Length > 0 && group.WindDeltas is { } wind && wind.Length == group.Vertices.Length) windBytes += wind.Length * WindPool.BytesPerVertex;
                 }
                 if (windBytes > 0) lock (shared.GpuLock) _windPool = new WindPool(gd, windBytes);
+                _batchPool = new BatchVertexPool(gd);
+
+                // A placement with a blended decal keeps its own buffers: the decal composites over the placement's other
+                // submeshes, which must be drawn just before it, in authored order (#606 round 2).
+                var decalRecords = new HashSet<int>();
+                foreach (var (group, platformId, doorId, _, vessel) in allGroups)
+                {
+                    if (!vessel && platformId.Length == 0 && doorId.Length == 0 && group.IsBlend && group.Visibility.Record >= 0
+                        && !(group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName)))
+                        decalRecords.Add(group.Visibility.Record);
+                }
 
                 for (int start = 0; start < allGroups.Count; start += GroupsPerChunk)
                 {
@@ -1225,10 +1273,14 @@ namespace Gordian.App.Graphics
                             var (group, platformId, doorId, leaf, vessel) = allGroups[i];
                             if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
 
-                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf, windPool: _windPool);
+                            // Only the static scenery batches (platforms, doors and a voyage's vessel move with their own
+                            // transforms), and only placements without a decal.
+                            bool batchable = !vessel && doorId.Length == 0 && platformId.Length == 0
+                                             && group.Visibility.Record >= 0 && !decalRecords.Contains(group.Visibility.Record);
+                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf, windPool: _windPool, batchPool: batchable ? _batchPool : null);
                             (vessel ? VesselSubmeshes : doorId.Length > 0 ? DoorSubmeshes : platformId.Length > 0 ? PlatformSubmeshes : ZoneSubmeshes).Add(submesh);
                             vertCount += group.Vertices.Length;
-                            bytes += submesh.VertexBuffer.SizeInBytes + submesh.IndexBuffer.SizeInBytes;
+                            bytes += (submesh.OwnsVertexBuffer ? submesh.VertexBuffer.SizeInBytes : 0) + submesh.IndexBuffer.SizeInBytes;
                         }
                     }
                 }
@@ -1274,7 +1326,7 @@ namespace Gordian.App.Graphics
                 }
 
                 TotalVertices = vertCount;
-                Bytes = bytes + windBytes;
+                Bytes = bytes + windBytes + _batchPool.Bytes;
             }
 
             /// <summary>Frees the buffers (call under the device lock); the textures are the cache's to evict.</summary>
@@ -1289,9 +1341,11 @@ namespace Gordian.App.Graphics
                 foreach (var mesh in WeatherSkySubmeshes) mesh.Dispose();
                 foreach (var mesh in EffectSubmeshes) mesh.Dispose();
                 _windPool?.Dispose();
+                _batchPool?.Dispose();
             }
 
             private WindPool? _windPool;
+            private BatchVertexPool? _batchPool;
         }
 
         /// <summary>
@@ -1351,25 +1405,93 @@ namespace Gordian.App.Graphics
         }
 
         /// <summary>
+        /// The vertices of a zone's small still submeshes (#606 round 2) in shared vertex buffers of up to
+        /// <see cref="ChunkVertices"/> vertices, so a frame can draw all the visible ones of a chunk that share a pipeline,
+        /// texture and light set in one call (<see cref="FlushBatches"/>). Konschtat Highlands looking down the valley from
+        /// (-227.63, 70.98, 769.83) draws 5,300 submeshes, 2,371 of them two-triangle flower quads (<c>_con_han</c>).
+        /// </summary>
+        internal sealed class BatchVertexPool : IDisposable
+        {
+            /// <summary>Vertices per chunk: as many as a 16-bit index reaches (and <see cref="ZeroWindVertices"/> covers).</summary>
+            public const int ChunkVertices = 65536;
+
+            /// <summary>
+            /// The largest submesh pooled (indices): small props, flowers and grass, not the big terrain pieces, which gain
+            /// little from sharing a call. Konschtat's valley view: 4,300 of 5,325 pass 1 draws are at most 3,072 indices.
+            /// </summary>
+            public const int MaxIndices = 3072;
+
+            private readonly GraphicsDevice _gd;
+            private readonly List<DeviceBuffer> _chunks = new();
+            private DeviceBuffer? _current;
+            private int _used;
+
+            public BatchVertexPool(GraphicsDevice gd) => _gd = gd;
+
+            /// <summary>Bytes held by the chunks.</summary>
+            public long Bytes { get; private set; }
+
+            /// <summary>Copies a submesh's vertices into a chunk: the chunk and the first vertex. Call under the device lock.</summary>
+            public (DeviceBuffer Chunk, int FirstVertex) Add(MeshVertex[] vertices)
+            {
+                if (_current == null || _used + vertices.Length > ChunkVertices)
+                {
+                    _current = _gd.ResourceFactory.CreateBuffer(new BufferDescription((uint)(ChunkVertices * 36), BufferUsage.VertexBuffer));
+                    _chunks.Add(_current);
+                    Bytes += _current.SizeInBytes;
+                    _used = 0;
+                }
+                int first = _used;
+                _gd.UpdateBuffer(_current, (uint)(first * 36), vertices);
+                _used += vertices.Length;
+                return (_current, first);
+            }
+
+            public void Dispose()
+            {
+                foreach (var chunk in _chunks) chunk.Dispose();
+                _chunks.Clear();
+            }
+        }
+
+        /// <summary>
         /// Uploads one placed zone submesh (vertex and 16-bit index buffers, its point-light references). Call under the
         /// device lock.
         /// </summary>
         internal static GpuSubmesh UploadSubmesh(GpuSharedResources shared, MeshGroup group, string platformId = "", string doorId = "", DoorLeaf? leaf = null,
-            int[]? pointLightSlots = null, WindPool? windPool = null)
+            int[]? pointLightSlots = null, WindPool? windPool = null, BatchVertexPool? batchPool = null)
         {
             pointLightSlots ??= group.PointLightSlots;
             var gd = shared.Device;
             var factory = gd.ResourceFactory;
-            var vb = factory.CreateBuffer(new BufferDescription(
-                (uint)(group.Vertices.Length * 36),
-                BufferUsage.VertexBuffer));
-            gd.UpdateBuffer(vb, 0, group.Vertices);
+            bool isFoliage = group.IsFoliage || group.Name.StartsWith("_");
+            bool isWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName);
+            bool hasWind = group.WindDeltas is { } windData && windData.Length == group.Vertices.Length;
+
+            // A small still opaque or alpha-tested submesh shares a vertex chunk with others like it, its indices rebased
+            // into the chunk, so pass 1 can draw it with them in one call (#606 round 2).
+            DeviceBuffer vb;
+            int firstVertex = 0;
+            bool pooled = batchPool != null && !hasWind && group.UVScroll == Vector2.Zero && group.Indices.Length <= BatchVertexPool.MaxIndices
+                          && group.Vertices.Length <= BatchVertexPool.ChunkVertices
+                          && ZoneSubmeshPasses.Classify(group.IsBlend, isFoliage, isWater) is ZoneSubmeshPass.Opaque or ZoneSubmeshPass.Cutout;
+            if (pooled)
+            {
+                (vb, firstVertex) = batchPool!.Add(group.Vertices);
+            }
+            else
+            {
+                vb = factory.CreateBuffer(new BufferDescription(
+                    (uint)(group.Vertices.Length * 36),
+                    BufferUsage.VertexBuffer));
+                gd.UpdateBuffer(vb, 0, group.Vertices);
+            }
 
             // Convert int[] indices to ushort[]
             var ushortIndices = new ushort[group.Indices.Length];
             for (int idx = 0; idx < group.Indices.Length; idx++)
             {
-                ushortIndices[idx] = (ushort)group.Indices[idx];
+                ushortIndices[idx] = (ushort)(group.Indices[idx] + firstVertex);
             }
 
             var ib = factory.CreateBuffer(new BufferDescription(
@@ -1419,6 +1541,8 @@ namespace Gordian.App.Graphics
                 Name = group.Name,
                 TextureName = group.TextureName,
                 VertexBuffer = vb,
+                OwnsVertexBuffer = !pooled,
+                BatchIndices = pooled ? ushortIndices : null,
                 IndexBuffer = ib,
                 IndexCount = (uint)ushortIndices.Length,
                 MinBounds = minBounds,
@@ -1428,8 +1552,8 @@ namespace Gordian.App.Graphics
                 OwnsWindBuffer = windPool == null,
                 IsBlend = group.IsBlend,
                 NoCull = group.NoCull,
-                IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
-                IsWater = group.IsWater || ZoneDefDecoder.IsWaterSurface(group.IsBlend, group.Name, group.TextureName),
+                IsFoliage = isFoliage,
+                IsWater = isWater,
                 UVScroll = group.UVScroll,
                 EnvironmentId = group.EnvironmentId,
                 SubAreaLink = group.SubAreaLink,
@@ -1588,6 +1712,10 @@ namespace Gordian.App.Graphics
             if (postProcess) _postProcess ??= new ScenePostProcess(_gd, finalTarget.OutputDescription);
             else _postProcess?.Invalidate();
 
+            foreach (var retired in _retiredBatchBuffers) retired.Dispose();
+            _retiredBatchBuffers.Clear();
+            _batchIndexUsed = 0;
+
             _commandList.Begin();
             var sceneTarget = postProcess ? _postProcess!.BeginScene(finalTarget) : finalTarget;
             _commandList.SetFramebuffer(sceneTarget);
@@ -1737,6 +1865,17 @@ namespace Gordian.App.Graphics
                 targetPipeline = ForSubmesh(targetPipeline, submesh);
 
                 var sceneSet = SceneSetFor(submesh);
+
+                // Small still submeshes wait to be drawn with the others of their chunk and state at the end of the pass
+                // (#606 round 2). They write depth and none shares a placement with a blended decal, so drawing them after
+                // the decals instead of in authored order gives the same picture.
+                if (EnableStaticBatching && submesh.BatchIndices != null)
+                {
+                    QueueBatch(submesh, targetPipeline, sceneSet);
+                    visible++;
+                    continue;
+                }
+
                 if (currentBoundPipeline != targetPipeline)
                 {
                     _commandList.SetPipeline(targetPipeline);
@@ -1761,6 +1900,7 @@ namespace Gordian.App.Graphics
                 _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
                 draws++;
             }
+            FlushBatches(ref draws);
 
             DrawMovingPlatforms(sceneUniform, frustum, ref draws, ref visible, ref culled);
             DrawDoors(sceneUniform, frustum, ref draws, ref visible, ref culled);
@@ -2081,6 +2221,99 @@ namespace Gordian.App.Graphics
             if (!EnableWindSway || !_windPipelineSet.Contains(pipeline)) return;
             if (submesh.WindBuffer != null) _commandList.SetVertexBuffer(1, submesh.WindBuffer, submesh.WindOffset);
             else _commandList.SetVertexBuffer(1, _zeroWindBuffer);
+        }
+
+        /// <summary>Adds a visible pooled submesh to the batch of its chunk and state (<see cref="EnableStaticBatching"/>).</summary>
+        private void QueueBatch(GpuSubmesh submesh, Pipeline pipeline, ResourceSet sceneSet)
+        {
+            var key = (pipeline, sceneSet, submesh.TextureName, submesh.LightSet, submesh.VertexBuffer);
+            if (!_batchIndex.TryGetValue(key, out int slot))
+            {
+                slot = _batchCount++;
+                if (slot == _batches.Count) _batches.Add(new PendingBatch());
+                _batchIndex[key] = slot;
+                var fresh = _batches[slot];
+                fresh.Pipeline = pipeline;
+                fresh.SceneSet = sceneSet;
+                fresh.IndexCount = 0;
+            }
+            var batch = _batches[slot];
+            batch.Members.Add(submesh);
+            batch.IndexCount += submesh.IndexCount;
+        }
+
+        /// <summary>
+        /// Draws pass 1's waiting batches: a batch of one submesh with its own index buffer, a larger one with its members'
+        /// indices copied into this frame's part of the shared batch index buffer, in one call.
+        /// </summary>
+        private void FlushBatches(ref int draws)
+        {
+            if (_batchCount == 0) return;
+
+            uint total = 0;
+            for (int b = 0; b < _batchCount; b++)
+            {
+                if (_batches[b].Members.Count > 1) total += _batches[b].IndexCount;
+            }
+            if (total > 0)
+            {
+                if (_batchIndexScratch.Length < total) _batchIndexScratch = new ushort[Math.Max(total, (uint)_batchIndexScratch.Length * 2)];
+                uint needed = (_batchIndexUsed + total) * sizeof(ushort);
+                if (_batchIndexBuffer == null || _batchIndexBuffer.SizeInBytes < needed)
+                {
+                    // A buffer this frame's commands already read is freed at the next frame's start.
+                    if (_batchIndexBuffer != null) _retiredBatchBuffers.Add(_batchIndexBuffer);
+                    uint size = Math.Max(needed * 2, 1u << 18);
+                    _batchIndexBuffer = _gd.ResourceFactory.CreateBuffer(new BufferDescription(size, BufferUsage.IndexBuffer));
+                    _batchIndexUsed = 0;
+                }
+                uint at = 0;
+                for (int b = 0; b < _batchCount; b++)
+                {
+                    var members = _batches[b].Members;
+                    if (members.Count < 2) continue;
+                    foreach (var member in members)
+                    {
+                        member.BatchIndices.AsSpan().CopyTo(_batchIndexScratch.AsSpan((int)at));
+                        at += member.IndexCount;
+                    }
+                }
+                unsafe
+                {
+                    fixed (ushort* source = _batchIndexScratch)
+                    {
+                        _commandList.UpdateBuffer(_batchIndexBuffer, _batchIndexUsed * sizeof(ushort), (IntPtr)source, total * sizeof(ushort));
+                    }
+                }
+            }
+
+            uint first = _batchIndexUsed;
+            for (int b = 0; b < _batchCount; b++)
+            {
+                var batch = _batches[b];
+                var lead = batch.Members[0];
+                _commandList.SetPipeline(batch.Pipeline);
+                _commandList.SetGraphicsResourceSet(0, batch.SceneSet);
+                _commandList.SetGraphicsResourceSet(1, _textureCache.GetOrCreateResourceSet(lead.TextureName, _activeDecodedTextures));
+                _commandList.SetGraphicsResourceSet(2, lead.LightSet ?? _noLightSet);
+                BindVertexBuffers(lead, batch.Pipeline);
+                if (batch.Members.Count == 1)
+                {
+                    _commandList.SetIndexBuffer(lead.IndexBuffer, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(lead.IndexCount, 1, 0, 0, 0);
+                }
+                else
+                {
+                    _commandList.SetIndexBuffer(_batchIndexBuffer!, IndexFormat.UInt16);
+                    _commandList.DrawIndexed(batch.IndexCount, 1, first, 0, 0);
+                    first += batch.IndexCount;
+                }
+                draws++;
+                batch.Members.Clear();
+            }
+            _batchIndexUsed += total;
+            _batchCount = 0;
+            _batchIndex.Clear();
         }
 
         /// <summary>Creates the swaying variants of a zone mesh pipeline and of its back-face-culled copy (#606).</summary>
@@ -3497,6 +3730,9 @@ namespace Gordian.App.Graphics
             foreach (var culled in _culledPipelines.Values) culled.Dispose();
             _culledPipelines.Clear();
             _zeroWindBuffer?.Dispose();
+            _batchIndexBuffer?.Dispose();
+            foreach (var retired in _retiredBatchBuffers) retired.Dispose();
+            _retiredBatchBuffers.Clear();
             foreach (var windy in _windPipelineSet) windy.Dispose();
             _windPipelineSet.Clear();
             _windPipelines.Clear();

@@ -35,8 +35,8 @@ namespace Gordian.Core.Resources.Models
         /// <summary>
         /// Per-vertex wind offsets (#606), parallel to <see cref="Vertices"/>; null for a submesh that does not sway. A
         /// Section 0x2E mesh whose config word has bit 1 set (the 48-byte "vertex-blend" layout) stores a second vector per
-        /// vertex, and the client draws the vertex at <c>position + windFactor * offset</c>, the factor a shared 0-1-0
-        /// triangle wave (xi-tools docs/zone/format.md; xi-model-viewer ui/js/renderer.js, after xim's WindFactor). Trees,
+        /// vertex, and the client draws the vertex at <c>position + windFactor * offset</c>, the factor one value shared by
+        /// every mesh (xi-tools docs/zone/format.md; xi-model-viewer ui/js/renderer.js; its curve: <c>ZoneWind</c>). Trees,
         /// grass and webs carry it. In the same space as <see cref="Vertices"/> (a direction: placed by the rotation and
         /// scale only).
         /// </summary>

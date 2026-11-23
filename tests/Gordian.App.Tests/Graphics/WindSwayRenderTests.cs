@@ -177,12 +177,12 @@ namespace Gordian.App.Tests.Graphics
                     return changed;
                 }
 
-                // The clock starts at 0 (wind factor 0); two seconds on it is 1, the far end of the sway.
+                // The clock starts at 0 (wind factor 0); the gust peaks (factor 1) at ZoneWind.PeakSeconds.
                 var calm = Frame(0.0f);
-                var leaning = Frame((float)Gordian.Engine.Graphics.ZoneWind.LegSeconds);
+                var leaning = Frame((float)Gordian.Engine.Graphics.ZoneWind.PeakSeconds);
                 renderer.EnableWindSway = false;
                 var stillA = Frame(0.0f);
-                var stillB = Frame((float)Gordian.Engine.Graphics.ZoneWind.LegSeconds / 2);
+                var stillB = Frame((float)Gordian.Engine.Graphics.ZoneWind.PeakSeconds / 2);
                 int swayed = Changed(calm, leaning), still = Changed(stillA, stillB);
                 _out.WriteLine($"zone {zoneId}: {swayed} pixels move with the wind, {still} with the sway off");
                 if (Environment.GetEnvironmentVariable("GORDIAN_WIND_DUMP") is { } dump)
