@@ -130,6 +130,7 @@ namespace Gordian.App.Graphics
             if (definition.FindButton(1) is not { } firstRow || rows.Count == 0) return;
             float s = placement.Scale;
             var frame = definition.Frame;
+            var now = DateTime.UtcNow;
             var secondRow = definition.FindButton(2);
             float pitch = StockUiMenuWindow.RowPitch(firstRow, secondRow);
             int visible = 0;
@@ -146,7 +147,7 @@ namespace Gordian.App.Graphics
                     DrawStorageOptions(renderer, library, font, areaX, ry, firstRow.Height, s);
                     continue;
                 }
-                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.Greyed ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
+                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.IsGreyedAt(now) ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
                     : row.IsTemporary ? TemporaryTint : row.SetAction != StockUiSetRowAction.None ? SetActionTint
                     : row.Usable && menu.ItemListKind is StockUiItemListKind.Items or StockUiItemListKind.Usable ? UsableTint : null;
                 // A linkpearl, sack or shell takes its linkshell's colour (#490 round 1).

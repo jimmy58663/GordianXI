@@ -65,13 +65,20 @@ namespace Gordian.Engine.Ui
         public bool IsTemporary => Container == ContainerId.TempItems && !IsStorageOptions;
 
         /// <summary>
-        /// Whether the item can be used (<see cref="StockUiItems.IsUsable"/>): retail draws these names pale yellow in the main
-        /// menu's and the command menu's Items lists (#624), temporary items keeping their peach.
+        /// Whether the item can be used (<see cref="StockUiItems.IsUsable(ItemRecord?, bool)"/>; enchanted equipment only while
+        /// worn): retail draws these names pale yellow in the main menu's and the command menu's Items lists (#624), temporary
+        /// items keeping their peach.
         /// </summary>
         public bool Usable { get; init; }
 
-        /// <summary>The item DAT's valid targets (LandSandBoat <c>TARGETTYPE</c> bits, <see cref="StockUiItems.TargetSelf"/> ...); 0 when not known.</summary>
-        public ushort ValidTargets { get; init; }
+        /// <summary>
+        /// A worn enchanted piece whose Use is not ready yet: drawn grey until this time (the use delay after equipping, the
+        /// reuse delay after a Use; <see cref="StockUiItems.UsableAtUtc"/>). Null when nothing is waited for.
+        /// </summary>
+        public DateTime? UsableAtUtc { get; init; }
+
+        /// <summary>Whether the row is drawn grey at <paramref name="utcNow"/>: <see cref="Greyed"/>, or a Use not ready yet.</summary>
+        public bool IsGreyedAt(DateTime utcNow) => Greyed || UsableAtUtc > utcNow;
 
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
@@ -332,21 +339,45 @@ namespace Gordian.Engine.Ui
             record != null && (IsCrystal((ushort)record.ItemId) || ((record.Flags & CanUseFlag) != 0 && record.ValidTargets != 0));
 
         /// <summary>
-        /// Whether an item with these DAT valid targets can be used on a command menu target of this kind (#625): retail's
-        /// command menu Items list leaves out the items the target cannot take (the retail client on local LSB, 2026-11-20,
-        /// <c>596-temp-items-command-list-on-inventory.png</c>: on yourself only the items whose targets include self). The
-        /// kinds map to the bits as <c>PlayerActionService</c> checks an item's target when it is used: yourself the self bit;
-        /// another player or a trust the party, alliance, player or dead-player bits; a pet the pet, party or player bits; a
-        /// monster the enemy bit. PROVISIONAL beyond yourself: the other targets' lists are not checked against retail.
+        /// Whether an item is enchanted equipment (a Warp Ring, a Living Bullet Pouch, an Ark Sword): equipment with charges and
+        /// DAT valid targets but no CanUse flag (LandSandBoat lists these in <c>item_usable.sql</c>). It can be used only while
+        /// worn: the maintainer's retail check (round 1, 2026-11-22, Living Bullet Pouch) lists it in the command menu's Items
+        /// while equipped from the inventory or a wardrobe, and in the main menu's Items while equipped from the inventory; an
+        /// Ark Sword not worn greys its Use (2026-10-11).
         /// </summary>
-        public static bool CanTarget(ushort validTargets, StockUiTargetKind kind) => kind switch
+        public static bool IsUsableEquipment(ItemRecord? record) =>
+            record != null && IsEquipment(record) && record.MaxCharges > 0 && record.ValidTargets != 0;
+
+        /// <summary>Whether an item can be used now: <see cref="IsUsable(ItemRecord?)"/>, or enchanted equipment that is worn.</summary>
+        public static bool IsUsable(ItemRecord? record, bool equipped) => IsUsable(record) || (equipped && IsUsableEquipment(record));
+
+        /// <summary>ExtData header of an item's timer record (LandSandBoat <c>Exdata::ItemTimerInfo</c>: "must be 1 for client to recognize timer data").</summary>
+        public const byte TimerExtDataHeader = 1;
+
+        /// <summary>
+        /// When a worn enchanted piece's Use is ready, or null when it is ready now or the time is not known; <see cref="DateTime.MaxValue"/>
+        /// when it has no charges left. Ready is the later of the use delay after equipping (<paramref name="equippedAtUtc"/>,
+        /// <see cref="InventoryState.GetEquippedAtUtc"/>) and the reuse delay after the last Use. The item's ExtData is
+        /// LandSandBoat's timer record (<c>Exdata::ItemTimerInfo</c>): byte 0 the header 1, byte 1 the charges left, bytes 4-7
+        /// the last Use as Earth seconds since the Vana'diel epoch (<c>CItemUsable::setLastUseTime</c>).
+        /// </summary>
+        public static DateTime? UsableAtUtc(ItemRecord record, ReadOnlySpan<byte> extData, DateTime equippedAtUtc, DateTime utcNow, VanaClock? clock = null)
         {
-            StockUiTargetKind.Self => (validTargets & TargetSelf) != 0,
-            StockUiTargetKind.Player or StockUiTargetKind.Trust => (validTargets & (TargetParty | TargetAlliance | TargetPlayer | TargetPlayerDead)) != 0,
-            StockUiTargetKind.Pet => (validTargets & (TargetPet | TargetParty | TargetPlayer)) != 0,
-            StockUiTargetKind.Monster => (validTargets & TargetEnemy) != 0,
-            _ => validTargets != 0,
-        };
+            var ready = DateTime.MinValue;
+            if (equippedAtUtc != DateTime.MinValue && record.UseDelay > 0) ready = equippedAtUtc.AddSeconds(record.UseDelay);
+            if (extData.Length >= 8 && extData[0] == TimerExtDataHeader)
+            {
+                if (extData[1] == 0) return DateTime.MaxValue;
+                uint lastUse = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(extData.Slice(4, 4));
+                if (lastUse != 0)
+                {
+                    long unix = lastUse + VanaTime.VanadielEpochUnixSeconds - (clock?.ServerClockOffsetSeconds ?? 0) + record.ReuseDelay;
+                    var reused = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
+                    if (reused > ready) ready = reused;
+                }
+            }
+            return ready > utcNow ? ready : null;
+        }
 
         /// <summary>
         /// Whether an item is equipment: DAT item type 4 (weapons, ammo, instruments) or 5 (armour, shields). Other types can
@@ -413,10 +444,12 @@ namespace Gordian.Engine.Ui
         /// items that can be used (the command menu's list, the maintainer's capture 2026-10-11). The client's own order
         /// (auto / manual sort) is applied by the caller.
         /// </summary>
-        public static List<StockUiItemRow> Rows(InventoryState? inventory, ContainerId container, Func<ushort, ItemRecord?>? lookup, bool usableOnly = false)
+        public static List<StockUiItemRow> Rows(InventoryState? inventory, ContainerId container, Func<ushort, ItemRecord?>? lookup, bool usableOnly = false,
+            VanaClock? clock = null, DateTime? utcNow = null)
         {
             var rows = new List<StockUiItemRow>();
             if (inventory == null) return rows;
+            var now = utcNow ?? DateTime.UtcNow;
             var equipped = EquippedSlots(inventory);
             var items = inventory.SnapshotItems(container);
             Array.Sort(items, (a, b) => a.Slot.CompareTo(b.Slot));
@@ -425,17 +458,31 @@ namespace Gordian.Engine.Ui
                 if (item.Slot == 0 || item.ItemId == 0 || item.ItemId == InventoryState.GilItemId || item.Count == 0) continue;
                 var record = StockUiShop.Lookup(lookup, item.ItemId);
                 var known = lookup?.Invoke(item.ItemId);
-                bool usable = IsUsable(known);
+                bool worn = equipped.Contains((container, item.Slot));
+                bool usable = IsUsable(known, worn);
                 if (usableOnly && !usable) continue;
+                DateTime? usableAt = usable && !IsUsable(known)
+                    ? UsableAtUtc(known!, item.ExtData, EquippedAtUtc(inventory, container, item.Slot), now, clock)
+                    : null;
                 rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
-                    Equipped: equipped.Contains((container, item.Slot)))
+                    Equipped: worn)
                 {
                     LinkshellColor = LinkshellColorOf(item.ItemId, item.ExtData),
                     Usable = usable,
-                    ValidTargets = known?.ValidTargets ?? 0,
+                    UsableAtUtc = usableAt,
                 });
             }
             return rows;
+        }
+
+        /// <summary>When the item in a container slot was equipped (<see cref="InventoryState.GetEquippedAtUtc"/>), or <see cref="DateTime.MinValue"/>.</summary>
+        private static DateTime EquippedAtUtc(InventoryState inventory, ContainerId container, byte slot)
+        {
+            for (var s = (EquipSlotId)0; s < EquipSlotId.Count; s++)
+            {
+                if (inventory.GetEquipped(s) == (container, slot)) return inventory.GetEquippedAtUtc(s);
+            }
+            return DateTime.MinValue;
         }
 
         /// <summary>

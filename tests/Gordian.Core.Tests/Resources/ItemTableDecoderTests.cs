@@ -102,5 +102,24 @@ namespace Gordian.Core.Tests.Resources
             Assert.True(item.ExtractedStats.TryGetValue("Delay", out int delay));
             Assert.Equal(264, delay);
         }
+
+        [Fact]
+        public void RetailEquipment_ReadsItsUseCharges()
+        {
+            // Read against LandSandBoat item_usable.sql (2026-11-22): charges, activation (quarter seconds), use delay, reuse delay.
+            const string game = @"G:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
+            if (!System.IO.Directory.Exists(game)) return;
+            var rm = new Gordian.Core.Resources.ResourceManager(game);
+            rm.InitializeFileTable();
+            (byte, ushort, ushort, uint) Use(uint id)
+            {
+                Assert.True(rm.TryGetItem(id, out var r));
+                return (r!.MaxCharges, r.CastTime, r.UseDelay, r.ReuseDelay);
+            }
+            Assert.Equal(((byte)1, (ushort)8, (ushort)10, 3600u), Use(26348)); // Living Bullet Pouch (armour)
+            Assert.Equal(((byte)1, (ushort)32, (ushort)8, 600u), Use(28540)); // Warp Ring
+            Assert.Equal(((byte)30, (ushort)32, (ushort)3, 60u), Use(17040)); // Warp Cudgel (weapon)
+            Assert.Equal(((byte)0, (ushort)0, (ushort)0, 0u), Use(17440)); // Kraken Club: no Use
+        }
     }
 }

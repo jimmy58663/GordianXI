@@ -100,6 +100,8 @@ All loaded by path through one list, `ItemTables` (shared by `ItemNameResolver` 
 | 63024-63263 General 6 | `ROM/332/48` | 55677 |
 | 65535 Gil | `ROM/174/48` | 91 |
 
+**Equipment Use fields** ([#624](https://github.com/jimmy58663/GordianXI/issues/624), read 2026-11-22 against LandSandBoat `item_usable.sql`; `ItemTableDecoder.ReadEquipmentUse`): an enchanted piece's charges (byte), activation time in quarter seconds (byte), use delay after equipping (u16, seconds) and reuse delay (u32, seconds) start at 0x20 in armour (type 5) and 0x2C in weapons (type 4); legacy records 4 bytes earlier. Living Bullet Pouch 26348: 1, 8 (2 s), 10, 3600; Warp Ring 28540: 1, 32 (8 s), 8, 600; Warp Cudgel 17040: 30, 32, 3, 60; Tavnazian Ring 14672: reuse 86400; Kraken Club (no Use): zeros. Enchanted equipment has valid targets but no CanUse flag (Living Bullet Pouch flags 0xFC48, Warp Ring 0xFC48, Warp Cudgel 0x0C2C). **Differs from xi-tools** (`src/xi/ui/items/xi_layout.py`): it reads cast time, use delay and reuse delay as u16 fields at +2, +4 and +6.
+
 `ItemNameResolver` names 65535 "Gil" without reading the file. Ids 31744-61431, 61952-62975 and the other gaps have no item table (57344-61431 and 61952-62975 hold Records of Eminence objectives and categories, xi-tools). Monstrosity 1 records load, but `ItemTableDecoder` reads no names from them (not investigated).
 
 **Records of Eminence tables** ([#493](https://github.com/jimmy58663/GordianXI/issues/493), read 2026-11-03 from the retail files; `RecordsOfEminenceTables`). Both use the item tables' 0x1400-byte records and 3-bit rotation, each record starting with its u32 id. Files named by xi-tools (`docs/reference/named-dats.md`); **Beyond xi-tools:** it names the files only, the layouts below are ours.
