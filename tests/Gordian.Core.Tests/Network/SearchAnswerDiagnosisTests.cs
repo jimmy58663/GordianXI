@@ -123,6 +123,74 @@ namespace Gordian.Core.Tests.Network
             Assert.Contains("request type 0x15", diagnosis.Describe(RequestType, 0x34));
         }
 
+        /// <summary>Round 1 on retail: the answer's trailer was not our seed. A server seed of its own keys the answer here.</summary>
+        [Theory]
+        [InlineData(SearchAnswerKeyRule.TrailerSeed)]
+        [InlineData(SearchAnswerKeyRule.TrailerSeedAndPlainTail)]
+        [InlineData(SearchAnswerKeyRule.TrailerSeedAndCipherTail)]
+        public void AnswerKeyedByItsOwnTrailer_IsVerified(SearchAnswerKeyRule keyRule)
+        {
+            var (_, key) = Request();
+            const uint serverSeed = 0x5EED1234;
+            uint? tail = keyRule switch
+            {
+                SearchAnswerKeyRule.TrailerSeedAndPlainTail => key.PayloadTail,
+                SearchAnswerKeyRule.TrailerSeedAndCipherTail => key.CipherTail,
+                _ => null,
+            };
+            byte[] frame = Answer(Content(), serverSeed, tail, true, true, SearchAnswerHashCoverage.PayloadAndPadding);
+
+            var diagnosis = SearchAnswerDiagnosis.Diagnose(frame, key, RequestType);
+
+            Assert.Equal(SearchAnswerTrailer.Other, diagnosis.Trailer);
+            Assert.Equal(keyRule, diagnosis.KeyRule);
+            Assert.True(diagnosis.Verified);
+            Assert.Equal(0x5A, diagnosis.Content![0x20]);
+        }
+
+        [Fact]
+        public void AnswerSentPlain_IsVerified()
+        {
+            var (_, key) = Request();
+            byte[] content = Content();
+            var frame = new byte[content.Length + 16 + 4];
+            content.CopyTo(frame, 0);
+            BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(0, 2), (ushort)frame.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4, 4), SearchFrame.Magic);
+            MD5.HashData(frame.AsSpan(8, content.Length - 8), frame.AsSpan(content.Length, 16));
+
+            var diagnosis = SearchAnswerDiagnosis.Diagnose(frame, key, RequestType);
+
+            Assert.Equal(SearchAnswerKeyRule.NotEnciphered, diagnosis.KeyRule);
+            Assert.True(diagnosis.Verified);
+            Assert.Equal(SearchAnswerTrailer.Zero, diagnosis.Trailer);
+        }
+
+        /// <summary>
+        /// A key that deciphers to a mostly-zero body is named even when the header's type byte and the hash fit nothing, so the
+        /// next retail log tells a key difference from a header or hash difference.
+        /// </summary>
+        [Fact]
+        public void KeyWithAnUnexpectedHeader_IsNamedByItsZeroBytes()
+        {
+            var (_, key) = Request();
+            byte[] content = Content();
+            content[0x0B] = 0x42;
+            byte[] frame = Answer(content, 0x5EED1234, null, true, true, SearchAnswerHashCoverage.PayloadAndPadding, breakHash: true);
+
+            var diagnosis = SearchAnswerDiagnosis.Diagnose(frame, key, RequestType);
+
+            Assert.Equal(SearchAnswerKeyRule.None, diagnosis.KeyRule);
+            Assert.Equal(SearchAnswerKeyRule.TrailerSeed, diagnosis.BestZeroKey);
+            Assert.Equal(0x42, diagnosis.BestZeroTypeByte);
+            Assert.Equal(0x30, diagnosis.BestZeroDataLength);
+            Assert.True(diagnosis.BestZeroPercent > 80, $"{diagnosis.BestZeroPercent}%");
+            Assert.True(diagnosis.RunnerUpZeroPercent < 20, $"{diagnosis.RunnerUpZeroPercent}%");
+            string line = diagnosis.Describe(RequestType, 0x34);
+            Assert.Contains("most zeros", line);
+            Assert.Contains("key TrailerSeed (type byte 0x42, data length 48)", line);
+        }
+
         [Fact]
         public void AnswerWithAnUnknownHash_IsPlausibleButNotVerified()
         {
@@ -161,6 +229,8 @@ namespace Gordian.Core.Tests.Network
         {
             var (_, key) = Request();
             byte[] frame = SearchFrame.EncryptResponse(Content(), new SearchFrame.AnswerKey(key.Seed + 1, key.PayloadTail));
+            // Neither our seed nor the trailer keys it.
+            BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(frame.Length - 4, 4), key.Seed + 2);
 
             var diagnosis = SearchAnswerDiagnosis.Diagnose(frame, key, RequestType);
 
