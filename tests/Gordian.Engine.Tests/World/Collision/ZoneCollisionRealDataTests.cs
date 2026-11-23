@@ -302,6 +302,117 @@ namespace Gordian.Engine.Tests.World.Collision
             if (minRise > 0) Assert.True(start.Y - end.Y >= minRise, $"did not climb: {end}");
         }
 
+        /// <summary>Starts a 60 Hz walk with W held from the floor under a server (x, height, y) position.</summary>
+        private static (PlayerLocomotionController Controller, Gordian.Core.World.PlayerEntity Me) StartWalk(ZoneCollisionMesh collision, float x, float height, float y, float yaw)
+        {
+            var start = new Vector3(x, height, y);
+            Assert.True(collision.TryGetGround(start with { Y = start.Y - 1.0f }, 0.0f, 2.0f, out var ground));
+            var world = new Gordian.Core.World.WorldState { Collision = collision };
+            var player = new Gordian.Core.World.LocalPlayerState { ServerId = 1 };
+            var me = new Gordian.Core.World.PlayerEntity(1, 1) { Position = start with { Y = ground.Height }, Direction = (byte)MathF.Round(yaw / 360.0f * 256.0f), IsSpawned = true };
+            world.UpsertEntity(me);
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = yaw };
+            input.SetKeyDown(GordianKey.W);
+            return (controller, me);
+        }
+
+        /// <summary>
+        /// #632 round 2 (2026-11-22): going up Northern San d'Oria's stairs at (-168.88, 1.5, 198.06), heading 84 degrees,
+        /// the player jumped up every other step. The steps are exactly 0.5 (the step-up height) at heights such as 1.499999
+        /// and 0.999999, and float rounding left the next tread just out of reach (<see cref="ZoneCollisionMesh.StepTolerance"/>).
+        /// Every step must now ease up over the foot rounding: no tick rises more than 0.15.
+        /// </summary>
+        [Fact]
+        public void Ground_NorthernSanDoriaStairs_EaseUpEveryStep()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(231);
+            if (collision == null) return;
+
+            var (controller, me) = StartWalk(collision, -169.0f, 2.0f, 199.6f, 84.4f);
+            controller.Update(TimeSpan.FromSeconds(1.0 / 60)); // settles on the first tread
+            float startHeight = me.Position.Y, biggest = 0.0f;
+            for (int i = 0; i < 48; i++)
+            {
+                float before = me.Position.Y;
+                controller.Update(TimeSpan.FromSeconds(1.0 / 60));
+                biggest = MathF.Max(biggest, before - me.Position.Y); // internal -Y is up
+            }
+
+            _output.WriteLine($"from {startHeight:F3} to {me.Position.Y:F3}; biggest rise in a tick {biggest:F3}");
+            Assert.True(startHeight - me.Position.Y >= 1.4f, $"did not climb: {me.Position}");
+            Assert.True(biggest <= 0.15f, $"jumped {biggest:F3} in one tick");
+        }
+
+        /// <summary>
+        /// #632 round 2: Southern San d'Oria's small stairs at (-114.7, -3.0, 33.0), whose end posts stand on a stone base
+        /// with 63-degree chamfers (0.1 and 0.8 square-yalm pieces): retail walks onto them from any side, so no move toward
+        /// the spot meets a short wall. A crate in Bastok Mines (88.1, 6.63, -33.3), a 2-yalm wall over a 64-degree bank,
+        /// still stops moves into it (retail cannot get on it).
+        /// </summary>
+        [Theory]
+        [InlineData(230, -114.7f, -3.0f, 33.0f, false)]
+        [InlineData(234, 88.1f, 6.63f, -33.3f, true)]
+        public void LowWalls_RoundTwoSpots_BlockAsRetail(int zone, float x, float height, float y, bool blocks)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(zone);
+            if (collision == null) return;
+
+            var spot = new Vector3(x, height, y);
+            Assert.True(collision.TryGetGround(spot with { Y = spot.Y - 1.0f }, 0.0f, 3.0f, out var ground));
+            spot.Y = ground.Height;
+            int blocked = 0;
+            for (int i = 0; i < 32; i++)
+            {
+                float angle = i * MathF.PI / 16.0f;
+                var direction = new Vector3(MathF.Cos(angle), 0, MathF.Sin(angle));
+                var origin = spot - (direction * 1.5f);
+                if (!collision.TryGetGround(origin with { Y = origin.Y - 3.0f }, 0.0f, 6.0f, out var start)) continue;
+                origin.Y = start.Height;
+                if (collision.CrossesLowWall(origin, origin + (direction * 3.0f), PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.FootRadius, 60.0f, out var normal, out float distance))
+                {
+                    blocked++;
+                    _output.WriteLine($"toward {angle * 180 / MathF.PI:F0} deg: riser n={normal} after {distance:F3}");
+                }
+            }
+            if (blocks) Assert.True(blocked > 0);
+            else Assert.Equal(0, blocked);
+        }
+
+        /// <summary>
+        /// #632 round 2: the basket of apples in Bastok Markets at (-222.8, -6.62, -94.3) stands 0.57 above the street, more
+        /// than a step; retail cannot walk onto it, and no walk at it from the street ends up on it.
+        /// </summary>
+        [Fact]
+        public void Ground_BastokMarketsAppleBasket_IsNotClimbed()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(235);
+            if (collision == null) return;
+
+            for (int i = 0; i < 16; i++)
+            {
+                float angle = i * MathF.PI / 8.0f;
+                float x = -222.8f + (MathF.Cos(angle) * 2.5f), y = -94.3f + (MathF.Sin(angle) * 2.5f);
+                if (!collision.TryGetGround(new Vector3(x, -9.0f, y), 0.0f, 6.0f, out var street) || MathF.Abs(street.Height + 6.0f) > 0.1f) continue;
+                float yaw = MathF.Atan2(MathF.Sin(angle), -MathF.Cos(angle)) * 180.0f / MathF.PI; // toward the basket
+                var (controller, me) = StartWalk(collision, x, -6.0f, y, yaw < 0 ? yaw + 360.0f : yaw);
+                for (int k = 0; k < 120; k++)
+                {
+                    controller.Update(TimeSpan.FromSeconds(1.0 / 60));
+                    Assert.True(me.Position.Y > -6.3f, $"from angle {angle * 180 / MathF.PI:F0}: on the basket at {me.Position}");
+                }
+            }
+        }
+
         /// <summary>
         /// #632 round 1: stair risers in Northern San d'Oria the maintainer could walk down but not back up. Each riser is
         /// topped by a floor, so no direction from these spots meets a short wall.

@@ -364,14 +364,15 @@ namespace Gordian.Core.World.Collision
         /// <summary>
         /// Finds the walkable surface a character standing at <paramref name="feet"/> rests on: the highest up-facing
         /// surface under the XZ point that is at most <paramref name="stepUp"/> above the feet and at most
-        /// <paramref name="maxDrop"/> below them. Surfaces further above (a bridge overhead, an upper floor) are ignored.
+        /// <paramref name="maxDrop"/> below them (each with <see cref="StepTolerance"/> to spare above). Surfaces further
+        /// above (a bridge overhead, an upper floor) are ignored.
         /// </summary>
         public bool TryGetGround(Vector3 feet, float stepUp, float maxDrop, out GroundHit hit)
         {
             hit = default;
             if (!TryGetCell(feet.X, feet.Z, out int cell)) return false;
 
-            float highestAllowed = feet.Y - stepUp; // internal -Y is up
+            float highestAllowed = feet.Y - stepUp - StepTolerance; // internal -Y is up
             float lowestAllowed = feet.Y + maxDrop;
             float best = float.MaxValue;
             bool found = false;
@@ -459,6 +460,15 @@ namespace Gordian.Core.World.Collision
         public const float MaxTreadTilt = 0.01f;
 
         /// <summary>
+        /// Slack (yalms) on the step-up limit of <see cref="TryGetGround"/> and <see cref="TryGetSteppedGround"/>, so a
+        /// tread exactly one step up is found whatever the float rounding. Northern San d'Oria's stairs (zone 231, round 2
+        /// of the 2026-11-22 test) have 0.5-yalm risers at heights such as 1.499999 and 0.999999: from 1.499999 the next
+        /// tread came out 6e-8 over the limit, so the foot rounding skipped it, the feet rode the hidden ramp under the
+        /// stairs, and then jumped the rest of the step in one tick, on every other step.
+        /// </summary>
+        public const float StepTolerance = 1e-3f;
+
+        /// <summary>
         /// Like <see cref="TryGetGround"/>, but the player's feet rest on a sphere of <paramref name="footRadius"/>, so
         /// a flat tread above the floor lifts them as they come within that radius of its edge, and lowers them the same
         /// way leaving it: stairs and curbs climb and descend as a ramp instead of a staircase of jumps. Only flat treads
@@ -473,7 +483,7 @@ namespace Gordian.Core.World.Collision
 
             // Internal space: smaller Y is higher. Consider treads above the floor but no higher than a step.
             float floor = hit.Height;
-            float highestAllowed = feet.Y - stepUp;
+            float highestAllowed = feet.Y - stepUp - StepTolerance;
             float radiusSquared = footRadius * footRadius;
             float best = floor;
             int bestIndex = -1;
@@ -620,7 +630,9 @@ namespace Gordian.Core.World.Collision
         /// Whether the feet, moving from <paramref name="start"/> to <paramref name="end"/> (internal space, feet heights),
         /// would step up a riser (a face too steep to stand on, |normal.Y| below <see cref="MinFloorNormalY"/>) lower than
         /// the body's wall spheres (<see cref="ResolveWalls"/> starts at <paramref name="stepUp"/>) onto a face of 60 degrees
-        /// or steeper (|normal.Y| below <see cref="MaxWallNormalY"/>), which retail does not do (#632). Retail evidence
+        /// or steeper (|normal.Y| below <see cref="MaxWallNormalY"/>) in a built plane of at least
+        /// <see cref="MinBevelPlaneArea"/>, which retail does not do (#632); a small steep piece on such a riser (a chamfer)
+        /// is stepped onto, and a riser reaching a step above the feet blocks whatever face is on it. Retail evidence
         /// (2026-11-22): Southern San d'Oria's ramp strip stops the player walking west from the gutter where a 0.02-0.1
         /// yalm riser at x = 8 carries the strip's 60.0-degree bevel (y 4.0-16 and from 28), and lets it climb where the
         /// bevel is 59.9 degrees with no riser (y 3.86); the player still steps up the 0.1-yalm curbs from the paving onto
@@ -724,12 +736,55 @@ namespace Gordian.Core.World.Collision
                         var top = new Vector3(feet.X + (direction.X * past), atFoot, feet.Z + (direction.Z * past));
                         if (!TryGetGround(top, stepUp, 0.0f, out var onTop)) continue;
                         if (onTop.Height > atFoot - LowWallTolerance || MathF.Abs(onTop.Normal.Y) >= MaxWallNormalY) continue;
+
+                        // A riser lower than a step blocks only under a built bevel, a steep face in a plane of
+                        // MinBevelPlaneArea or more (the strip's, 2.1 square yalms); a small steep piece, like the chamfer
+                        // on the base of a stair's end post (0.1-0.8), is stepped onto, as in retail (round 2). A riser
+                        // reaching a step above the feet (a basket's side, a crate) blocks whatever is on it.
+                        bool tall = HitsRiser(feet with { Y = atFoot - stepUp }, direction, hit + RiserTopProbe);
+                        if (!tall && GetPlaneArea(onTop.TriangleIndex) < MinBevelPlaneArea) continue;
                         wallNormal = t.Normal;
                         distance = hit;
                     }
                 }
             }
             return distance < float.MaxValue;
+        }
+
+        /// <summary>
+        /// The smallest plane (square yalms, <see cref="GetPlaneArea"/>) a steep face on a riser lower than a step must be
+        /// part of to stop the feet (<see cref="CrossesLowWall"/>). Round 2 of the 2026-11-22 test: Southern San
+        /// d'Oria's ramp strip bevel (retail blocks) is a 2.1 plane; the 63-degree chamfers on the stone base of the end
+        /// post of the small stairs at (-114.7, -3.0, 33.0) (retail walks onto them from any side) are 0.1 and 0.8.
+        /// </summary>
+        public const float MinBevelPlaneArea = 1.5f;
+
+        /// <summary>
+        /// Whether a horizontal ray from <paramref name="origin"/> along <paramref name="direction"/> meets, within
+        /// <paramref name="reach"/>, a face too steep to stand on that the ray runs into.
+        /// </summary>
+        private bool HitsRiser(Vector3 origin, Vector3 direction, float reach)
+        {
+            float endX = origin.X + (direction.X * reach), endZ = origin.Z + (direction.Z * reach);
+            int cx0 = Math.Max((int)MathF.Floor((MathF.Min(origin.X, endX) - _minX) / CellSize), 0);
+            int cx1 = Math.Min((int)MathF.Floor((MathF.Max(origin.X, endX) - _minX) / CellSize), _columns - 1);
+            int cz0 = Math.Max((int)MathF.Floor((MathF.Min(origin.Z, endZ) - _minZ) / CellSize), 0);
+            int cz1 = Math.Min((int)MathF.Floor((MathF.Max(origin.Z, endZ) - _minZ) / CellSize), _rows - 1);
+            for (int cz = cz0; cz <= cz1; cz++)
+            {
+                for (int cx = cx0; cx <= cx1; cx++)
+                {
+                    int cell = (cz * _columns) + cx;
+                    for (int k = _cellStart[cell], stop = _cellStart[cell + 1]; k < stop; k++)
+                    {
+                        ref readonly var t = ref _triangles[_cellTriangles[k]];
+                        if (MathF.Abs(t.Normal.Y) >= MinFloorNormalY || Vector3.Dot(direction, t.Normal) >= 0.0f) continue;
+                        float d = RayTriangleDistance(origin, direction, t.A, t.B, t.C);
+                        if (d >= 0.0f && d <= reach) return true;
+                    }
+                }
+            }
+            return false;
         }
 
         /// <summary>
