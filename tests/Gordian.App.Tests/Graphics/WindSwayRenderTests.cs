@@ -101,7 +101,14 @@ namespace Gordian.App.Tests.Graphics
                 for (int i = 0; i < 10; i++) Frame();
                 int without = Shimmer();
                 _out.WriteLine($"torch: {withHaze} changed pixels with the haze ({hazeDraws} haze draws), {without} without");
+
+                // From across the field the warp is under half a pixel: no haze is drawn, so the frame stays on screen (#603 round 1).
+                renderer.EnableHeatHaze = true;
+                camera.Update(haze.Position + new Vector3(0f, -0.5f, 0f), 5f, 270f, 120f, (float)Width / Height);
+                for (int i = 0; i < 10; i++) Frame();
+                int farDraws = renderer.DistortionDraws;
                 renderer.Dispose();
+                Assert.Equal(0, farDraws);
 
                 Assert.True(hazeDraws > 0, "the haze pass should draw the brazier's quads");
 

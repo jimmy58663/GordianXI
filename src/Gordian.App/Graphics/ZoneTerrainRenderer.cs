@@ -160,6 +160,13 @@ namespace Gordian.App.Graphics
         private Texture? _distortionSceneCopy;
         private ResourceSet? _distortionSceneSet;
         private bool _drewDistortion;
+        private uint _renderHeight = 1;
+
+        /// <summary>
+        /// A heat-haze quad whose warp would move the scene by less than this many pixels is not drawn (#603 round 1): a
+        /// waterfall's haze far across the zone changes nothing visible, but drawing it would take the frame offscreen.
+        /// </summary>
+        public const float MinHazePixels = 0.5f;
 
         /// <summary>Whether heat-haze distortions (#603) are drawn. On by default, as in retail.</summary>
         public bool EnableHeatHaze { get; set; } = true;
@@ -1428,6 +1435,7 @@ namespace Gordian.App.Graphics
             bool present = true,
             Framebuffer? targetFramebuffer = null)
         {
+            _renderHeight = Math.Max(height, 1u);
             if (_disposed || _gd == null || (targetFramebuffer == null && _gd.MainSwapchain == null)) return;
 
             // 1. Update Uniform Buffer
@@ -1964,13 +1972,16 @@ namespace Gordian.App.Graphics
         private Pipeline ForSubmesh(Pipeline pipeline, GpuSubmesh submesh)
         {
             var chosen = ForSubmesh(pipeline, submesh.NoCull);
-            return submesh.WindBuffer != null && EnableWindSway && _windPipelines.TryGetValue(chosen, out var windy) ? windy : chosen;
+            // A submesh without wind offsets takes the plain pipeline with no extra lookup.
+            if (submesh.WindBuffer == null || !EnableWindSway) return chosen;
+            return _windPipelines.TryGetValue(chosen, out var windy) ? windy : chosen;
         }
 
         /// <summary>Binds a zone submesh's vertex streams for <paramref name="pipeline"/>: its wind offsets too when that is a swaying pipeline.</summary>
         private void BindVertexBuffers(GpuSubmesh submesh, Pipeline pipeline)
         {
             _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
+            // Only a swaying submesh pays for the lookup; the others bind one stream, as before #606.
             if (submesh.WindBuffer != null && _windPipelineSet.Contains(pipeline)) _commandList.SetVertexBuffer(1, submesh.WindBuffer);
         }
 
@@ -2410,6 +2421,10 @@ namespace Gordian.App.Graphics
             if (layer.IsDistortion)
             {
                 if (!EnableHeatHaze) return false;
+                // The warp's size on screen: the haze offset (yalms) at the quad's distance, through the projection.
+                float eyeDistance = Vector3.Distance(world.Translation, new Vector3(sceneUniform.EyePosition.X, sceneUniform.EyePosition.Y, sceneUniform.EyePosition.Z));
+                float hazePixels = layer.HazeOffset * sceneUniform.Projection.M22 * 0.5f * _renderHeight / MathF.Max(eyeDistance, 0.1f);
+                if (hazePixels < MinHazePixels) return false;
                 // The haze offset (yalms) in the quad's texture units: the unit quad spans 2 x its particle's scale.
                 float scale = MathF.Max(new Vector3(world.M11, world.M12, world.M13).Length(), 1e-4f);
                 layerUniform.WeatherParams = new Vector4(0.0f, 0.0f, layer.HazeOffset / (2.0f * scale), _cloudAccumulatedTime);
