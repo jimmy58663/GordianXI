@@ -120,6 +120,11 @@ namespace Gordian.App.Graphics
         private readonly Dictionary<Pipeline, Pipeline> _windPipelines = new();
         private readonly HashSet<Pipeline> _windPipelineSet = new();
 
+        // Zero wind offsets for the still submeshes drawn with the swaying pipelines (#606 round 1): one per vertex a
+        // 16-bit index can reach.
+        private DeviceBuffer _zeroWindBuffer = null!;
+        private const int ZeroWindVertices = 65536;
+
         /// <summary>
         /// Whether zone meshes with wind offsets (trees, grass, webs) sway (#606). On by default, as in retail; off draws
         /// them at their authored pose.
@@ -429,9 +434,16 @@ namespace Gordian.App.Graphics
 
             /// <summary>
             /// The per-vertex wind offsets (#606, <see cref="MeshGroup.WindDeltas"/>), vertex stream 1 of the swaying
-            /// pipelines; null for a submesh that does not sway.
+            /// pipelines, from <see cref="WindOffset"/>; null for a submesh that does not sway. A zone's submeshes share
+            /// their zone's <see cref="WindPool"/> buffers (<see cref="OwnsWindBuffer"/> false).
             /// </summary>
             public DeviceBuffer? WindBuffer { get; init; }
+
+            /// <summary>Byte offset of this submesh's wind offsets in <see cref="WindBuffer"/>.</summary>
+            public uint WindOffset { get; init; }
+
+            /// <summary>Whether <see cref="WindBuffer"/> is this submesh's own (disposed with it) rather than a pool's.</summary>
+            public bool OwnsWindBuffer { get; init; } = true;
 
             /// <summary>The pass and render state this submesh draws with (#251).</summary>
             public ZoneSubmeshPass Pass => ZoneSubmeshPasses.Classify(IsBlend, IsFoliage, IsWater);
@@ -486,7 +498,7 @@ namespace Gordian.App.Graphics
                     OwnsBuffers = false,
                     Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount,
                     MinBounds = MinBounds, MaxBounds = MaxBounds, IsBlend = IsBlend, NoCull = NoCull, IsFoliage = IsFoliage, IsWater = IsWater,
-                    UVScroll = UVScroll, WindBuffer = WindBuffer, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
+                    UVScroll = UVScroll, WindBuffer = WindBuffer, WindOffset = WindOffset, OwnsWindBuffer = false, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
                     DoorId = DoorId, SubAreaLink = SubAreaLink, Visibility = Visibility, DoorPart = DoorPart, DoorPlacement = DoorPlacement,
                 };
             }
@@ -497,7 +509,7 @@ namespace Gordian.App.Graphics
                 {
                     VertexBuffer?.Dispose();
                     IndexBuffer?.Dispose();
-                    WindBuffer?.Dispose();
+                    if (OwnsWindBuffer) WindBuffer?.Dispose();
                 }
                 LightSet?.Dispose();
                 LightRefsBuffer?.Dispose();
@@ -787,6 +799,8 @@ namespace Gordian.App.Graphics
             _blendPipeline = factory.CreateGraphicsPipeline(blendPipelineDesc);
             _culledPipelines[_blendPipeline] = factory.CreateGraphicsPipeline(WithBackFaceCulling(blendPipelineDesc));
             AddWindVariants(factory, _blendPipeline, blendPipelineDesc, new ShaderSetDescription(new[] { vertexLayout, windLayout }, windBlendShaders));
+            _zeroWindBuffer = factory.CreateBuffer(new BufferDescription((uint)(ZeroWindVertices * WindPool.BytesPerVertex), BufferUsage.VertexBuffer));
+            _gd.UpdateBuffer(_zeroWindBuffer, 0, new byte[ZeroWindVertices * WindPool.BytesPerVertex]);
             
             // 8. Alpha-Blended Water Graphics Pipeline (translucent water surfaces with linear W-scaled depth bias)
             // Authored with VertexShaderWaterGlsl (z - 0.00025 * w) to cleanly win depth testing over shallow seabed
@@ -1193,6 +1207,14 @@ namespace Gordian.App.Graphics
                     foreach (var group in vesselData.MeshGroups) allGroups.Add((group, string.Empty, string.Empty, null, true));
                 }
 
+                // The swaying submeshes' wind offsets (#606) go in a few shared buffers, not one each (#606 round 1).
+                long windBytes = 0;
+                foreach (var (group, _, _, _, _) in allGroups)
+                {
+                    if (group.Indices.Length > 0 && group.WindDeltas is { } wind && wind.Length == group.Vertices.Length) windBytes += wind.Length * WindPool.BytesPerVertex;
+                }
+                if (windBytes > 0) lock (shared.GpuLock) _windPool = new WindPool(gd, windBytes);
+
                 for (int start = 0; start < allGroups.Count; start += GroupsPerChunk)
                 {
                     lock (shared.GpuLock)
@@ -1203,10 +1225,10 @@ namespace Gordian.App.Graphics
                             var (group, platformId, doorId, leaf, vessel) = allGroups[i];
                             if (group.Vertices.Length == 0 || group.Indices.Length == 0) continue;
 
-                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf);
+                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf, windPool: _windPool);
                             (vessel ? VesselSubmeshes : doorId.Length > 0 ? DoorSubmeshes : platformId.Length > 0 ? PlatformSubmeshes : ZoneSubmeshes).Add(submesh);
                             vertCount += group.Vertices.Length;
-                            bytes += submesh.VertexBuffer.SizeInBytes + submesh.IndexBuffer.SizeInBytes + (submesh.WindBuffer?.SizeInBytes ?? 0);
+                            bytes += submesh.VertexBuffer.SizeInBytes + submesh.IndexBuffer.SizeInBytes;
                         }
                     }
                 }
@@ -1252,7 +1274,7 @@ namespace Gordian.App.Graphics
                 }
 
                 TotalVertices = vertCount;
-                Bytes = bytes;
+                Bytes = bytes + windBytes;
             }
 
             /// <summary>Frees the buffers (call under the device lock); the textures are the cache's to evict.</summary>
@@ -1266,6 +1288,65 @@ namespace Gordian.App.Graphics
                 foreach (var submesh in VesselSubmeshes) submesh.Dispose();
                 foreach (var mesh in WeatherSkySubmeshes) mesh.Dispose();
                 foreach (var mesh in EffectSubmeshes) mesh.Dispose();
+                _windPool?.Dispose();
+            }
+
+            private WindPool? _windPool;
+        }
+
+        /// <summary>
+        /// A zone's wind offsets (#606) in a few large vertex buffers that its swaying submeshes bind at their own offsets.
+        /// One buffer per submesh (16,114 in La Theine Plateau) cost about 0.8 ms of CPU a frame in the D3D11 driver
+        /// whether or not they were drawn (#606 round 1: 233 FPS against main's 283 at the La Theine grass spot, Release,
+        /// 2560 x 1369; with the per-submesh buffers gone, the same frame rate as main). Buffers are capped at
+        /// <see cref="MaxBufferBytes"/>.
+        /// </summary>
+        internal sealed class WindPool : IDisposable
+        {
+            /// <summary>One wind offset: three 32-bit floats.</summary>
+            public const int BytesPerVertex = 12;
+
+            /// <summary>The largest pool buffer: 64 MB, well inside D3D11's and Vulkan's buffer limits.</summary>
+            public const long MaxBufferBytes = 64L << 20;
+
+            private readonly GraphicsDevice _gd;
+            private readonly List<DeviceBuffer> _buffers = new();
+            private long _remaining;
+            private DeviceBuffer? _current;
+            private uint _used;
+
+            /// <summary>A pool for <paramref name="totalBytes"/> of wind offsets. Call under the device lock.</summary>
+            public WindPool(GraphicsDevice gd, long totalBytes)
+            {
+                _gd = gd;
+                _remaining = totalBytes;
+            }
+
+            /// <summary>Copies one submesh's wind offsets into the pool: the buffer and byte offset to bind. Call under the device lock.</summary>
+            public (DeviceBuffer Buffer, uint Offset) Add(Vector3[] wind)
+            {
+                uint size = (uint)(wind.Length * BytesPerVertex);
+                if (_current == null || _used + size > _current.SizeInBytes)
+                {
+                    long next = Math.Max(size, Math.Min(_remaining, MaxBufferBytes));
+                    _current = _gd.ResourceFactory.CreateBuffer(new BufferDescription((uint)next, BufferUsage.VertexBuffer));
+                    _buffers.Add(_current);
+                    _used = 0;
+                }
+                uint offset = _used;
+                _gd.UpdateBuffer(_current, offset, wind);
+                _used += size;
+                _remaining -= size;
+                return (_current, offset);
+            }
+
+            /// <summary>Buffers in the pool.</summary>
+            public int BufferCount => _buffers.Count;
+
+            public void Dispose()
+            {
+                foreach (var buffer in _buffers) buffer.Dispose();
+                _buffers.Clear();
             }
         }
 
@@ -1274,7 +1355,7 @@ namespace Gordian.App.Graphics
         /// device lock.
         /// </summary>
         internal static GpuSubmesh UploadSubmesh(GpuSharedResources shared, MeshGroup group, string platformId = "", string doorId = "", DoorLeaf? leaf = null,
-            int[]? pointLightSlots = null)
+            int[]? pointLightSlots = null, WindPool? windPool = null)
         {
             pointLightSlots ??= group.PointLightSlots;
             var gd = shared.Device;
@@ -1298,12 +1379,21 @@ namespace Gordian.App.Graphics
 
             // A swaying mesh (#606) carries its wind offsets in a second stream; its bounds grow by the largest offset so
             // frustum culling never drops a leaf leaning out of the authored box.
+            // A zone's are packed in its pool (WindPool); a submesh uploaded on its own gets its own buffer.
             DeviceBuffer? windBuffer = null;
+            uint windOffset = 0;
             Vector3 minBounds = group.MinBounds, maxBounds = group.MaxBounds;
             if (group.WindDeltas is { } wind && wind.Length == group.Vertices.Length)
             {
-                windBuffer = factory.CreateBuffer(new BufferDescription((uint)(wind.Length * 12), BufferUsage.VertexBuffer));
-                gd.UpdateBuffer(windBuffer, 0, wind);
+                if (windPool != null)
+                {
+                    (windBuffer, windOffset) = windPool.Add(wind);
+                }
+                else
+                {
+                    windBuffer = factory.CreateBuffer(new BufferDescription((uint)(wind.Length * WindPool.BytesPerVertex), BufferUsage.VertexBuffer));
+                    gd.UpdateBuffer(windBuffer, 0, wind);
+                }
                 var reach = Vector3.Zero;
                 foreach (var d in wind) reach = Vector3.Max(reach, Vector3.Abs(d));
                 minBounds -= reach;
@@ -1334,6 +1424,8 @@ namespace Gordian.App.Graphics
                 MinBounds = minBounds,
                 MaxBounds = maxBounds,
                 WindBuffer = windBuffer,
+                WindOffset = windOffset,
+                OwnsWindBuffer = windPool == null,
                 IsBlend = group.IsBlend,
                 NoCull = group.NoCull,
                 IsFoliage = group.IsFoliage || group.Name.StartsWith("_"),
@@ -1972,17 +2064,23 @@ namespace Gordian.App.Graphics
         private Pipeline ForSubmesh(Pipeline pipeline, GpuSubmesh submesh)
         {
             var chosen = ForSubmesh(pipeline, submesh.NoCull);
-            // A submesh without wind offsets takes the plain pipeline with no extra lookup.
-            if (submesh.WindBuffer == null || !EnableWindSway) return chosen;
+            // With the sway on, every zone submesh takes the swaying variant, a still one with the zero wind stream
+            // (BindVertexBuffers): swaying and still meshes alternate in authored order (La Theine Plateau: 16,114 of
+            // 33,124), and switching pipelines between them cost about 0.35 ms of CPU a frame (#606 round 1).
+            if (!EnableWindSway) return chosen;
             return _windPipelines.TryGetValue(chosen, out var windy) ? windy : chosen;
         }
 
-        /// <summary>Binds a zone submesh's vertex streams for <paramref name="pipeline"/>: its wind offsets too when that is a swaying pipeline.</summary>
+        /// <summary>
+        /// Binds a zone submesh's vertex streams for <paramref name="pipeline"/>: on a swaying pipeline, its wind offsets, or
+        /// for a submesh without any, <see cref="_zeroWindBuffer"/> (it stays bound across a run of still meshes).
+        /// </summary>
         private void BindVertexBuffers(GpuSubmesh submesh, Pipeline pipeline)
         {
             _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
-            // Only a swaying submesh pays for the lookup; the others bind one stream, as before #606.
-            if (submesh.WindBuffer != null && _windPipelineSet.Contains(pipeline)) _commandList.SetVertexBuffer(1, submesh.WindBuffer);
+            if (!EnableWindSway || !_windPipelineSet.Contains(pipeline)) return;
+            if (submesh.WindBuffer != null) _commandList.SetVertexBuffer(1, submesh.WindBuffer, submesh.WindOffset);
+            else _commandList.SetVertexBuffer(1, _zeroWindBuffer);
         }
 
         /// <summary>Creates the swaying variants of a zone mesh pipeline and of its back-face-culled copy (#606).</summary>
@@ -3398,6 +3496,7 @@ namespace Gordian.App.Graphics
             _blendPipeline?.Dispose();
             foreach (var culled in _culledPipelines.Values) culled.Dispose();
             _culledPipelines.Clear();
+            _zeroWindBuffer?.Dispose();
             foreach (var windy in _windPipelineSet) windy.Dispose();
             _windPipelineSet.Clear();
             _windPipelines.Clear();
