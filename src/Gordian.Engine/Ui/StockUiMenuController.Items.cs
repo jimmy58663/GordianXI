@@ -667,7 +667,6 @@ namespace Gordian.Engine.Ui
                         denominator = StockUiItems.Fill(Inventory, onTemporary ? ContainerId.TempItems : ContainerId.Inventory).Used;
                         break;
                     }
-                        break;
                     case StockUiItemListKind.Crystals:
                         // "Items 3/30" (capture Crystal_Synthesis.png): the crystals listed over the inventory's size.
                         numerator = window.ItemRows.Count;
