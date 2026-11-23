@@ -84,7 +84,7 @@ namespace Gordian.Engine.Tests.World.Collision
                 // Walls on, as in play: the stairwell's railings and side walls must not get in the way.
                 var moved = collision.ResolveWalls(feet, feet with { X = feet.X - 0.01f }, PlayerLocomotionController.BodyRadius, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.BodyHeight);
                 Assert.True(MathF.Abs(moved.Z - feet.Z) < 0.05f && moved.X < feet.X, $"blocked at {feet}");
-                // The risers are wall faces (#632), but the foot rounding lifts the feet onto each tread first.
+                // The risers are short vertical faces (#632), but each is topped by a level tread, a floor.
                 Assert.False(collision.CrossesLowWall(feet, moved, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.FootRadius, 60.0f, out _, out _), $"riser blocks at {feet}");
                 feet = moved;
                 Assert.True(collision.TryGetSteppedGround(feet, PlayerLocomotionController.StepUpHeight, 60.0f, PlayerLocomotionController.FootRadius, out var ground));
@@ -213,9 +213,9 @@ namespace Gordian.Engine.Tests.World.Collision
         /// <summary>
         /// #632: Southern San d'Oria's ramp strip (zone 230, the 1-yalm strip at x 7.09-7.91, 0.15 above the ramp along its
         /// east edge). Walking west from the gutter east of it, retail climbs onto the strip at (8.216, 1.858, 3.863), where
-        /// its side bevel is a 59.9-degree floor, and is blocked from y = 4.000 on, where the bevel is a 60.0-degree wall over
-        /// a short vertical face; at the strip's north end retail walks round it at y = 27.878 and is blocked where the
-        /// strip starts at y = 28. The rule must hold at any locomotion tick rate (the prototype's gap blocked only at 60 Hz).
+        /// its side bevel is 59.9 degrees and meets the gutter directly, and is blocked from y = 4.000 on, where a short
+        /// vertical riser at x = 8 carries a 60.0-degree bevel; at the strip's north end retail walks round it at y = 27.878
+        /// and is blocked where the strip starts at y = 28. The rule must hold at any locomotion tick rate.
         /// Server (x, height, y) = internal (X, Y, Z).
         /// </summary>
         [Theory]
@@ -264,22 +264,69 @@ namespace Gordian.Engine.Tests.World.Collision
         }
 
         /// <summary>
-        /// #632: wall faces are never standable ground, so no ground query lands on a face at 60 degrees or steeper.
+        /// #632 round 1 (2026-11-22): the first short-wall rule blocked places retail walks freely. Each walk holds forward
+        /// for 1.5 s at 60 Hz from a server (x, height, y) position with the given camera yaw (0 = +X, 180 = -X, 270 = +Z)
+        /// and must end at least <paramref name="minDistance"/> yalms away; a non-zero <paramref name="minDrop"/> or
+        /// <paramref name="minRise"/> also requires the walk to end that far below or above its start.
         /// </summary>
-        [Fact]
-        public void Ground_NeverStandsOnWallFaces_SanDoriaRampStrip()
+        [Theory]
+        [InlineData(234, -159.69f, -2.69f, -28.52f, 0.0f, 3.0f, 2.0f, 0.0f)]   // Bastok Mines: walk off the ledge down a 64-79 degree bank
+        [InlineData(230, 8.6f, 2.1f, 5.0f, 180.0f, 0.5f, 0.0f, 0.0f)]          // Southern San d'Oria: 0.1 curb from the paving onto the gutter
+        [InlineData(230, -40.1f, 2.09f, -3.3f, 135.0f, 4.0f, 0.0f, 0.0f)]      // the same at the west ramp
+        [InlineData(230, 6.5f, 1.0f, 10.0f, 0.0f, 5.0f, 1.0f, 0.0f)]           // from the ramp east over the strip, down into the gutter
+        [InlineData(231, -170.11f, 4.0f, 216.95f, 270.0f, 5.0f, 0.0f, 3.5f)]   // Northern San d'Oria: back up the stairs at (-170.11, 4, 216.95)
+        public void LowWalls_RoundOneSpots_WalkAsRetail(int zone, float x, float height, float y, float yaw, float minDistance, float minDrop, float minRise)
         {
             if (!Directory.Exists(GameDirectory)) return;
             var rm = new ResourceManager(GameDirectory);
             rm.InitializeFileTable();
-            var collision = rm.TryLoadZoneCollision(230);
+            var collision = rm.TryLoadZoneCollision(zone);
             if (collision == null) return;
 
-            // Over the 60.0-degree bevel (x 7.913-8.0 at y 5) the bevel is the only face: no floor within a step.
-            Assert.False(collision.TryGetGround(new Vector3(7.95f, 1.6f, 5.0f), 0.5f, 0.3f, out var hit), $"stood on {hit.Height} n={hit.Normal}");
-            // Over the 59.9-degree bevel (y 3.5) the face is a floor.
-            Assert.True(collision.TryGetGround(new Vector3(7.95f, 1.8f, 3.5f), 0.5f, 0.5f, out hit));
-            Assert.True(-hit.Normal.Y >= ZoneCollisionMesh.MaxWallNormalY);
+            var start = new Vector3(x, height, y);
+            Assert.True(collision.TryGetGround(start with { Y = start.Y - 1.0f }, 0.0f, 2.0f, out var ground));
+            start.Y = ground.Height;
+            var world = new Gordian.Core.World.WorldState { Collision = collision };
+            var player = new Gordian.Core.World.LocalPlayerState { ServerId = 1 };
+            var me = new Gordian.Core.World.PlayerEntity(1, 1) { Position = start, Direction = (byte)MathF.Round(yaw / 360.0f * 256.0f), IsSpawned = true };
+            world.UpsertEntity(me);
+            var input = new InputState();
+            var controller = new PlayerLocomotionController(input, InputProfile.CreateCompact(), world, player) { CameraYaw = yaw };
+            input.SetKeyDown(GordianKey.W);
+            for (int i = 0; i < 90; i++) controller.Update(TimeSpan.FromSeconds(1.0 / 60));
+
+            var end = me.Position;
+            _output.WriteLine($"zone {zone} from {start} yaw {yaw}: to {end}");
+            Assert.True(new Vector2(end.X - start.X, end.Z - start.Z).Length() >= minDistance, $"stopped at {end}");
+            if (minDrop > 0) Assert.True(end.Y - start.Y >= minDrop, $"did not drop: {end}"); // internal -Y is up
+            if (minRise > 0) Assert.True(start.Y - end.Y >= minRise, $"did not climb: {end}");
+        }
+
+        /// <summary>
+        /// #632 round 1: stair risers in Northern San d'Oria the maintainer could walk down but not back up. Each riser is
+        /// topped by a floor, so no direction from these spots meets a short wall.
+        /// </summary>
+        [Theory]
+        [InlineData(-133.86f, 6.0f, 144.49f)]
+        [InlineData(-140.03f, 12.0f, 186.60f)]
+        [InlineData(-170.11f, 4.0f, 216.95f)]
+        public void LowWalls_NorthernSanDoriaStairs_AreNotShortWalls(float x, float height, float y)
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var collision = rm.TryLoadZoneCollision(231);
+            if (collision == null) return;
+
+            Assert.True(collision.TryGetGround(new Vector3(x, height - 1.0f, y), 0.0f, 2.0f, out var ground));
+            var feet = new Vector3(x, ground.Height, y);
+            for (int i = 0; i < 32; i++)
+            {
+                float angle = i * MathF.PI / 16.0f;
+                var end = feet + (new Vector3(MathF.Cos(angle), 0, MathF.Sin(angle)) * 0.5f);
+                Assert.False(collision.CrossesLowWall(feet, end, PlayerLocomotionController.StepUpHeight, PlayerLocomotionController.FootRadius, 60.0f, out var normal, out _),
+                    $"blocked toward {angle * 180 / MathF.PI:F0} deg by n={normal}");
+            }
         }
 
         /// <summary>

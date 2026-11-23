@@ -1527,7 +1527,7 @@ namespace Gordian.Engine.Input
                 // The shaft doors keep the player out of an elevator shaft unless its platform is at the player's level.
                 if (MovingPlatforms.EntersEmptyShaft(_platforms, start, target, StepUpHeight)) target = start;
 
-                // Wall faces lower than a step stop the feet too, unless the foot rounding lifts them over (#632).
+                // A riser lower than a step that carries a 60-degree face stops the feet too (#632).
                 if ((layers & CollisionLayers.Ground) != 0 && !_airborne && target != start)
                 {
                     target = LimitLowWalls(collision, start, target);
@@ -1595,11 +1595,10 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Keeps the local player's feet from stepping over a wall face lower than a step (#632,
-        /// <see cref="ZoneCollisionMesh.CrossesLowWall"/>): a move into one keeps only its part along the face, re-checked
-        /// against walls; with nothing left, the player stops just short of the face (where the stop is does not depend on
-        /// the tick size). Stair risers under level treads are still climbed, since the foot rounding lifts the feet onto
-        /// each tread before its riser.
+        /// Keeps the local player's feet from stepping up a riser lower than a step onto a 60-degree face (#632,
+        /// <see cref="ZoneCollisionMesh.CrossesLowWall"/>): a move into one keeps only its part along the riser, re-checked
+        /// against walls; with nothing left, the player stops just short of it (where the stop is does not depend on the tick
+        /// size). Curbs and stair risers under floors are stepped up as before.
         /// </summary>
         private Vector3 LimitLowWalls(ZoneCollisionMesh collision, Vector3 start, Vector3 target)
         {
