@@ -146,9 +146,17 @@ namespace Gordian.Core.Network.Search
         public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(8);
 
         /// <summary>
+        /// How long to wait for a further answer once one has come. LandSandBoat sends all the answers to a request at once,
+        /// the last flagged final; retail's search server sent one answer without the final flag (a <c>/sea all</c> page of
+        /// 20 players) and nothing more, so the client waited out the whole <see cref="Timeout"/> (#578 round 2).
+        /// </summary>
+        public TimeSpan AnswerGap { get; set; } = TimeSpan.FromSeconds(2);
+
+        /// <summary>
         /// Accept an answer whose hash fits no known layout when a key deciphers a header that answers the request (the answer
-        /// type LandSandBoat sends for it, plausible data length). Set for retail's search server (#578), whose answers fail
-        /// LandSandBoat's hash check; LandSandBoat's answers must verify.
+        /// type LandSandBoat sends for it, plausible data length). Set for retail's search server (#578) as a fallback: since
+        /// round 2 its answers verify with the seed they end with (<see cref="SearchFrame.TryDecryptResponse"/>), so this only
+        /// matters for an answer that fits no known layout. LandSandBoat's answers must verify.
         /// </summary>
         public bool AcceptUnverifiedAnswers { get; set; }
 
@@ -169,7 +177,20 @@ namespace Gordian.Core.Network.Search
 
                 while (true)
                 {
-                    byte[]? answer = await connection.ReadFrameAsync(timeout.Token).ConfigureAwait(false);
+                    byte[]? answer;
+                    using (var gap = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token))
+                    {
+                        if (contents.Count > 0) gap.CancelAfter(AnswerGap);
+                        try
+                        {
+                            answer = await connection.ReadFrameAsync(gap.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (gap.IsCancellationRequested && !timeout.IsCancellationRequested)
+                        {
+                            GordianLog.Debug(LogCategories.Search, $"Search request type 0x{body[0x0B]:X2}: no further answer within {AnswerGap.TotalSeconds:0.#} s after {contents.Count} answers without the final flag.");
+                            return new SearchExchange(contents, false);
+                        }
+                    }
                     if (answer == null)
                     {
                         GordianLog.Debug(LogCategories.Search, $"The search server closed the connection after {contents.Count} answers to request type 0x{body[0x0B]:X2}.");
@@ -196,7 +217,15 @@ namespace Gordian.Core.Network.Search
                         plain = diagnosis.Content!;
                     }
                     contents.Add(plain);
-                    if (new SearchAnswerHeader(plain).IsFinal) return new SearchExchange(contents, true);
+                    var header = new SearchAnswerHeader(plain);
+                    // Header fields only (#578: what retail's answers say about paging); never the payload.
+                    if (header.IsValid)
+                    {
+                        GordianLog.Debug(LogCategories.Search,
+                            $"Search answer {contents.Count} to request type 0x{body[0x0B]:X2}: {answer.Length} bytes, type byte 0x{plain[0x0B]:X2}, " +
+                            $"flags 0x{plain[0x0A]:X2} (final {header.IsFinal}), data length {header.DataLength}, total {header.Total}.");
+                    }
+                    if (header.IsFinal) return new SearchExchange(contents, true);
                 }
             }
             catch (InvalidDataException ex)

@@ -230,6 +230,13 @@ namespace Gordian.Core.Network.Packets
 
             if (isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
+                if (pc.UniqueNo == _localPlayer.ServerId
+                    && ((pc.ServerStatus == LocalPlayerState.StatusDead) != (player.AnimationState == LocalPlayerState.StatusDead) || (pc.Hpp == 0) != (player.Hpp == 0)))
+                {
+                    // LandSandBoat sends no 0x00D for the player's own character; if retail does, this is where its death shows.
+                    GordianLog.Info(LogCategories.Entity, $"Own death signal (0x00D): status {player.AnimationState} -> {pc.ServerStatus}, HP {player.Hpp}% -> {pc.Hpp}%; " +
+                        $"0x037 status {_localPlayer.ServerStatus}, dead {_localPlayer.IsDead}.");
+                }
                 player.Hpp = pc.Hpp;
                 if (pc.UniqueNo != _localPlayer.ServerId || !_localPlayer.IsVanishing) player.AnimationState = pc.ServerStatus;
                 // The mount (#87): the status says whether they ride, Flags6 which mount (kept after a dismount). Only a General
@@ -718,7 +725,16 @@ namespace Gordian.Core.Network.Packets
             var charStatus = new S2C_0x037_CharStatus(payload);
             if (!charStatus.IsValid) return;
 
+            byte previousStatus = _localPlayer.ServerStatus;
+            byte previousHpp = _localPlayer.Hpp;
             _localPlayer.UpdateFromCharStatus(charStatus);
+            if ((charStatus.ServerStatus == LocalPlayerState.StatusDead) != (previousStatus == LocalPlayerState.StatusDead) || (charStatus.Hpp == 0) != (previousHpp == 0))
+            {
+                // Retail death (2026-11-22 round 2): the player lay dead but could move and no home point window opened, so
+                // the client never saw status 3 with 0% HP. Each change of the death signals is logged to see which packet says it.
+                GordianLog.Info(LogCategories.Entity, $"Own death signal (0x037): status {previousStatus} -> {charStatus.ServerStatus}, HP {previousHpp}% -> {charStatus.Hpp}%, " +
+                    $"speed {charStatus.Speed}, freeze {charStatus.IsFrozen}, home point in {charStatus.HomepointSecondsRemaining} s; dead {_localPlayer.IsDead}, leaving the zone {_localPlayer.IsVanishing}.");
+            }
             if (_world.TryGetByServerId(_localPlayer.ServerId, out var localEnt) && localEnt != null)
             {
                 localEnt.NamePlate = charStatus.NamePlate;
@@ -816,7 +832,12 @@ namespace Gordian.Core.Network.Packets
                 {
                     _localPlayer.ServerId = groupAttr.UniqueNo;
                 }
+                byte previousHpp = _localPlayer.Hpp;
                 _localPlayer.UpdateFromGroupAttr(groupAttr);
+                if ((groupAttr.Hpp == 0) != (previousHpp == 0))
+                {
+                    GordianLog.Info(LogCategories.Entity, $"Own death signal (0x0DF): HP {previousHpp}% -> {groupAttr.Hpp}% ({groupAttr.Hp} HP), status {_localPlayer.ServerStatus}; dead {_localPlayer.IsDead}.");
+                }
                 GordianLog.Debug(LogCategories.Entity, $"Updated local player vitals from GroupAttr: HP={groupAttr.Hp}, MP={groupAttr.Mp}, TP={groupAttr.Tp}, HPP={groupAttr.Hpp}%, Job={groupAttr.MainJob} Lv{groupAttr.MainJobLevel}");
             }
 

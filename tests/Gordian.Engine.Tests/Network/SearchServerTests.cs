@@ -173,7 +173,7 @@ namespace Gordian.Engine.Tests.Network
                     byte[] body = copy.AsSpan(0, copy.Length - SearchFrame.TrailerSize).ToArray();
                     _owner.Bodies.Add(body);
                     for (int i = 0; i < _owner.CorruptFramesFirst; i++)
-                        _answers.Enqueue(SearchFrame.EncryptResponse(new byte[0x28], new SearchFrame.AnswerKey(key.Seed + 1, key.PayloadTail), 8));
+                        _answers.Enqueue(SearchFrame.EncryptResponse(new byte[0x28], new SearchFrame.AnswerKey(key.Seed + 1, key.PayloadTail + 1), 8));
                     foreach (var (content, padding) in _owner.Server(body)) _answers.Enqueue(SearchFrame.EncryptResponse(content, key, padding));
                     return Task.CompletedTask;
                 }

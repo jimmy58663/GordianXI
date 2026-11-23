@@ -15,7 +15,9 @@ namespace Gordian.Core.Network.Search
     /// The Blowfish key is not the world session key but the MD5 of a 20- or 24-byte string: a constant 16 bytes, the 4-byte seed
     /// the client puts at the end of its request, and for the answer the 4 bytes of the request's payload just before its hash.
     /// A request is therefore keyed by <c>MD5(constant + seed)</c> and every answer to it by
-    /// <c>MD5(constant + seed + request payload tail)</c>.
+    /// <c>MD5(constant + answer seed + request payload tail)</c>, where the answer seed is the 4 bytes that end the answer.
+    /// LandSandBoat writes the request's seed back there; retail's search server writes a seed of its own in each answer
+    /// (#578, round 2 of the 2026-11-22 test: every retail answer verified this way, with LandSandBoat's hash layout).
     /// </para>
     /// Wire format referenced from LandSandBoat (https://github.com/LandSandBoat/server), <c>src/search/search_handler.cpp</c>
     /// (<c>decrypt</c>, <c>encrypt</c>, <c>validatePacket</c>) and <c>search_handler.h</c> (the constant); XiPackets
@@ -85,9 +87,10 @@ namespace Gordian.Core.Network.Search
         }
 
         /// <summary>
-        /// Deciphers an answer <paramref name="frame"/> in place and checks its hash and length. On success
-        /// <paramref name="content"/> is the plain bytes from the start of the frame to the hash (the 8 header bytes included, so
-        /// the offsets of the formats apply as written).
+        /// Deciphers an answer <paramref name="frame"/> in place and checks its hash and length. The key is made from the seed
+        /// that ends the answer and the request's payload tail in <paramref name="answerKey"/>: the request's own seed on
+        /// LandSandBoat, the server's on retail (see the type summary). On success <paramref name="content"/> is the plain bytes
+        /// from the start of the frame to the hash (the 8 header bytes included, so the offsets of the formats apply as written).
         /// </summary>
         public static bool TryDecryptResponse(Span<byte> frame, AnswerKey answerKey, out ReadOnlySpan<byte> content)
         {
@@ -95,7 +98,8 @@ namespace Gordian.Core.Network.Search
             if (frame.Length < HeaderSize + TrailerSize) return false;
             if (BinaryPrimitives.ReadUInt16LittleEndian(frame.Slice(0, 2)) != frame.Length) return false;
 
-            using var suite = NewSuite(answerKey.Seed, answerKey.PayloadTail);
+            uint answerSeed = BinaryPrimitives.ReadUInt32LittleEndian(frame.Slice(frame.Length - 4, 4));
+            using var suite = NewSuite(answerSeed, answerKey.PayloadTail);
             if (!suite.TryDecryptAndVerify(frame.Slice(0, frame.Length - 4), HeaderSize, out _)) return false;
 
             content = frame.Slice(0, frame.Length - TrailerSize);
@@ -126,8 +130,10 @@ namespace Gordian.Core.Network.Search
         /// has no use in a client; this exists to test the client against frames it did not build itself, and for
         /// local test servers. <paramref name="content"/> is the plain bytes from the frame start to the end of the data
         /// (the 8 header bytes are filled here); <paramref name="padding"/> zero bytes go between it and the hash.
+        /// <paramref name="serverSeed"/> keys the answer with a seed of the server's own, as retail does; without it the request's
+        /// seed is used and written back, as LandSandBoat does.
         /// </summary>
-        public static byte[] EncryptResponse(ReadOnlySpan<byte> content, AnswerKey answerKey, int padding = 0)
+        public static byte[] EncryptResponse(ReadOnlySpan<byte> content, AnswerKey answerKey, int padding = 0, uint? serverSeed = null)
         {
             int total = content.Length + padding + TrailerSize;
             var frame = new byte[total];
@@ -135,11 +141,12 @@ namespace Gordian.Core.Network.Search
             BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(0, 2), (ushort)total);
             BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4, 4), Magic);
 
-            using (var suite = NewSuite(answerKey.Seed, answerKey.PayloadTail))
+            uint seed = serverSeed ?? answerKey.Seed;
+            using (var suite = NewSuite(seed, answerKey.PayloadTail))
             {
                 suite.EncryptAndSign(frame, HeaderSize, total - HeaderSize - TrailerSize);
             }
-            BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(total - 4, 4), answerKey.Seed);
+            BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(total - 4, 4), seed);
             return frame;
         }
 

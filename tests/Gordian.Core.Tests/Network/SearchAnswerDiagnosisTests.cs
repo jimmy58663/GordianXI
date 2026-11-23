@@ -224,6 +224,41 @@ namespace Gordian.Core.Tests.Network
             Assert.True(SearchAnswerDiagnosis.Diagnose(frame, key, requestType).Plausible);
         }
 
+        /// <summary>Round 2 on retail: <c>/sea</c> (0x03) was answered with 0x83, not LandSandBoat's 0x80.</summary>
+        [Theory]
+        [InlineData(0x03, 0x83, true)]
+        [InlineData(0x03, 0x80, true)]
+        [InlineData(0x00, 0x80, true)]
+        [InlineData(0x03, 0x85, false)]
+        public void AnswerType_AlsoTakesTheRequestTypeWithBit7(byte requestType, byte typeByte, bool answers)
+        {
+            Assert.Equal(answers, SearchAnswerDiagnosis.TypeAnswers(typeByte, requestType));
+        }
+
+        /// <summary>
+        /// Round 2 on retail: every answer was keyed by the seed it ends with (not ours) and our plain payload tail, with
+        /// LandSandBoat's hash layout. The frame check reads the seed from the answer, so these verify like LandSandBoat's.
+        /// </summary>
+        [Fact]
+        public void RetailAnswer_KeyedByTheSeedItEndsWith_Verifies()
+        {
+            var (_, key) = Request();
+            byte[] frame = SearchFrame.EncryptResponse(Content(), key, 8, serverSeed: 0x5EED1234);
+
+            Assert.True(SearchFrame.TryDecryptResponse(frame, key, out var content));
+            Assert.Equal(0x5A, content[0x20]);
+            Assert.Equal(0x30, new SearchAnswerHeader(content).DataLength);
+        }
+
+        [Fact]
+        public void AnswerKeyedForAnotherRequest_FailsTheCheck()
+        {
+            var (_, key) = Request();
+            byte[] frame = SearchFrame.EncryptResponse(Content(), new SearchFrame.AnswerKey(key.Seed, key.PayloadTail + 1), serverSeed: 0x5EED1234);
+
+            Assert.False(SearchFrame.TryDecryptResponse(frame, key, out _));
+        }
+
         [Fact]
         public void AnswerWithAnUnknownKey_IsNeither()
         {
@@ -305,6 +340,36 @@ namespace Gordian.Core.Tests.Network
 
             Assert.Single(exchange.Contents);
             Assert.True(exchange.Complete);
+        }
+
+        /// <summary>
+        /// Round 2 on retail: <c>/sea</c> got one answer (type 0x83, its own seed, no final flag) and nothing more. The client
+        /// keeps it and stops after <see cref="SearchClient.AnswerGap"/>, not the whole timeout.
+        /// </summary>
+        [Fact]
+        public async Task Client_KeepsARetailAnswerAndStopsAfterTheGap()
+        {
+            var transport = new OneAnswerTransport
+            {
+                Answer = key =>
+                {
+                    byte[] content = Content();
+                    content[0x0A] = 0x00;
+                    content[0x0B] = 0x83;
+                    return SearchFrame.EncryptResponse(content, key, 8, serverSeed: 0x5EED1234);
+                },
+            };
+            var client = new SearchClient("search.test", 54002, transport) { Timeout = TimeSpan.FromSeconds(10), AnswerGap = TimeSpan.FromMilliseconds(100) };
+            var body = new byte[0x20];
+            body[0x0B] = 0x03;
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var exchange = await client.ExchangeAsync(body, TestContext.Current.CancellationToken);
+
+            Assert.Single(exchange.Contents);
+            Assert.Equal(0x83, exchange.Contents[0][0x0B]);
+            Assert.False(exchange.Complete);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed}");
         }
     }
 }

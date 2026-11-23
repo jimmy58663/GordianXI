@@ -183,7 +183,7 @@ namespace Gordian.Core.Network.Search
 
                         byte type = plain[0x0B];
                         int dataLength = BinaryPrimitives.ReadUInt16LittleEndian(plain.AsSpan(0x08, 2));
-                        bool answers = type == ExpectedAnswerType(requestType)
+                        bool answers = TypeAnswers(type, requestType)
                             && dataLength >= SearchAnswerHeader.Size && dataLength <= length;
 
                         ReadOnlySpan<byte> hash = hashEnciphered ? plain.AsSpan(hashStart, 16) : frame.Slice(hashStart, 16);
@@ -273,6 +273,13 @@ namespace Gordian.Core.Network.Search
             0x10 or 0x15 => 0x95,
             _ => (byte)(0x80 | requestType),
         };
+
+        /// <summary>
+        /// Whether an answer type byte answers <paramref name="requestType"/>: LandSandBoat's (<see cref="ExpectedAnswerType"/>)
+        /// or the request type with bit 7 set, which retail sends for <c>/sea</c> (0x03 answered with 0x83; #578 round 2).
+        /// </summary>
+        public static bool TypeAnswers(byte typeByte, byte requestType) =>
+            typeByte == ExpectedAnswerType(requestType) || typeByte == (byte)(0x80 | requestType);
 
         private static bool HashFits(byte[] plain, ReadOnlySpan<byte> hash, int hashStart, int dataLength, SearchAnswerHashCoverage coverage)
         {
