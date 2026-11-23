@@ -187,7 +187,8 @@ namespace Gordian.Core.Network.Search
                         // #578: say how the answer differs from LandSandBoat's (sizes, header, the key and hash rules that fit;
                         // never payload or key bytes), and keep it when it is verified another way or plausibly answers.
                         var diagnosis = SearchAnswerDiagnosis.Diagnose(wire, answerKey, body[0x0B]);
-                        bool keep = diagnosis.Content != null && (diagnosis.Verified || (AcceptUnverifiedAnswers && diagnosis.Plausible));
+                        // Only an answer whose header answers this request: a stray frame that verifies under its own trailer is not one.
+                        bool keep = diagnosis.Plausible && (diagnosis.Verified || AcceptUnverifiedAnswers);
                         GordianLog.Warn(LogCategories.Search,
                             $"A search server answer failed the LandSandBoat hash check ({diagnosis.Describe(body[0x0B], frame.Length)}); " +
                             (keep ? "kept." : "dropped."));
