@@ -16,7 +16,7 @@ namespace Gordian.Core.Tests.Network
     /// </summary>
     public sealed class ZoneLoginResendTests
     {
-        private static byte[] LoginDatagram(ushort serverSeq)
+        internal static byte[] LoginDatagram(ushort serverSeq)
         {
             // S2C 0x00A: 4-byte header and the first 20 payload bytes (UniqueNo, ActIndex, heading, position) the decoder needs.
             byte[] sub = new byte[24];

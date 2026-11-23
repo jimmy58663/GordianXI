@@ -1407,7 +1407,8 @@ namespace Gordian.Engine.Actions
                 {
                     Position = targetPos,
                     IsSpawned = true,
-                    Speed = initialSpeed
+                    Speed = initialSpeed,
+                    Hpp = _localPlayer.EntitySeedHpp,
                 };
                 _world.UpsertEntity(localEnt);
             }

@@ -390,6 +390,14 @@ namespace Gordian.Core.World
         public bool IsVanishing => ServerStatus == StatusDead && Hpp > 0;
 
         /// <summary>
+        /// The HP percent a new local player entity starts with (#579): the last known HP (kept across a zone change), full before
+        /// a login's first vitals, and 0 only when the server has said the character is dead. Each zone change clears the world,
+        /// and the entity is made again by whichever comes first: the S2C 0x00A login, or the locomotion tick and the action
+        /// service, which on retail run for about 0.8 s before the 0x00A arrives. An entity left at 0% meanwhile is drawn dead.
+        /// </summary>
+        public byte EntitySeedHpp => IsDead ? (byte)0 : Hpp > 0 ? Hpp : (byte)100;
+
+        /// <summary>
         /// What the dead character's menu offers besides the home point: a Raise or Tractor from S2C 0x0F9, kept until
         /// it is answered, the server sends type 0, or the character is no longer dead.
         /// </summary>

@@ -1101,9 +1101,11 @@ namespace Gordian.Engine.Input
             if (localServerId == 0) return;
             if (!_world.TryGetByServerId(localServerId, out var localEnt) || localEnt == null)
             {
+                // After a zone change clears the world, before the S2C 0x00A login (about 0.8 s on retail): start alive (#579).
                 localEnt = new PlayerEntity(localServerId, 0)
                 {
-                    IsSpawned = true
+                    IsSpawned = true,
+                    Hpp = _localPlayer.EntitySeedHpp,
                 };
                 _world.UpsertEntity(localEnt);
             }

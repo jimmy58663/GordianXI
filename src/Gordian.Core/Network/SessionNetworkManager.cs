@@ -866,11 +866,7 @@ namespace Gordian.Core.Network
         /// last known HP (kept across the zone change), or full until the first vitals of a login arrive. A character who is
         /// really dead is still drawn dead: the server's status 3 (0x037) and 0% HP (0x0DF) say so.
         /// </summary>
-        internal static byte LocalEntitySeedHpp(LocalPlayerState player)
-        {
-            if (player.IsDead) return 0;
-            return player.Hpp > 0 ? player.Hpp : (byte)100;
-        }
+        internal static byte LocalEntitySeedHpp(LocalPlayerState player) => player.EntitySeedHpp;
 
         private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)
         {
@@ -884,6 +880,9 @@ namespace Gordian.Core.Network
                 pe.Direction = dir;
                 pe.TargetIndex = actIndex;
                 pe.IsSpawned = true;
+                // On retail the locomotion tick or the action service makes the entity first, at 0% HP, during the ~0.8 s
+                // before this 0x00A: seed it as a new one would be, unless the server has said the character is dead.
+                if (pe.Hpp == 0 && !_parser.LocalPlayer.IsDead) pe.Hpp = _parser.LocalPlayer.EntitySeedHpp;
                 if (!string.IsNullOrEmpty(CharacterName)) pe.Name = CharacterName;
                 if (_cachedPlayerAppearance != null)
                 {
