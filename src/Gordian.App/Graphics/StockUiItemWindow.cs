@@ -60,6 +60,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         internal static readonly UiColor UsableTint = new(0x80, 0x80, 0x61, 0x80);
 
+        /// <summary>
+        /// A worn enchanted piece whose Use is ready (#624 round 3): light blue, sampled peak (159, 254, 255) on the maintainer's
+        /// retail capture (2026-11-24, image-11: Hi-Elixir Tank in the Items list).
+        /// </summary>
+        internal static readonly UiColor UseReadyTint = new(0x50, 0x7F, 0x80, 0x80);
+
         /// <summary>The row under the cursor (retail capture: peak (255, 255, 220), pale yellow).</summary>
         private static readonly UiColor SelectedRowTint = new(0x80, 0x80, 0x6E, 0x80);
 
@@ -147,7 +153,13 @@ namespace Gordian.App.Graphics
                     DrawStorageOptions(renderer, library, font, areaX, ry, firstRow.Height, s);
                     continue;
                 }
-                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : row.IsGreyedAt(now) ? GreyTint : row.Picked ? SynthesisPlacedTint : row.Equipped ? EquippedTint
+                // A worn piece whose Use is not ready: grey in the command menu's list, the worn green in the main menu's;
+                // ready, light blue in both (round 3 of the 2026-11-22 test).
+                bool commandList = menu.ItemListKind == StockUiItemListKind.Usable;
+                bool grey = row.Greyed || (commandList && row.IsGreyedAt(now));
+                UiColor? tint = i == picked ? PickedTint : i == selected ? SelectedRowTint : grey ? GreyTint : row.Picked ? SynthesisPlacedTint
+                    : row.IsUseReadyAt(now) && menu.ItemListKind is StockUiItemListKind.Items or StockUiItemListKind.Usable ? UseReadyTint
+                    : row.Equipped ? EquippedTint
                     : row.IsTemporary ? TemporaryTint : row.SetAction != StockUiSetRowAction.None ? SetActionTint
                     : row.Usable && menu.ItemListKind is StockUiItemListKind.Items or StockUiItemListKind.Usable ? UsableTint : null;
                 // A linkpearl, sack or shell takes its linkshell's colour (#490 round 1).

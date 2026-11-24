@@ -807,6 +807,53 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void EnchantedEquipment_GreyInTheCommandMenu_DoesNothing_UntilItsUseIsReady()
+        {
+            // Round 3 (retail): a grey item in the command menu's Items opens no sub-target cursor and sends nothing.
+            foreach (var (equippedAgo, expectUse) in new[] { (0, false), (60, true) })
+            {
+                var h = WithPouch(ContainerId.Inventory, 9, DateTime.UtcNow.AddSeconds(-equippedAgo));
+                h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+                bool cursor = false;
+                h.Menus.ItemSubTarget = (row, targets) => cursor = true;
+                var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
+                h.SelectItem(list, (ushort)BulletPouch.ItemId);
+                h.Menus.Activate();
+                Assert.Equal(expectUse, cursor);
+                Assert.Empty(h.Uses);
+            }
+        }
+
+        [Fact]
+        public void EnchantedEquipment_IsLightBlueWhenReady_AndItsDescriptionCountsDown()
+        {
+            var t0 = DateTime.UtcNow;
+            var h = WithPouch(ContainerId.Inventory, 9, t0);
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+            var list = h.OpenFromMainMenu(4);
+            var row = Assert.Single(list.ItemRows, r => r.ItemId == BulletPouch.ItemId);
+            Assert.False(row.IsUseReadyAt(t0.AddSeconds(5)));
+            Assert.True(row.IsUseReadyAt(t0.AddSeconds(11)));
+            h.SelectItem(list, (ushort)BulletPouch.ItemId);
+            Assert.Equal("<1/1 0:05/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(5)));
+            Assert.Equal("<1/1 0:00/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(11)));
+            Assert.Equal("<1/1 0:00/[1:00:00, 0:10]>", StockUiItemDescription.Footer(BulletPouch));
+        }
+
+        [Fact]
+        public void UseFooter_MatchesTheRetailHiElixirTank()
+        {
+            // The maintainer's retail capture (round 3, image-10): Hi-elixir tank "<3/3 0:17/[1:00, 0:30]>"; LandSandBoat's
+            // item_usable row: 3 charges, use delay 30 s, reuse delay 60 s.
+            var tank = new ItemRecord { ItemId = 26271, ItemType = StockUiItems.ItemTypeArmor, MaxCharges = 3, UseDelay = 30, ReuseDelay = 60 };
+            var now = new DateTime(2026, 11, 24, 5, 0, 0, DateTimeKind.Utc);
+            Assert.Equal("<3/3 0:17/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 3, now.AddSeconds(16.2), now));
+            Assert.Equal("<0/3 0:00/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 0, DateTime.MaxValue, now));
+            Assert.Equal("24:00:00", StockUiItems.Duration(86400));
+            Assert.Equal("10:00", StockUiItems.Duration(600));
+        }
+
+        [Fact]
         public void EnchantedEquipment_WornFromAWardrobe_IsInTheCommandMenuOnly()
         {
             var h = WithPouch(ContainerId.Wardrobe, 2, DateTime.UtcNow.AddMinutes(-1));

@@ -151,6 +151,24 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public ushort DescribedLinkshellColor => IsItemList && SelectedItemRow is { IsStorageOptions: false } row ? row.LinkshellColor : (ushort)0;
 
+        /// <summary>
+        /// The live footer of the described enchanted equipment (<see cref="StockUiItems.UseFooter"/>: charges left and the
+        /// countdown), for an item list's row or the Equipment grid's slot; null for anything else (the page's own footer).
+        /// </summary>
+        public string? DescribedUseFooter(DateTime utcNow)
+        {
+            if (IsItemList)
+            {
+                if (SelectedItemRow is not { IsStorageOptions: false, UsableWhileWorn: true } row || ItemLookup?.Invoke(row.ItemId) is not { } known) return null;
+                return StockUiItems.UseFooter(known, row.ChargesLeft, row.UseReadyAtUtc, utcNow);
+            }
+            if (!IsEquipment || !StockUiCheck.TryGetSlot(SelectedButtonId, out var slot) || Inventory is not { } inventory) return null;
+            if (StockUiItems.EquippedItem(inventory, slot) is not { } item || ItemLookup?.Invoke(item.ItemId) is not { } record
+                || StockUiItems.IsUsable(record) || !StockUiItems.IsUsableEquipment(record)) return null;
+            var ready = StockUiItems.UsableAtUtc(record, item.ExtData, inventory.GetEquippedAtUtc(slot), utcNow, ItemOwner?.Clock);
+            return StockUiItems.UseFooter(record, StockUiItems.ChargesLeft(record, item.ExtData), ready, utcNow);
+        }
+
         private ushort _pagesItem;
         private Func<string, float>? _pagesMeasure;
         private IReadOnlyList<StockUiItemDescriptionPage> _pages = Array.Empty<StockUiItemDescriptionPage>();
@@ -748,6 +766,9 @@ namespace Gordian.Engine.Ui
                     ActivateEquipRow(list, row);
                     return;
                 case StockUiItemListKind.Usable:
+                    // A grey row (a worn piece whose Use is not ready) does nothing: retail opens no sub-target cursor and
+                    // sends nothing (round 3 of the 2026-11-22 test).
+                    if (row.IsGreyedAt(DateTime.UtcNow)) return;
                     UseItem(row, list.ItemTarget, list);
                     return;
                 case StockUiItemListKind.RecycleBin:

@@ -80,6 +80,24 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether the row is drawn grey at <paramref name="utcNow"/>: <see cref="Greyed"/>, or a Use not ready yet.</summary>
         public bool IsGreyedAt(DateTime utcNow) => Greyed || UsableAtUtc > utcNow;
 
+        /// <summary>
+        /// Whether the row is a worn enchanted piece whose Use is ready at <paramref name="utcNow"/>: retail draws its name light
+        /// blue in the Items lists (round 3 of the 2026-11-22 test, image-11: Hi-Elixir Tank).
+        /// </summary>
+        public bool IsUseReadyAt(DateTime utcNow) => UsableWhileWorn && Usable && !IsGreyedAt(utcNow);
+
+        /// <summary>Enchanted equipment (<see cref="StockUiItems.IsUsableEquipment"/>), worn or not.</summary>
+        public bool UsableWhileWorn { get; init; }
+
+        /// <summary>Enchanted equipment: the charges left (<see cref="StockUiItems.ChargesLeft"/>).</summary>
+        public int ChargesLeft { get; init; }
+
+        /// <summary>
+        /// Enchanted equipment: when its Use is ready (worn: the equip and reuse delays; not worn: the reuse delay only), null
+        /// when ready at the time the row was built. Drives the description's countdown (<see cref="StockUiItems.UseFooter"/>).
+        /// </summary>
+        public DateTime? UseReadyAtUtc { get; init; }
+
         /// <summary>Whether the count is drawn over the icon: stackable items and stacks of more than one.</summary>
         public bool ShowsCount => !IsStorageOptions && SetAction == StockUiSetRowAction.None && (StackSize > 1 || Count > 1);
     }
@@ -351,6 +369,28 @@ namespace Gordian.Engine.Ui
         /// <summary>Whether an item can be used now: <see cref="IsUsable(ItemRecord?)"/>, or enchanted equipment that is worn.</summary>
         public static bool IsUsable(ItemRecord? record, bool equipped) => IsUsable(record) || (equipped && IsUsableEquipment(record));
 
+        /// <summary>Enchanted equipment's charges left: the ExtData timer record's byte 1, else the item's full charges.</summary>
+        public static int ChargesLeft(ItemRecord record, ReadOnlySpan<byte> extData) =>
+            extData.Length >= 2 && extData[0] == TimerExtDataHeader ? extData[1] : record.MaxCharges;
+
+        /// <summary>
+        /// Enchanted equipment's line at the description's bottom right (the maintainer's retail capture, round 3 of the
+        /// 2026-11-22 test, image-10: Hi-elixir tank "&lt;3/3 0:17/[1:00, 0:30]&gt;"): charges left / full charges, the live
+        /// countdown until the Use is ready, then the reuse delay and the use delay after equipping. Durations are m:ss, and
+        /// h:mm:ss from an hour (the hour form is not checked against retail).
+        /// </summary>
+        public static string UseFooter(ItemRecord record, int chargesLeft, DateTime? readyAtUtc, DateTime utcNow)
+        {
+            double left = readyAtUtc is { } ready && ready != DateTime.MaxValue && ready > utcNow ? Math.Ceiling((ready - utcNow).TotalSeconds) : 0;
+            return string.Create(CultureInfo.InvariantCulture,
+                $"<{chargesLeft}/{record.MaxCharges} {Duration((long)left)}/[{Duration(record.ReuseDelay)}, {Duration(record.UseDelay)}]>");
+        }
+
+        /// <summary>A delay as the item description writes it: m:ss, or h:mm:ss from an hour.</summary>
+        public static string Duration(long seconds) => seconds >= 3600
+            ? string.Create(CultureInfo.InvariantCulture, $"{seconds / 3600}:{seconds / 60 % 60:00}:{seconds % 60:00}")
+            : string.Create(CultureInfo.InvariantCulture, $"{seconds / 60}:{seconds % 60:00}");
+
         /// <summary>ExtData header of an item's timer record (LandSandBoat <c>Exdata::ItemTimerInfo</c>: "must be 1 for client to recognize timer data").</summary>
         public const byte TimerExtDataHeader = 1;
 
@@ -461,15 +501,20 @@ namespace Gordian.Engine.Ui
                 bool worn = equipped.Contains((container, item.Slot));
                 bool usable = IsUsable(known, worn);
                 if (usableOnly && !usable) continue;
-                DateTime? usableAt = usable && !IsUsable(known)
-                    ? UsableAtUtc(known!, item.ExtData, EquippedAtUtc(inventory, container, item.Slot), now, clock)
+                bool enchanted = !IsUsable(known) && IsUsableEquipment(known);
+                DateTime? readyAt = enchanted
+                    ? UsableAtUtc(known!, item.ExtData, worn ? EquippedAtUtc(inventory, container, item.Slot) : DateTime.MinValue, now, clock)
                     : null;
+                DateTime? usableAt = usable && enchanted ? readyAt : null;
                 rows.Add(new StockUiItemRow(item.ItemId, record.Name, item.Count, container, item.Slot, Math.Max(1, (int)record.StackSize),
                     Equipped: worn)
                 {
                     LinkshellColor = LinkshellColorOf(item.ItemId, item.ExtData),
                     Usable = usable,
                     UsableAtUtc = usableAt,
+                    UsableWhileWorn = enchanted,
+                    ChargesLeft = enchanted ? ChargesLeft(known!, item.ExtData) : 0,
+                    UseReadyAtUtc = readyAt,
                 });
             }
             return rows;
