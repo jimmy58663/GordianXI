@@ -153,8 +153,17 @@ namespace Gordian.Core.Network.Search
         /// <summary>A nation rank range.</summary>
         public (byte Min, byte Max)? Rank { get; set; }
 
-        /// <summary>The 16-bit flag filter (<see cref="SearchFlags"/>), e.g. seeking a party.</summary>
+        /// <summary>The 16-bit flag filter (<see cref="SearchFlags"/>), e.g. seeking a party (<see cref="SeekingPartyFilter"/>).</summary>
         public ushort? Flags1 { get; set; }
+
+        /// <summary>
+        /// The <see cref="Flags1"/> filter for players seeking a party, as the retail client sends it: 0x8020, not the entry's
+        /// <see cref="SearchFlags.SeekingParty"/> bit (0x8000) alone. Seen in the local LandSandBoat search server's log of the retail
+        /// client's 76-byte requests ("Flag Entry #1 (0x8020)", 2026-10-17 to 11-02); what bit 0x0020 means is not known. LandSandBoat
+        /// keeps a player whose flags share any bit with the filter, so it answers both; retail's search server answered 0x8000 with
+        /// nobody (#578 round 3, <c>/sea all inv</c>).
+        /// </summary>
+        public const ushort SeekingPartyFilter = 0x8020;
 
         /// <summary>The 32-bit flag filter.</summary>
         public uint? Flags2 { get; set; }
@@ -693,6 +702,64 @@ namespace Gordian.Core.Network.Search
             return true;
 
             static bool Need(ref SearchBitReader r, int bits) => r.BitsLeft >= bits;
+        }
+
+        /// <summary>
+        /// The field codes of the entry at <paramref name="position"/> in the order the server wrote them, e.g.
+        /// "00 01 02 03 04 05 10 06 08 0E 16 17", ending with "?xx" and the bits left when a code is not one
+        /// <see cref="TryReadEntity"/> knows (it stops there, so the fields after it are lost). For the log only (#578 round 3:
+        /// retail's entries showed no rank or nation); it never reads names or values.
+        /// </summary>
+        public string DescribeEntryFields(int position)
+        {
+            int end = Math.Min(Header.DataLength, _content.Length);
+            if (!IsValid || position >= end) return string.Empty;
+            int size = _content[position];
+            if (size == 0 || position + 1 + size > end) return string.Empty;
+
+            var reader = new SearchBitReader(_content.Slice(position + 1, size));
+            var codes = new System.Text.StringBuilder();
+            while (reader.BitsLeft >= 7)
+            {
+                uint code = reader.Read(5);
+                if (codes.Length > 0) codes.Append(' ');
+                int width = code switch
+                {
+                    (uint)SearchFieldType.Name => -1,
+                    (uint)SearchFieldType.Area => 10,
+                    (uint)SearchFieldType.Nation => 2,
+                    (uint)SearchFieldType.Job => 10,
+                    (uint)SearchFieldType.Level => 16,
+                    (uint)SearchFieldType.Race => 4,
+                    (uint)SearchFieldType.Rank => 8,
+                    (uint)SearchFieldType.Flags1 => 16,
+                    (uint)SearchFieldType.Id => 20,
+                    (uint)SearchFieldType.LinkshellRank => 24 + 96,
+                    (uint)SearchFieldType.Unknown0E or (uint)SearchFieldType.Comment or (uint)SearchFieldType.Flags2 => 32,
+                    (uint)SearchFieldType.Language => 16,
+                    _ => 0,
+                };
+                if (width == 0)
+                {
+                    codes.Append('?').Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture))
+                        .Append(" (").Append(reader.BitsLeft.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits left)");
+                    break;
+                }
+                codes.Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+                if (width < 0)
+                {
+                    if (reader.BitsLeft < 4) break;
+                    width = (int)reader.Read(4) * 7;
+                }
+                if (reader.BitsLeft < width) { codes.Append(" (cut)"); break; }
+                while (width > 0)
+                {
+                    int step = Math.Min(width, 32);
+                    reader.Read(step);
+                    width -= step;
+                }
+            }
+            return codes.ToString();
         }
     }
 

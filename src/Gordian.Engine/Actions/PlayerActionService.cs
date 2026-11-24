@@ -2313,7 +2313,7 @@ namespace Gordian.Engine.Actions
                 string raw = words[i];
                 string token = raw.ToLowerInvariant();
                 if (token == "all") { query.AllAreas = true; continue; }
-                if (token is "inv" or "party" or "pt") { query.Flags1 = (ushort)SearchFlags.SeekingParty; continue; }
+                if (token is "inv" or "party" or "pt") { query.Flags1 = SearchQuery.SeekingPartyFilter; continue; }
                 if (token == "friend" || token == "friends") { query.FriendsOnly = true; continue; }
                 if (token == "rank" && i + 1 < words.Length && TryParseLevelRange(words[i + 1], out var ranks))
                 {

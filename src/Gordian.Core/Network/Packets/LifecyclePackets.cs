@@ -159,6 +159,19 @@ namespace Gordian.Core.Network.Packets
     }
 
     /// <summary>
+    /// The local player's state as S2C 0x00A starts a zone: its server status (3 dead), HP percent and the death counter
+    /// (<c>DeadCounter</c>, 1/60 s ticks plus 6 minutes, as S2C 0x037's <c>dead_counter1</c>).
+    /// Fields referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x000A</c> (<c>GP_SERV_POS_HEAD</c>
+    /// <c>HpMax</c> and <c>server_status</c>, <c>DeadCounter</c>), and LandSandBoat (https://github.com/LandSandBoat/server),
+    /// <c>s2c/0x00a_login.cpp</c>.
+    /// </summary>
+    public readonly record struct LoginStatus(byte ServerStatus, byte Hpp, uint DeadCounterTicks)
+    {
+        /// <summary>Seconds left before the forced home point, as <see cref="S2C_0x037_CharStatus.HomepointSecondsRemaining"/>.</summary>
+        public uint HomepointSecondsRemaining => S2C_0x037_CharStatus.DeadCounterToSeconds(DeadCounterTicks);
+    }
+
+    /// <summary>
     /// A weather schedule entry (S2C 0x057, and the weather fields of S2C 0x00A): the weather, when it started and its
     /// offset. The retail client multiplies <see cref="StartTime"/> by 60 to get the start in seconds.
     /// Packet structure referenced from XiPackets (https://github.com/atom0s/XiPackets), <c>world/server/0x0057</c>.
@@ -270,6 +283,19 @@ namespace Gordian.Core.Network.Packets
         public ushort WeatherNumber { get; }
 
         /// <summary>
+        /// The character's HP percent (position header <c>HpMax</c>, payload +26; XiPackets calls it the health percentage,
+        /// LandSandBoat writes <c>GetHPP()</c>); 0 for a dead character.
+        /// </summary>
+        public byte Hpp { get; }
+
+        /// <summary>
+        /// The character's server status (position header <c>server_status</c>, payload +27): 3 when it logs in dead, 4 inside a
+        /// zone-in event. Retail sends a dead character no S2C 0x037 with status 3 at login (#578 round 3), so this is where the
+        /// client learns it is dead.
+        /// </summary>
+        public byte ServerStatus { get; }
+
+        /// <summary>
         /// Earth seconds elapsed since the Vana'diel epoch (1009810800) according to the server.
         /// Located at wire offset 56 (4 bytes).
         /// Protocol specification referenced from LandSandBoat (https://github.com/LandSandBoat/server)
@@ -344,6 +370,8 @@ namespace Gordian.Core.Network.Packets
                 EventNum = 0;
                 EventPara = 0;
                 EventMode = 0;
+                Hpp = 0;
+                ServerStatus = 0;
                 IsValid = false;
                 return;
             }
@@ -357,6 +385,8 @@ namespace Gordian.Core.Network.Packets
             // X = East(+)/West(-), Y = Elevation (Up(+)/Down(-)), Z = North(+)/South(-).
             Y = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(12, 4)); // Wire offset 12: Elevation -> 3D Y
             Z = BinaryPrimitives.ReadSingleLittleEndian(payload.Slice(16, 4)); // Wire offset 16: North/South -> 3D Z
+            Hpp = payload.Length >= 28 ? payload[26] : (byte)0;
+            ServerStatus = payload.Length >= 28 ? payload[27] : (byte)0;
             ZoneId = payload.Length >= 46
                 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(44, 2))
                 : (ushort)0;
@@ -986,6 +1016,9 @@ namespace Gordian.Core.Network.Packets
 
         /// <summary>The zone set-up fields of S2C 0x00A (music, sub map, instance, Mog House, job block), raised before <see cref="ZoneReceived"/>.</summary>
         public event Action<ZoneLoginInfo>? ZoneLoginInfoReceived;
+
+        /// <summary>The character's status, HP percent and death counter from S2C 0x00A's position header (#578 round 3).</summary>
+        public event Action<LoginStatus>? LoginStatusReceived;
         public event Action<LogoutState, IPAddress, ushort, uint>? ZoneTransitionReceived;
         public event Action<uint, ushort[], string>? LoginAppearanceReceived;
 
@@ -1129,6 +1162,9 @@ namespace Gordian.Core.Network.Packets
             var ack = new S2C_0x00A_LoginAck(payload);
             if (ack.IsValid)
             {
+                ZoneLoginInfo info = ack.GetZoneInfo();
+                // First: the appearance and the position below make the player entity, which starts dead when the character is (#578 round 3).
+                if (payload.Length >= 28) LoginStatusReceived?.Invoke(new LoginStatus(ack.ServerStatus, ack.Hpp, info.DeadCounter));
                 Span<ushort> grap = stackalloc ushort[9];
                 if (ack.TryGetGrapIdTable(grap))
                 {
@@ -1142,7 +1178,6 @@ namespace Gordian.Core.Network.Packets
                     ServerGameTimeReceived?.Invoke(ack.GameTime);
                 }
                 PlayerPositionUpdated?.Invoke(ack.X, ack.Y, ack.Z, ack.Direction, ack.ActorIndex);
-                ZoneLoginInfo info = ack.GetZoneInfo();
                 ZoneLoginInfoReceived?.Invoke(info);
                 if (ack.ZoneId != 0)
                 {

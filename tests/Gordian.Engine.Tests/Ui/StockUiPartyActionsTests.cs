@@ -279,7 +279,7 @@ namespace Gordian.Engine.Tests.Ui
             Choose(menus, StockUiParty.UngroupedFindMemberButton);
             await Until(() => notices.Count == 1);
             Assert.Equal("No players found.", notices[0]);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, social.LastQuery!.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, social.LastQuery!.Flags1);
             Assert.Equal(new ushort[] { 243 }, social.LastQuery.Areas);
         }
 

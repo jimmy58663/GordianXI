@@ -310,6 +310,17 @@ namespace Gordian.Core.Network.Search
                 if (!page.IsValid) continue;
                 total = page.Header.Total;
                 int position = SearchEntityPage.EntriesOffset;
+                if (players.Count == 0)
+                {
+                    // #578 round 3: retail's rows showed no rank or nation. The first entry's field order shows whether retail
+                    // writes them, and whether a field code the decoder does not know cuts the entry short.
+                    string fields = page.DescribeEntryFields(position);
+                    int start = position;
+                    if (page.TryReadEntity(ref start, out var first))
+                    {
+                        GordianLog.Debug(LogCategories.Search, $"Search entry fields: {fields}; nation {first.Nation}, rank {first.Rank}, flags 0x{first.Flags1:X4}.");
+                    }
+                }
                 while (page.TryReadEntity(ref position, out var player)) players.Add(player);
             }
             return new SearchPlayersResult(total, players, exchange.Complete);

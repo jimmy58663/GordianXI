@@ -401,6 +401,21 @@ namespace Gordian.Engine.Tests.Network
             Assert.False(page.TryReadEntity(ref position, out _));
         }
 
+        /// <summary>#578 round 3: the log line that shows which fields a server writes, and where an unknown code stops the entry.</summary>
+        [Fact]
+        public void SearchEntityPage_DescribesTheEntryFields()
+        {
+            byte[] content = EntityAnswer(0, total: 1, final: true, linkshell: false, ("Ayame", 230, 3, 4, 75, 37, 0x8010, 0x1234, 0x20));
+            var page = new SearchEntityPage(content);
+            string fields = page.DescribeEntryFields(SearchEntityPage.EntriesOffset);
+            Assert.StartsWith("00 01 02 03 04 05 10 06", fields);
+            Assert.DoesNotContain("?", fields);
+
+            content[SearchEntityPage.EntriesOffset + 1] |= 0xF8; // the first code (the top 5 bits) becomes 0x1F, which no server field uses
+            string unknown = new SearchEntityPage(content).DescribeEntryFields(SearchEntityPage.EntriesOffset);
+            Assert.StartsWith("?1F (", unknown);
+        }
+
         [Fact]
         public void SearchEntityPage_ReadsTheLinkshellRankBlock()
         {
@@ -695,7 +710,7 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray());
             Assert.Equal((byte)3, query.Job);
             Assert.Equal(((byte)70, (byte)75), query.Level);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, query.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, query.Flags1);
             Assert.Equal("Ayame", query.Name);
 
             var all = PlayerActionService.ParseSearchQuery("all lv99 friend", 230);
@@ -814,13 +829,13 @@ namespace Gordian.Engine.Tests.Network
             var seeking = PlayerActionService.ParseSearchQuery("all inv brd 24-35", 230, ZoneNames);
             Assert.True(seeking.AllAreas);
             Assert.Empty(seeking.Areas);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, seeking.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, seeking.Flags1);
             Assert.Equal((byte)10, seeking.Job);
             Assert.Equal(((byte)24, (byte)35), seeking.Level);
 
             var anyone = PlayerActionService.ParseSearchQuery("ALL INV 12-16", 230, ZoneNames);
             Assert.True(anyone.AllAreas);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, anyone.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, anyone.Flags1);
             Assert.Null(anyone.Job);
             Assert.Equal(((byte)12, (byte)16), anyone.Level);
 

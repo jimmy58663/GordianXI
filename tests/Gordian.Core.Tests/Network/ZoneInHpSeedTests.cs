@@ -1,4 +1,6 @@
 // tests/Gordian.Core.Tests/Network/ZoneInHpSeedTests.cs
+using System;
+using System.Buffers.Binary;
 using System.Net;
 using System.Threading.Tasks;
 using Gordian.Core.Network;
@@ -77,6 +79,84 @@ namespace Gordian.Core.Tests.Network
 
             Assert.True(mgr.World.TryGetByServerId(Me, out var entity));
             Assert.Equal(64, entity!.Hpp);
+        }
+
+        /// <summary>
+        /// A full S2C 0x00A with the position header's HP percent (+26) and server status (+27) and the death counter (+160),
+        /// as LandSandBoat's <c>s2c/0x00a_login.cpp</c> writes them (payload offsets after the 4-byte header).
+        /// </summary>
+        internal static byte[] FullLoginDatagram(ushort serverSeq, byte status, byte hpp, uint homepointSeconds)
+        {
+            byte[] sub = new byte[4 + 240];
+            BinaryPrimitives.WriteUInt16LittleEndian(sub, (ushort)(0x00A | ((sub.Length / 4) << 9)));
+            BinaryPrimitives.WriteUInt16LittleEndian(sub.AsSpan(2, 2), serverSeq);
+            BinaryPrimitives.WriteUInt32LittleEndian(sub.AsSpan(4, 4), Me);
+            BinaryPrimitives.WriteUInt16LittleEndian(sub.AsSpan(8, 2), 42);
+            sub[4 + 26] = hpp;
+            sub[4 + 27] = status;
+            BinaryPrimitives.WriteUInt32LittleEndian(sub.AsSpan(4 + 160, 4), (homepointSeconds + S2C_0x037_CharStatus.DeadCounterOffsetSeconds) * 60);
+
+            byte[] compressed = new byte[1024];
+            int length = Gordian.Core.Network.Compression.FfxiCodec.Default.Compress(sub, compressed);
+            byte[] datagram = new byte[28 + length + 16];
+            BinaryPrimitives.WriteUInt16LittleEndian(datagram, serverSeq);
+            BinaryPrimitives.WriteUInt16LittleEndian(datagram.AsSpan(2, 2), 1);
+            compressed.AsSpan(0, length).CopyTo(datagram.AsSpan(28));
+            return datagram;
+        }
+
+        /// <summary>
+        /// Round 3 of the 2026-11-22 retail test: a character logged in dead lay in the death pose with no home point window. Retail
+        /// sends it no S2C 0x037 with status 3; the 0x00A's position header says it is dead, with the home point time left.
+        /// </summary>
+        [Fact]
+        public async Task DeadLogin_The0x00AMakesTheCharacterDead_WithTheTimeLeft()
+        {
+            using var mgr = await ZonedAsync();
+            var changes = new System.Collections.Generic.List<(byte, byte)>();
+            mgr.LocalPlayer.ServerStatusChanged += (from, to) => changes.Add((from, to));
+
+            Assert.True(mgr.ProcessInboundDatagram(FullLoginDatagram(1, LocalPlayerState.StatusDead, 0, 1800)));
+
+            Assert.True(mgr.LocalPlayer.IsDead);
+            Assert.Equal(1800u, mgr.LocalPlayer.HomepointSecondsRemaining);
+            Assert.Equal(new[] { ((byte)0, LocalPlayerState.StatusDead) }, changes);
+            Assert.True(mgr.World.TryGetByServerId(Me, out var entity));
+            Assert.Equal(0, entity!.Hpp);
+        }
+
+        /// <summary>A living character's 0x00A sets its HP percent and clears a death (or a vanish) left from the last zone.</summary>
+        [Fact]
+        public async Task AliveLogin_The0x00AClearsTheDeath_AndSeedsTheHp()
+        {
+            using var mgr = await ZonedAsync();
+            SetStatus(mgr.LocalPlayer, LocalPlayerState.StatusDead, 0);
+            Assert.True(mgr.LocalPlayer.IsDead);
+
+            Assert.True(mgr.ProcessInboundDatagram(FullLoginDatagram(1, 0, 87, 0)));
+
+            Assert.False(mgr.LocalPlayer.IsDead);
+            Assert.Equal(87, mgr.LocalPlayer.Hpp);
+            Assert.True(mgr.World.TryGetByServerId(Me, out var entity));
+            Assert.Equal(87, entity!.Hpp);
+        }
+
+        [Fact]
+        public void LoginAck_ReadsTheHpPercentAndTheStatus()
+        {
+            byte[] payload = new byte[240];
+            payload[26] = 0;
+            payload[27] = LocalPlayerState.StatusDead;
+            var ack = new S2C_0x00A_LoginAck(payload);
+            Assert.Equal(0, ack.Hpp);
+            Assert.Equal(LocalPlayerState.StatusDead, ack.ServerStatus);
+
+            payload[26] = 55;
+            payload[27] = 0;
+            ack = new S2C_0x00A_LoginAck(payload);
+            Assert.Equal(55, ack.Hpp);
+            Assert.Equal(0, ack.ServerStatus);
+            Assert.Equal(1800u, new LoginStatus(3, 0, (1800 + 360) * 60).HomepointSecondsRemaining);
         }
 
         /// <summary>An entity that already has HP (a second 0x00A, or vitals that came first) keeps it.</summary>

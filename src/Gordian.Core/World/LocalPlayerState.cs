@@ -1,6 +1,7 @@
 // src/Gordian.Core/World/LocalPlayerState.cs
 using System;
 using System.Collections.Generic;
+using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 
 namespace Gordian.Core.World
@@ -630,6 +631,38 @@ namespace Gordian.Core.World
             if (percent >= 100) return current;
             if (percent == 1) return Math.Max(max, current);
             return current * 100 / percent;
+        }
+
+        /// <summary>
+        /// Applies the status, HP percent and death counter of S2C 0x00A, which starts every zone. A dead character logs in
+        /// dead from it: retail sends no S2C 0x037 with status 3 then (#578 round 3, a character logged in dead lay there
+        /// with no home point window), LandSandBoat sends one after C2S 0x00C as well.
+        /// </summary>
+        public void ApplyLoginStatus(in LoginStatus status)
+        {
+            byte previousStatus;
+            byte previousHpp;
+            lock (_lock)
+            {
+                previousStatus = ServerStatus;
+                previousHpp = Hpp;
+                ServerStatus = status.ServerStatus;
+                Hpp = status.Hpp;
+                HomepointSecondsRemaining = status.HomepointSecondsRemaining;
+            }
+
+            if (status.ServerStatus == StatusDead || status.Hpp == 0 || previousStatus == StatusDead)
+            {
+                GordianLog.Info(LogCategories.Entity, $"Own death signal (0x00A): status {previousStatus} -> {status.ServerStatus}, HP {previousHpp}% -> {status.Hpp}%, " +
+                    $"home point in {status.HomepointSecondsRemaining} s; dead {IsDead}, leaving the zone {IsVanishing}.");
+            }
+
+            if (previousStatus != status.ServerStatus)
+            {
+                if (previousStatus == StatusDead) ApplyDeathMenu(DeathMenuType.HomePoint);
+                ServerStatusChanged?.Invoke(previousStatus, status.ServerStatus);
+            }
+            VitalsUpdated?.Invoke();
         }
 
         public void UpdateFromCharStatus(in S2C_0x037_CharStatus status)
