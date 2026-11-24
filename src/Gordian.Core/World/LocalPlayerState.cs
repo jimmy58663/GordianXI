@@ -110,13 +110,15 @@ namespace Gordian.Core.World
         /// How crowd control holds the player now (#540): <see cref="PlayerMovementHold.Immobile"/> under stun, sleep,
         /// petrification or terror (the buff lists of S2C 0x037 and 0x063, or the 0x037 MotStopFlag),
         /// <see cref="PlayerMovementHold.Rooted"/> under bind (the buff lists, or a 0x037 speed of 0). The server does not
-        /// enforce these; the locomotion loop does, and no option lifts them. The chocobo dig's freeze is not one of these: it
+        /// enforce these; the locomotion loop does, and no option lifts them. A dead character (<see cref="IsDead"/>) is
+        /// <see cref="PlayerMovementHold.Immobile"/> too: retail sends no freeze or speed for it (#578 round 4). The chocobo dig's freeze is not one of these: it
         /// is a control lock on the rider's dig routine, like a job ability's (the engine's <c>MountTransitions.PlayDig</c>).
         /// </summary>
         public PlayerMovementHold MovementHold
         {
             get
             {
+                if (IsDead) return PlayerMovementHold.Immobile;
                 var hold = _isMotionStopped ? PlayerMovementHold.Immobile
                     : _isSpeedHeld ? PlayerMovementHold.Rooted
                     : PlayerMovementHold.None;
@@ -376,16 +378,31 @@ namespace Gordian.Core.World
         /// <summary>Seconds left before a dead character is force-homepointed (S2C 0x037 <c>dead_counter1</c>).</summary>
         public uint HomepointSecondsRemaining { get; private set; }
 
-        /// <summary><see cref="ServerStatus"/> of a dead character (LandSandBoat <c>xi.animation.DEATH</c>).</summary>
+        /// <summary>
+        /// <see cref="ServerStatus"/> of a dead character (LandSandBoat <c>xi.animation.DEATH</c>; Windower's <c>res/statuses.lua</c>
+        /// calls it "Engaged dead"). LandSandBoat sends it for every death.
+        /// </summary>
         public const byte StatusDead = 3;
+
+        /// <summary>
+        /// <see cref="ServerStatus"/> retail sends for a character that died while not engaged: Windower's <c>res/statuses.lua</c>
+        /// calls 2 "Dead" and 3 "Engaged dead". Retail's S2C 0x00A for a character logged in dead carried 2 with 0% HP
+        /// (#578 round 4, 2026-11-23). **Differs from LandSandBoat**, whose <c>xi.animation</c> 2 is "despawn" and which uses 3
+        /// for every death.
+        /// </summary>
+        public const byte StatusDeadUnengaged = 2;
+
+        /// <summary>Whether <paramref name="status"/> is one of the dead statuses, 2 (retail) or 3 (both).</summary>
+        public static bool IsDeathStatus(byte status) => status is StatusDead or StatusDeadUnengaged;
 
         /// <summary>
         /// Whether the character is dead (S2C 0x037 status 3 with no HP). A living character is sent status 3 too: LandSandBoat's
         /// <c>setPos</c> to another zone at the end of an event (the survival guides, home points) marks the character
         /// disappearing and the event's end then writes the death animation (<c>char_entity.cpp</c>, <c>isDead</c> counts
         /// disappearing), at 100% HP (round 1 of the 2026-11-03 test): see <see cref="IsVanishing"/>.
+        /// Retail also sends status 2 for a death out of battle (<see cref="StatusDeadUnengaged"/>).
         /// </summary>
-        public bool IsDead => ServerStatus == StatusDead && Hpp == 0;
+        public bool IsDead => IsDeathStatus(ServerStatus) && Hpp == 0;
 
         /// <summary>Whether the server has the living character leaving the zone (S2C 0x037 status 3 with HP): it fades out, it does not die.</summary>
         public bool IsVanishing => ServerStatus == StatusDead && Hpp > 0;
@@ -651,7 +668,7 @@ namespace Gordian.Core.World
                 HomepointSecondsRemaining = status.HomepointSecondsRemaining;
             }
 
-            if (status.ServerStatus == StatusDead || status.Hpp == 0 || previousStatus == StatusDead)
+            if (IsDeathStatus(status.ServerStatus) || status.Hpp == 0 || IsDeathStatus(previousStatus))
             {
                 GordianLog.Info(LogCategories.Entity, $"Own death signal (0x00A): status {previousStatus} -> {status.ServerStatus}, HP {previousHpp}% -> {status.Hpp}%, " +
                     $"home point in {status.HomepointSecondsRemaining} s; dead {IsDead}, leaving the zone {IsVanishing}.");
@@ -659,7 +676,7 @@ namespace Gordian.Core.World
 
             if (previousStatus != status.ServerStatus)
             {
-                if (previousStatus == StatusDead) ApplyDeathMenu(DeathMenuType.HomePoint);
+                if (IsDeathStatus(previousStatus) && !IsDeathStatus(status.ServerStatus)) ApplyDeathMenu(DeathMenuType.HomePoint);
                 ServerStatusChanged?.Invoke(previousStatus, status.ServerStatus);
             }
             VitalsUpdated?.Invoke();
@@ -724,7 +741,7 @@ namespace Gordian.Core.World
             if (previousStatus != status.ServerStatus)
             {
                 // A Raise or Tractor offer ends with the death (raised, home point, or a fresh life).
-                if (previousStatus == StatusDead) ApplyDeathMenu(DeathMenuType.HomePoint);
+                if (IsDeathStatus(previousStatus) && !IsDeathStatus(status.ServerStatus)) ApplyDeathMenu(DeathMenuType.HomePoint);
                 ServerStatusChanged?.Invoke(previousStatus, status.ServerStatus);
             }
 

@@ -108,34 +108,41 @@ namespace Gordian.Core.Tests.Network
         /// <summary>
         /// Round 3 of the 2026-11-22 retail test: a character logged in dead lay in the death pose with no home point window. Retail
         /// sends it no S2C 0x037 with status 3; the 0x00A's position header says it is dead, with the home point time left.
+        /// Round 4: retail's status was 2 ("Dead", not engaged), LandSandBoat's 3.
         /// </summary>
-        [Fact]
-        public async Task DeadLogin_The0x00AMakesTheCharacterDead_WithTheTimeLeft()
+        [Theory]
+        [InlineData(LocalPlayerState.StatusDeadUnengaged)]
+        [InlineData(LocalPlayerState.StatusDead)]
+        public async Task DeadLogin_The0x00AMakesTheCharacterDead_WithTheTimeLeft(byte status)
         {
             using var mgr = await ZonedAsync();
             var changes = new System.Collections.Generic.List<(byte, byte)>();
             mgr.LocalPlayer.ServerStatusChanged += (from, to) => changes.Add((from, to));
 
-            Assert.True(mgr.ProcessInboundDatagram(FullLoginDatagram(1, LocalPlayerState.StatusDead, 0, 1800)));
+            Assert.True(mgr.ProcessInboundDatagram(FullLoginDatagram(1, status, 0, 1800)));
 
             Assert.True(mgr.LocalPlayer.IsDead);
+            Assert.Equal(PlayerMovementHold.Immobile, mgr.LocalPlayer.MovementHold);
             Assert.Equal(1800u, mgr.LocalPlayer.HomepointSecondsRemaining);
-            Assert.Equal(new[] { ((byte)0, LocalPlayerState.StatusDead) }, changes);
+            Assert.Equal(new[] { ((byte)0, status) }, changes);
             Assert.True(mgr.World.TryGetByServerId(Me, out var entity));
             Assert.Equal(0, entity!.Hpp);
         }
 
         /// <summary>A living character's 0x00A sets its HP percent and clears a death (or a vanish) left from the last zone.</summary>
-        [Fact]
-        public async Task AliveLogin_The0x00AClearsTheDeath_AndSeedsTheHp()
+        [Theory]
+        [InlineData(LocalPlayerState.StatusDeadUnengaged)]
+        [InlineData(LocalPlayerState.StatusDead)]
+        public async Task AliveLogin_The0x00AClearsTheDeath_AndSeedsTheHp(byte deadStatus)
         {
             using var mgr = await ZonedAsync();
-            SetStatus(mgr.LocalPlayer, LocalPlayerState.StatusDead, 0);
+            SetStatus(mgr.LocalPlayer, deadStatus, 0);
             Assert.True(mgr.LocalPlayer.IsDead);
 
             Assert.True(mgr.ProcessInboundDatagram(FullLoginDatagram(1, 0, 87, 0)));
 
             Assert.False(mgr.LocalPlayer.IsDead);
+            Assert.NotEqual(PlayerMovementHold.Immobile, mgr.LocalPlayer.MovementHold); // SetStatus's 0x037 has speed 0 (Rooted)
             Assert.Equal(87, mgr.LocalPlayer.Hpp);
             Assert.True(mgr.World.TryGetByServerId(Me, out var entity));
             Assert.Equal(87, entity!.Hpp);

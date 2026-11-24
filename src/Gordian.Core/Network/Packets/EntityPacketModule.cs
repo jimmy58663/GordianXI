@@ -231,7 +231,7 @@ namespace Gordian.Core.Network.Packets
             if (isNew || (pc.UpdateFlags & EntityUpdateFlags.General) != 0)
             {
                 if (pc.UniqueNo == _localPlayer.ServerId
-                    && ((pc.ServerStatus == LocalPlayerState.StatusDead) != (player.AnimationState == LocalPlayerState.StatusDead) || (pc.Hpp == 0) != (player.Hpp == 0)))
+                    && (LocalPlayerState.IsDeathStatus(pc.ServerStatus) != LocalPlayerState.IsDeathStatus(player.AnimationState) || (pc.Hpp == 0) != (player.Hpp == 0)))
                 {
                     // LandSandBoat sends no 0x00D for the player's own character; if retail does, this is where its death shows.
                     GordianLog.Info(LogCategories.Entity, $"Own death signal (0x00D): status {player.AnimationState} -> {pc.ServerStatus}, HP {player.Hpp}% -> {pc.Hpp}%; " +
@@ -728,7 +728,7 @@ namespace Gordian.Core.Network.Packets
             byte previousStatus = _localPlayer.ServerStatus;
             byte previousHpp = _localPlayer.Hpp;
             _localPlayer.UpdateFromCharStatus(charStatus);
-            if ((charStatus.ServerStatus == LocalPlayerState.StatusDead) != (previousStatus == LocalPlayerState.StatusDead) || (charStatus.Hpp == 0) != (previousHpp == 0))
+            if (LocalPlayerState.IsDeathStatus(charStatus.ServerStatus) != LocalPlayerState.IsDeathStatus(previousStatus) || (charStatus.Hpp == 0) != (previousHpp == 0))
             {
                 // Retail death (2026-11-22 round 2): the player lay dead but could move and no home point window opened, so
                 // the client never saw status 3 with 0% HP. Each change of the death signals is logged to see which packet says it.

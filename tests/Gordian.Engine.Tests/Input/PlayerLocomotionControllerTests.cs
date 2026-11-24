@@ -198,6 +198,30 @@ namespace Gordian.Engine.Tests.Input
         }
 
         /// <summary>
+        /// A dead character cannot move or turn (#578 round 4): retail logged in dead sends status 2 with 0% HP in S2C 0x00A and
+        /// no freeze or speed of 0, and the player walked around in the death pose. It moves again once alive.
+        /// </summary>
+        [Theory]
+        [InlineData(LocalPlayerState.StatusDeadUnengaged)]
+        [InlineData(LocalPlayerState.StatusDead)]
+        public void Dead_HoldsMovementAndTurning(byte status)
+        {
+            var (controller, input, _, player, localEnt) = CreateTestHarness();
+            controller.CameraYaw = 0.0f;
+            player.ApplyLoginStatus(new LoginStatus(status, 0, 0));
+            Assert.Equal(PlayerMovementHold.Immobile, player.MovementHold);
+
+            input.SetKeyDown(GordianKey.D);
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(Vector3.Zero, localEnt.Position);
+            Assert.Equal(0, localEnt.Direction);
+
+            player.ApplyLoginStatus(new LoginStatus(0, 100, 0));
+            controller.Update(TimeSpan.FromSeconds(0.5));
+            Assert.Equal(64, localEnt.Direction);
+        }
+
+        /// <summary>
         /// Terror's 0x037 MotStopFlag (flags2 bit 19) holds the player even before the buff list shows it (#540), and a status
         /// icon from S2C 0x063 holds it as the 0x037 buff list does.
         /// </summary>
