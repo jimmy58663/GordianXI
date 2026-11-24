@@ -31,6 +31,14 @@ namespace Gordian.App.Graphics
         private static volatile int s_performanceOverlay = (int)PerformanceOverlayMode.Hidden;
         private static volatile bool s_softTerrainHighlights;
         private static volatile bool s_zoneBackFaceCulling = true;
+        private static volatile int s_drawDistancePreset = (int)Gordian.Engine.Graphics.ZoneDrawPreset.Retail;
+
+        /// <summary>The draw-distance preset every viewport window draws with (#606 round 4); Retail by default.</summary>
+        public static Gordian.Engine.Graphics.ZoneDrawPreset DrawDistancePreset
+        {
+            get => (Gordian.Engine.Graphics.ZoneDrawPreset)s_drawDistancePreset;
+            set => s_drawDistancePreset = Enum.IsDefined(value) ? (int)value : (int)Gordian.Engine.Graphics.ZoneDrawPreset.Retail;
+        }
 
         /// <summary>
         /// What the performance overlay shows in every viewport window (#30); hidden by default. Setting a new value raises
@@ -133,6 +141,7 @@ namespace Gordian.App.Graphics
             PerformanceOverlay = settings.PerformanceOverlay;
             SoftTerrainHighlights = settings.SoftTerrainHighlights;
             ZoneBackFaceCulling = settings.ZoneBackFaceCulling;
+            DrawDistancePreset = settings.DrawDistancePreset;
         }
     }
 }

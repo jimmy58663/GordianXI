@@ -997,6 +997,13 @@ namespace Gordian.App.Graphics
                         _renderer.HideSceneryAbove = _activeSession?.ActionService.Menus.MogHouseCamera.InUse == true ? MogHouseFurnitureScene.CeilingHeight : null;
                         _renderer.SoftTerrainHighlights = ViewportRenderSettings.SoftTerrainHighlights;
                         _renderer.DisableZoneBackFaceCulling = !ViewportRenderSettings.ZoneBackFaceCulling;
+                        // The draw-distance preset (#606 round 4): distances, sub-pixel cull and sway range. A change
+                        // re-applies the environment keyframe, whose outdoor fog scales with the large-asset distance.
+                        var drawPolicy = ZoneDrawPolicy.For(ViewportRenderSettings.DrawDistancePreset);
+                        if (Environment.DrawDistanceMultiplier != drawPolicy.LargeMultiplier || Environment.FogDistanceMultiplier != drawPolicy.FogMultiplier) _lastVanaHour = -1f;
+                        drawPolicy.ApplyTo(Environment);
+                        _renderer.SubPixelCull = drawPolicy.SubPixelCull;
+                        _renderer.SwayRange = drawPolicy.SwayRange;
                         // Config > Misc. "Shadows" (High / Normal / Off) picks which actor shadows are drawn (#7 round 2).
                         if (_renderer.EntityRenderer is { } shadowRenderer && _activeSession?.ActionService.UiSettings is { } uiSettings)
                             shadowRenderer.ShadowMode = (ActorShadowMode)uiSettings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.Shadows);

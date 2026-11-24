@@ -268,7 +268,7 @@ namespace Gordian.Engine.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_CalibratesLinearFogForClearOutdoorKeyframes()
         {
-            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings { DrawDistanceMultiplier = 1.0f };
+            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
             var indoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Outdoor keyframe with low authored FogStart
@@ -286,7 +286,7 @@ namespace Gordian.Engine.Tests.Resources
             Assert.Equal(320f, outdoorSettings.FogEnd);
             Assert.Equal(320f * 0.75f, outdoorSettings.FogStart, 1);
 
-            // Indoor keyframe keeps its authored near fog, both ends scaled by the draw-distance multiplier (#612 round 2)
+            // Indoor keyframe keeps its authored near fog, both ends scaled by the dungeon fog multiplier (#612 round 2)
             var indoorKeyframe = new EnvironmentKeyframe
             {
                 Hour = 10,
@@ -297,8 +297,8 @@ namespace Gordian.Engine.Tests.Resources
             indoorSettings.ApplyKeyframe(indoorKeyframe);
 
             Assert.True(indoorSettings.FogEnabled);
-            Assert.Equal(40f * indoorSettings.DrawDistanceMultiplier, indoorSettings.FogStart, 3);
-            Assert.Equal(320f * indoorSettings.DrawDistanceMultiplier, indoorSettings.FogEnd, 3);
+            Assert.Equal(40f * Gordian.Engine.Graphics.ZoneEnvironmentSettings.IndoorFogMultiplier, indoorSettings.FogStart, 3);
+            Assert.Equal(320f * Gordian.Engine.Graphics.ZoneEnvironmentSettings.IndoorFogMultiplier, indoorSettings.FogEnd, 3);
         }
 
         [Fact]

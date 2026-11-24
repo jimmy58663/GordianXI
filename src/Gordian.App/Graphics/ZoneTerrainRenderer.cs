@@ -449,6 +449,16 @@ namespace Gordian.App.Graphics
             public DeviceBuffer VertexBuffer { get; init; } = null!;
             public DeviceBuffer IndexBuffer { get; init; } = null!;
             public uint IndexCount { get; init; }
+
+            /// <summary>
+            /// First index of this submesh in <see cref="IndexBuffer"/>: 0 for a buffer of its own, its place in the zone's
+            /// shared <see cref="IndexPool"/> buffer otherwise (#606 round 4).
+            /// </summary>
+            public uint IndexStart { get; init; }
+
+            /// <summary>Whether <see cref="IndexBuffer"/> is this submesh's own (disposed with it) rather than an <see cref="IndexPool"/>'s.</summary>
+            public bool OwnsIndexBuffer { get; init; } = true;
+
             public Vector3 MinBounds { get; init; }
             public Vector3 MaxBounds { get; init; }
             public bool IsBlend { get; init; }
@@ -533,7 +543,7 @@ namespace Gordian.App.Graphics
                 return new GpuSubmesh
                 {
                     OwnsBuffers = false,
-                    Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount,
+                    Name = Name, TextureName = TextureName, VertexBuffer = VertexBuffer, IndexBuffer = IndexBuffer, IndexCount = IndexCount, IndexStart = IndexStart, OwnsIndexBuffer = false,
                     MinBounds = MinBounds, MaxBounds = MaxBounds, IsBlend = IsBlend, NoCull = NoCull, IsFoliage = IsFoliage, IsWater = IsWater,
                     UVScroll = UVScroll, WindBuffer = WindBuffer, WindOffset = WindOffset, OwnsWindBuffer = false, OwnsVertexBuffer = false, BatchIndices = BatchIndices, LightSet = set, LightRefsBuffer = refs, EnvironmentId = EnvironmentId, PlatformId = PlatformId,
                     DoorId = DoorId, SubAreaLink = SubAreaLink, Visibility = Visibility, DoorPart = DoorPart, DoorPlacement = DoorPlacement,
@@ -545,7 +555,7 @@ namespace Gordian.App.Graphics
                 if (OwnsBuffers)
                 {
                     if (OwnsVertexBuffer) VertexBuffer?.Dispose();
-                    IndexBuffer?.Dispose();
+                    if (OwnsIndexBuffer) IndexBuffer?.Dispose();
                     if (OwnsWindBuffer) WindBuffer?.Dispose();
                 }
                 LightSet?.Dispose();
@@ -1252,6 +1262,7 @@ namespace Gordian.App.Graphics
                 }
                 if (windBytes > 0) lock (shared.GpuLock) _windPool = new WindPool(gd, windBytes);
                 _batchPool = new BatchVertexPool(gd);
+                _indexPool = new IndexPool(gd);
 
                 // A placement with a blended decal keeps its own buffers: the decal composites over the placement's other
                 // submeshes, which must be drawn just before it, in authored order (#606 round 2).
@@ -1277,10 +1288,10 @@ namespace Gordian.App.Graphics
                             // transforms), and only placements without a decal.
                             bool batchable = !vessel && doorId.Length == 0 && platformId.Length == 0
                                              && group.Visibility.Record >= 0 && !decalRecords.Contains(group.Visibility.Record);
-                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf, windPool: _windPool, batchPool: batchable ? _batchPool : null);
+                            var submesh = UploadSubmesh(shared, group, platformId, doorId, leaf, windPool: _windPool, batchPool: batchable ? _batchPool : null, indexPool: _indexPool);
                             (vessel ? VesselSubmeshes : doorId.Length > 0 ? DoorSubmeshes : platformId.Length > 0 ? PlatformSubmeshes : ZoneSubmeshes).Add(submesh);
                             vertCount += group.Vertices.Length;
-                            bytes += (submesh.OwnsVertexBuffer ? submesh.VertexBuffer.SizeInBytes : 0) + submesh.IndexBuffer.SizeInBytes;
+                            bytes += (submesh.OwnsVertexBuffer ? submesh.VertexBuffer.SizeInBytes : 0) + (submesh.OwnsIndexBuffer ? submesh.IndexBuffer.SizeInBytes : 0);
                         }
                     }
                 }
@@ -1326,7 +1337,7 @@ namespace Gordian.App.Graphics
                 }
 
                 TotalVertices = vertCount;
-                Bytes = bytes + windBytes + _batchPool.Bytes;
+                Bytes = bytes + windBytes + _batchPool.Bytes + _indexPool.Bytes;
             }
 
             /// <summary>Frees the buffers (call under the device lock); the textures are the cache's to evict.</summary>
@@ -1342,10 +1353,12 @@ namespace Gordian.App.Graphics
                 foreach (var mesh in EffectSubmeshes) mesh.Dispose();
                 _windPool?.Dispose();
                 _batchPool?.Dispose();
+                _indexPool?.Dispose();
             }
 
             private WindPool? _windPool;
             private BatchVertexPool? _batchPool;
+            private IndexPool? _indexPool;
         }
 
         /// <summary>
@@ -1396,6 +1409,50 @@ namespace Gordian.App.Graphics
 
             /// <summary>Buffers in the pool.</summary>
             public int BufferCount => _buffers.Count;
+
+            public void Dispose()
+            {
+                foreach (var buffer in _buffers) buffer.Dispose();
+                _buffers.Clear();
+            }
+        }
+
+        /// <summary>
+        /// A zone's 16-bit indices in a few shared index buffers (#606 round 4): consecutive submeshes in authored order
+        /// share one, so pass 1 rebinds the index buffer only when it changes, not for every draw (binding each submesh's
+        /// own was about 14 % of the render thread looking down Konschtat's valley).
+        /// </summary>
+        internal sealed class IndexPool : IDisposable
+        {
+            /// <summary>Indices per buffer: 4 MB.</summary>
+            public const int BufferIndices = 2 << 20;
+
+            private readonly GraphicsDevice _gd;
+            private readonly List<DeviceBuffer> _buffers = new();
+            private DeviceBuffer? _current;
+            private int _used;
+
+            public IndexPool(GraphicsDevice gd) => _gd = gd;
+
+            /// <summary>Bytes held by the buffers.</summary>
+            public long Bytes { get; private set; }
+
+            /// <summary>Copies a submesh's indices into a buffer: the buffer and the first index. Call under the device lock.</summary>
+            public (DeviceBuffer Buffer, uint First) Add(ushort[] indices)
+            {
+                if (_current == null || _used + indices.Length > _current.SizeInBytes / sizeof(ushort))
+                {
+                    int size = Math.Max(BufferIndices, indices.Length);
+                    _current = _gd.ResourceFactory.CreateBuffer(new BufferDescription((uint)(size * sizeof(ushort)), BufferUsage.IndexBuffer));
+                    _buffers.Add(_current);
+                    Bytes += _current.SizeInBytes;
+                    _used = 0;
+                }
+                uint first = (uint)_used;
+                _gd.UpdateBuffer(_current, first * sizeof(ushort), indices);
+                _used += indices.Length;
+                return (_current, first);
+            }
 
             public void Dispose()
             {
@@ -1459,7 +1516,7 @@ namespace Gordian.App.Graphics
         /// device lock.
         /// </summary>
         internal static GpuSubmesh UploadSubmesh(GpuSharedResources shared, MeshGroup group, string platformId = "", string doorId = "", DoorLeaf? leaf = null,
-            int[]? pointLightSlots = null, WindPool? windPool = null, BatchVertexPool? batchPool = null)
+            int[]? pointLightSlots = null, WindPool? windPool = null, BatchVertexPool? batchPool = null, IndexPool? indexPool = null)
         {
             pointLightSlots ??= group.PointLightSlots;
             var gd = shared.Device;
@@ -1494,10 +1551,19 @@ namespace Gordian.App.Graphics
                 ushortIndices[idx] = (ushort)(group.Indices[idx] + firstVertex);
             }
 
-            var ib = factory.CreateBuffer(new BufferDescription(
-                (uint)(ushortIndices.Length * sizeof(ushort)),
-                BufferUsage.IndexBuffer));
-            gd.UpdateBuffer(ib, 0, ushortIndices);
+            DeviceBuffer ib;
+            uint indexStart = 0;
+            if (indexPool != null)
+            {
+                (ib, indexStart) = indexPool.Add(ushortIndices);
+            }
+            else
+            {
+                ib = factory.CreateBuffer(new BufferDescription(
+                    (uint)(ushortIndices.Length * sizeof(ushort)),
+                    BufferUsage.IndexBuffer));
+                gd.UpdateBuffer(ib, 0, ushortIndices);
+            }
 
             // A swaying mesh (#606) carries its wind offsets in a second stream; its bounds grow by the largest offset so
             // frustum culling never drops a leaf leaning out of the authored box.
@@ -1549,6 +1615,8 @@ namespace Gordian.App.Graphics
                 BatchIndices = pooled ? ushortIndices : null,
                 IndexBuffer = ib,
                 IndexCount = (uint)ushortIndices.Length,
+                IndexStart = indexStart,
+                OwnsIndexBuffer = indexPool == null,
                 MinBounds = minBounds,
                 MaxBounds = maxBounds,
                 WindBuffer = windBuffer,
@@ -1692,7 +1760,7 @@ namespace Gordian.App.Graphics
                 : Matrix4x4.Identity;
             sceneUniform.World = _sceneryTransform;
             ResolveShownInteriors();
-            UpdateZoneVisibility(camera.Position, environment);
+            UpdateZoneVisibility(camera.Position, environment, camera.FieldOfView, height);
 
             // 2. Select submesh list (loaded zone or fallback scene)
             // A cutscene stage zone draws only what it places (#459: stage zone 542, Lower Delkfutt's Tower event 37, places
@@ -1840,6 +1908,8 @@ namespace Gordian.App.Graphics
             // permanently preventing decals from creeping over props or corrupting depth buffers at any distance.
             Pipeline? currentBoundPipeline = null;
             ResourceSet? currentSceneSet = null;
+            // The zone's submeshes share a few index buffers (IndexPool): bind one only when it changes (#606 round 4).
+            DeviceBuffer? boundIndexBuffer = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
@@ -1900,8 +1970,8 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
                 BindVertexBuffers(submesh, targetPipeline);
-                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                if (!ReferenceEquals(boundIndexBuffer, submesh.IndexBuffer)) { _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16); boundIndexBuffer = submesh.IndexBuffer; }
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 draws++;
             }
             FlushBatches(ref draws);
@@ -1935,7 +2005,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, _noLightSet);
                 _commandList.SetVertexBuffer(0, _groundPlaneSubmesh.VertexBuffer);
                 _commandList.SetIndexBuffer(_groundPlaneSubmesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(_groundPlaneSubmesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(_groundPlaneSubmesh.IndexCount, 1, _groundPlaneSubmesh.IndexStart, 0, 0);
                 draws++;
                 visible++;
 
@@ -1969,6 +2039,7 @@ namespace Gordian.App.Graphics
 
             Pipeline? currentBoundBlendPipeline = null;
             ResourceSet? currentBlendSceneSet = null;
+            DeviceBuffer? boundBlendIndexBuffer = null;
             for (int i = 0; i < activeSubmeshes.Count; i++)
             {
                 var submesh = activeSubmeshes[i];
@@ -2018,8 +2089,8 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
 
                 BindVertexBuffers(submesh, targetPipeline);
-                _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                if (!ReferenceEquals(boundBlendIndexBuffer, submesh.IndexBuffer)) { _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16); boundBlendIndexBuffer = submesh.IndexBuffer; }
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 draws++;
             }
 
@@ -2137,7 +2208,7 @@ namespace Gordian.App.Graphics
 
                 _commandList.SetVertexBuffer(0, _oceanWaterSubmesh.VertexBuffer);
                 _commandList.SetIndexBuffer(_oceanWaterSubmesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(_oceanWaterSubmesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(_oceanWaterSubmesh.IndexCount, 1, _oceanWaterSubmesh.IndexStart, 0, 0);
                 draws++;
                 visible++;
             }
@@ -2183,6 +2254,7 @@ namespace Gordian.App.Graphics
             CulledMeshes = culled;
             VisibleMeshes = visible;
             VisibilityCulledMeshes = _visibilityCulled;
+            SubPixelCulledMeshes = _subPixelCulled;
         }
 
         private static GraphicsPipelineDescription WithBackFaceCulling(GraphicsPipelineDescription description)
@@ -2223,7 +2295,8 @@ namespace Gordian.App.Graphics
         {
             _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
             if (!EnableWindSway || !_windPipelineSet.Contains(pipeline)) return;
-            if (submesh.WindBuffer != null) _commandList.SetVertexBuffer(1, submesh.WindBuffer, submesh.WindOffset);
+            // Past the sway range (the Low and Minimum presets) a swaying mesh holds its authored pose (#606 round 4).
+            if (submesh.WindBuffer != null && WithinSwayRange(submesh)) _commandList.SetVertexBuffer(1, submesh.WindBuffer, submesh.WindOffset);
             else _commandList.SetVertexBuffer(1, _zeroWindBuffer);
         }
 
@@ -2304,7 +2377,7 @@ namespace Gordian.App.Graphics
                 if (batch.Members.Count == 1)
                 {
                     _commandList.SetIndexBuffer(lead.IndexBuffer, IndexFormat.UInt16);
-                    _commandList.DrawIndexed(lead.IndexCount, 1, 0, 0, 0);
+                    _commandList.DrawIndexed(lead.IndexCount, 1, lead.IndexStart, 0, 0);
                 }
                 else
                 {
@@ -3113,8 +3186,8 @@ namespace Gordian.App.Graphics
                 ToDisplay(forward), CurrentDayOfWeek(), CurrentMoonPhaseIndex(),
                 // An indoor zone (a dungeon, #612) keeps camera-attached weather out, as a sub-environment does.
                 environment.Indoors || IsViewerInSubEnvironment(camera.Position),
-                // Generators' own cull distances scale with the draw distance, as placements' do (#70, #612).
-                EmitDistanceScale: environment.DrawDistanceMultiplier);
+                // Generators' own cull distances keep #612's scale at every preset (#606 round 4; PROVISIONAL).
+                EmitDistanceScale: ZoneEnvironmentSettings.GeneratorDistanceMultiplier);
             // The vessel's own emitters (its wake, lamps, the sea around it) see the eye where it is.
             var vesselFrame = _sceneryTransform.IsIdentity ? frame : frame with { CameraRawPosition = ToDisplay(camera.Position), CameraRawForward = ToDisplay(camera.Forward) };
             float emitterFrames = _emittersWarm ? Math.Clamp(deltaSeconds, 0.0f, 0.25f) * 60.0f : EmitterWarmupFrames;
@@ -3530,7 +3603,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 _commandList.UpdateBuffer(buffer, 0, ref baseUniform);
                 draws++;
                 visible++;
@@ -3577,7 +3650,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 _commandList.UpdateBuffer(buffer, 0, ref baseUniform);
                 draws++;
                 visible++;
@@ -3621,7 +3694,7 @@ namespace Gordian.App.Graphics
                     _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                     _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                     _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                    _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                    _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                     _commandList.UpdateBuffer(_sceneUniformBuffer, 0, ref sceneUniform);
                     draws++;
                     visible++;

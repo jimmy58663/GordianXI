@@ -105,11 +105,37 @@ namespace Gordian.Engine.Graphics
         public float DrawDistance { get; set; } = 300.0f;
 
         /// <summary>
-        /// The client's draw-distance multiplier (#70): scales the global draw distance, placements' own distances and,
-        /// outdoors, the fog distances <see cref="ApplyKeyframe"/> sets. The one value a draw-distance setting (#195)
-        /// changes; see <see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>.
+        /// The large-asset draw-distance multiplier (#70, #606 round 4): scales the global draw distance (the far clip and
+        /// the cull distance of placements without their own) and, outdoors, the fog distances <see cref="ApplyKeyframe"/>
+        /// sets. Set by the draw-distance preset (<see cref="ZoneDrawPolicy"/>); see
+        /// <see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>.
         /// </summary>
         public float DrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultDrawDistanceMultiplier;
+
+        /// <summary>
+        /// The small-asset draw-distance multiplier (#606 round 4): scales placements' own draw distances. See
+        /// <see cref="ZoneVisibility.DefaultSmallDrawDistanceMultiplier"/>.
+        /// </summary>
+        public float SmallDrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultSmallDrawDistanceMultiplier;
+
+        /// <summary>
+        /// Scale on the authored outdoor fog distances (#606 round 4): 1 at the Retail preset, as vanilla retail. Set by
+        /// the draw-distance preset (<see cref="ZoneDrawPolicy"/>); read by <see cref="ApplyKeyframe"/>.
+        /// </summary>
+        public float FogDistanceMultiplier { get; set; } = 1.0f;
+
+        /// <summary>
+        /// Scale on dungeons' authored fog (#612 round 2, calibrated against a capture with Windower's DrawDistance plugin
+        /// on; PROVISIONAL until a vanilla retail check). The same at every preset.
+        /// </summary>
+        public const float IndoorFogMultiplier = 3.0f;
+
+        /// <summary>
+        /// Scale on zone particle generators' own distances (Section 1 op 0x0A cull, op 0x2E fade): #612 calibrated it at 3
+        /// (The Eldieme Necropolis' torch light pools ahead of the camera), against a capture with Windower's DrawDistance
+        /// plugin on, so it stays 3 at every preset until a vanilla retail check (PROVISIONAL, #606 round 4).
+        /// </summary>
+        public const float GeneratorDistanceMultiplier = 3.0f;
 
         /// <summary>
         /// Scale on the placements' detail thresholds (#70); see <see cref="ZoneVisibility.DefaultLodDistanceScale"/>.
@@ -199,31 +225,30 @@ namespace Gordian.Engine.Graphics
                 FogStart = keyframe.TerrainFogStart;
             }
             FogEnd = keyframe.TerrainFogEnd;
-            // Outdoors the fog moves out with the draw distance (#70): the client takes both from the same environment
-            // field (xi-tools docs/zone/lod-draw-distance.md "Fog and draw distance coupling"), and retail draws far
-            // mountains and islands textured where the authored fog end alone fogs them into silhouettes (round 1,
-            // 2026-10-31, image-17 / image-19 / image-20).
+            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the authored fog stands, and
+            // terrain past the fog end but inside the draw distance shows as fog-coloured silhouettes, as vanilla retail
+            // draws them (Konschtat image-14, no add-ons). The textured far terrain and light haze of the #70 captures
+            // (round 1 image-17/19/20, round 2 image-52) came from Windower's DrawDistance plugin, which raised both.
             if (dungeonLight)
             {
-                // Indoors the authored fog scales with the draw distance too, but keeps its start and is not stretched
-                // to the draw-distance cut (#612 round 2): Garlaige's far corridor at about 45 yalms is 45 against
-                // retail's 53 this way, and was 6 (black) with the authored 0-61.7 yalm fog.
-                FogStart *= DrawDistanceMultiplier;
-                FogEnd *= DrawDistanceMultiplier;
+                // Dungeon fog keeps the scale #612 round 2 calibrated it at (Garlaige's far corridor at about 45 yalms
+                // against retail's 53; black with the authored 0-61.7 yalm fog). That capture also had Windower's
+                // DrawDistance plugin on, so vanilla's indoor fog is still to be checked (PROVISIONAL).
+                FogStart *= IndoorFogMultiplier;
+                FogEnd *= IndoorFogMultiplier;
             }
             else if (!keyframe.Indoors)
             {
-                FogStart *= DrawDistanceMultiplier;
-                FogEnd *= DrawDistanceMultiplier;
+                FogStart *= FogDistanceMultiplier;
+                FogEnd *= FogDistanceMultiplier;
 
-                // The fog never closes before the draw-distance cut: retail draws terrain out to the cut with only
-                // light haze even in mist, where the authored fog end (Valkurm 148.5) is under the draw distance
-                // (302). Stretching both ends keeps the start/end ratio (round 2, 2026-10-31, image-52 vs image-53).
+                // The fog never runs past the draw-distance cut (the Low and Minimum presets cut short of the authored
+                // fog end): both ends shrink by the same ratio, so terrain is fully fogged where it stops.
                 float global = ZoneVisibility.GlobalDrawDistance(keyframe.DrawDistance, DrawDistanceMultiplier);
-                if (hasFog && FogEnd < global)
+                if (hasFog && FogEnd > global)
                 {
-                    float stretch = global / FogEnd;
-                    FogStart *= stretch;
+                    float shrink = global / FogEnd;
+                    FogStart *= shrink;
                     FogEnd = global;
                 }
             }

@@ -257,7 +257,7 @@ The maintainer took a screenshot of the same spot in each client (TESTING-2026-1
 - **Flowers:** they barely show at any of the three. Beyond 87 yalms they are sub-pixel, and the culling tables already hide most of them. Only 272 pixels change between 3 and the square root of 3.
 - **The far crags (`zil_iwa*`, 700-780 yalms away):** retail draws them, faint in the fog. That needs a global distance of at least about 2.4 x 302, so retail's global distance is not at factor 1.
 - **This conflicts with the Manaclipper (#70).** Its islands have own distances of 400-800, and retail draws them where the factor 1 culls them all and 2 still culls the eastern group. One factor on the own distances cannot match both zones. Possible reasons: a zone floor on the multiplier (xi-tools: `XiZone` `+0x1D4`), the square-root rule xi-tools gives (the squared own distance times the multiplier), or a draw-distance add-on running in one of the two captures. **Open:** a retail look at Konschtat with no add-ons, and the Manaclipper again.
-- So nothing is changed by default yet. The policy proposal (round 3 report, TESTING-2026-11-22 C3) suggests scaling the own distances by 1 outside the zones that need more.
+- So nothing was changed by default in round 3. Round 4 below settles it: every earlier retail capture had Windower's DrawDistance plugin on.
 
 **What is culled today, and when.** Per frame, per submesh, in this order:
 1. Culling table of the camera floor (`ZoneVisibility.IsVisible`).
@@ -270,6 +270,57 @@ The maintainer took a screenshot of the same spot in each client (TESTING-2026-1
 - Zone particle generators stop emitting past their own distance x 3 (`ZoneParticleEmitter`, op 0x0A).
 - The free camera (`CameraMode.FreeCam`) uses the same eye for every rule. The culling table follows the floor under the free camera (with the 30-yalm reach), so flying high drops the tables and draws the whole zone within distance. That is the same as retail's camera, and costlier.
 - **Animation range.** The sway is evaluated in the vertex shader for every swaying submesh that is drawn; nothing that is culled is animated. UV scroll and the routines run the same way. There is no separate animation distance: it is the draw distance.
+
+## Draw policy (#606 round 4)
+
+**Every retail capture before round 4 had Windower's DrawDistance plugin on.** The maintainer's Windower init script held `drawdistance 10` the whole time. That covers `image-13` (round 3), the Manaclipper capture of #70 (2026-10-21), the far terrain captures of #70 round 1 (`image-17`/`19`/`20`) and the mist capture of round 2 (`image-52`). The vanilla captures below were logged in through XiLoader alone, with no Windower and no add-ons (TESTING-2026-11-22 C4: `image-14` Konschtat at the round 2 spot, heading 33, about 12:46; `image-15` to `image-17` the Manaclipper).
+
+**What vanilla retail draws at Konschtat (`image-14`, against offscreen renders at a camera matched to it, cloudy noon).**
+- **Grass tufts (own distance 50):** one row at the foot of the slope, as round 3 found, so own distances are scaled by 1. With `drawdistance 10` (`image-13`) a second, fainter row showed.
+- **Fog:** the authored fog. The far slope and the trees on the ridge are dark fog-coloured silhouettes, and the sky above is dark. With `drawdistance 10` the slope was clear out to the trees and the crags, so the plugin also pushes the fog out.
+- **Large assets:** the far mountain left of the valley and the ridge beyond the trees are drawn, fully fogged. The crag spire (`zil_iwa*`, 723-780 yalms) is not.
+  - At large-asset multiplier 1 (302 yalms) the mountain and ridge are missing.
+  - At 1.25 only a low ridge shows.
+  - From 1.5 to 2 the skyline matches.
+  - At 2.25 a second crag peak appears beside the mountain, and at 2.5 the spire.
+  - So vanilla's large-asset multiplier lies between 1.5 and 2.25; **2** is used (PROVISIONAL within that range).
+- **So the large-asset distance is not the fog distance.** Vanilla draws terrain past the fog end, as silhouettes, up to the cut. The old rule that stretched the fog out to the cut (round 2, from `image-52`) came from the plugin and is gone.
+- **The Manaclipper (`image-15` to `image-17`):** vanilla still draws the reef and islands near the route. The #70 conflict, islands drawn far beyond their own 400-800 yalms, was the plugin's.
+- **What `drawdistance 10` does:** not documented in the sources found. The plugin is a Windower 4 plugin that its authors deprecated in favour of the Config plugin (2014 forum posts), whose `ClippingPlane` setting replaced it. The captures show it raised the global distance past 2.4x (the spire draws), pushed the fog out, and lengthened the own distances somewhat (a second row of tufts).
+  - xi-tools gives a squared rule: the squared own distance is multiplied by the registry multiplier, so own distances grow with its square root. If the plugin wrote 10 there, own distances grew 3.2x and the global distance 10x, with the fog moved out to match.
+  - So `image-13` and the #70 captures do not describe vanilla retail.
+
+**The policy (`ZoneDrawPolicy`, `ZoneDrawPreset`; Settings > Viewport > Draw distance).** Zone placements fall into two classes by the data, not by size:
+
+| Class | What | Cut |
+|---|---|---|
+| Large assets | placements without an own distance: terrain blocks, cliffs, buildings | the 0x2F keyframe's draw distance (`+0x58`) x the large-asset multiplier; also the far clip |
+| Small assets | placements with an own distance (record `+0x40` with `+0x46` bit 0): grass 50, bushes 70, flowers 200, trees and crystals 300 at Konschtat | the own distance x the small-asset multiplier |
+
+| Preset | Large | Small | Fog | Detail (LOD) scale | Sway range | Konschtat heading 33 |
+|---|---|---|---|---|---|---|
+| **Retail** (default) | 2 | 1 | 1 | 5/3 | everywhere | 1,102 draw calls, 1.7-1.9 ms |
+| Extended | 3 | 3 | 3 | 5/3 | everywhere | 2,815, 2.7 ms |
+| Low | 1.25 | 0.75 | 1 | 1 | 60 yalms | 387, 1.5 ms |
+| Minimum | 1 | 0.5 | 1 | 1 | 30 yalms | 247, 1.2 ms |
+
+The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass, sub-pixel cull on. At heading 174 every preset draws 135 calls in 1.1-1.6 ms. Round 2's baseline at heading 33 was 5,332 calls and 5.6 ms.
+- **Retail** is vanilla retail's distances. The detail scale stays at 5/3, which the maintainer asked for (#70 round 1).
+- **Extended** is GordianXI's look before round 4, near what the DrawDistance plugin gives.
+- **The fog** is the authored fog times the fog multiplier, never past the large-asset cut: if it would end past the cut, both ends shrink by the same ratio (Low and Minimum in fine weather).
+  - Dungeon fog keeps the x3 that #612 round 2 calibrated (`ZoneEnvironmentSettings.IndoorFogMultiplier`) at every preset, and so do zone particle generators' own distances (`GeneratorDistanceMultiplier`, the Eldieme torch pools, #612). Both calibrations were made against captures with the plugin on, so they are PROVISIONAL until a vanilla dungeon check.
+- **Sub-pixel cull** (every preset): a placed submesh whose bounding sphere would cover less than half a pixel in radius is skipped (`ZoneDrawPolicy.SubPixelRadius`, `ZoneTerrainRenderer.SubPixelCull`).
+  - It runs after the distance rule and before the frustum test.
+  - At Konschtat with the Extended distances it skips about 2,800 tiny props. Unbatched that is 5,332 calls down to 2,946, with one pixel of 218,880 different (`StaticBatchingRenderTests`).
+  - At the Retail distances nothing in that view is that small.
+- **Sway range** (Low, Minimum): a swaying mesh farther than the range from the camera (its placement origin) binds the zero wind stream and holds its authored pose, the rest of the gust (`ZoneTerrainRenderer.SwayRange`).
+- **Index buffers:** a zone's submeshes now share a few 4 MB index buffers (`IndexPool`). Passes 1 and 3 rebind one only when it changes, where before every draw bound its own (about 14 % of the render thread, round 2).
+- **Free camera:** the same rules from the camera's eye. High above a floor no culling table applies, and everything within the preset's distances draws.
+
+**Still open:**
+- **The fog curve.** In `image-14`, vanilla fogs the far slope and the ridge trees (200-300 yalms) almost black. Ours (fog start pushed to 75 % of the end, `ApplyKeyframe`) leaves them coloured. The skyline and the cut now match; the fog curve and colour do not.
+- **Indoor fog** under vanilla retail (Garlaige's corridor).
+- **Mist** under vanilla retail (Valkurm): the fog now ends at the authored 148.5 yalms instead of being stretched to the cut.
 
 ## AoE range guide (#356)
 
@@ -312,7 +363,7 @@ Which zone placements draw each frame, in the client's order (xi-tools `docs/zon
 - Thresholds `+0x38`/`+0x3C` are 10 / 100 in the towns; West Ronfaure also has 30/50 (1,195 records), 50/70, 30/40 and 25/40. Towns have no multi-variant placements; West Ronfaure has 1,525 (`_ron_w10_h/m/l` trees) and Valkurm 1,915 (`_kin_w01b_h/m` palms).
 - 0x2F `+0x58` is constant per zone: West Ronfaure 252.5, Valkurm 302, Metalworks 396, Whitegate 600, Bibiki Bay 800, the Manaclipper 802, Lower Jeuno 1000. The terrain fog end runs past it in most outdoor zones (Ronfaure up to 450, Valkurm 450, the Manaclipper 1,000), so with the authored values the fog alone hides far terrain.
 
-**The multiplier (3, `ZoneVisibility.DefaultDrawDistanceMultiplier`; `ZoneEnvironmentSettings.DrawDistanceMultiplier` is the one value a draw-distance setting, #195, changes, and `LodDistanceScale` the one for detail).** The client's registry multiplier is not measured directly. Offscreen on the Manaclipper (scenery at its first Route, eye on the deck looking ahead, noon): at 1 every far island is culled at its own distance, at 2 the eastern group still is, at 3 all of them draw. Retail draws those islands (maintainer's capture, 2026-10-21), so 3 is the smallest whole value consistent with it. Open: whether the own distance scales with the multiplier or its square root (xiclient multiplies the squared threshold).
+**The multiplier (since #606 round 4: large assets 2, small assets 1, fog 1, by preset; see "Draw policy (#606 round 4)").** Until round 4 it was one multiplier of 3 on everything, from the Manaclipper capture below, which had Windower's DrawDistance plugin on. The client's registry multiplier is not measured directly. Offscreen on the Manaclipper (scenery at its first Route, eye on the deck looking ahead, noon): at 1 every far island is culled at its own distance, at 2 the eastern group still is, at 3 all of them draw. Retail draws those islands (maintainer's capture, 2026-10-21), so 3 is the smallest whole value consistent with it. Open: whether the own distance scales with the multiplier or its square root (xiclient multiplies the squared threshold).
 
 **Round 1 (2026-10-31): far terrain as silhouettes.** Retail draws far mountains and islands textured (`image-17` out of Lower Jeuno, `image-19` West Ronfaure at 00:47, `image-20` Valkurm from 200 yalms up at 05:05), where GordianXI drew them as flat dark shapes. Offscreen at the `image-19` spot with every cull off, the mountains were already fully fog-coloured: the cause was the fog, not culling or LOD. The authored fog end (Ronfaure 357 at that hour) is under the mountains' distance; with the fog scaled by the multiplier (1,071) they show textured with light haze, as in retail, and the Manaclipper's islands get their colours back. In the `image-20` view, with every cull off, nothing exists north of the cliff band at that X (the zone's edge); the rest of the retail view is the area to the sides, which the hilltop's table hid until the floor reach bound. Small Lower Jeuno props were never seen to disappear (round 1), which fits own distances of 60-100 × 3. GordianXI samples zone textures at mip 0 only (`GpuTextureCache`, `maximumLod: 0`), so the softening at range in the retail shots is retail's mipmapping; here, lower detail at range comes from the `_m`/`_l` variants.
 

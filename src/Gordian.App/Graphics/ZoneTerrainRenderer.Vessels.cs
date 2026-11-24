@@ -85,7 +85,7 @@ namespace Gordian.App.Graphics
                 _commandList.SetGraphicsResourceSet(2, submesh.LightSet ?? _noLightSet);
                 BindVertexBuffers(submesh, pipeline);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 _commandList.UpdateBuffer(buffer, 0, ref baseUniform);
                 draws++;
                 visible++;

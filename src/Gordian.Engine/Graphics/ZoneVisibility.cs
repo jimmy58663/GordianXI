@@ -21,14 +21,22 @@ namespace Gordian.Engine.Graphics
         public const float MinimumDrawDistance = 43.0f;
 
         /// <summary>
-        /// The client's configuration multiplier on the environment's draw distance, on placements' own distances and on
-        /// the outdoor fog distances (xi-tools: <c>GetAnotherSomething</c>, a registry float; the fog coupling per its "Fog
-        /// and draw distance coupling"). Not measured directly. 3 is the smallest whole value at which the Manaclipper's
-        /// far islands, which retail draws (capture 2026-10-21), all draw offscreen, and with the fog scaled by it the far
-        /// terrain stays textured as in the round 1 captures (2026-10-31). It is the default of
-        /// <see cref="ZoneEnvironmentSettings.DrawDistanceMultiplier"/>, the one value a draw-distance setting (#195) changes.
+        /// The large-asset multiplier of the Retail preset, on the environment's draw distance (xi-tools:
+        /// <c>GetAnotherSomething</c>, a registry float). 2, from vanilla retail (#606 round 4, no Windower): at Konschtat
+        /// (-227.63, 70.98, 769.83) heading 33, image-14 shows the far mountain left of the valley and the ridge beyond
+        /// it as fog-coloured silhouettes but not the crag spire 723-780 yalms off, which offscreen matches 1.5 to 2.25
+        /// times 302 (PROVISIONAL within that range). It was 3 from #70 to round 3, set from captures taken with
+        /// Windower's DrawDistance plugin at 10. The default of <see cref="ZoneEnvironmentSettings.DrawDistanceMultiplier"/>;
+        /// the presets are <see cref="ZoneDrawPolicy"/>.
         /// </summary>
-        public const float DefaultDrawDistanceMultiplier = 3.0f;
+        public const float DefaultDrawDistanceMultiplier = 2.0f;
+
+        /// <summary>
+        /// The small-asset multiplier of the Retail preset, on placements' own draw distances: 1, as vanilla retail
+        /// (#606 round 4, Konschtat image-14: one row of grass tufts, own distance 50). The default of
+        /// <see cref="ZoneEnvironmentSettings.SmallDrawDistanceMultiplier"/>.
+        /// </summary>
+        public const float DefaultSmallDrawDistanceMultiplier = 1.0f;
 
         /// <summary>
         /// How far below the camera eye (yalms) a floor still picks the culling table; with no floor that close, no table
@@ -68,10 +76,11 @@ namespace Gordian.Engine.Graphics
         /// <summary>
         /// Whether a placed submesh draws for a camera at <paramref name="eye"/> (display space, the frame its
         /// <see cref="PlacementVisibility.Origin"/> is in). <paramref name="table"/> is the camera floor's culling table
-        /// (-1 for none); <paramref name="globalDistance"/> is <see cref="GlobalDrawDistance"/>.
+        /// (-1 for none); <paramref name="globalDistance"/> is <see cref="GlobalDrawDistance"/>; <paramref name="multiplier"/>
+        /// scales the placement's own distance (the small-asset multiplier).
         /// </summary>
         public static bool IsVisible(in PlacementVisibility visibility, Vector3 eye, ZoneCullingTables? tables, int table, float globalDistance,
-                                     float multiplier = DefaultDrawDistanceMultiplier, float lodScale = DefaultLodDistanceScale)
+                                     float multiplier = DefaultSmallDrawDistanceMultiplier, float lodScale = DefaultLodDistanceScale)
         {
             if (visibility.IsUnplaced) return true;
             if (table >= 0 && visibility.Record >= 0 && tables != null && !tables.IsListed(table, visibility.Record)) return false;

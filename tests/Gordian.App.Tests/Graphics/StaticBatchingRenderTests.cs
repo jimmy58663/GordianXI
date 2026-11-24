@@ -39,9 +39,12 @@ namespace Gordian.App.Tests.Graphics
             var gd = devMgr.Device!;
             try
             {
-                var renderer = new ZoneTerrainRenderer(gd) { World = new WorldState { CurrentZoneId = 108 } };
+                // The sub-pixel cull (#606 round 4) takes most of the tiny props first; off, every one is drawn or batched.
+                var renderer = new ZoneTerrainRenderer(gd) { World = new WorldState { CurrentZoneId = 108 }, SubPixelCull = false };
                 renderer.LoadZone(zone, textures);
                 var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
+                // The Extended preset (3x, GordianXI's distances before #606 round 4) is the heaviest case batching serves.
+                Gordian.Engine.Graphics.ZoneDrawPolicy.Extended.ApplyTo(env);
                 if (zone.EnvironmentData?.Interpolate(12.0f, "fine") is { } keyframe) env.ApplyKeyframe(keyframe);
                 env.SetTimeOfDay(12.0f);
                 env.WeatherId = "fine";
@@ -81,7 +84,18 @@ namespace Gordian.App.Tests.Graphics
                     if (single.Rgba[i] != batched.Rgba[i] || single.Rgba[i + 1] != batched.Rgba[i + 1] || single.Rgba[i + 2] != batched.Rgba[i + 2]) differing++;
                 }
                 _out.WriteLine($"draw calls {single.Draws} one by one, {batched.Draws} batched; {differing} pixels differ");
+                renderer.SubPixelCull = true;
+                var culled = Frame(false);
+                int culledDiffering = 0;
+                for (int i = 0; i < single.Rgba.Length; i += 4)
+                {
+                    if (single.Rgba[i] != culled.Rgba[i] || single.Rgba[i + 1] != culled.Rgba[i + 1] || single.Rgba[i + 2] != culled.Rgba[i + 2]) culledDiffering++;
+                }
+                _out.WriteLine($"sub-pixel cull: {culled.Draws} calls one by one, {renderer.SubPixelCulledMeshes} skipped; {culledDiffering} pixels differ");
                 renderer.Dispose();
+
+                Assert.True(culled.Draws < single.Draws * 8 / 10, $"the sub-pixel cull should skip the far tiny props: {culled.Draws} of {single.Draws}");
+                Assert.True(culledDiffering <= Width * Height / 10000, $"the sub-pixel cull should not change the picture: {culledDiffering} pixels differ");
 
                 Assert.True(single.Draws > 4000, $"the valley view should draw thousands of submeshes: {single.Draws}");
                 Assert.True(batched.Draws < single.Draws * 6 / 10, $"batching should save over 40% of the calls: {batched.Draws} of {single.Draws}");

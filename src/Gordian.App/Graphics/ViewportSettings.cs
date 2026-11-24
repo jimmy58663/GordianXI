@@ -60,6 +60,12 @@ namespace Gordian.App.Graphics
         /// </summary>
         public bool ZoneBackFaceCulling { get; set; } = true;
 
+        /// <summary>
+        /// The draw-distance preset (#606 round 4, #195): Retail (default, vanilla retail's distances), Extended (3x,
+        /// GordianXI's look before round 4), Low (older cards) or Minimum (integrated graphics).
+        /// </summary>
+        public Gordian.Engine.Graphics.ZoneDrawPreset DrawDistancePreset { get; set; } = Gordian.Engine.Graphics.ZoneDrawPreset.Retail;
+
         public static string GetDefaultSettingsPath() => Path.Combine(GordianStorage.UserSettingsDirectory, "viewport_settings.json");
 
         public void SaveToFile(string filePath)
