@@ -729,9 +729,9 @@ namespace Gordian.App.Graphics
                 new VertexElementDescription("Normal", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 12),
                 new VertexElementDescription("TexCoord", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float2, 24),
                 new VertexElementDescription("Color", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Byte4_Norm, 32));
-            // Stream 1 of the swaying pipelines: one wind offset (3 x f32) per vertex (#606).
+            // Stream 1 of the swaying pipelines: one wind offset (3 x f32) and the placement's cycle offset (f32) per vertex (#606).
             var windLayout = new VertexLayoutDescription(
-                new VertexElementDescription("WindDelta", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0));
+                new VertexElementDescription("WindDelta", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float4, 0));
 
             // Same 36-byte MeshVertex buffers, minus Normal, which the weather-sky vertex shader does not read.
             var weatherSkyVertexLayout = new VertexLayoutDescription(36,
@@ -1357,8 +1357,8 @@ namespace Gordian.App.Graphics
         /// </summary>
         internal sealed class WindPool : IDisposable
         {
-            /// <summary>One wind offset: three 32-bit floats.</summary>
-            public const int BytesPerVertex = 12;
+            /// <summary>One wind offset (three 32-bit floats) and the placement's cycle offset (one).</summary>
+            public const int BytesPerVertex = 16;
 
             /// <summary>The largest pool buffer: 64 MB, well inside D3D11's and Vulkan's buffer limits.</summary>
             public const long MaxBufferBytes = 64L << 20;
@@ -1377,7 +1377,7 @@ namespace Gordian.App.Graphics
             }
 
             /// <summary>Copies one submesh's wind offsets into the pool: the buffer and byte offset to bind. Call under the device lock.</summary>
-            public (DeviceBuffer Buffer, uint Offset) Add(Vector3[] wind)
+            public (DeviceBuffer Buffer, uint Offset) Add(Vector4[] wind)
             {
                 uint size = (uint)(wind.Length * BytesPerVertex);
                 if (_current == null || _used + size > _current.SizeInBytes)
@@ -1505,8 +1505,12 @@ namespace Gordian.App.Graphics
             DeviceBuffer? windBuffer = null;
             uint windOffset = 0;
             Vector3 minBounds = group.MinBounds, maxBounds = group.MaxBounds;
-            if (group.WindDeltas is { } wind && wind.Length == group.Vertices.Length)
+            if (group.WindDeltas is { } windDeltas && windDeltas.Length == group.Vertices.Length)
             {
+                // Every mesh of a placement sways together; placements each at their own point of the gust.
+                float phase = ZoneWind.PlacementPhase(group.Visibility.IsUnplaced ? (group.MinBounds + group.MaxBounds) * 0.5f : group.Visibility.Origin);
+                var wind = new Vector4[windDeltas.Length];
+                for (int w = 0; w < wind.Length; w++) wind[w] = new Vector4(windDeltas[w], phase);
                 if (windPool != null)
                 {
                     (windBuffer, windOffset) = windPool.Add(wind);
@@ -1517,7 +1521,7 @@ namespace Gordian.App.Graphics
                     gd.UpdateBuffer(windBuffer, 0, wind);
                 }
                 var reach = Vector3.Zero;
-                foreach (var d in wind) reach = Vector3.Max(reach, Vector3.Abs(d));
+                foreach (var d in windDeltas) reach = Vector3.Max(reach, Vector3.Abs(d));
                 minBounds -= reach;
                 maxBounds += reach;
             }
@@ -1674,8 +1678,8 @@ namespace Gordian.App.Graphics
                 EyePosition = new Vector4(camera.Position, 1.0f),
                 WeatherParams = Vector4.Zero,
                 MoonColor = new Vector4(environment.MoonColor, 1.0f),
-                // TerrainTone.z carries the wind factor the swaying zone meshes lean by (#606).
-                TerrainTone = new Vector4(TerrainTone.X, TerrainTone.Y, ZoneWind.Factor(_cloudAccumulatedTime), TerrainTone.W)
+                // TerrainTone.z carries the wind clock's phase; each swaying placement adds its own offset (#606).
+                TerrainTone = new Vector4(TerrainTone.X, TerrainTone.Y, ZoneWind.CyclePhase(_cloudAccumulatedTime), TerrainTone.W)
             };
 
             // A voyage zone moves its scenery past the vessel (#403); everything drawn with the scene uniform's World moves with it.

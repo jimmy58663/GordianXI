@@ -41,5 +41,41 @@ namespace Gordian.Engine.Tests.Graphics
 
         [Fact]
         public void Factor_IsZeroForAClockThatIsNotANumber() => Assert.Equal(0.0f, ZoneWind.Factor(double.NaN));
+
+        [Fact]
+        public void CyclePhase_WrapsTheClockIntoOneCycle()
+        {
+            Assert.Equal(0.0f, ZoneWind.CyclePhase(0.0));
+            Assert.Equal(0.25f, ZoneWind.CyclePhase(1.25 * ZoneWind.PeriodSeconds), 4);
+            Assert.Equal(0.75f, ZoneWind.CyclePhase(-0.25 * ZoneWind.PeriodSeconds), 4);
+            Assert.Equal(ZoneWind.Factor(3.3), ZoneWind.FactorAtPhase(ZoneWind.CyclePhase(3.3)), 4);
+        }
+
+        [Fact]
+        public void PlacementPhase_IsStablePerPlacementAndSpreadOverTheCycle()
+        {
+            // Round 3: neighbouring palms sway at unrelated points of the gust, so the offsets of a grove of placements
+            // a few yalms apart should cover the cycle rather than bunch together.
+            var a = new System.Numerics.Vector3(84.17f, -0.31f, -68.96f);
+            Assert.Equal(ZoneWind.PlacementPhase(a), ZoneWind.PlacementPhase(a));
+            var bins = new int[4];
+            for (int x = 0; x < 20; x++)
+            for (int z = 0; z < 20; z++)
+            {
+                float phase = ZoneWind.PlacementPhase(new System.Numerics.Vector3(80.0f + x * 3.1f, -0.5f, -70.0f + z * 2.7f));
+                Assert.InRange(phase, 0.0f, 0.99999f);
+                bins[(int)(phase * 4)]++;
+            }
+            foreach (int count in bins) Assert.InRange(count, 70, 130);
+        }
+
+        [Fact]
+        public void GlslFunction_IsTheSameCurve()
+        {
+            string glsl = ZoneWind.GlslFunction();
+            Assert.Contains("float ZoneWindFactor(float phase)", glsl);
+            Assert.Contains("clamp(f, 0.0, 1.0)", glsl);
+            Assert.DoesNotContain(",", glsl.Replace("clamp(f, 0.0, 1.0)", ""));
+        }
     }
 }

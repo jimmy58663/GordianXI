@@ -192,6 +192,15 @@ Retail moves trees, grass and webs that GordianXI drew still: the Valkurm Dunes 
   - `ZoneWind.Factor` is that cycle: four harmonics fitted to it (11 % RMS residual), scaled to run from 0 to 1. **Differs from xi-model-viewer / xim.**
   - The data holds no timing: the mesh header (`+4` config) has only the strip and vertex-blend bits, and the 48-byte vertex only the position and the offset (xi-tools `docs/zone/format.md`). So the period and shape come from the video alone.
   - **Open (PROVISIONAL):** which end is the authored pose (taken as the rest before the lean). The two smaller palms move at other points of the cycle, so retail may give each mesh or position its own phase; one shared factor matches the two big crowns only. Settle with a video of one tree up close and its server position.
+- **Each tree at its own point of the cycle (round 3).** In game the palms looked like they moved too much, all together. A close-up retail video at Valkurm (84.17, 0.31, -68.96), heading 5 (`20261124-0518-55.4875284.mp4`, 2026-11-24, 30 fps, 17.8 s) settles it. Ten crown patches were tracked by phase correlation and `ZoneWind`'s curve was fitted to each, with its own offset, scale and axis:
+  - Every crown repeats every **5.13 s**, the period found in round 2.
+  - The curve fits seven crowns with R² 0.94-0.98, so the gust shape holds for every tree. The other three are cluttered by fronds in front (R² 0.37-0.75).
+  - Their offsets spread over the whole cycle: 0.12, 0.15, 0.50, 0.55, 0.74, 0.79, 0.87, 0.92 (and 0.22, 0.44 in the poor fits).
+  - Patches that lie on one crown share an offset within about 0.05 of a cycle.
+  - So each placement sways on its own: the wind stream now carries a fourth float, the placement's offset (`ZoneWind.PlacementPhase`). The vertex shader evaluates the curve at the shared clock's phase (`TerrainTone.z`, `ZoneWind.CyclePhase`) plus that offset (`ZoneWind.GlslFunction`). **Beyond xi-model-viewer**, whose factor is one value for the whole zone.
+  - **PROVISIONAL:** which offset retail gives which tree. The crowns could not be matched to placements, because the retail camera could not be reproduced closely enough offscreen. The offset is a hash of the placement's position, which spreads a grove evenly over the cycle as retail's does.
+  - **Amplitude:** the big crowns swing 4.3-5.6 px (of 750) from rest to full in the retail video. Ours swing 6-8 px in an offscreen view framed close to it, but not the same. That is the same order, so the offsets stay as authored. With the trees out of step, much less of the grove moves at once; judge it again in game.
+  - **Rest pose:** still open. A video shows only relative motion, so which end of the cycle is the authored pose cannot be read from it. The rest is kept before the lean, as in round 2.
 
 ## Frame cost (#606 round 2)
 
@@ -222,8 +231,45 @@ The maintainer measured Konschtat Highlands at server (-227.63, 70.98, 769.83): 
 - **Result.** At Konschtat heading 33: 5,332 to 2,816 draw calls, about 0.6-1.4 ms less per frame (15-20 %). Elsewhere the saving is smaller: La Theine 1,395 to 961 at one heading, Southern San d'Oria 363 to 183.
 
 **Still to decide:**
-- **The draw distance multiplier.** At 1 the valley view costs 2.5 ms (735 calls). A retail look down the valley would show how far retail draws the flowers and the far hills. A setting (#195) would let older cards trade distance for frame rate.
+- **The draw distance multiplier.** At 1 the valley view costs 2.5 ms (735 calls). A setting (#195) would let older cards trade distance for frame rate. Round 3 below has the retail comparison.
 - **Remaining per-draw cost.** Each unbatched submesh binds its own index buffer (`SetIndexBuffer` was about 14 % of the render thread). Pooling the zone's index buffers like the vertex chunks would remove most of it.
+
+### Round 3: retail's distances at Konschtat
+
+The maintainer took a screenshot of the same spot in each client (TESTING-2026-11-22 C3: `image-12.png` GordianXI, Debug build, 89.9 FPS, 9.8 ms scene CPU, 3,302 draw calls, 5,791 meshes; `image-13.png` retail). To their eye, retail draws the small foliage about half as far.
+
+**What is in view (heading 33, display (227.6, -71.0, 769.8), zone 108 data, before the culling tables).** About 13,500 placed submeshes are in the frustum. The authors gave each mesh class its own distance (record `+0x40`), not one by size:
+
+| Own distance (`+0x40`) | In view | Typical radius | What |
+|---|---|---|---|
+| none (global, 302) | 4,773 | 21 yalms | terrain blocks, cliffs, the far crags (`pl_*`, `zil_iwa*`, `con_ro*`) |
+| 50 | 1,406 | 1.3 | grass tufts `_kusa_01d`-`03d` |
+| 60 | 73 | 29 | a few terrain pieces |
+| 70 | 719 | 0.6 | bushes and small trees `con_w01`-`w08` |
+| 200 | 6,338 | 0.2 | flower quads `_con_hana_01`-`06` |
+| 300 | 215 | 8 | large trees `_con_w03`/`w05`/`w09`, crystal lines `cry_line*` |
+
+- Konschtat's environment distance is 302 in every keyframe. The terrain fog ends at 302 in cloudy weather and 340-450 in fine weather.
+- The flowers are tiny (0.2-0.3 yalm) but authored to 200 yalms. Times 3 they reach 600, where one is well under a pixel.
+
+**Retail against ours.** Offscreen at a camera matched to `image-13` (yaw 54, pitch 17, distance 10), the own distances were scaled by 3 (as now), by the square root of 3 and by 1:
+- **Grass tufts:** retail shows a single row of tufts at the foot of the slope. With the factor 1 we draw one row too (the nearest tufts, 28-49 yalms away); with the square root of 3 and with 3 we add a second and third row on the slope (54-90 yalms). So retail's own distances are scaled by between 1 and about 1.1 here, not 3.
+- **Flowers:** they barely show at any of the three. Beyond 87 yalms they are sub-pixel, and the culling tables already hide most of them. Only 272 pixels change between 3 and the square root of 3.
+- **The far crags (`zil_iwa*`, 700-780 yalms away):** retail draws them, faint in the fog. That needs a global distance of at least about 2.4 x 302, so retail's global distance is not at factor 1.
+- **This conflicts with the Manaclipper (#70).** Its islands have own distances of 400-800, and retail draws them where the factor 1 culls them all and 2 still culls the eastern group. One factor on the own distances cannot match both zones. Possible reasons: a zone floor on the multiplier (xi-tools: `XiZone` `+0x1D4`), the square-root rule xi-tools gives (the squared own distance times the multiplier), or a draw-distance add-on running in one of the two captures. **Open:** a retail look at Konschtat with no add-ons, and the Manaclipper again.
+- So nothing is changed by default yet. The policy proposal (round 3 report, TESTING-2026-11-22 C3) suggests scaling the own distances by 1 outside the zones that need more.
+
+**What is culled today, and when.** Per frame, per submesh, in this order:
+1. Culling table of the camera floor (`ZoneVisibility.IsVisible`).
+2. Distance: the own distance x 3, else the global (302 x 3 = 906 here), measured to the placement origin.
+3. LOD slot (thresholds x 5/3).
+4. Frustum test on the submesh's box (`BoundingFrustum.IntersectsBox`).
+
+- Nothing behind the camera or outside the view is drawn. Nothing is occlusion-culled: a hill in front hides nothing from the CPU, which is why the valley view submits terrain behind the ridges.
+- Entities (`EntityRenderer`) are culled by the frustum only. The server sends only those within about 50 yalms anyway.
+- Zone particle generators stop emitting past their own distance x 3 (`ZoneParticleEmitter`, op 0x0A).
+- The free camera (`CameraMode.FreeCam`) uses the same eye for every rule. The culling table follows the floor under the free camera (with the 30-yalm reach), so flying high drops the tables and draws the whole zone within distance. That is the same as retail's camera, and costlier.
+- **Animation range.** The sway is evaluated in the vertex shader for every swaying submesh that is drawn; nothing that is culled is animated. UV scroll and the routines run the same way. There is no separate animation distance: it is the draw distance.
 
 ## AoE range guide (#356)
 

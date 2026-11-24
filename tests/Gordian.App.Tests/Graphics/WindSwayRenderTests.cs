@@ -177,7 +177,8 @@ namespace Gordian.App.Tests.Graphics
                     return changed;
                 }
 
-                // The clock starts at 0 (wind factor 0); the gust peaks (factor 1) at ZoneWind.PeakSeconds.
+                // The clock starts at 0; each placement is at its own point of the gust (ZoneWind.PlacementPhase), so
+                // between two clock times most of them have moved.
                 var calm = Frame(0.0f);
                 var leaning = Frame((float)Gordian.Engine.Graphics.ZoneWind.PeakSeconds);
                 renderer.EnableWindSway = false;
