@@ -28,8 +28,13 @@ namespace Gordian.Core.Network.Search
         AuctionHistoryStack = 0x06,
         /// <summary>A player's search comment.</summary>
         SearchComment = 0x08,
-        /// <summary>The next part of an Auction House item list (LandSandBoat sends the whole list again).</summary>
-        AuctionRequestMore = 0x10,
+        /// <summary>
+        /// The next page of the answer to the request before it on the same connection: the retail client sends it after each
+        /// answer without the final flag (<c>/sea all</c>, #643, the 2026-11-25 capture; see
+        /// <see cref="SearchRequestBuilder.BuildNextPage"/>). LandSandBoat names it <c>TCP_AH_REQUEST_MORE</c> and answers it
+        /// only as the Auction House item list again.
+        /// </summary>
+        NextPage = 0x10,
         /// <summary>The Auction House item list of a category.</summary>
         AuctionRequest = 0x15
     }
@@ -47,6 +52,14 @@ namespace Gordian.Core.Network.Search
         Level = 0x04,
         Race = 0x05,
         Flags1 = 0x06,
+        /// <summary>
+        /// The Master Level, 8 bits, which retail's search server writes right after Level and LandSandBoat never does (#578).
+        /// In the 2026-11-25 <c>/sea all</c> capture (40 entries) it was 0 for every player below level 99 and 0-50 at 99, five
+        /// of them at the cap of 50. It matches the sub-job level, which rises by 1 for every 5 Master Levels above 49
+        /// (round 5 log: sub-job 59 with 50, 58 with 46, 53 with 23). Retail's own <c>/sea</c> list does not show it.
+        /// <b>Beyond LandSandBoat.</b>
+        /// </summary>
+        MasterLevel = 0x07,
         Id = 0x08,
         Party = 0x0A,
         Linkshell = 0x0B,
@@ -109,6 +122,23 @@ namespace Gordian.Core.Network.Search
         /// <summary>The flags as <see cref="SearchFlags"/>.</summary>
         public SearchFlags Flags => (SearchFlags)Flags1;
 
+        /// <summary>The Master Level (<see cref="SearchFieldType.MasterLevel"/>, retail only); 0 on LandSandBoat. Nothing shows it yet.</summary>
+        public byte MasterLevel { get; init; }
+
+        /// <summary>
+        /// The code of a field the decoder does not know that the entry carried, or <c>null</c> (#578 round 4: retail wrote code
+        /// 0x07 after Level, which LandSandBoat never sends, now <see cref="MasterLevel"/>). <see cref="SearchEntityPage.TryReadEntity"/> works out its width
+        /// from the fields after it (<see cref="UnknownFieldWidth"/>) and keeps its value (<see cref="UnknownFieldValue"/>, the
+        /// first 32 bits) for the log, so the fields after it (Race, Rank, Flags1, Id ...) are still read.
+        /// </summary>
+        public byte? UnknownFieldCode { get; init; }
+
+        /// <summary>The width in bits of <see cref="UnknownFieldCode"/>'s value.</summary>
+        public int UnknownFieldWidth { get; init; }
+
+        /// <summary>The value of <see cref="UnknownFieldCode"/> (its first 32 bits).</summary>
+        public uint UnknownFieldValue { get; init; }
+
         /// <summary>True when the player hides their job information (<see cref="SearchFlags.Anonymous"/>).</summary>
         public bool IsAnonymous => (Flags1 & (uint)SearchFlags.Anonymous) != 0;
     }
@@ -153,8 +183,17 @@ namespace Gordian.Core.Network.Search
         /// <summary>A nation rank range.</summary>
         public (byte Min, byte Max)? Rank { get; set; }
 
-        /// <summary>The 16-bit flag filter (<see cref="SearchFlags"/>), e.g. seeking a party.</summary>
+        /// <summary>The 16-bit flag filter (<see cref="SearchFlags"/>), e.g. seeking a party (<see cref="SeekingPartyFilter"/>).</summary>
         public ushort? Flags1 { get; set; }
+
+        /// <summary>
+        /// The <see cref="Flags1"/> filter for players seeking a party, as the retail client sends it: 0x8020, not the entry's
+        /// <see cref="SearchFlags.SeekingParty"/> bit (0x8000) alone. Seen in the local LandSandBoat search server's log of the retail
+        /// client's 76-byte requests ("Flag Entry #1 (0x8020)", 2026-10-17 to 11-02); what bit 0x0020 means is not known. LandSandBoat
+        /// keeps a player whose flags share any bit with the filter, so it answers both; retail's search server answered 0x8000 with
+        /// nobody (#578 round 3, <c>/sea all inv</c>).
+        /// </summary>
+        public const ushort SeekingPartyFilter = 0x8020;
 
         /// <summary>The 32-bit flag filter.</summary>
         public uint? Flags2 { get; set; }
@@ -280,7 +319,7 @@ namespace Gordian.Core.Network.Search
         /// </summary>
         public static byte[] BuildAuctionList(byte category, ReadOnlySpan<byte> sortKeys, bool more = false)
         {
-            var body = NewBody(more ? SearchRequestType.AuctionRequestMore : SearchRequestType.AuctionRequest, 0x18 + (sortKeys.Length * 8));
+            var body = NewBody(more ? SearchRequestType.NextPage : SearchRequestType.AuctionRequest, 0x18 + (sortKeys.Length * 8));
             body[0x12] = (byte)sortKeys.Length;
             body[0x16] = category;
             for (int i = 0; i < sortKeys.Length; i++) body[0x18 + (8 * i)] = sortKeys[i];
@@ -293,6 +332,26 @@ namespace Gordian.Core.Network.Search
             var body = NewBody(stack ? SearchRequestType.AuctionHistoryStack : SearchRequestType.AuctionHistorySingle, 0x18);
             BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(0x12, 2), itemId);
             body[0x15] = (byte)(stack ? 1 : 0);
+            return body;
+        }
+
+        /// <summary>
+        /// The request for the next page of <paramref name="request"/>'s answer (#643), as the retail client sent it in the
+        /// 2026-11-25 <c>/sea all</c> capture (<c>ffxi_sea_all.pcapng</c>, maintainer's own client): a body as long as the first
+        /// request's (at least 0x18), length word 0x10, byte 0x0A 0x80 (meaning unknown; retail sets it in its first request
+        /// too), type <see cref="SearchRequestType.NextPage"/>, zeros, and the first request's last 4 payload bytes again at
+        /// the end. Those 4 bytes key the answer (<see cref="SearchFrame"/>), so the next page is keyed as the first was. Each
+        /// is sent with a fresh seed, as retail did. <b>Beyond LandSandBoat:</b> it sends every page after the one request.
+        /// </summary>
+        public static byte[] BuildNextPage(ReadOnlySpan<byte> request)
+        {
+            int length = Math.Max(request.Length, 0x18);
+            length = (length + 7) & ~7;
+            var body = new byte[length];
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), 0x10);
+            body[0x0A] = 0x80;
+            body[0x0B] = (byte)SearchRequestType.NextPage;
+            if (request.Length >= 0x10) request.Slice(request.Length - 4, 4).CopyTo(body.AsSpan(length - 4, 4));
             return body;
         }
 
@@ -636,8 +695,13 @@ namespace Gordian.Core.Network.Search
             uint flags1 = 0, flags2 = 0, id = 0, comment = 0, ls1 = 0, ls2 = 0;
             ushort languages = 0;
             byte lsRank1 = 0, lsRank2 = 0;
+            byte? unknownCode = null;
+            byte masterLevel = 0;
+            int unknownWidth = 0;
+            uint unknownValue = 0;
             Span<char> chars = stackalloc char[15];
 
+            uint previousCode = NoField;
             // The shortest field is a 5-bit code and a 2-bit value.
             while (reader.BitsLeft >= 7)
             {
@@ -662,6 +726,7 @@ namespace Gordian.Core.Network.Search
                         ok = Need(ref reader, 16);
                         if (ok) { mainLevel = (byte)reader.Read(8); subLevel = (byte)reader.Read(8); }
                         break;
+                    case SearchFieldType.MasterLevel: ok = Need(ref reader, 8); if (ok) masterLevel = (byte)reader.Read(8); break;
                     case SearchFieldType.Race: ok = Need(ref reader, 4); if (ok) race = (byte)reader.Read(4); break;
                     case SearchFieldType.Rank: ok = Need(ref reader, 8); if (ok) rank = (byte)reader.Read(8); break;
                     case SearchFieldType.Flags1: ok = Need(ref reader, 16); if (ok) flags1 = reader.Read(16); break;
@@ -682,17 +747,181 @@ namespace Gordian.Core.Network.Search
                     case SearchFieldType.Comment: ok = Need(ref reader, 32); if (ok) comment = reader.Read(32); break;
                     case SearchFieldType.Flags2: ok = Need(ref reader, 32); if (ok) flags2 = reader.Read(32); break;
                     case SearchFieldType.Language: ok = Need(ref reader, 16); if (ok) languages = (ushort)reader.Read(16); break;
-                    default: ok = false; break;
+                    default:
+                        // A field the decoder does not know (retail's 0x07 was one until #578 round 5): its width is the one after
+                        // which the rest of the entry reads as known fields, so the fields after it are not lost.
+                        int width = unknownCode is null ? ResyncWidth(reader, previousCode) : 0;
+                        ok = width > 0;
+                        if (ok)
+                        {
+                            unknownCode = (byte)type;
+                            unknownWidth = width;
+                            unknownValue = Skip(ref reader, width);
+                        }
+                        break;
                 }
                 if (!ok) break;
+                if (type <= SearchFieldType.Language && FieldOrder((uint)type) >= 0) previousCode = (uint)type;
             }
 
             position += 1 + size;
             entity = new SearchEntity(name, zone, nation, mainJob, subJob, mainLevel, subLevel, race, rank, flags1, flags2, id, comment,
-                languages, lsRank1, lsRank2, ls1, ls2);
+                languages, lsRank1, lsRank2, ls1, ls2)
+            {
+                MasterLevel = masterLevel,
+                UnknownFieldCode = unknownCode,
+                UnknownFieldWidth = unknownWidth,
+                UnknownFieldValue = unknownValue,
+            };
             return true;
 
             static bool Need(ref SearchBitReader r, int bits) => r.BitsLeft >= bits;
+        }
+
+        /// <summary>No field read yet (<see cref="FieldOrder"/> -1): an unknown first field may be followed by any.</summary>
+        private const uint NoField = 0xFF;
+
+        /// <summary>Bits of a field's value after its 5-bit code: -1 for Name (a 4-bit length, then 7 bits a character), 0 unknown.</summary>
+        private static int FieldWidth(uint code) => code switch
+        {
+            (uint)SearchFieldType.Name => -1,
+            (uint)SearchFieldType.Area => 10,
+            (uint)SearchFieldType.Nation => 2,
+            (uint)SearchFieldType.Job => 10,
+            (uint)SearchFieldType.Level => 16,
+            (uint)SearchFieldType.MasterLevel => 8,
+            (uint)SearchFieldType.Race => 4,
+            (uint)SearchFieldType.Rank => 8,
+            (uint)SearchFieldType.Flags1 => 16,
+            (uint)SearchFieldType.Id => 20,
+            (uint)SearchFieldType.LinkshellRank => 24 + 96,
+            (uint)SearchFieldType.Unknown0E or (uint)SearchFieldType.Comment or (uint)SearchFieldType.Flags2 => 32,
+            (uint)SearchFieldType.Language => 16,
+            _ => 0,
+        };
+
+        /// <summary>Skips <paramref name="width"/> bits and returns the first 32 of them.</summary>
+        private static uint Skip(ref SearchBitReader reader, int width)
+        {
+            uint value = reader.Read(Math.Min(width, 32));
+            for (int left = width - 32; left > 0; left -= 32) reader.Read(Math.Min(left, 32));
+            return value;
+        }
+
+        /// <summary>
+        /// Where a field comes in an entry, in the order LandSandBoat's <c>search_list.cpp</c> and <c>linkshell_list.cpp</c> write
+        /// them (Name, Area, Nation, Job, Level, Race, Rank, Flags1, Id, linkshell rank block, Unknown0E, Comment, Flags2,
+        /// Language), with retail's MasterLevel after Level; retail's entries keep it (#578 round 4 logs). -1 for a code not in it.
+        /// </summary>
+        private static int FieldOrder(uint code) => code switch
+        {
+            (uint)SearchFieldType.Name => 0,
+            (uint)SearchFieldType.Area => 1,
+            (uint)SearchFieldType.Nation => 2,
+            (uint)SearchFieldType.Job => 3,
+            (uint)SearchFieldType.Level => 4,
+            (uint)SearchFieldType.MasterLevel => 5,
+            (uint)SearchFieldType.Race => 6,
+            (uint)SearchFieldType.Rank => 7,
+            (uint)SearchFieldType.Flags1 => 8,
+            (uint)SearchFieldType.Id => 9,
+            (uint)SearchFieldType.LinkshellRank => 10,
+            (uint)SearchFieldType.Unknown0E => 11,
+            (uint)SearchFieldType.Comment => 12,
+            (uint)SearchFieldType.Flags2 => 13,
+            (uint)SearchFieldType.Language => 14,
+            _ => -1,
+        };
+
+        /// <summary>
+        /// The width of an unknown field whose code <paramref name="afterCode"/> has just read (1-64 bits, 0 if none fits): the
+        /// smallest after which the rest of the entry is known fields, each once and in <see cref="FieldOrder"/> after
+        /// <paramref name="previousCode"/> (the last field before the unknown one), ending in fewer than 8 zero bits of padding, as
+        /// LandSandBoat's <c>search_list.cpp</c> byte-aligns an entry. A wrong width has to land every code after it on a later
+        /// field and end the entry exactly, which in practice it does not.
+        /// </summary>
+        internal static int ResyncWidth(SearchBitReader afterCode, uint previousCode)
+        {
+            int after = FieldOrder(previousCode);
+            for (int width = 1; width <= 64 && width <= afterCode.BitsLeft; width++)
+            {
+                var r = afterCode;
+                Skip(ref r, width);
+                if (RestIsOrderedFields(r, after)) return width;
+            }
+            return 0;
+        }
+
+        private static bool RestIsOrderedFields(SearchBitReader r, int after)
+        {
+            while (true)
+            {
+                if (r.BitsLeft < 8)
+                {
+                    int left = r.BitsLeft;
+                    return left == 0 || r.Read(left) == 0;
+                }
+                uint code = r.Read(5);
+                int order = FieldOrder(code);
+                if (order <= after) return false;
+                after = order;
+                int width = FieldWidth(code);
+                if (width <= 0 || r.BitsLeft < width) return false;
+                Skip(ref r, width);
+            }
+        }
+
+        /// <summary>
+        /// The field codes of the entry at <paramref name="position"/> in the order the server wrote them, e.g.
+        /// "00 01 02 03 04 05 10 06 08 0E 16 17". A code <see cref="TryReadEntity"/> does not know shows as "?07[8 bits = 0x3C]",
+        /// with the width <see cref="ResyncWidth"/> found and its value, or as "?07 (174 bits left)" where no width fits (reading
+        /// stops there). For the log only (#578 rounds 3-4: retail's entries showed no rank); it never reads names.
+        /// </summary>
+        public string DescribeEntryFields(int position)
+        {
+            int end = Math.Min(Header.DataLength, _content.Length);
+            if (!IsValid || position >= end) return string.Empty;
+            int size = _content[position];
+            if (size == 0 || position + 1 + size > end) return string.Empty;
+
+            var reader = new SearchBitReader(_content.Slice(position + 1, size));
+            var codes = new System.Text.StringBuilder();
+            uint previousCode = NoField;
+            while (reader.BitsLeft >= 7)
+            {
+                uint code = reader.Read(5);
+                if (codes.Length > 0) codes.Append(' ');
+                int width = FieldWidth(code);
+                if (width == 0)
+                {
+                    int found = ResyncWidth(reader, previousCode);
+                    codes.Append('?').Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+                    if (found == 0)
+                    {
+                        codes.Append(" (").Append(reader.BitsLeft.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits left)");
+                        break;
+                    }
+                    uint value = Skip(ref reader, found);
+                    codes.Append('[').Append(found.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits = 0x")
+                        .Append(value.ToString("X", System.Globalization.CultureInfo.InvariantCulture)).Append(']');
+                    continue;
+                }
+                codes.Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+                previousCode = code;
+                if (width < 0)
+                {
+                    if (reader.BitsLeft < 4) break;
+                    width = (int)reader.Read(4) * 7;
+                }
+                if (reader.BitsLeft < width) { codes.Append(" (cut)"); break; }
+                while (width > 0)
+                {
+                    int step = Math.Min(width, 32);
+                    reader.Read(step);
+                    width -= step;
+                }
+            }
+            return codes.ToString();
         }
     }
 

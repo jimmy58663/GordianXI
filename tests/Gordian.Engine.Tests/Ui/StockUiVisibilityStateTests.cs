@@ -135,6 +135,8 @@ namespace Gordian.Engine.Tests.Ui
         [InlineData("/stockui", ChatCommandResultKind.StockUiVisibility, "")]
         [InlineData("/perf full", ChatCommandResultKind.PerformanceOverlay, "full")]
         [InlineData("/perf", ChatCommandResultKind.PerformanceOverlay, "")]
+        [InlineData("/coords on", ChatCommandResultKind.PositionOverlay, "on")]
+        [InlineData("/coords", ChatCommandResultKind.PositionOverlay, "")]
         public void Router_RecognizesTheCommands(string input, ChatCommandResultKind kind, string args)
         {
             var result = ChatCommandRouter.Parse(input);
@@ -184,6 +186,22 @@ namespace Gordian.Engine.Tests.Ui
 
             Assert.True((await service.ExecuteCommandAsync("/stockui hide target", ChatSendKind.Say)).Success);
             Assert.True(service.UiVisibility.IsHidden(StockUiElement.TargetBar));
+        }
+
+        [Fact]
+        public async Task CoordsCommand_GoesToTheViewportsHandler()
+        {
+            var service = CreateService();
+            var without = await service.ExecuteCommandAsync("/coords", ChatSendKind.Say);
+            Assert.False(without.Success);
+            Assert.Contains("viewport", without.Message);
+
+            string? received = null;
+            service.PositionOverlayCommand = args => { received = args; return "Position overlay: shown."; };
+            var with = await service.ExecuteCommandAsync("/coords on", ChatSendKind.Say);
+            Assert.True(with.Success);
+            Assert.Equal("on", received);
+            Assert.Equal("Position overlay: shown.", with.Message);
         }
     }
 }

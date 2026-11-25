@@ -418,7 +418,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         private static void AdvanceHiddenEventActor(WorldEntity entity, EntityModel? model, float deltaSeconds)
         {
-            if (model is not { Skeleton.Count: > 0 } || entity.IsMotionStopped) return;
+            if (model is not { Skeleton.Count: > 0 } || entity.IsMotionFrozen) return;
             float frameSeconds = entity.Animation.ClaimFrameTime(deltaSeconds);
             bool engaged = entity.ClaimServerId != 0 || entity.AnimationState == 1;
             entity.Animation.Advance(frameSeconds, AnimationStateClassifier.Classify(entity, engaged), entity.AnimationSub, model);
@@ -783,7 +783,7 @@ namespace Gordian.App.Graphics
                     var category = AnimationStateClassifier.Classify(entity, engaged, isLocalPlayer);
 
                     // A frozen entity's state does not follow its category: logging it would repeat every frame.
-                    if (!isLocalPlayer && category != entity.Animation.Current && !entity.IsMotionStopped)
+                    if (!isLocalPlayer && category != entity.Animation.Current && !entity.IsMotionFrozen)
                     {
                         double elapsedSincePacketMs = entity.LastPositionChangeUtc != DateTime.MinValue
                             ? (DateTime.UtcNow - entity.LastPositionChangeUtc).TotalMilliseconds
@@ -796,8 +796,9 @@ namespace Gordian.App.Graphics
                     }
 
                     // MotStopFlag (petrify, terror): the motion scheduler is paused, so the pose freezes where it is (XiPackets
-                    // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion.
-                    if (!entity.IsMotionStopped || entity.Animation.CurrentClip == null)
+                    // 0x000D / 0x000E flags3_t). An entity with nothing playing yet still starts its motion, and an event actor
+                    // plays its event gestures through it (#583).
+                    if (!entity.IsMotionFrozen || entity.Animation.CurrentClip == null)
                     {
                         entity.Animation.Advance(frameSeconds, category, entity.AnimationSub, skinnedModel);
                         if (NpcStanceResolver.IsStateDriven(skinnedModel)) LogStateDrivenClip(entity, category);

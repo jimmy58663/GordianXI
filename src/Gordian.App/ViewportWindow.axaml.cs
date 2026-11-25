@@ -632,6 +632,9 @@ namespace Gordian.App
                 case ViewportShortcut.ToggleImGuiTestWindow:
                     GordianLog.Info(LogCategories.Viewport, ImGuiInputTestWindow.Instance.Toggle() ? "ImGui input test window shown." : "ImGui input test window hidden.");
                     break;
+                case ViewportShortcut.TogglePositionOverlay:
+                    GordianLog.Info(LogCategories.Viewport, Gordian.App.Graphics.PositionOverlay.HandleCommand(string.Empty));
+                    break;
                 case ViewportShortcut.CyclePerformanceOverlay:
                     ViewportRenderSettings.PerformanceOverlay = PerformanceOverlayModes.Next(ViewportRenderSettings.PerformanceOverlay);
                     break;

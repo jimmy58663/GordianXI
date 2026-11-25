@@ -6,7 +6,7 @@ using Gordian.Core.World;
 namespace Gordian.App.Audio
 {
     /// <summary>What the music depends on, sampled once a frame from the local player.</summary>
-    /// <param name="Status">The player's server animation status (<c>WorldEntity.AnimationState</c>: 1 engaged, 3 dead, 5 chocobo, 6 / 38-62 fishing, 85 mount).</param>
+    /// <param name="Status">The player's server animation status (<c>WorldEntity.AnimationState</c>: 1 engaged, 3 dead (2 too on retail: <c>LocalPlayerState.StatusDeadUnengaged</c>), 5 chocobo, 6 / 38-62 fishing, 85 mount).</param>
     /// <param name="InParty">Whether the player is in a party (picks the party battle slot).</param>
     /// <param name="VanaHour">Vana'diel time of day in hours, 0-24.</param>
     /// <param name="InMogHouse">Whether the player is in the Mog House.</param>
@@ -125,7 +125,7 @@ namespace Gordian.App.Audio
         public static MusicSlot ChooseSlot(in MusicContext context)
         {
             byte s = context.Status;
-            if (s == 3)
+            if (LocalPlayerState.IsDeathStatus(s))
             {
                 return MusicSlot.Dead;
             }

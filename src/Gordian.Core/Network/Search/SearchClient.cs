@@ -116,7 +116,8 @@ namespace Gordian.Core.Network.Search
     /// <summary>
     /// A client for the search (cache) server, which LandSandBoat serves on its own TCP port (default 54002) next to the world
     /// UDP stream. It opens a connection per request, sends one encrypted request (see <see cref="SearchFrame"/>) and reads the
-    /// answer packets until the final flag, so a request never blocks the world session. It serves the Auction House item
+    /// answer packets until the final flag (asking for each next page on retail, <see cref="RequestsNextPages"/>), so a request
+    /// never blocks the world session. It serves the Auction House item
     /// lists and price histories, <c>/sea</c> searches, search comments and the party and linkshell member lists.
     /// <para>
     /// Protocol referenced from LandSandBoat (https://github.com/LandSandBoat/server), <c>src/search/</c> and
@@ -145,16 +146,41 @@ namespace Gordian.Core.Network.Search
         /// <summary>How long a request waits for its answers; the server closes an idle connection after 10 seconds.</summary>
         public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(8);
 
-        /// <summary>Sends a request body (see <see cref="SearchRequestBuilder"/>) and collects its answers.</summary>
+        /// <summary>
+        /// Ask for each further page of an answer that is not flagged final, as the retail client does (#643): after a page
+        /// without the final flag it sends a <see cref="SearchRequestType.NextPage"/> request on the same connection, and the
+        /// server answers with the next page; the page after the last one it serves comes flagged final (with no entries when
+        /// the list was cut short, as retail cuts <c>/sea all</c> at 40 players). Set for retail's search server. LandSandBoat
+        /// sends every page of an answer after the one request, the last flagged final, and takes request type 0x10 only as the
+        /// Auction House's "more", so it is never asked.
+        /// </summary>
+        public bool RequestsNextPages { get; set; }
+
+        /// <summary>The most next-page requests one exchange sends (retail served two pages of <c>/sea all</c> and an empty third).</summary>
+        public const int MaxNextPageRequests = 8;
+
+        /// <summary>
+        /// Accept an answer whose hash fits no known layout when a key deciphers a header that answers the request (the answer
+        /// type LandSandBoat sends for it, plausible data length). Set for retail's search server (#578) as a fallback: since
+        /// round 2 its answers verify with the seed they end with (<see cref="SearchFrame.TryDecryptResponse"/>), so this only
+        /// matters for an answer that fits no known layout. LandSandBoat's answers must verify.
+        /// </summary>
+        public bool AcceptUnverifiedAnswers { get; set; }
+
+        /// <summary>
+        /// Sends a request body (see <see cref="SearchRequestBuilder"/>) and collects its answers: until one comes flagged final,
+        /// asking for each next page when <see cref="RequestsNextPages"/> is set.
+        /// </summary>
         public async Task<SearchExchange> ExchangeAsync(byte[] body, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(body);
-            uint seed = (uint)RandomNumberGenerator.GetInt32(1, int.MaxValue);
-            byte[] frame = SearchFrame.EncryptRequest(body, seed, out var answerKey);
+            byte requestType = body[0x0B];
+            byte[] frame = SearchFrame.EncryptRequest(body, NewSeed(), out var answerKey);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(Timeout);
             var contents = new List<byte[]>();
+            int nextPageRequests = 0;
             try
             {
                 await using var connection = await _transport.ConnectAsync(Host, Port, timeout.Token).ConfigureAwait(false);
@@ -163,23 +189,68 @@ namespace Gordian.Core.Network.Search
                 while (true)
                 {
                     byte[]? answer = await connection.ReadFrameAsync(timeout.Token).ConfigureAwait(false);
-                    if (answer == null) return new SearchExchange(contents, false);
-
-                    if (!SearchFrame.TryDecryptResponse(answer, answerKey, out var content))
+                    if (answer == null)
                     {
-                        GordianLog.Warn(LogCategories.Search, "A search server answer failed its length or hash check and was dropped.");
-                        continue;
+                        GordianLog.Debug(LogCategories.Search, $"The search server closed the connection after {contents.Count} answers to request type 0x{requestType:X2}.");
+                        return new SearchExchange(contents, false);
                     }
-                    contents.Add(content.ToArray());
-                    if (new SearchAnswerHeader(content).IsFinal) return new SearchExchange(contents, true);
+
+                    byte[] wire = (byte[])answer.Clone();
+                    byte[] plain;
+                    if (SearchFrame.TryDecryptResponse(answer, answerKey, out var content))
+                    {
+                        plain = content.ToArray();
+                    }
+                    else
+                    {
+                        // #578: say how the answer differs from LandSandBoat's (sizes, header, the key and hash rules that fit;
+                        // never payload or key bytes), and keep it when it is verified another way or plausibly answers.
+                        var diagnosis = SearchAnswerDiagnosis.Diagnose(wire, answerKey, requestType);
+                        // Only an answer whose header answers this request: a stray frame that verifies under its own trailer is not one.
+                        bool keep = diagnosis.Plausible && (diagnosis.Verified || AcceptUnverifiedAnswers);
+                        GordianLog.Warn(LogCategories.Search,
+                            $"A search server answer failed the LandSandBoat hash check ({diagnosis.Describe(requestType, frame.Length)}); " +
+                            (keep ? "kept." : "dropped."));
+                        if (!keep) continue;
+                        plain = diagnosis.Content!;
+                    }
+                    contents.Add(plain);
+                    var header = new SearchAnswerHeader(plain);
+                    // Header fields only (#578: what retail's answers say about paging); never the payload.
+                    if (header.IsValid)
+                    {
+                        GordianLog.Debug(LogCategories.Search,
+                            $"Search answer {contents.Count} to request type 0x{requestType:X2}: {answer.Length} bytes, type byte 0x{plain[0x0B]:X2}, " +
+                            $"flags 0x{plain[0x0A]:X2} (final {header.IsFinal}), data length {header.DataLength}, total {header.Total}.");
+                    }
+                    if (header.IsFinal) return new SearchExchange(contents, true);
+                    if (!RequestsNextPages) continue;
+                    if (nextPageRequests == MaxNextPageRequests)
+                    {
+                        GordianLog.Debug(LogCategories.Search, $"Search request type 0x{requestType:X2}: no final answer after {nextPageRequests} next-page requests.");
+                        return new SearchExchange(contents, false);
+                    }
+
+                    // #643: retail asks for the next page itself (the 2026-11-25 /sea all capture).
+                    nextPageRequests++;
+                    frame = SearchFrame.EncryptRequest(SearchRequestBuilder.BuildNextPage(body), NewSeed(), out answerKey);
+                    await connection.SendAsync(frame, timeout.Token).ConfigureAwait(false);
                 }
+            }
+            catch (InvalidDataException ex)
+            {
+                // A length word out of range: the frames after an answer whose length word does not cover it all (#578).
+                GordianLog.Warn(LogCategories.Search, $"Search request type 0x{requestType:X2}: {ex.Message} (after {contents.Count} answers); the connection was dropped.");
+                return new SearchExchange(contents, false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                GordianLog.Debug(LogCategories.Search, $"Search request type 0x{body[0x0B]:X2} timed out after {contents.Count} answers.");
+                GordianLog.Debug(LogCategories.Search, $"Search request type 0x{requestType:X2} timed out after {contents.Count} answers.");
                 return new SearchExchange(contents, false);
             }
         }
+
+        private static uint NewSeed() => (uint)RandomNumberGenerator.GetInt32(1, int.MaxValue);
 
         /// <summary>The items of an Auction House category, with how many single and stack listings each has.</summary>
         public async Task<AuctionListResult> GetAuctionListAsync(byte category, ReadOnlyMemory<byte> sortKeys = default, CancellationToken cancellationToken = default)
@@ -240,17 +311,35 @@ namespace Gordian.Core.Network.Search
             return page.IsValid ? page.GetText() : null;
         }
 
+        /// <summary>How many entries of a search have their fields logged at Debug (#578).</summary>
+        private const int LoggedEntries = 3;
+
         private static SearchPlayersResult ReadPlayers(SearchExchange exchange)
         {
             var players = new List<SearchEntity>();
             int total = 0;
-            foreach (byte[] content in exchange.Contents)
+            for (int pageNumber = 0; pageNumber < exchange.Contents.Count; pageNumber++)
             {
-                var page = new SearchEntityPage(content);
+                var page = new SearchEntityPage(exchange.Contents[pageNumber]);
                 if (!page.IsValid) continue;
                 total = page.Header.Total;
                 int position = SearchEntityPage.EntriesOffset;
-                while (page.TryReadEntity(ref position, out var player)) players.Add(player);
+                int onPage = 0;
+                while (true)
+                {
+                    // #578 rounds 3-5: retail writes a field code LandSandBoat does not (0x07 after Level, the Master Level).
+                    // The first entries' field order (with any other unknown code's width worked out) and what was read (no names).
+                    string fields = players.Count < LoggedEntries ? page.DescribeEntryFields(position) : string.Empty;
+                    if (!page.TryReadEntity(ref position, out var player)) break;
+                    onPage++;
+                    if (fields.Length > 0)
+                    {
+                        GordianLog.Debug(LogCategories.Search, $"Search entry {players.Count + 1} fields: {fields}; nation {player.Nation}, rank {player.Rank}, " +
+                            $"job {player.MainJob}/{player.SubJob}, level {player.MainLevel}/{player.SubLevel}, race {player.Race}, master level {player.MasterLevel}, flags 0x{player.Flags1:X4}, area {player.ZoneId}.");
+                    }
+                    players.Add(player);
+                }
+                GordianLog.Debug(LogCategories.Search, $"Search answer {pageNumber + 1}: {onPage} entries read, {players.Count} so far of {total}.");
             }
             return new SearchPlayersResult(total, players, exchange.Complete);
         }

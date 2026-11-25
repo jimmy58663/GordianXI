@@ -175,9 +175,15 @@ namespace Gordian.Engine.Ui
             return lines;
         }
 
-        /// <summary>The footer: "&lt;Item Level:119&gt;" for an item with an item level, else empty.</summary>
+        /// <summary>
+        /// The footer: enchanted equipment's charges and delays (<see cref="StockUiItems.UseFooter"/>, full and not worn, so the
+        /// countdown shows the use delay after equipping; the
+        /// item info window draws the live one, <c>StockUiOpenMenu.DescribedUseFooter</c>), "&lt;Item Level:119&gt;" for an
+        /// item with an item level, else empty.
+        /// </summary>
         public static string Footer(ItemRecord record) =>
-            record.ItemLevel > 0 ? string.Create(CultureInfo.InvariantCulture, $"<Item Level:{record.ItemLevel}>") : string.Empty;
+            StockUiItems.IsUsableEquipment(record) ? StockUiItems.UseFooter(record, record.MaxCharges, null, default, worn: false)
+            : record.ItemLevel > 0 ? string.Create(CultureInfo.InvariantCulture, $"<Item Level:{record.ItemLevel}>") : string.Empty;
 
         /// <summary>
         /// The description's pages (at least one), every line wrapped to <see cref="TextWidth"/> by <paramref name="measure"/>

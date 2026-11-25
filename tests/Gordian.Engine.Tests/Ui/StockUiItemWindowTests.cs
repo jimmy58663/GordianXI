@@ -485,7 +485,7 @@ namespace Gordian.Engine.Tests.Ui
         {
             // #596: retail's command menu list shows the usable temporary items first ("2/2" on one, "4/10" on the inventory's).
             var h = WithTemporaryItems();
-            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"))!;
+            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
             Assert.Equal(new ushort[] { Potion, Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));
             Assert.Equal(ContainerId.TempItems, list.ItemRows[0].Container);
             list.SelectedButtonId = 1;
@@ -737,13 +737,175 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void CommandMenuItems_AreTheSameWhoeverTheTargetIs()
+        {
+            // Round 1 (2026-11-22): retail does not filter the command menu's Items by target (#625's filter is gone).
+            var self = new Harness().Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
+            var friend = new Harness().Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"))!;
+            var rabbit = new Harness().Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Monster, 0x01000002, "Wild Rabbit"))!;
+            Assert.Equal(new ushort[] { Potion, EchoDrops, FireCrystal }, self.ItemRows.Select(r => r.ItemId));
+            Assert.Equal(self.ItemRows.Select(r => r.ItemId), friend.ItemRows.Select(r => r.ItemId));
+            Assert.Equal(self.ItemRows.Select(r => r.ItemId), rabbit.ItemRows.Select(r => r.ItemId));
+            // The main menu's list marks the usable items (#624: drawn pale yellow).
+            var all = new Harness().OpenFromMainMenu(4);
+            Assert.Contains(all.ItemRows, r => r.ItemId == EchoDrops && r.Usable);
+            Assert.Contains(all.ItemRows, r => r.ItemId == Chestnut && !r.Usable);
+            Assert.Contains(all.ItemRows, r => r.ItemId == FireCrystal && r.Usable);
+        }
+
+        private static readonly ItemRecord BulletPouch = new()
+        {
+            ItemId = 26348, Name = "Liv. Bul. Pouch", ItemType = StockUiItems.ItemTypeArmor, Level = 99, JobsMask = 0x7FFFFE,
+            EquipSlotsMask = 1 << (int)EquipSlotId.Waist, ValidTargets = StockUiItems.TargetSelf, MaxCharges = 1, UseDelay = 10, ReuseDelay = 3600,
+        };
+
+        private static Harness WithPouch(ContainerId container, byte slot, DateTime equippedAt)
+        {
+            var h = new Harness();
+            var inner = h.Menus.ItemLookup;
+            h.Menus.ItemLookup = id => id == BulletPouch.ItemId ? BulletPouch : inner?.Invoke(id);
+            h.Inventory.Clock = () => equippedAt;
+            h.Inventory.SetItem(container, slot, (ushort)BulletPouch.ItemId, 1, ItemLockFlag.Normal);
+            return h;
+        }
+
+        [Fact]
+        public void EnchantedEquipment_IsUsableOnlyWhileWorn_AndGreyUntilItsUseDelayPasses()
+        {
+            // Round 1 (Living Bullet Pouch): equipment with a Use is listed while worn; grey until it can be used.
+            var t0 = DateTime.UtcNow;
+            var h = WithPouch(ContainerId.Inventory, 9, t0);
+            var self = new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot");
+            Assert.Contains(h.OpenFromMainMenu(4).ItemRows, r => r.ItemId == BulletPouch.ItemId && !r.Usable);
+            Assert.DoesNotContain(h.Menus.OpenItems(null, self)!.ItemRows, r => r.ItemId == BulletPouch.ItemId);
+
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+            var row = Assert.Single(h.Menus.OpenItems(null, self)!.ItemRows, r => r.ItemId == BulletPouch.ItemId);
+            Assert.True(row.Usable && row.Equipped);
+            Assert.Equal(t0.AddSeconds(10), row.UsableAtUtc);
+            Assert.True(row.IsGreyedAt(t0.AddSeconds(5)));
+            Assert.False(row.IsGreyedAt(t0.AddSeconds(11)));
+            var rows = StockUiItems.Rows(h.Inventory, ContainerId.Inventory, h.Menus.ItemLookup);
+            Assert.Contains(rows, r => r.ItemId == BulletPouch.ItemId && r.Usable && r.Equipped);
+        }
+
+        [Fact]
+        public void EnchantedEquipment_GreysUseWhileItsDelayRuns_AndEnablesItWhenTheDelayEnds()
+        {
+            // Round 2 (retail): Use / Drop greys Use while the equip or reuse delay runs, and Use comes back when it ends.
+            var t0 = DateTime.UtcNow;
+            var h = WithPouch(ContainerId.Inventory, 9, t0);
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+            var list = h.OpenFromMainMenu(4);
+            h.SelectItem(list, (ushort)BulletPouch.ItemId);
+            h.Menus.Activate();
+            var action = h.Menus.Top!;
+            Assert.Equal(BulletPouch.ItemId, action.ItemAction!.Value.ItemId);
+            Assert.True(action.IsGreyedAt(StockUiItems.UseButton, t0.AddSeconds(5)));
+            Assert.False(action.IsGreyedAt(StockUiItems.UseButton, t0.AddSeconds(11)));
+            Assert.True(action.IsGreyedAt(StockUiItems.DropButton, t0.AddSeconds(11))); // worn
+        }
+
+        [Fact]
+        public void EnchantedEquipment_GreyInTheCommandMenu_DoesNothing_UntilItsUseIsReady()
+        {
+            // Round 3 (retail): a grey item in the command menu's Items opens no sub-target cursor and sends nothing.
+            foreach (var (equippedAgo, expectUse) in new[] { (0, false), (60, true) })
+            {
+                var h = WithPouch(ContainerId.Inventory, 9, DateTime.UtcNow.AddSeconds(-equippedAgo));
+                h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+                bool cursor = false;
+                h.Menus.ItemSubTarget = (row, targets) => cursor = true;
+                var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
+                h.SelectItem(list, (ushort)BulletPouch.ItemId);
+                h.Menus.Activate();
+                Assert.Equal(expectUse, cursor);
+                Assert.Empty(h.Uses);
+            }
+        }
+
+        [Fact]
+        public void EnchantedEquipment_IsLightBlueWhenReady_AndItsDescriptionCountsDown()
+        {
+            var t0 = DateTime.UtcNow;
+            var h = WithPouch(ContainerId.Inventory, 9, t0);
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Inventory, 9);
+            var list = h.OpenFromMainMenu(4);
+            var row = Assert.Single(list.ItemRows, r => r.ItemId == BulletPouch.ItemId);
+            Assert.False(row.IsUseReadyAt(t0.AddSeconds(5)));
+            Assert.True(row.IsUseReadyAt(t0.AddSeconds(11)));
+            h.SelectItem(list, (ushort)BulletPouch.ItemId);
+            Assert.Equal("<1/1 0:05/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(5)));
+            Assert.Equal("<1/1 0:00/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(11)));
+            Assert.Equal("<1/1 0:10/[1:00:00, 0:10]>", StockUiItemDescription.Footer(BulletPouch)); // retail image-18, not worn
+        }
+
+        [Fact]
+        public void UseFooter_MatchesTheRetailHiElixirTank()
+        {
+            // The maintainer's retail capture (round 3, image-10): Hi-elixir tank "<3/3 0:17/[1:00, 0:30]>"; LandSandBoat's
+            // item_usable row: 3 charges, use delay 30 s, reuse delay 60 s.
+            var tank = new ItemRecord { ItemId = 26271, ItemType = StockUiItems.ItemTypeArmor, MaxCharges = 3, UseDelay = 30, ReuseDelay = 60 };
+            var now = new DateTime(2026, 11, 24, 5, 0, 0, DateTimeKind.Utc);
+            Assert.Equal("<3/3 0:17/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 3, now.AddSeconds(17.2), now));
+            Assert.Equal("<0/3 0:00/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 0, DateTime.MaxValue, now));
+            // Not worn (round 4): the reuse countdown stops at the 0:30 use delay until the tank is equipped.
+            Assert.Equal("<2/3 0:45/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, now.AddSeconds(45), now, worn: false));
+            Assert.Equal("<2/3 0:30/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, now.AddSeconds(10), now, worn: false));
+            Assert.Equal("<2/3 0:30/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, null, now, worn: false));
+            Assert.Equal("24:00:00", StockUiItems.Duration(86400));
+            Assert.Equal("10:00", StockUiItems.Duration(600));
+        }
+
+        [Fact]
+        public void EnchantedEquipment_WornFromAWardrobe_IsInTheCommandMenuOnly()
+        {
+            var h = WithPouch(ContainerId.Wardrobe, 2, DateTime.UtcNow.AddMinutes(-1));
+            h.Inventory.SetEquip(EquipSlotId.Waist, ContainerId.Wardrobe, 2);
+            var list = h.Menus.OpenItems(null, new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot"))!;
+            var row = Assert.Single(list.ItemRows, r => r.ItemId == BulletPouch.ItemId);
+            Assert.Equal((ContainerId.Wardrobe, (byte)2, (DateTime?)null), (row.Container, row.Slot, row.UsableAtUtc));
+            Assert.DoesNotContain(new Harness().OpenFromMainMenu(4).ItemRows, r => r.ItemId == BulletPouch.ItemId);
+        }
+
+        [Fact]
+        public void UsableAt_ReadsTheTimerExtData()
+        {
+            // LandSandBoat S2C 0x020 (0x020_item_attr.cpp): header 1, charges left, flags, and while a reuse runs the NEXT Use
+            // (last Use + reuse delay; Earth seconds since the Vana'diel epoch). Round 5: reading it as the last Use counted the
+            // reuse twice (the Hi-Elixir Tank's 1:00 reuse started at 1:59).
+            var now = new DateTime(2026, 11, 22, 12, 0, 0, DateTimeKind.Utc);
+            uint usedAt = (uint)(new DateTimeOffset(now.AddMinutes(50)).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds);
+            var ext = new byte[24];
+            ext[0] = StockUiItems.TimerExtDataHeader;
+            ext[1] = 1;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ext.AsSpan(4), usedAt);
+            Assert.Equal(now.AddMinutes(50), StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
+            Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now.AddHours(1)));
+            ext[3] = StockUiItems.TimerReadyFlag; // ready: bytes 4-7 are not a wait
+            Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
+            ext[3] = 0;
+            // The Hi-Elixir Tank just used: next Use 60 s away counts down from 1:00 (0:59 a moment later), not 1:59.
+            var tank = new ItemRecord { ItemId = 26271, ItemType = StockUiItems.ItemTypeArmor, MaxCharges = 3, UseDelay = 30, ReuseDelay = 60, ValidTargets = StockUiItems.TargetSelf };
+            ext[1] = 2;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ext.AsSpan(4),
+                (uint)(new DateTimeOffset(now.AddSeconds(60)).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds));
+            var ready = StockUiItems.UsableAtUtc(tank, ext, DateTime.MinValue, now);
+            Assert.Equal("<2/3 0:59/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, ready, now.AddSeconds(0.5), worn: false));
+            ext[1] = 1;
+            ext[1] = 0; // no charges left
+            Assert.Equal(DateTime.MaxValue, StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
+            Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, new byte[24], DateTime.MinValue, now)); // no timer record
+        }
+
+        [Fact]
         public void CommandMenuItems_ListOnlyUsableItems_AndUseThemAtOnce()
         {
             var rows = StockUiCommandMenu.Compose(new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend"));
             Assert.Contains(rows, r => r.Label == StockUiCommandMenu.Items && r.Entry.Command == StockUiMenuCommand.Items && !r.Greyed);
 
             var h = new Harness();
-            var target = new StockUiTargetContext(StockUiTargetKind.Player, 0x0A0B0C0D, "Friend");
+            var target = new StockUiTargetContext(StockUiTargetKind.Self, 0x01020304, "Knot");
             var list = h.Menus.OpenItems(null, target)!;
             Assert.Equal(StockUiItemListKind.Usable, list.ItemListKind);
             Assert.Equal(new ushort[] { Potion, EchoDrops, FireCrystal }, list.ItemRows.Select(r => r.ItemId));

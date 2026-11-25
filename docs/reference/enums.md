@@ -190,8 +190,8 @@ Two LandSandBoat enumerations are both called "status"; they travel in different
 |---|---|---|
 | 0 | none | |
 | 1 | attack (engaged) | `PlayerActionService.StatusEngaged`: leaving it ends the local engagement (#67); `EntityRenderer` / `WorldEntity` treat 1 as engaged for the battle stance |
-| 2 | despawn | `PlayerActionService.StatusDespawning`: the engaged target is dropped |
-| 3 | death | `PlayerActionService.StatusDead`; `AnimationStateClassifier` plays death; a monster, pet or Trust at 3 is dead (`WorldEntity.IsDeadBattleEntity`): grey name, untargetable, dropped as the target ([entity-flags.md](entity-flags.md#dead-monsters-327), #327) |
+| 2 | despawn | `PlayerActionService.StatusDespawning`: the engaged target is dropped. **Differs from LandSandBoat:** retail sends the player's own character 2 for a death out of battle (Windower `res/statuses.lua`: 2 "Dead", 3 "Engaged dead"; a dead login's S2C 0x00A, [#578](https://github.com/jimmy58663/GordianXI/issues/578) round 4), so with 0% HP it is dead like 3 (`LocalPlayerState.StatusDeadUnengaged`, `IsDeathStatus`): home point window, death music, no movement |
+| 3 | death | `PlayerActionService.StatusDead`; `LocalPlayerState.StatusDead` (with 0% HP: dead, `IsDead`; the player cannot move or turn); `AnimationStateClassifier` plays death; a monster, pet or Trust at 3 is dead (`WorldEntity.IsDeadBattleEntity`): grey name, untargetable, dropped as the target ([entity-flags.md](entity-flags.md#dead-monsters-327), #327) |
 | 4 | event | |
 | 5 | chocobo | `MountAppearance.StatusChocobo`: riding a chocobo (rental, personal or the Noble Chocobo), drawn on the chocobo race model ([#87](https://github.com/jimmy58663/GordianXI/issues/87)) |
 | 6 | fishing | |

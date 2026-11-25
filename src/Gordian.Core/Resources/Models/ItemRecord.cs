@@ -31,9 +31,13 @@ namespace Gordian.Core.Resources.Models
 
         #region Armor & Usable Fields
         public byte ShieldSize { get; set; }
+        /// <summary>An enchanted equipment piece's charges (0: no Use); see <c>ItemTableDecoder.ReadEquipmentUse</c>.</summary>
         public byte MaxCharges { get; set; }
+        /// <summary>Equipment: the Use's activation time in quarter seconds.</summary>
         public ushort CastTime { get; set; }
+        /// <summary>Equipment: the seconds after equipping before the Use is ready.</summary>
         public ushort UseDelay { get; set; }
+        /// <summary>Equipment: the seconds after a Use before the next one.</summary>
         public uint ReuseDelay { get; set; }
         #endregion
 

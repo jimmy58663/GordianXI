@@ -453,6 +453,26 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(StockUiDeathMenu.RaiseQuestion, menus.Top!.Message);
         }
 
+        /// <summary>
+        /// A character that logs in dead on retail (#578 round 3): only S2C 0x00A's position header says so (no 0x037 with status
+        /// 3 follows), and the window opens from it with the time left from its death counter. Round 4: retail's status is 2
+        /// ("Dead", not engaged), LandSandBoat's 3.
+        /// </summary>
+        [Theory]
+        [InlineData(LocalPlayerState.StatusDeadUnengaged)]
+        [InlineData(LocalPlayerState.StatusDead)]
+        public void DeadLogin_OpensTheWindowFromThe0x00A(byte status)
+        {
+            var h = new Harness();
+            h.Player.ApplyLoginStatus(new LoginStatus(status, 0, (1800 + S2C_0x037_CharStatus.DeadCounterOffsetSeconds) * 60));
+
+            Assert.True(h.Actions.DeathMenu.IsOpen);
+            Assert.Equal("30:00", Assert.Single(h.Actions.Menus.OpenMenus).TitleSuffix!());
+
+            h.Player.ApplyLoginStatus(new LoginStatus(0, 100, 0));
+            Assert.False(h.Actions.DeathMenu.IsOpen);
+        }
+
         [Fact]
         public void FormatTimeLeft_MinutesAndSeconds()
         {

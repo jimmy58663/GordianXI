@@ -61,6 +61,8 @@ namespace Gordian.Engine.Tests.Network
                 Plural(1), "[/s] of damage.", Prompt),
             [85] = Bytes(Article(0), "[The /]", Entity(0), " ", Verb(0), "[casts/cast] ", new byte[] { 0x10, 0x00 }, ".", new byte[] { 0x07 },
                 new byte[] { 0x7F, 0x84, 0x00 }, Article(1), "[The /]", Entity(1), " ", Verb(1), "[resists/resist] the spell.", Prompt),
+            [70] = Bytes(new byte[] { 0x7F, 0x84, 0x00 }, Article(1), "[The /]", Entity(1), " parries ", Article(0), "[the /]", Entity(0), Verb(0),
+                "['s/'] attack with ", new byte[] { 0x7F, 0x91 }, "[his/her] weapon.", Prompt),
             [163] = Bytes("Additional effect: ", Number(2), " point", Plural(2), "[/s] of damage.", Prompt),
             [174] = Bytes("from the table", Prompt),
             [565] = Bytes(Entity(1), " obtains ", new byte[] { 0x7F, 0xB4, 0x00 }, ".", Prompt),
@@ -80,6 +82,21 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal("Knot's bonecraft skill rises 0.1 points.", Format(38, Knot, Knot, 54, 1));
             Assert.Equal("Knot's sword skill rises 2.5 points.", Format(38, Knot, Knot, 3, 25));
             Assert.Equal("Knot's sword skill reaches level 12.", Format(53, Knot, Knot, 3, 12));
+        }
+
+        [Fact]
+        public void Parry_PicksHisOrHerByTheParryingEntitysSex_AndHisWhenNotKnown()
+        {
+            // #556: retail's Windower logs: "Evisakar parries the Glassy Thinker's attack with her weapon.", and "with his weapon"
+            // for fixed-model monsters ("The Vanguard Defender parries Tarudrake's attack with his weapon.").
+            string Parry(uint caster, uint target, bool? female) => CombatLogFormatter.FormatBattleMessage(
+                new CombatMessageRecord { MessageId = 70, CasterId = caster, TargetId = target },
+                Names, entityTakesArticle: IsMonster, battleMessages: Lookup, catalog: Gordian.Engine.Tests.Actions.TestCatalog.Build(),
+                entityIsFemale: id => id == target ? female : null);
+            Assert.Equal("Knot parries the Wild Rabbit's attack with her weapon.", Parry(Rabbit, Knot, true));
+            Assert.Equal("Knot parries the Wild Rabbit's attack with his weapon.", Parry(Rabbit, Knot, false));
+            Assert.Equal("The Wild Rabbit parries Knot's attack with his weapon.", Parry(Knot, Rabbit, null));
+            Assert.DoesNotContain("[", Format(70, Knot, Rabbit, 0, 0));
         }
 
         [Fact]
@@ -181,6 +198,34 @@ namespace Gordian.Engine.Tests.Network
             // 0x7F 0x8F n: a job ability name.
             var ability = EventMessageDecoder.Decode(Bytes("uses ", new byte[] { 0x7F, 0x8F, 0x00 }, ".", Prompt));
             Assert.Contains(ability.Segments, s => s.Kind == EventMessageSegmentKind.ActionName && s.Code == 0x8F);
+        }
+
+        [Fact]
+        public void MonsterSkill_IsNamedFromTheMonsterAbilityNames_WeaponSkillsFromTheCommandTable()
+        {
+            // #556: the 0x7F 0x16 name of a mob skill (id 256 and up) is entry id - 256 of file 7035, not command row id
+            // ("Fafnir uses Diffusion." was command row 688).
+            var catalog = Gordian.Engine.Tests.Actions.TestCatalog.Build();
+            var withMonsters = new Gordian.Engine.Actions.ActionCatalog(catalog.Tables, catalog.SpellName, id => id == 688 ? "Diffusion" : catalog.WeaponSkillName(id))
+            {
+                MonsterAbilityNames = entry => entry == 696 ? "Spike Flail" : null,
+            };
+            Assert.Equal("Spike Flail", CombatLogFormatter.ResolveWeaponSkillName(952, catalog: withMonsters));
+            Assert.Equal("Weapon Skill #944", CombatLogFormatter.ResolveWeaponSkillName(944, catalog: withMonsters));
+        }
+
+        /// <summary>The monster ability names (file 7035) against LandSandBoat's mob skill ids. Skipped without the game install.</summary>
+        [Fact]
+        public void RetailMonsterAbilityNames_MatchLandSandBoatsMobSkillIds()
+        {
+            if (!Directory.Exists(GameDirectory)) return;
+            var rm = new ResourceManager(GameDirectory);
+            rm.InitializeFileTable();
+            var catalog = Gordian.Engine.Actions.ActionCatalog.Load(rm)!;
+            Assert.Equal("Foot Kick", catalog.CombatSkillName(257));
+            Assert.Equal("Heat Wave", catalog.CombatSkillName(512));
+            Assert.Equal("Meteorite", catalog.CombatSkillName(910));
+            Assert.Equal("Spike Flail", catalog.CombatSkillName(952));
         }
 
         /// <summary>

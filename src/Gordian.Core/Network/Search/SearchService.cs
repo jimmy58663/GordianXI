@@ -54,9 +54,18 @@ namespace Gordian.Core.Network.Search
         /// Sets the search server address (a server profile that runs it on another host or port). It replaces a default and
         /// is not replaced by later defaults.
         /// </summary>
-        public void Configure(string host, int port = SearchClient.DefaultPort)
+        /// <param name="host">The search server's host.</param>
+        /// <param name="port">Its port.</param>
+        /// <param name="retail">
+        /// True for retail's search server (the one the retail lobby names): its answers are kept when they plausibly answer the
+        /// request even though their hash fails LandSandBoat's check (<see cref="SearchClient.AcceptUnverifiedAnswers"/>, #578),
+        /// and each next page is asked for (<see cref="SearchClient.RequestsNextPages"/>, #643).
+        /// </param>
+        public void Configure(string host, int port = SearchClient.DefaultPort, bool retail = false)
         {
             _client = _clientFactory(host, port);
+            _client.AcceptUnverifiedAnswers = retail;
+            _client.RequestsNextPages = retail;
             _explicit = true;
         }
 

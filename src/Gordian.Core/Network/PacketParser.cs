@@ -103,6 +103,7 @@ namespace Gordian.Core.Network
                 _world.RefreshMapZone();
                 _world.NotifyZoneEntered(zoneId);
             };
+            _lifecycleModule.LoginStatusReceived += status => _localPlayer.ApplyLoginStatus(status);
             _lifecycleModule.ZonesVisitedReceived += table => _progression.UpdateZonesVisited(table);
             _lifecycleModule.WeatherTimingReceived += timing => _world.UpdateWeatherTiming(timing);
             _lifecycleModule.ServerGameTimeReceived += gameTime => _world.Clock.SynchronizeServerTime(gameTime);

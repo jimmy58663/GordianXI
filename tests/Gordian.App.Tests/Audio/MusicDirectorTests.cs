@@ -41,6 +41,7 @@ namespace Gordian.App.Tests.Audio
         [InlineData(1, false, 12f, MusicSlot.BattleSolo)]
         [InlineData(1, true, 12f, MusicSlot.BattleParty)]
         [InlineData(3, true, 12f, MusicSlot.Dead)]
+        [InlineData(2, false, 12f, MusicSlot.Dead)]
         [InlineData(5, false, 12f, MusicSlot.Mount)]
         [InlineData(85, false, 12f, MusicSlot.Mount)]
         [InlineData(6, false, 12f, MusicSlot.Fishing)]

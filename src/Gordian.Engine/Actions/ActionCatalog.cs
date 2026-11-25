@@ -91,11 +91,16 @@ namespace Gordian.Engine.Actions
             var bytes = resources.LoadDatBytesByFileId(SpellCommandTables.FileId);
             var tables = bytes != null ? SpellCommandTables.Parse(bytes) : null;
             if (tables == null) return null;
+            var monsterNames = new Lazy<ZoneDialogTable?>(() =>
+                resources.LoadDatBytesByFileId(ClientMessageTables.MonsterAbilityNamesFileId) is { } file ? ZoneDialogTable.Parse(file) : null);
             return new ActionCatalog(tables,
                 id => resources.TryGetString(DMsgCategory.Spells, id, out var name) ? name : null,
                 id => resources.TryGetString(DMsgCategory.Abilities, id, out var name) ? name : null,
                 id => resources.TryGetString(DMsgCategory.SpellHelp, id, out var help) ? help : null,
-                id => resources.TryGetString(DMsgCategory.AbilityHelp, id, out var help) ? help : null);
+                id => resources.TryGetString(DMsgCategory.AbilityHelp, id, out var help) ? help : null)
+            {
+                MonsterAbilityNames = entry => monsterNames.Value is { } table && entry >= 0 && entry < table.Count ? table.GetPlainText(entry) : null,
+            };
         }
 
         /// <summary>
@@ -132,6 +137,26 @@ namespace Gordian.Engine.Actions
         public string? JobAbilityName(int abilityId) => Clean(_commandName(CommandRecord.JobAbilityBase + abilityId));
 
         public string? WeaponSkillName(int weaponSkillId) => Clean(_commandName(weaponSkillId));
+
+        /// <summary>
+        /// Skill ids from here up are monster abilities (LandSandBoat's mob skill ids), named by the monster ability name
+        /// file (<see cref="ClientMessageTables.MonsterAbilityNamesFileId"/>, entry = id - 256); weapon skills stay below.
+        /// </summary>
+        public const int MonsterAbilityBase = 256;
+
+        /// <summary>The monster ability names by entry (file 7035), or null without them (tests).</summary>
+        public Func<int, string?>? MonsterAbilityNames { get; init; }
+
+        /// <summary>A monster ability's name by its LandSandBoat mob skill id (256 and up), or null.</summary>
+        public string? MonsterAbilityName(int mobSkillId) =>
+            mobSkillId >= MonsterAbilityBase ? Clean(MonsterAbilityNames?.Invoke(mobSkillId - MonsterAbilityBase)) : null;
+
+        /// <summary>
+        /// The name the battle messages' 0x7F 0x16 code reads ("{7F 88 00}[The /]{01 01 10} uses {7F 16 00}.", messages 43,
+        /// 101, 185-194 of file 7027): a weapon skill below <see cref="MonsterAbilityBase"/>, a monster ability from it up
+        /// (#556: "Fafnir uses Diffusion." read the command table's row 688 for a mob skill).
+        /// </summary>
+        public string? CombatSkillName(int id) => id < MonsterAbilityBase ? WeaponSkillName(id) : MonsterAbilityName(id);
 
         /// <summary>The name of an action of a kind by its id, or null.</summary>
         public string? Name(ActionKind kind, int id) => kind switch

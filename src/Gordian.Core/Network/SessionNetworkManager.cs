@@ -566,7 +566,13 @@ namespace Gordian.Core.Network
             };
             _parser.PlayerPositionUpdated += (x, y, z, dir, actIndex) =>
             {
-                // Raised by the S2C 0x00A login: the character is on this map server, so position updates resume.
+                // Raised by the S2C 0x00A login: the character is on this map server, so position updates resume, and the
+                // C2S 0x00A it answers is no longer resent (#541).
+                if (LoginAwaitingAnswer)
+                {
+                    Volatile.Write(ref _loginAnsweredGeneration, Volatile.Read(ref _loginGeneration));
+                    GordianLog.Debug(LogCategories.Net, "S2C 0x00A login received: C2S 0x00A is no longer resent.");
+                }
                 if (_positionUpdatesSuspended)
                 {
                     _positionUpdatesSuspended = false;
@@ -860,11 +866,7 @@ namespace Gordian.Core.Network
         /// last known HP (kept across the zone change), or full until the first vitals of a login arrive. A character who is
         /// really dead is still drawn dead: the server's status 3 (0x037) and 0% HP (0x0DF) say so.
         /// </summary>
-        internal static byte LocalEntitySeedHpp(LocalPlayerState player)
-        {
-            if (player.IsDead) return 0;
-            return player.Hpp > 0 ? player.Hpp : (byte)100;
-        }
+        internal static byte LocalEntitySeedHpp(LocalPlayerState player) => player.EntitySeedHpp;
 
         private void EnsureLocalPlayerEntity(float x, float y, float z, byte dir, ushort actIndex)
         {
@@ -878,6 +880,9 @@ namespace Gordian.Core.Network
                 pe.Direction = dir;
                 pe.TargetIndex = actIndex;
                 pe.IsSpawned = true;
+                // On retail the locomotion tick or the action service makes the entity first, at 0% HP, during the ~0.8 s
+                // before this 0x00A: seed it as a new one would be, unless the server has said the character is dead.
+                if (pe.Hpp == 0 && !_parser.LocalPlayer.IsDead) pe.Hpp = _parser.LocalPlayer.EntitySeedHpp;
                 if (!string.IsNullOrEmpty(CharacterName)) pe.Name = CharacterName;
                 if (_cachedPlayerAppearance != null)
                 {
@@ -1094,13 +1099,14 @@ namespace Gordian.Core.Network
                     _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
 
                     CurrentState = SessionState.ExchangingCryptoKeys;
+                    int generation = BeginLoginGeneration();
 
-                    // Periodically retransmit 0x00A until server responds or session moves to ActiveInWorld
+                    // Periodically retransmit 0x00A until the server's S2C 0x00A answers it or the session moves to ActiveInWorld
                     _ = Task.Run(async () =>
                     {
                         GordianLog.SetFlowScope(LogScope);
                         int attempt = 0;
-                        while (!_cts.IsCancellationRequested && CurrentState == SessionState.ExchangingCryptoKeys && attempt < 25)
+                        while (!_cts.IsCancellationRequested && CurrentState == SessionState.ExchangingCryptoKeys && ShouldResendLogin(generation) && attempt < 25)
                         {
                             attempt++;
                             GordianLog.Debug(LogCategories.Net, $"Transmitting 0x00A login handshake attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
@@ -1740,11 +1746,13 @@ namespace Gordian.Core.Network
                 _parser.LogPacket(PacketDirection.Outbound, 0x00A, _clientPacketIdSequence, loginSubPacket);
 
                 var token = _cts?.Token ?? ct;
+                int generation = BeginLoginGeneration();
                 _ = Task.Run(async () =>
                 {
                     GordianLog.SetFlowScope(LogScope);
                     int attempt = 0;
-                    while (!token.IsCancellationRequested && CurrentState == SessionState.LoadingWorldData && attempt < 25)
+                    // Until the S2C 0x00A login answers it (#541), the state moves on, or a later zone change starts its own loop.
+                    while (!token.IsCancellationRequested && CurrentState == SessionState.LoadingWorldData && ShouldResendLogin(generation) && attempt < 25)
                     {
                         attempt++;
                         GordianLog.Debug(LogCategories.Net, $"Transmitting zone transition 0x00A attempt #{attempt} ({loginDatagram.Length} bytes) to {_serverEndpoint} for '{CharacterName}' (ID: {CharacterId})...");
@@ -1773,6 +1781,24 @@ namespace Gordian.Core.Network
                 }, token);
             }
         }
+
+        // #541: each C2S 0x00A login (the first one and each zone change's) gets a generation; its resend loop runs only while
+        // it is the latest and the S2C 0x00A answering it has not been handled.
+        private int _loginGeneration;
+        private int _loginAnsweredGeneration;
+
+        /// <summary>Starts a new C2S 0x00A login generation (a new resend loop) and returns it.</summary>
+        private int BeginLoginGeneration() => Interlocked.Increment(ref _loginGeneration);
+
+        /// <summary>
+        /// True while the latest C2S 0x00A login is unanswered: its resend loop keeps going. The S2C 0x00A login reply ends it
+        /// (#541): retail's S2C 0x008, which moves the state on, can come a second or more after it, and every 0x00A resent
+        /// meanwhile was answered with another login, which restarted the zone-in event (Mog House event 1083, 2026-11-12).
+        /// </summary>
+        internal bool LoginAwaitingAnswer => Volatile.Read(ref _loginAnsweredGeneration) != Volatile.Read(ref _loginGeneration);
+
+        private bool ShouldResendLogin(int generation) =>
+            Volatile.Read(ref _loginGeneration) == generation && Volatile.Read(ref _loginAnsweredGeneration) != generation;
 
         /// <summary>Logs the next <see cref="WireTraceDatagrams"/> datagrams each way: headers, and sub-packets both ways.</summary>
         private void ArmWireTrace()

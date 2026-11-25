@@ -80,7 +80,23 @@ namespace Gordian.Engine.Events
     /// An entity a client message names (<see cref="IEventMessageContext.GetMessageEntity"/>): its name, its sex (null when
     /// not known: a monster, a fixed model) and whether its name takes "the" (a monster's does, a player's does not).
     /// </summary>
-    public readonly record struct MessageEntity(string Name, bool? IsFemale = null, bool TakesArticle = false);
+    public readonly record struct MessageEntity(string Name, bool? IsFemale = null, bool TakesArticle = false)
+    {
+        /// <summary>
+        /// An entity's sex from its race look's race byte (riding above the face model: 1/2 Hume, 3/4 Elvaan, 5/6 Tarutaru
+        /// male/female, 7 Mithra, 8 Galka), or null for a fixed model (most monsters) or before the look is known.
+        /// </summary>
+        public static bool? SexOf(Gordian.Core.World.WorldEntity? entity)
+        {
+            if (entity == null || entity.Appearance.ModelId != 0) return null;
+            return ((entity.Appearance.FaceModel >> 8) & 0xFF) switch
+            {
+                1 or 3 or 5 or 8 => false,
+                2 or 4 or 6 or 7 => true,
+                _ => null,
+            };
+        }
+    }
 
     /// <summary>
     /// Turns a decoded dialog message into log lines, and a query into its comment lines and options, with the

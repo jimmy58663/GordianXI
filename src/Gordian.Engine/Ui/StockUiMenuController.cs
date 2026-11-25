@@ -155,9 +155,21 @@ namespace Gordian.Engine.Ui
         /// Whether a button is drawn with its kind-4 alternate, the greyed look (Invite when you cannot invite; the
         /// chat modes without a linkshell or Unity). Confirm on it posts why instead of acting.
         /// </summary>
-        public bool IsGreyed(int buttonId) => _greyed?.Contains(buttonId) == true;
+        public bool IsGreyed(int buttonId) => IsGreyedAt(buttonId, DateTime.UtcNow);
+
+        /// <summary>
+        /// Whether a button is greyed at <paramref name="utcNow"/>: always (<see cref="SetGreyed"/>), or until a time
+        /// (<see cref="SetGreyedUntil"/>; Use on a worn enchanted item while its equip or reuse delay runs).
+        /// </summary>
+        public bool IsGreyedAt(int buttonId, DateTime utcNow) =>
+            _greyed?.Contains(buttonId) == true || (_greyedUntil is { } until && until.ButtonId == buttonId && until.UtcTime > utcNow);
 
         internal void SetGreyed(HashSet<int>? greyed) => _greyed = greyed;
+
+        private (int ButtonId, DateTime UtcTime)? _greyedUntil;
+
+        /// <summary>Greys one button until <paramref name="utcTime"/>, when it is enabled again without reopening the menu.</summary>
+        internal void SetGreyedUntil(int buttonId, DateTime utcTime) => _greyedUntil = (buttonId, utcTime);
 
         /// <summary>
         /// Client text drawn to the right of a button's label, keyed by ButtonId (the tell partner's name after the

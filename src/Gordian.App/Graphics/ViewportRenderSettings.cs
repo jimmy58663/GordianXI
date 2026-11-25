@@ -58,6 +58,18 @@ namespace Gordian.App.Graphics
         /// <summary>Raised after <see cref="PerformanceOverlay"/> changes.</summary>
         public static event Action<PerformanceOverlayMode>? PerformanceOverlayChanged;
 
+        private static volatile bool s_positionOverlay;
+
+        /// <summary>
+        /// Whether every viewport window shows the position overlay (<see cref="Graphics.PositionOverlay"/>, <c>/coords</c>,
+        /// Ctrl+Shift+F10): off by default and not saved, a testing aid in place of typing <c>/pos</c>.
+        /// </summary>
+        public static bool PositionOverlay
+        {
+            get => s_positionOverlay;
+            set => s_positionOverlay = value;
+        }
+
         /// <summary>Frames per second of a background viewport window (clamped to 1-240).</summary>
         public static int BackgroundFrameRate
         {

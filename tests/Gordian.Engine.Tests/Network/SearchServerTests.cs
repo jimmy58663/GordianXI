@@ -50,7 +50,14 @@ namespace Gordian.Engine.Tests.Network
         }
 
         private static byte[] EntityAnswer(byte type, int total, bool final, bool linkshell, params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl,
-            uint Flags1, uint Id, uint Comment)[] players)
+            uint Flags1, uint Id, uint Comment)[] players) => EntityAnswerWith(type, total, final, linkshell, 0, 0, 0, players);
+
+        /// <summary>
+        /// <see cref="EntityAnswer"/> with a field <paramref name="code"/> of <paramref name="width"/> bits after Level, as retail
+        /// writes its field 0x07 (#578 round 4); a width of 0 leaves it out, as LandSandBoat does.
+        /// </summary>
+        private static byte[] EntityAnswerWith(byte type, int total, bool final, bool linkshell, byte code, int width, ulong value,
+            params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl, uint Flags1, uint Id, uint Comment)[] players)
         {
             var data = new byte[1024];
             var bits = new BitPacker(data, 0x18);
@@ -66,6 +73,7 @@ namespace Gordian.Engine.Tests.Network
                     bits.Put(2, 5); bits.Put(1, 2);                                 // nation
                     bits.Put(3, 5); bits.Put(p.Mjob, 5); bits.Put(p.Sjob, 5);        // job
                     bits.Put(4, 5); bits.Put(p.Mlvl, 8); bits.Put(p.Slvl, 8);        // level
+                    if (width > 0) { bits.Put(code, 5); bits.Put(value, width); }   // retail's extra field
                     bits.Put(5, 5); bits.Put(3, 4);                                 // race
                     bits.Put(0x10, 5); bits.Put(7, 8);                              // rank
                 }
@@ -173,7 +181,7 @@ namespace Gordian.Engine.Tests.Network
                     byte[] body = copy.AsSpan(0, copy.Length - SearchFrame.TrailerSize).ToArray();
                     _owner.Bodies.Add(body);
                     for (int i = 0; i < _owner.CorruptFramesFirst; i++)
-                        _answers.Enqueue(SearchFrame.EncryptResponse(new byte[0x28], new SearchFrame.AnswerKey(key.Seed + 1, key.PayloadTail), 8));
+                        _answers.Enqueue(SearchFrame.EncryptResponse(new byte[0x28], new SearchFrame.AnswerKey(key.Seed + 1, key.PayloadTail + 1), 8));
                     foreach (var (content, padding) in _owner.Server(body)) _answers.Enqueue(SearchFrame.EncryptResponse(content, key, padding));
                     return Task.CompletedTask;
                 }
@@ -399,6 +407,84 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(231, hidden.ZoneId);
 
             Assert.False(page.TryReadEntity(ref position, out _));
+        }
+
+        /// <summary>#578 round 3: the log line that shows which fields a server writes, and where an unknown code stops the entry.</summary>
+        [Fact]
+        public void SearchEntityPage_DescribesTheEntryFields()
+        {
+            byte[] content = EntityAnswer(0, total: 1, final: true, linkshell: false, ("Ayame", 230, 3, 4, 75, 37, 0x8010, 0x1234, 0x20));
+            var page = new SearchEntityPage(content);
+            string fields = page.DescribeEntryFields(SearchEntityPage.EntriesOffset);
+            Assert.StartsWith("00 01 02 03 04 05 10 06", fields);
+            Assert.DoesNotContain("?", fields);
+
+            content[SearchEntityPage.EntriesOffset + 1] |= 0xF8; // the first code (the top 5 bits) becomes 0x1F, which no server field uses
+            string unknown = new SearchEntityPage(content).DescribeEntryFields(SearchEntityPage.EntriesOffset);
+            // Round 4: the width is worked out from the fields after it: the name's 4-bit length and 5 characters of 7 bits.
+            Assert.StartsWith("?1F[39 bits = 0x", unknown);
+            Assert.Contains("] 01 02 03 04 05 10 06 08", unknown);
+
+            content[^1] = 0xFF; // the padding no longer zero: no width fits, and the reading stops at the unknown code
+            Assert.StartsWith("?1F (", new SearchEntityPage(content).DescribeEntryFields(SearchEntityPage.EntriesOffset));
+        }
+
+        /// <summary>
+        /// #578 round 4: retail wrote field code 0x07 after Level, which LandSandBoat never sends, and the reading used to stop
+        /// there, so Race, Rank, Flags1 and Id were lost. A code the decoder does not know (here 0x09) gets its width from the
+        /// fields after it, for any width the entry fits.
+        /// </summary>
+        [Theory]
+        [InlineData(4, 0x9UL)]
+        [InlineData(8, 0x3CUL)]
+        [InlineData(16, 0xBEEFUL)]
+        [InlineData(32, 0x12345678UL)]
+        public void SearchEntityPage_ReadsPastAnUnknownField(int width, ulong value)
+        {
+            byte[] content = EntityAnswerWith(0, total: 2, final: true, linkshell: false, 0x09, width, value,
+                ("Ayame", 230, 3, 4, 75, 37, 0x8010, 0x1234, 0x20), ("Cybin", 100, 1, 2, 10, 5, 0, 0x99, 0));
+            var page = new SearchEntityPage(content);
+            int position = SearchEntityPage.EntriesOffset;
+            Assert.StartsWith($"00 01 02 03 04 ?09[{width} bits = 0x{value:X}] 05 10 06 08", page.DescribeEntryFields(position));
+
+            Assert.True(page.TryReadEntity(ref position, out var first));
+            Assert.Equal((byte?)9, first.UnknownFieldCode);
+            Assert.Equal(width, first.UnknownFieldWidth);
+            Assert.Equal((uint)value, first.UnknownFieldValue);
+            Assert.Equal(1, first.Nation);
+            Assert.Equal(3, first.Race);
+            Assert.Equal(7, first.Rank);
+            Assert.Equal(0x8010u, first.Flags1);
+            Assert.Equal(0x1234u, first.CharacterId);
+            Assert.Equal(0x20u, first.CommentType);
+            Assert.Equal(5, first.Languages);
+
+            Assert.True(page.TryReadEntity(ref position, out var second));
+            Assert.Equal("Cybin", second.Name);
+            Assert.Equal(7, second.Rank);
+            Assert.Equal(0x99u, second.CharacterId);
+            Assert.False(page.TryReadEntity(ref position, out _));
+        }
+
+        /// <summary>
+        /// #578 round 5 and the 2026-11-25 <c>/sea all</c> capture: retail's field 0x07 is 8 bits in every entry (0-50, only at
+        /// level 99), the Master Level, read as <see cref="SearchEntity.MasterLevel"/>.
+        /// </summary>
+        [Fact]
+        public void SearchEntityPage_ReadsRetailsMasterLevel()
+        {
+            byte[] content = EntityAnswerWith(0, total: 1, final: true, linkshell: false, 0x07, 8, 50,
+                ("Ayame", 230, 10, 3, 99, 59, 0x8010, 0x1234, 0));
+            var page = new SearchEntityPage(content);
+            int position = SearchEntityPage.EntriesOffset;
+            Assert.StartsWith("00 01 02 03 04 07 05 10 06 08", page.DescribeEntryFields(position));
+
+            Assert.True(page.TryReadEntity(ref position, out var player));
+            Assert.Equal(50, player.MasterLevel);
+            Assert.Null(player.UnknownFieldCode);
+            Assert.Equal(3, player.Race);
+            Assert.Equal(7, player.Rank);
+            Assert.Equal(0x1234u, player.CharacterId);
         }
 
         [Fact]
@@ -695,7 +781,7 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(new ushort[] { 230 }, query.Areas.ToArray());
             Assert.Equal((byte)3, query.Job);
             Assert.Equal(((byte)70, (byte)75), query.Level);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, query.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, query.Flags1);
             Assert.Equal("Ayame", query.Name);
 
             var all = PlayerActionService.ParseSearchQuery("all lv99 friend", 230);
@@ -814,13 +900,13 @@ namespace Gordian.Engine.Tests.Network
             var seeking = PlayerActionService.ParseSearchQuery("all inv brd 24-35", 230, ZoneNames);
             Assert.True(seeking.AllAreas);
             Assert.Empty(seeking.Areas);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, seeking.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, seeking.Flags1);
             Assert.Equal((byte)10, seeking.Job);
             Assert.Equal(((byte)24, (byte)35), seeking.Level);
 
             var anyone = PlayerActionService.ParseSearchQuery("ALL INV 12-16", 230, ZoneNames);
             Assert.True(anyone.AllAreas);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, anyone.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, anyone.Flags1);
             Assert.Null(anyone.Job);
             Assert.Equal(((byte)12, (byte)16), anyone.Level);
 

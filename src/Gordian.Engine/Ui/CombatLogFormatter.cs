@@ -53,8 +53,9 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// A weapon skill's name by id: <paramref name="customResolver"/>, else the client's command name table (ROM/181/72,
-        /// row = weapon skill id) through <see cref="ActionCatalog"/>, else "Weapon Skill #N".
+        /// A weapon skill's or monster ability's name by id: <paramref name="customResolver"/>, else through
+        /// <see cref="ActionCatalog.CombatSkillName"/> (below 256 the client's command name table, ROM/181/72, row = weapon skill
+        /// id; from 256 the monster ability names, file 7035, entry = id - 256), else "Weapon Skill #N".
         /// </summary>
         public static string ResolveWeaponSkillName(ushort wsId, Func<ushort, string?>? customResolver = null, ActionCatalog? catalog = null)
         {
@@ -62,7 +63,7 @@ namespace Gordian.Engine.Ui
             {
                 return resolved;
             }
-            return CatalogOrDefault(catalog)?.WeaponSkillName(wsId) ?? $"Weapon Skill #{wsId}";
+            return CatalogOrDefault(catalog)?.CombatSkillName(wsId) ?? $"Weapon Skill #{wsId}";
         }
 
         /// <summary>
@@ -155,7 +156,8 @@ namespace Gordian.Engine.Ui
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
             Func<int, EventMessage?>? battleMessages = null,
-            ActionCatalog? catalog = null)
+            ActionCatalog? catalog = null,
+            Func<uint, bool?>? entityIsFemale = null)
         {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
@@ -166,7 +168,7 @@ namespace Gordian.Engine.Ui
 
             if (record.MessageId is < 170 or > 178
                 && (battleMessages ?? BattleMessages)?.Invoke(record.MessageId) is { } message
-                && FormatFromTable(message, record, caster, target, resolveSpellName, resolveAbilityName, entityTakesArticle, catalog) is { } fromTable)
+                && FormatFromTable(message, record, caster, target, resolveSpellName, resolveAbilityName, entityTakesArticle, catalog, entityIsFemale) is { } fromTable)
             {
                 return fromTable;
             }
@@ -265,26 +267,33 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private static string? FormatFromTable(EventMessage message, CombatMessageRecord record, string caster, string target,
             Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle,
-            ActionCatalog? catalog) =>
+            ActionCatalog? catalog, Func<uint, bool?>? entityIsFemale) =>
             FormatFromTable(message, new[] { unchecked((int)record.Param), unchecked((int)record.Value) }, record.CasterId, caster,
-                record.TargetId, target, resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog);
+                record.TargetId, target, resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog, entityIsFemale);
 
         /// <summary>
         /// A basic-message table message with the given number parameters (none above the last one may be read) and the
         /// actor / target as message entities 0 / 1; <paramref name="flags"/> fill the 0x7F 0x84 modifier code. Null when
         /// the message is empty or reads a number it is not given.
+        /// <para>
+        /// The "[his/her]" of an entity (0x7F 0x90 / 0x91: block 69, parry 70) is picked by its sex (<paramref name="entityIsFemale"/>,
+        /// from its race look); an entity whose sex is not known takes the first word, "his" (#556). Retail does the same: the
+        /// maintainer's retail Windower chat logs print "Evisakar parries the Glassy Thinker's attack with her weapon." for a
+        /// female player, "The Fomor Ninja parries Tarudrake's attack with her weapon." for a female race-look monster, and
+        /// "with his weapon" for every fixed-model monster ("The Vanguard Defender parries ...", "The Satellite Scythes ...").
+        /// </para>
         /// </summary>
         private static string? FormatFromTable(EventMessage message, int[] numbers, uint casterId, string caster, uint targetId, string target,
             Func<ushort, string?>? resolveSpellName, Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle,
-            ActionResultFlags flags, ActionCatalog? catalog)
+            ActionResultFlags flags, ActionCatalog? catalog, Func<uint, bool?>? entityIsFemale)
         {
             if (message.Segments.Count == 0 || ReadsNumberAbove(message, numbers.Length - 1)) return null;
             var context = new SimpleMessageContext(numbers, string.Empty, string.Empty, EventDialogController.NameResolver)
             {
                 Entities = new MessageEntity?[]
                 {
-                    new MessageEntity(caster, null, entityTakesArticle?.Invoke(casterId) ?? false),
-                    new MessageEntity(target, null, entityTakesArticle?.Invoke(targetId) ?? false),
+                    new MessageEntity(caster, entityIsFemale?.Invoke(casterId) ?? false, entityTakesArticle?.Invoke(casterId) ?? false),
+                    new MessageEntity(target, entityIsFemale?.Invoke(targetId) ?? false, entityTakesArticle?.Invoke(targetId) ?? false),
                 },
                 ModifierText = ModifierText(flags),
                 ActionNames = (code, id) => code switch
@@ -327,12 +336,13 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private static string[]? ActionLinesFromTable(Func<int, EventMessage?>? table, ushort messageId, CombatActionRecord record,
             in CombatActionResult result, uint targetId, string actor, string target, Func<ushort, string?>? resolveSpellName,
-            Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle, ActionResultFlags flags, ActionCatalog? catalog)
+            Func<ushort, string?>? resolveAbilityName, Func<uint, bool>? entityTakesArticle, ActionResultFlags flags, ActionCatalog? catalog,
+            Func<uint, bool?>? entityIsFemale)
         {
             if (table == null || messageId == 0 || table(messageId) is not { } message) return null;
             int[] numbers = { unchecked((int)record.ActionId), result.Param, result.ProcParam, result.ReactionParam };
             string? text = FormatFromTable(message, numbers, record.ActorId, actor, targetId, target, resolveSpellName, resolveAbilityName,
-                entityTakesArticle, flags, catalog);
+                entityTakesArticle, flags, catalog, entityIsFemale);
             return text?.Split('\n');
         }
 
@@ -370,9 +380,10 @@ namespace Gordian.Engine.Ui
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
             Func<int, EventMessage?>? battleMessages = null,
-            ActionCatalog? catalog = null)
+            ActionCatalog? catalog = null,
+            Func<uint, bool?>? entityIsFemale = null)
         {
-            var detailed = FormatActionLines(record, resolveEntityName, resolveSpellName, resolveAbilityName, entityTakesArticle, battleMessages, catalog);
+            var detailed = FormatActionLines(record, resolveEntityName, resolveSpellName, resolveAbilityName, entityTakesArticle, battleMessages, catalog, entityIsFemale);
             var lines = new List<string>(detailed.Count);
             foreach (var line in detailed) lines.Add(line.Text);
             return lines;
@@ -399,7 +410,8 @@ namespace Gordian.Engine.Ui
             Func<ushort, string?>? resolveAbilityName = null,
             Func<uint, bool>? entityTakesArticle = null,
             Func<int, EventMessage?>? battleMessages = null,
-            ActionCatalog? catalog = null)
+            ActionCatalog? catalog = null,
+            Func<uint, bool?>? entityIsFemale = null)
         {
             ArgumentNullException.ThrowIfNull(record);
             ArgumentNullException.ThrowIfNull(resolveEntityName);
@@ -429,7 +441,7 @@ namespace Gordian.Engine.Ui
 
                     // Primary action resolution line(s)
                     var primary = ActionLinesFromTable(table, result.MessageId, record, result, targetId, actor, target,
-                            resolveSpellName, resolveAbilityName, entityTakesArticle, result.Flags, catalog)
+                            resolveSpellName, resolveAbilityName, entityTakesArticle, result.Flags, catalog, entityIsFemale)
                         ?? FormatActionResult(record, actor, target, result, resolveSpellName, resolveAbilityName, catalog).Split('\n');
                     AddAll(primary, record.ActorId, targetId, result.MessageId, result.Resolution, CombatLogLinePart.Primary);
 
@@ -438,7 +450,7 @@ namespace Gordian.Engine.Ui
                     {
                         // On a weapon skill the proc kind is the skillchain, not an additional effect.
                         var proc = ActionLinesFromTable(table, result.ProcMessageId, record, result, targetId, actor, target,
-                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog)
+                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog, entityIsFemale)
                             ?? new[]
                             {
                                 record.Category == ActionCategory.SkillFinish
@@ -454,7 +466,7 @@ namespace Gordian.Engine.Ui
                     if (result.HasReaction)
                     {
                         var react = ActionLinesFromTable(table, result.ReactionMessageId, record, result, targetId, actor, target,
-                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog)
+                                resolveSpellName, resolveAbilityName, entityTakesArticle, ActionResultFlags.None, catalog, entityIsFemale)
                             ?? new[]
                             {
                                 result.ReactionKind == ActionReactKind.Counter

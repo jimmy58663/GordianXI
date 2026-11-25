@@ -15,6 +15,7 @@ namespace Gordian.App.Tests.Services
         [InlineData(Key.F11, KeyModifiers.None, ViewportShortcut.ToggleFullscreen)]
         [InlineData(Key.F10, KeyModifiers.None, ViewportShortcut.CycleTimeOfDay)]
         [InlineData(Key.F10, KeyModifiers.Control, ViewportShortcut.ToggleFog)]
+        [InlineData(Key.F10, KeyModifiers.Control | KeyModifiers.Shift, ViewportShortcut.TogglePositionOverlay)]
         [InlineData(Key.F9, KeyModifiers.None, ViewportShortcut.CycleWeather)]
         [InlineData(Key.F9, KeyModifiers.Control, ViewportShortcut.ToggleOceanWater)]
         [InlineData(Key.F9, KeyModifiers.Control | KeyModifiers.Shift, ViewportShortcut.ToggleZoneBackFaceCulling)]

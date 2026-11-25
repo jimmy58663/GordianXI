@@ -2033,7 +2033,7 @@ namespace Gordian.App.ViewModels
             netManager.RetailClientAddress = ticket.RetailClientAddress;
             if (!string.IsNullOrWhiteSpace(ticket.SearchIp) && ticket.SearchPort > 0)
             {
-                netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort);
+                netManager.Parser.Search.Configure(ticket.SearchIp, ticket.SearchPort, retail: ticket.RetailMapProtocol);
             }
 
             var session = new CharacterSession(

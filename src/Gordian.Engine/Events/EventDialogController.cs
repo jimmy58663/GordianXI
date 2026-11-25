@@ -973,6 +973,13 @@ namespace Gordian.Engine.Events
             if (entity.IsInEvent) return;
             entity.IsInEvent = true;
             _participants.Add(entity);
+            // #583: what each actor is as the event starts (look, motion flags), so a retail log shows how an actor that does
+            // not move differs from LandSandBoat's. One line per actor and event.
+            var look = entity.Appearance;
+            GordianLog.Info(LogCategories.Event, $"Event actor 0x{entity.ServerId:X8} ({entity.Name}): " +
+                (look.ModelId > 0 ? $"fixed model {look.ModelId}" : $"race look 0x{look.FaceModel:X4}") +
+                $", MotStopFlag {(entity.IsMotionStopped ? "set" : "clear")}, status {entity.AnimationState}, sub {entity.AnimationSub}" +
+                $"{(entity.IsHidden ? ", hidden" : string.Empty)}.");
             if (entity.IsHidden && entity.ServerId != (_player?.ServerId ?? 0))
             {
                 entity.IsEventHidden = true;
@@ -1930,6 +1937,10 @@ namespace Gordian.Engine.Events
             // gesture, so it neither stops the one playing nor drops one still waiting for this bank (#459 round 3, the Wivre's
             // hil2). *Inferred from that scene.*
             if (routine.Length == 0) return 0;
+            if (entity.IsMotionStopped)
+            {
+                GordianLog.Info(LogCategories.Event, $"Event gesture {routine} on 0x{serverId:X8} ({entity.Name}) plays through its MotStopFlag (#583).");
+            }
             entity.Animation.EnqueueAction(new ActionRequest
             {
                 ActorId = serverId,

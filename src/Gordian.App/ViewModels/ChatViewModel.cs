@@ -353,7 +353,8 @@ namespace Gordian.App.ViewModels
             }
 
             var lines = CombatLogFormatter.FormatAction(record, ResolveEntityName,
-                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },
+                entityIsFemale: id => session.World.TryGetByServerId(id, out var e) ? Gordian.Engine.Events.MessageEntity.SexOf(e) : null);
             if (lines.Count > 0)
             {
                 DispatchToUi(() =>
@@ -385,7 +386,8 @@ namespace Gordian.App.ViewModels
             }
 
             string line = CombatLogFormatter.FormatBattleMessage(record, ResolveEntityName,
-                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true });
+                entityTakesArticle: id => session.World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },
+                entityIsFemale: id => session.World.TryGetByServerId(id, out var e) ? Gordian.Engine.Events.MessageEntity.SexOf(e) : null);
             if (!string.IsNullOrEmpty(line))
             {
                 DispatchToUi(() =>
