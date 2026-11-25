@@ -109,6 +109,20 @@ namespace Gordian.Core.Network.Search
         /// <summary>The flags as <see cref="SearchFlags"/>.</summary>
         public SearchFlags Flags => (SearchFlags)Flags1;
 
+        /// <summary>
+        /// The code of a field the decoder does not know that the entry carried, or <c>null</c> (#578 round 4: retail writes code
+        /// 0x07 after Level, which LandSandBoat never sends). <see cref="SearchEntityPage.TryReadEntity"/> works out its width
+        /// from the fields after it (<see cref="UnknownFieldWidth"/>) and keeps its value (<see cref="UnknownFieldValue"/>, the
+        /// first 32 bits) for the log, so the fields after it (Race, Rank, Flags1, Id ...) are still read.
+        /// </summary>
+        public byte? UnknownFieldCode { get; init; }
+
+        /// <summary>The width in bits of <see cref="UnknownFieldCode"/>'s value.</summary>
+        public int UnknownFieldWidth { get; init; }
+
+        /// <summary>The value of <see cref="UnknownFieldCode"/> (its first 32 bits).</summary>
+        public uint UnknownFieldValue { get; init; }
+
         /// <summary>True when the player hides their job information (<see cref="SearchFlags.Anonymous"/>).</summary>
         public bool IsAnonymous => (Flags1 & (uint)SearchFlags.Anonymous) != 0;
     }
@@ -645,8 +659,12 @@ namespace Gordian.Core.Network.Search
             uint flags1 = 0, flags2 = 0, id = 0, comment = 0, ls1 = 0, ls2 = 0;
             ushort languages = 0;
             byte lsRank1 = 0, lsRank2 = 0;
+            byte? unknownCode = null;
+            int unknownWidth = 0;
+            uint unknownValue = 0;
             Span<char> chars = stackalloc char[15];
 
+            uint previousCode = NoField;
             // The shortest field is a 5-bit code and a 2-bit value.
             while (reader.BitsLeft >= 7)
             {
@@ -691,24 +709,132 @@ namespace Gordian.Core.Network.Search
                     case SearchFieldType.Comment: ok = Need(ref reader, 32); if (ok) comment = reader.Read(32); break;
                     case SearchFieldType.Flags2: ok = Need(ref reader, 32); if (ok) flags2 = reader.Read(32); break;
                     case SearchFieldType.Language: ok = Need(ref reader, 16); if (ok) languages = (ushort)reader.Read(16); break;
-                    default: ok = false; break;
+                    default:
+                        // A field LandSandBoat does not send (retail's 0x07, #578 round 4): its width is the one after which the
+                        // rest of the entry reads as known fields, so the fields after it are not lost.
+                        int width = unknownCode is null ? ResyncWidth(reader, previousCode) : 0;
+                        ok = width > 0;
+                        if (ok)
+                        {
+                            unknownCode = (byte)type;
+                            unknownWidth = width;
+                            unknownValue = Skip(ref reader, width);
+                        }
+                        break;
                 }
                 if (!ok) break;
+                if (type <= SearchFieldType.Language && FieldOrder((uint)type) >= 0) previousCode = (uint)type;
             }
 
             position += 1 + size;
             entity = new SearchEntity(name, zone, nation, mainJob, subJob, mainLevel, subLevel, race, rank, flags1, flags2, id, comment,
-                languages, lsRank1, lsRank2, ls1, ls2);
+                languages, lsRank1, lsRank2, ls1, ls2)
+            {
+                UnknownFieldCode = unknownCode,
+                UnknownFieldWidth = unknownWidth,
+                UnknownFieldValue = unknownValue,
+            };
             return true;
 
             static bool Need(ref SearchBitReader r, int bits) => r.BitsLeft >= bits;
         }
 
+        /// <summary>No field read yet (<see cref="FieldOrder"/> -1): an unknown first field may be followed by any.</summary>
+        private const uint NoField = 0xFF;
+
+        /// <summary>Bits of a field's value after its 5-bit code: -1 for Name (a 4-bit length, then 7 bits a character), 0 unknown.</summary>
+        private static int FieldWidth(uint code) => code switch
+        {
+            (uint)SearchFieldType.Name => -1,
+            (uint)SearchFieldType.Area => 10,
+            (uint)SearchFieldType.Nation => 2,
+            (uint)SearchFieldType.Job => 10,
+            (uint)SearchFieldType.Level => 16,
+            (uint)SearchFieldType.Race => 4,
+            (uint)SearchFieldType.Rank => 8,
+            (uint)SearchFieldType.Flags1 => 16,
+            (uint)SearchFieldType.Id => 20,
+            (uint)SearchFieldType.LinkshellRank => 24 + 96,
+            (uint)SearchFieldType.Unknown0E or (uint)SearchFieldType.Comment or (uint)SearchFieldType.Flags2 => 32,
+            (uint)SearchFieldType.Language => 16,
+            _ => 0,
+        };
+
+        /// <summary>Skips <paramref name="width"/> bits and returns the first 32 of them.</summary>
+        private static uint Skip(ref SearchBitReader reader, int width)
+        {
+            uint value = reader.Read(Math.Min(width, 32));
+            for (int left = width - 32; left > 0; left -= 32) reader.Read(Math.Min(left, 32));
+            return value;
+        }
+
+        /// <summary>
+        /// Where a field comes in an entry, in the order LandSandBoat's <c>search_list.cpp</c> and <c>linkshell_list.cpp</c> write
+        /// them (Name, Area, Nation, Job, Level, Race, Rank, Flags1, Id, linkshell rank block, Unknown0E, Comment, Flags2,
+        /// Language); retail's entries keep it (#578 round 4 logs). -1 for a code not in it.
+        /// </summary>
+        private static int FieldOrder(uint code) => code switch
+        {
+            (uint)SearchFieldType.Name => 0,
+            (uint)SearchFieldType.Area => 1,
+            (uint)SearchFieldType.Nation => 2,
+            (uint)SearchFieldType.Job => 3,
+            (uint)SearchFieldType.Level => 4,
+            (uint)SearchFieldType.Race => 5,
+            (uint)SearchFieldType.Rank => 6,
+            (uint)SearchFieldType.Flags1 => 7,
+            (uint)SearchFieldType.Id => 8,
+            (uint)SearchFieldType.LinkshellRank => 9,
+            (uint)SearchFieldType.Unknown0E => 10,
+            (uint)SearchFieldType.Comment => 11,
+            (uint)SearchFieldType.Flags2 => 12,
+            (uint)SearchFieldType.Language => 13,
+            _ => -1,
+        };
+
+        /// <summary>
+        /// The width of an unknown field whose code <paramref name="afterCode"/> has just read (1-64 bits, 0 if none fits): the
+        /// smallest after which the rest of the entry is known fields, each once and in <see cref="FieldOrder"/> after
+        /// <paramref name="previousCode"/> (the last field before the unknown one), ending in fewer than 8 zero bits of padding, as
+        /// LandSandBoat's <c>search_list.cpp</c> byte-aligns an entry. A wrong width has to land every code after it on a later
+        /// field and end the entry exactly, which in practice it does not.
+        /// </summary>
+        internal static int ResyncWidth(SearchBitReader afterCode, uint previousCode)
+        {
+            int after = FieldOrder(previousCode);
+            for (int width = 1; width <= 64 && width <= afterCode.BitsLeft; width++)
+            {
+                var r = afterCode;
+                Skip(ref r, width);
+                if (RestIsOrderedFields(r, after)) return width;
+            }
+            return 0;
+        }
+
+        private static bool RestIsOrderedFields(SearchBitReader r, int after)
+        {
+            while (true)
+            {
+                if (r.BitsLeft < 8)
+                {
+                    int left = r.BitsLeft;
+                    return left == 0 || r.Read(left) == 0;
+                }
+                uint code = r.Read(5);
+                int order = FieldOrder(code);
+                if (order <= after) return false;
+                after = order;
+                int width = FieldWidth(code);
+                if (width <= 0 || r.BitsLeft < width) return false;
+                Skip(ref r, width);
+            }
+        }
+
         /// <summary>
         /// The field codes of the entry at <paramref name="position"/> in the order the server wrote them, e.g.
-        /// "00 01 02 03 04 05 10 06 08 0E 16 17", ending with "?xx" and the bits left when a code is not one
-        /// <see cref="TryReadEntity"/> knows (it stops there, so the fields after it are lost). For the log only (#578 round 3:
-        /// retail's entries showed no rank or nation); it never reads names or values.
+        /// "00 01 02 03 04 05 10 06 08 0E 16 17". A code <see cref="TryReadEntity"/> does not know shows as "?07[8 bits = 0x3C]",
+        /// with the width <see cref="ResyncWidth"/> found and its value, or as "?07 (174 bits left)" where no width fits (reading
+        /// stops there). For the log only (#578 rounds 3-4: retail's entries showed no rank); it never reads names.
         /// </summary>
         public string DescribeEntryFields(int position)
         {
@@ -719,33 +845,28 @@ namespace Gordian.Core.Network.Search
 
             var reader = new SearchBitReader(_content.Slice(position + 1, size));
             var codes = new System.Text.StringBuilder();
+            uint previousCode = NoField;
             while (reader.BitsLeft >= 7)
             {
                 uint code = reader.Read(5);
                 if (codes.Length > 0) codes.Append(' ');
-                int width = code switch
-                {
-                    (uint)SearchFieldType.Name => -1,
-                    (uint)SearchFieldType.Area => 10,
-                    (uint)SearchFieldType.Nation => 2,
-                    (uint)SearchFieldType.Job => 10,
-                    (uint)SearchFieldType.Level => 16,
-                    (uint)SearchFieldType.Race => 4,
-                    (uint)SearchFieldType.Rank => 8,
-                    (uint)SearchFieldType.Flags1 => 16,
-                    (uint)SearchFieldType.Id => 20,
-                    (uint)SearchFieldType.LinkshellRank => 24 + 96,
-                    (uint)SearchFieldType.Unknown0E or (uint)SearchFieldType.Comment or (uint)SearchFieldType.Flags2 => 32,
-                    (uint)SearchFieldType.Language => 16,
-                    _ => 0,
-                };
+                int width = FieldWidth(code);
                 if (width == 0)
                 {
-                    codes.Append('?').Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture))
-                        .Append(" (").Append(reader.BitsLeft.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits left)");
-                    break;
+                    int found = ResyncWidth(reader, previousCode);
+                    codes.Append('?').Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+                    if (found == 0)
+                    {
+                        codes.Append(" (").Append(reader.BitsLeft.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits left)");
+                        break;
+                    }
+                    uint value = Skip(ref reader, found);
+                    codes.Append('[').Append(found.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(" bits = 0x")
+                        .Append(value.ToString("X", System.Globalization.CultureInfo.InvariantCulture)).Append(']');
+                    continue;
                 }
                 codes.Append(code.ToString("X2", System.Globalization.CultureInfo.InvariantCulture));
+                previousCode = code;
                 if (width < 0)
                 {
                     if (reader.BitsLeft < 4) break;

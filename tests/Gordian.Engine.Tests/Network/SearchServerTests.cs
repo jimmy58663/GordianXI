@@ -50,7 +50,14 @@ namespace Gordian.Engine.Tests.Network
         }
 
         private static byte[] EntityAnswer(byte type, int total, bool final, bool linkshell, params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl,
-            uint Flags1, uint Id, uint Comment)[] players)
+            uint Flags1, uint Id, uint Comment)[] players) => EntityAnswerWith(type, total, final, linkshell, 0, 0, players);
+
+        /// <summary>
+        /// <see cref="EntityAnswer"/> with retail's field 0x07 (#578 round 4) of <paramref name="width07"/> bits after Level, as
+        /// retail writes it; 0 leaves it out, as LandSandBoat does.
+        /// </summary>
+        private static byte[] EntityAnswerWith(byte type, int total, bool final, bool linkshell, int width07, ulong value07,
+            params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl, uint Flags1, uint Id, uint Comment)[] players)
         {
             var data = new byte[1024];
             var bits = new BitPacker(data, 0x18);
@@ -66,6 +73,7 @@ namespace Gordian.Engine.Tests.Network
                     bits.Put(2, 5); bits.Put(1, 2);                                 // nation
                     bits.Put(3, 5); bits.Put(p.Mjob, 5); bits.Put(p.Sjob, 5);        // job
                     bits.Put(4, 5); bits.Put(p.Mlvl, 8); bits.Put(p.Slvl, 8);        // level
+                    if (width07 > 0) { bits.Put(7, 5); bits.Put(value07, width07); } // retail's unknown field
                     bits.Put(5, 5); bits.Put(3, 4);                                 // race
                     bits.Put(0x10, 5); bits.Put(7, 8);                              // rank
                 }
@@ -413,7 +421,48 @@ namespace Gordian.Engine.Tests.Network
 
             content[SearchEntityPage.EntriesOffset + 1] |= 0xF8; // the first code (the top 5 bits) becomes 0x1F, which no server field uses
             string unknown = new SearchEntityPage(content).DescribeEntryFields(SearchEntityPage.EntriesOffset);
-            Assert.StartsWith("?1F (", unknown);
+            // Round 4: the width is worked out from the fields after it: the name's 4-bit length and 5 characters of 7 bits.
+            Assert.StartsWith("?1F[39 bits = 0x", unknown);
+            Assert.Contains("] 01 02 03 04 05 10 06 08", unknown);
+
+            content[^1] = 0xFF; // the padding no longer zero: no width fits, and the reading stops at the unknown code
+            Assert.StartsWith("?1F (", new SearchEntityPage(content).DescribeEntryFields(SearchEntityPage.EntriesOffset));
+        }
+
+        /// <summary>
+        /// #578 round 4: retail writes field code 0x07 after Level, which LandSandBoat never sends, and the reading used to stop
+        /// there, so Race, Rank, Flags1 and Id were lost. Its width comes from the fields after it, for any width the entry fits.
+        /// </summary>
+        [Theory]
+        [InlineData(4, 0x9UL)]
+        [InlineData(8, 0x3CUL)]
+        [InlineData(16, 0xBEEFUL)]
+        [InlineData(32, 0x12345678UL)]
+        public void SearchEntityPage_ReadsPastAnUnknownField(int width, ulong value)
+        {
+            byte[] content = EntityAnswerWith(0, total: 2, final: true, linkshell: false, width, value,
+                ("Ayame", 230, 3, 4, 75, 37, 0x8010, 0x1234, 0x20), ("Cybin", 100, 1, 2, 10, 5, 0, 0x99, 0));
+            var page = new SearchEntityPage(content);
+            int position = SearchEntityPage.EntriesOffset;
+            Assert.StartsWith($"00 01 02 03 04 ?07[{width} bits = 0x{value:X}] 05 10 06 08", page.DescribeEntryFields(position));
+
+            Assert.True(page.TryReadEntity(ref position, out var first));
+            Assert.Equal((byte?)7, first.UnknownFieldCode);
+            Assert.Equal(width, first.UnknownFieldWidth);
+            Assert.Equal((uint)value, first.UnknownFieldValue);
+            Assert.Equal(1, first.Nation);
+            Assert.Equal(3, first.Race);
+            Assert.Equal(7, first.Rank);
+            Assert.Equal(0x8010u, first.Flags1);
+            Assert.Equal(0x1234u, first.CharacterId);
+            Assert.Equal(0x20u, first.CommentType);
+            Assert.Equal(5, first.Languages);
+
+            Assert.True(page.TryReadEntity(ref position, out var second));
+            Assert.Equal("Cybin", second.Name);
+            Assert.Equal(7, second.Rank);
+            Assert.Equal(0x99u, second.CharacterId);
+            Assert.False(page.TryReadEntity(ref position, out _));
         }
 
         [Fact]

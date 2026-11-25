@@ -300,28 +300,35 @@ namespace Gordian.Core.Network.Search
             return page.IsValid ? page.GetText() : null;
         }
 
+        /// <summary>How many entries of a search have their fields logged at Debug (#578).</summary>
+        private const int LoggedEntries = 3;
+
         private static SearchPlayersResult ReadPlayers(SearchExchange exchange)
         {
             var players = new List<SearchEntity>();
             int total = 0;
-            foreach (byte[] content in exchange.Contents)
+            for (int pageNumber = 0; pageNumber < exchange.Contents.Count; pageNumber++)
             {
-                var page = new SearchEntityPage(content);
+                var page = new SearchEntityPage(exchange.Contents[pageNumber]);
                 if (!page.IsValid) continue;
                 total = page.Header.Total;
                 int position = SearchEntityPage.EntriesOffset;
-                if (players.Count == 0)
+                int onPage = 0;
+                while (true)
                 {
-                    // #578 round 3: retail's rows showed no rank or nation. The first entry's field order shows whether retail
-                    // writes them, and whether a field code the decoder does not know cuts the entry short.
-                    string fields = page.DescribeEntryFields(position);
-                    int start = position;
-                    if (page.TryReadEntity(ref start, out var first))
+                    // #578 rounds 3-4: retail writes a field code LandSandBoat does not (0x07, after Level). The first entries'
+                    // field order, with the width and value worked out for it, and what was read show what it is (no names).
+                    string fields = players.Count < LoggedEntries ? page.DescribeEntryFields(position) : string.Empty;
+                    if (!page.TryReadEntity(ref position, out var player)) break;
+                    onPage++;
+                    if (fields.Length > 0)
                     {
-                        GordianLog.Debug(LogCategories.Search, $"Search entry fields: {fields}; nation {first.Nation}, rank {first.Rank}, flags 0x{first.Flags1:X4}.");
+                        GordianLog.Debug(LogCategories.Search, $"Search entry {players.Count + 1} fields: {fields}; nation {player.Nation}, rank {player.Rank}, " +
+                            $"job {player.MainJob}/{player.SubJob}, level {player.MainLevel}/{player.SubLevel}, race {player.Race}, flags 0x{player.Flags1:X4}, area {player.ZoneId}.");
                     }
+                    players.Add(player);
                 }
-                while (page.TryReadEntity(ref position, out var player)) players.Add(player);
+                GordianLog.Debug(LogCategories.Search, $"Search answer {pageNumber + 1}: {onPage} entries read, {players.Count} so far of {total}.");
             }
             return new SearchPlayersResult(total, players, exchange.Complete);
         }
