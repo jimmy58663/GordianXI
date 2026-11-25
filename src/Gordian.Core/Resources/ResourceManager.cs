@@ -56,6 +56,29 @@ namespace Gordian.Core.Resources
             LazyInitializer.EnsureInitialized(ref _recordsOfEminence, () => new Lazy<Tables.RecordsOfEminenceTables?>(
                 () => Tables.RecordsOfEminenceTables.Load(LoadDatBytes))).Value;
 
+        private Lazy<AutoTranslateCatalog>? _autoTranslate;
+        /// <summary>Installed English dictionary; missing/invalid data yields an explicitly empty catalog.</summary>
+        public AutoTranslateCatalog AutoTranslate => LazyInitializer.EnsureInitialized(ref _autoTranslate,
+            () => new Lazy<AutoTranslateCatalog>(() =>
+            {
+                var bytes = LoadDatBytes(Path.Combine("ROM", "168", "25.DAT"));
+                if (bytes == null) return AutoTranslateCatalog.Empty;
+                try { return AutoTranslateCatalog.Parse(bytes, ResolveAutoTranslate); }
+                catch (InvalidDataException) { GordianLog.Warn(LogCategories.Res, "Auto-translate dictionary is invalid."); return AutoTranslateCatalog.Empty; }
+            })).Value;
+
+        // Reference kinds and hexadecimal indices: Windower/ResourceExtractor linked-name schema.
+        private string? ResolveAutoTranslate(char kind, int id)
+        {
+            var category = kind switch
+            {
+                'J' => DMsgCategory.Jobs, 'A' => DMsgCategory.ZoneNames,
+                'C' => DMsgCategory.Spells, 'Y' => DMsgCategory.Abilities,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind))
+            };
+            return TryGetString(category, id, out string value) ? value : null;
+        }
+
         public ResourceManager(string gameDirectory)
             : this(gameDirectory, null, null)
         {

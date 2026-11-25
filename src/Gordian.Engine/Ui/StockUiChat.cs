@@ -22,7 +22,7 @@ namespace Gordian.Engine.Ui
     {
         public StockUiChat()
         {
-            Input.Submitted += (line, mode) => _ = SubmitAsync(line, mode);
+            Input.RichSubmitted += (line, mode) => _ = SubmitAsync(line, mode);
             Input.ScrollRequested += (window, amount, pages) => Log.Scroll(window, pages ? amount * Math.Max(1, PageSize(window) - 1) : amount);
             Input.OpenChanged += open =>
             {
@@ -32,6 +32,9 @@ namespace Gordian.Engine.Ui
 
         public StockUiChatLog Log { get; } = new();
         public StockUiChatInput Input { get; } = new();
+
+        // Separate from TellTarget: outgoing tells and chatmode must not redirect Reply.
+        private string _lastReceivedTell = string.Empty;
 
         /// <summary>Your character's name, for the echo of your own lines.</summary>
         public Func<string> CharacterName { get; set; } = () => string.Empty;
@@ -47,10 +50,67 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Runs a typed line: the session's command dispatcher, with the chat mode's channel as the default.</summary>
         public Func<string, ChatSendKind, Task<PlayerActionResult>>? Execute { get; set; }
+        public Func<ChatCommandResult, ChatText, Task<PlayerActionResult>>? ExecuteRich { get; set; }
+
+        /// <summary>Resolves a canonical leading command phrase; preserves all chat-body identities.</summary>
+        public async Task SubmitAsync(ChatText line, ChatInputMode mode)
+        {
+            if (line.Phrases.Count == 0) { await SubmitAsync(line.Text, mode).ConfigureAwait(false); return; }
+            string trimmed = line.Text.Trim();
+            int start = line.Text.Length - line.Text.TrimStart().Length;
+            var rich = line.Slice(start, trimmed.Length);
+            // Only a complete leading verb whose identity resolves to this exact local dictionary
+            // label is syntax. Never strip braces/Unicode or flatten body/recipient/action arguments.
+            if (rich.Phrases.Count > 0 && rich.Phrases[0] is { Start: 0 } first
+                && Input.Catalog.Resolve(first.Key) is { } canonical
+                && canonical.Length == first.Length && canonical.StartsWith('/')
+                && !System.Linq.Enumerable.Any(canonical, char.IsWhiteSpace)
+                && rich.Text.StartsWith(canonical, StringComparison.Ordinal)
+                && (rich.Text.Length == first.Length || char.IsWhiteSpace(rich.Text[first.Length])))
+            {
+                await SubmitAsync(new ChatText(rich.Text, System.Linq.Enumerable.Skip(rich.Phrases, 1)), mode).ConfigureAwait(false);
+                return;
+            }
+            bool command = (trimmed.StartsWith('/') || trimmed.StartsWith('!'))
+                && !System.Linq.Enumerable.Any(rich.Phrases, p => p.Start == 0);
+            bool defaultTell = !command && mode == ChatInputMode.Tell;
+            if (defaultTell)
+            {
+                if (string.IsNullOrEmpty(Input.TellTarget)) { Log.Add(ChatLogChannel.Error, "No one to send a tell to."); return; }
+                string prefix = $"/tell {Input.TellTarget} ";
+                rich = new ChatText(prefix + rich.Text, System.Linq.Enumerable.Select(rich.Phrases, p => p with { Start = p.Start + prefix.Length }));
+            }
+            var parsed = command || defaultTell ? ChatCommandRouter.Parse(rich.Text, SendKindOf(mode))
+                : new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = SendKindOf(mode), Message = rich.Text };
+            if (parsed.Kind is not (ChatCommandResultKind.SendChat or ChatCommandResultKind.SendTell or ChatCommandResultKind.LocalEcho)
+                || !rich.Text.EndsWith(parsed.Message, StringComparison.Ordinal))
+            { Log.Add(ChatLogChannel.Error, "Auto-translate phrases are supported in chat message bodies only."); return; }
+            var body = rich.Slice(rich.Text.Length - parsed.Message.Length, parsed.Message.Length);
+            if (body.Phrases.Count != line.Phrases.Count)
+            { Log.Add(ChatLogChannel.Error, "A phrase cannot be used as a command or recipient."); return; }
+            try
+            {
+                if (ExpandTokens is { } expand) body = body.TransformPlain(expand);
+                // Check after expansion, before any send; no marker or multibyte text is truncated.
+                body.Encode(new byte[128]);
+                if (parsed.Kind == ChatCommandResultKind.LocalEcho) { Log.Add(ChatLogChannel.Echo, body.Display); return; }
+                if (ExecuteRich == null) { Log.Add(ChatLogChannel.Error, "Auto-translate sending is unavailable."); return; }
+                var result = await ExecuteRich(parsed, body).ConfigureAwait(false);
+                if (!result.Success) { Log.Add(ChatLogChannel.Error, result.Message); return; }
+                if (parsed.Kind == ChatCommandResultKind.SendTell)
+                { Input.TellTarget = parsed.Recipient; Log.Add(ChatLogChannel.Tell, $">>{parsed.Recipient} : {body.Display}"); }
+                else Log.Add(ChannelOf(parsed.SpeechKind), FormatOutgoing(parsed.SpeechKind, CharacterName(), body.Display));
+                if (!command && mode == ChatInputMode.Shout) Input.SetMode(ChatInputMode.Say);
+            }
+            catch (Exception ex) when (ex is ArgumentException or System.Text.EncoderFallbackException)
+            { Log.Add(ChatLogChannel.Error, "Chat cannot be encoded within the 127-byte content limit."); }
+            catch (Exception ex)
+            { GordianLog.Error(LogCategories.ChatUi, "Auto-translate send failed.", ex); Log.Add(ChatLogChannel.Error, "Could not send chat."); }
+        }
 
         /// <summary>
         /// Opens the input line for a key pressed in gameplay, returning true when it did (the key is then the
-        /// line's, not the character's): Enter outside a menu (retail), or a key the profile binds to
+        /// line's, not the character's): Enter/Space outside a menu or Confirm context, or a key the profile binds to
         /// <see cref="InputAction.OpenChat"/> (the slash key, and Space in the Full layout). The character the chat
         /// key types (<paramref name="keySymbol"/>, the slash) starts the new line; Space's is not typed.
         /// With <paramref name="confirmTaken"/> (a target is selected, or an event dialog runs) Enter is the Confirm
@@ -60,7 +120,28 @@ namespace Gordian.Engine.Ui
             bool confirmTaken = false)
         {
             if (Input.IsOpen) return false;
-            bool open = !menuOpen && !confirmTaken && modifiers == InputModifiers.None && key is GordianKey.Enter or GordianKey.NumPadEnter;
+            if (profile != null && profile.TryGetAction(new InputChord(key, modifiers), out var shortcut)
+                && shortcut is InputAction.OpenPartyChat or InputAction.OpenSayChat or InputAction.OpenLinkshellChat or InputAction.OpenTellChat or InputAction.ReplyToTell)
+            {
+                Input.SetMode(shortcut switch
+                {
+                    InputAction.OpenPartyChat => ChatInputMode.Party,
+                    InputAction.OpenLinkshellChat => ChatInputMode.Linkshell,
+                    InputAction.OpenTellChat or InputAction.ReplyToTell => ChatInputMode.Tell,
+                    _ => ChatInputMode.Say,
+                });
+                Input.Open();
+                if (shortcut == InputAction.OpenTellChat) Input.InsertText("/tell ");
+                if (shortcut == InputAction.ReplyToTell)
+                    Input.InsertText(_lastReceivedTell.Length == 0 ? "/tell " : $"/tell {_lastReceivedTell} ");
+                return true;
+            }
+            bool explicitChat = profile?.KeyboardLayout is { Supported: true } keyboard
+                && (keyboard.Overrides.ContainsKey(nameof(InputAction.OpenChat))
+                    || (profile.TryGetAction(new InputChord(key, modifiers), out var custom)
+                        && keyboard.Overrides.ContainsKey(custom.ToString())));
+            bool open = !explicitChat && !menuOpen && !confirmTaken && modifiers == InputModifiers.None
+                && key is GordianKey.Enter or GordianKey.NumPadEnter or GordianKey.Space;
             if (!open && profile != null)
             {
                 var chord = new InputChord(key, modifiers);
@@ -80,6 +161,30 @@ namespace Gordian.Engine.Ui
             {
                 Input.InsertKeySymbol(keySymbol!);
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Opens Full-size chat for an ordinary typing key, without synthesizing its character. The caller must
+        /// leave the press unhandled for platform TextInput (layout, Shift and Caps Lock) and keep it out of gameplay.
+        /// Misc. 2 Keyboard Size includes its displayed Full default; absence is not a different mode.
+        /// This reads the character's live settings, including restored values, rather than caching the dashboard name.
+        /// </summary>
+        public bool TryOpenForTyping(GordianKey key, InputModifiers modifiers, InputProfile? profile)
+        {
+            if (Input.IsOpen || (modifiers & ~InputModifiers.Shift) != 0) return false;
+            // Full-size reserves the numeric keypad, navigation, function keys and modifier shortcuts for gameplay.
+            if (key is not (>= GordianKey.A and <= GordianKey.Z or >= GordianKey.D0 and <= GordianKey.D9
+                or >= GordianKey.OemTilde and <= GordianKey.OemSlash)) return false;
+            var settings = Settings();
+            bool full = settings != null
+                ? settings.GetValue(StockUiSettingKey.KeyboardSize) == 0
+                : profile?.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) == true;
+            if (!full) return false;
+            if (profile?.KeyboardLayout is { Supported: true } layout
+                && profile.TryGetAction(new InputChord(key, modifiers), out var action)
+                && layout.Overrides.ContainsKey(action.ToString())) return false;
+            Input.Open();
             return true;
         }
 
@@ -343,7 +448,8 @@ namespace Gordian.Engine.Ui
         {
             var channel = ChannelOf(msg.Type);
             if (IsClientFiltered(channel, ClientChatFilters())) return;
-            if (channel == ChatLogChannel.Tell && !string.IsNullOrEmpty(msg.Sender)) Input.TellTarget = msg.Sender;
+            if (channel == ChatLogChannel.Tell && !string.IsNullOrEmpty(msg.Sender))
+                Input.TellTarget = _lastReceivedTell = msg.Sender;
 
             IReadOnlyList<string>? lines = null;
             if (msg.Formatted is { } reference)

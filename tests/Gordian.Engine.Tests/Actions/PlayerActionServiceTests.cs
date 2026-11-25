@@ -77,6 +77,29 @@ namespace Gordian.Engine.Tests.Actions
             });
         }
 
+        [Theory]
+        [InlineData("/shutdown", false, 0, 3)]
+        [InlineData("/shutdown on", false, 3, 3)]
+        [InlineData("/shutdown off", false, 2, 3)]
+        [InlineData("/logout", false, 0, 1)]
+        [InlineData("/shutdown", true, 0, 3)]
+        [InlineData("/shutdown on", true, 3, 3)]
+        [InlineData("/shutdown off", true, 2, 3)]
+        [InlineData("/logout", true, 0, 1)]
+        public async Task StockChatShutdownUsesRealDispatcherAndLifecycleWithoutNetwork(string line, bool phrase, byte mode, byte kind)
+        {
+            var chat = new StockUiChat { Execute = (text, channel) => _actionService.ExecuteCommandAsync(text, channel) };
+            string verb = line.Split(' ')[0];
+            chat.Input.Catalog = Gordian.Engine.Tests.Ui.PhraseCommandTests.Catalog(verb);
+            var rich = phrase ? new ChatText(line, [new(0, verb.Length, Gordian.Engine.Tests.Ui.PhraseCommandTests.Key())]) : new ChatText(line);
+            await chat.SubmitAsync(rich, ChatInputMode.Say);
+            Assert.Equal(new byte[] { 0xE7, 4, 0, 0, mode, 0, kind, 0 }, Assert.Single(_sentChunks));
+            Assert.Equal(mode == 2 ? (ReqLogoutKind?)null : (ReqLogoutKind)kind, _lifecycleModule.PendingLogoutKind);
+            var rows = new List<ChatLogLine>(); chat.Log.CopyTab(StockUiLogTab.Window1, 0, 10, rows);
+            Assert.Contains(rows, r => r.Text == (kind == 3 ? "Shutdown requested." : "Logout requested."));
+            Assert.False(_actionService.Menus.IsOpen); // Slash commands do not use the menu confirmation dialog.
+        }
+
         [Fact]
         public async Task ExecuteCommand_Pos_ReturnsFormattedCoordinates()
         {

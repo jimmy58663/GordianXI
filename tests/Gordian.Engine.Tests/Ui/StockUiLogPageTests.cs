@@ -133,6 +133,12 @@ namespace Gordian.Engine.Tests.Ui
         {
             var menus = Controller();
             menus.Settings.SetValue(StockUiSettingKey.LogWindow2Types, 0);
+            var reset = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            menus.Settings.Changed += (key, value) =>
+            {
+                if (key == StockUiSettingKey.LogWindow2Types && value == (int)StockUiChatLog.DefaultWindow2Types)
+                    reset.TrySetResult();
+            };
             Assert.True(menus.Open(StockUiConfigPages.LogWindowMenu));
             menus.Move(InputAction.MenuUp);                     // Default
             Assert.Equal(StockUiConfigPages.LogDefaultButton, menus.Top!.SelectedButtonId);
@@ -140,7 +146,7 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(StockUiMenuEntries.YesNoMenu, menus.Top!.Name);
             menus.Move(InputAction.MenuUp);                     // Yes
             menus.Activate();
-            await Task.Delay(50, TestContext.Current.CancellationToken);
+            await reset.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
             Assert.Equal((int)StockUiChatLog.DefaultWindow2Types, menus.Settings.GetValue(StockUiSettingKey.LogWindow2Types));
         }
 

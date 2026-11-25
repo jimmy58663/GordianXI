@@ -26,6 +26,12 @@ namespace Gordian.Engine.Input
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
 
+        [JsonPropertyName("keyboardLayout")]
+        public KeyboardLayout? KeyboardLayout { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
         [JsonPropertyName("name")]
         public string Name { get; set; } = "Custom";
 
@@ -79,6 +85,7 @@ namespace Gordian.Engine.Input
                 {
                     bool known = Enum.TryParse<InputAction>(name, ignoreCase: true, out var action) && Enum.IsDefined(action);
                     var chords = known ? new List<InputChord>() : null;
+                    if (!known) _unreadBindings[name] = new List<string>();
                     foreach (string chordName in chordNames ?? new List<string>())
                     {
                         if (chords != null && InputChord.TryParse(chordName, out var chord))
@@ -230,19 +237,26 @@ namespace Gordian.Engine.Input
         public bool TryGetAction(InputChord chord, bool menuContext, out InputAction action)
         {
             InputAction fallback = InputAction.None;
+            InputAction best = InputAction.None;
+            bool orderedKeyboard = KeyboardLayout is { Supported: true } && global::Gordian.Engine.Input.KeyboardLayout.IsKeyboard(chord);
             foreach (var kvp in Bindings)
             {
                 if (!kvp.Value.Contains(chord)) continue;
                 bool isMenu = IsMenuNavigationAction(kvp.Key);
                 if (isMenu == menuContext)
                 {
+                    if (orderedKeyboard)
+                    {
+                        if (best == InputAction.None || kvp.Key < best) best = kvp.Key;
+                        continue;
+                    }
                     action = kvp.Key;
                     return true;
                 }
-                if (!isMenu && fallback == InputAction.None) fallback = kvp.Key;
+                if (!isMenu && (fallback == InputAction.None || (orderedKeyboard && kvp.Key < fallback))) fallback = kvp.Key;
             }
-            action = fallback;
-            return fallback != InputAction.None;
+            action = best != InputAction.None ? best : fallback;
+            return action != InputAction.None;
         }
 
         /// <summary>True for the actions that move the cursor of an open stock menu.</summary>
@@ -366,8 +380,8 @@ namespace Gordian.Engine.Input
         /// <summary>The d-pad's default functions, per context: menu cursor in menus, targeting otherwise.</summary>
         private static readonly (GamepadButton Button, InputAction Menu, InputAction Game)[] DPadDefaults =
         {
-            (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetParty1),
-            (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetParty2),
+            (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetPartyUp),
+            (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetPartyDown),
             (GamepadButton.DPadLeft, InputAction.MenuLeft, InputAction.TargetCursorLeft),
             (GamepadButton.DPadRight, InputAction.MenuRight, InputAction.TargetCursorRight),
         };
@@ -382,10 +396,30 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Gives back a d-pad direction its default function in a context where that direction drives nothing (a
-        /// profile reset with the round-1 / round-2 gamepad reset lost the menu ones). A direction the user gave
-        /// another function in that context keeps it.
+        /// Corrects the old default vertical d-pad pair once. Explicit custom/fixed-slot chords stay intact;
+        /// presence of either cycling action (including an empty entry) marks a corrected profile.
         /// </summary>
+        public void EnsurePartyCycleBindings()
+        {
+            if (Bindings.ContainsKey(InputAction.TargetPartyUp) || Bindings.ContainsKey(InputAction.TargetPartyDown)) return;
+            // Correct only the old paired defaults, not arbitrary fixed-slot/custom bindings.
+            foreach (var (button, menu, old, cycle) in new[]
+            {
+                (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetParty1, InputAction.TargetPartyUp),
+                (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetParty2, InputAction.TargetPartyDown),
+            })
+            {
+                var chord = new InputChord(button);
+                if (!GetChords(menu).Contains(chord) || !GetChords(old).Contains(chord)) continue;
+                if (Bindings.Any(pair => pair.Key != old && !IsMenuNavigationAction(pair.Key) && pair.Value.Contains(chord))) continue;
+                Unbind(old, chord);
+                Bind(cycle, chord);
+            }
+            if (!Bindings.ContainsKey(InputAction.TargetPartyUp)) Bindings[InputAction.TargetPartyUp] = new List<InputChord>();
+            if (!Bindings.ContainsKey(InputAction.TargetPartyDown)) Bindings[InputAction.TargetPartyDown] = new List<InputChord>();
+        }
+
+        /// <summary>Restores missing menu/game contexts without replacing a custom binding.</summary>
         public void EnsureDPadBindings()
         {
             foreach (var (button, menu, game) in DPadDefaults)
@@ -519,6 +553,15 @@ namespace Gordian.Engine.Input
         }
 
         #region Standard FFXI Factory Presets
+
+        /// <summary>New storage uses explicit catalog provenance. Existing files remain frozen.</summary>
+        public static InputProfile CreateDefault()
+        {
+            var p = new InputProfile("Full (layered)", "Keyboard catalog v1; shared overrides, per-character layout.");
+            p.KeyboardLayout = new KeyboardLayout { Mode = KeyboardMode.Full };
+            BindDefaultGamepadButtons(p);
+            return p;
+        }
 
         /// <summary>
         /// Creates the standard FFXI Compact keyboard profile (WASD locomotion, Q/E strafe, IJKL camera).
@@ -805,6 +848,9 @@ namespace Gordian.Engine.Input
             ArgumentNullException.ThrowIfNull(json);
             var profile = JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
+            // Legacy files have no keyboard provenance: even missing actions may be intentional.
+            // Retain existing controller compatibility without inventing or migrating keyboard keys.
+            var keyboard = profile.Bindings.ToDictionary(p => p.Key, p => p.Value.Where(c => c.Key != GordianKey.None && !c.IsMouseChord && !c.IsGamepadChord).ToList());
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
             profile.EnsureKeypadMinusMenuBinding();
@@ -813,10 +859,13 @@ namespace Gordian.Engine.Input
             profile.EnsureGamepadShortcutBindings();
             profile.EnsureGamepadRetailBindings();
             profile.EnsureGamepadStickBindings();
+            profile.EnsurePartyCycleBindings();
             profile.EnsureDPadBindings();
             profile.EnsureNoHiddenGamepadBindings();
-            profile.EnsureRetailCompactKeys();
-            profile.EnsureCompactStickKeys();
+            foreach (var chords in profile.Bindings.Values)
+                chords.RemoveAll(c => c.Key != GordianKey.None && !c.IsMouseChord && !c.IsGamepadChord);
+            foreach (var (action, chords) in keyboard)
+                foreach (var chord in chords) profile.Bind(action, chord);
             return profile;
         }
 
@@ -872,7 +921,7 @@ namespace Gordian.Engine.Input
                 }
             }
 
-            var defaultProfile = CreateCompact();
+            var defaultProfile = CreateDefault();
             try
             {
                 defaultProfile.SaveToFile(filePath);

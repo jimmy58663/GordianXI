@@ -65,7 +65,11 @@ namespace Gordian.App.ViewModels
         private void OnHubChanged(object? source)
         {
             if (ReferenceEquals(source, this)) return;
-            if (!ReferenceEquals(_hub.Profile, _activeProfile)) return;
+            if (!ReferenceEquals(_hub.Profile, _activeProfile))
+            {
+                _activeProfile = _hub.Profile;
+                _originalLegacyJson = _activeProfile.KeyboardLayout == null ? _activeProfile.SaveToJson() : null;
+            }
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
             AutoSave();
@@ -509,6 +513,20 @@ namespace Gordian.App.ViewModels
             }
         }
 
+        public ICommand ConvertKeyboardCommand { get; }
+        public ICommand ConfirmKeyboardChangeCommand { get; }
+        public ICommand CancelKeyboardChangeCommand { get; }
+        public ICommand LoadCompact1PresetCommand { get; }
+        private string? _pendingKeyboardSnapshot;
+        private KeyboardMode _pendingKeyboardMode;
+        private bool _pendingConversion;
+        private string? _originalLegacyJson;
+        private bool _keyboardChangePending;
+        public bool KeyboardChangePending { get => _keyboardChangePending; private set => SetProperty(ref _keyboardChangePending, value); }
+        private KeyboardMode SelectedKeyboardMode => _currentSession != null
+            ? (KeyboardMode)_currentSession.ActionService.UiSettings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize)
+            : _activeProfile.KeyboardLayout?.Mode ?? KeyboardMode.Full;
+
         public ICommand LoadCompactPresetCommand { get; }
         public ICommand LoadFullNumpadPresetCommand { get; }
         public ICommand LoadGamepadPresetCommand { get; }
@@ -530,14 +548,19 @@ namespace Gordian.App.ViewModels
                 catch (Exception ex)
                 {
                     GordianLog.Warn(LogCategories.Input, $"Failed to load input profile from '{_profilePath}': {ex.Message}");
-                    _activeProfile = InputProfile.CreateCompact();
+                    _activeProfile = InputProfile.CreateDefault();
                 }
             }
             else
             {
-                _activeProfile = InputProfile.CreateCompact();
+                _activeProfile = InputProfile.CreateDefault();
             }
 
+            if (File.Exists(_profilePath) && _activeProfile.KeyboardLayout == null) _originalLegacyJson = File.ReadAllText(_profilePath);
+            ConvertKeyboardCommand = new RelayCommand(() => RequestKeyboardChange(true));
+            ConfirmKeyboardChangeCommand = new RelayCommand(ConfirmKeyboardChange);
+            CancelKeyboardChangeCommand = new RelayCommand(() => { KeyboardChangePending = false; _pendingKeyboardSnapshot = null; StatusMessage = "Keyboard change cancelled; nothing changed."; });
+            LoadCompact1PresetCommand = new RelayCommand(() => SelectKeyboardMode(KeyboardMode.Compact1));
             LoadCompactPresetCommand = new RelayCommand(LoadCompactPreset);
             LoadFullNumpadPresetCommand = new RelayCommand(LoadFullNumpadPreset);
             LoadGamepadPresetCommand = new RelayCommand(LoadGamepadPreset);
@@ -557,31 +580,34 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public void SetSession(CharacterSession? session)
         {
+            if (_currentSession != null) _currentSession.ActionService.UiSettings.Changed -= OnCharacterKeyboardChanged;
             _currentSession = session;
+            if (_currentSession != null) _currentSession.ActionService.UiSettings.Changed += OnCharacterKeyboardChanged;
+            PopulateBindingsTable();
         }
 
-        public void LoadCompactPreset()
+        private void OnCharacterKeyboardChanged(Gordian.Engine.Ui.StockUiSettingKey key, int value)
         {
-            // Only replaces keyboard/mouse bindings; current gamepad bindings and settings
-            // (default or user-customized) are left exactly as they are.
-            _activeProfile.ReplaceKeyboardBindings(InputProfile.CreateCompact());
-            ActivePresetName = _activeProfile.Name;
-            NotifyProfilePropertiesChanged();
-            PopulateBindingsTable();
-            Commit();
-            StatusMessage = "Loaded standard FFXI Compact (WASD) keyboard preset.";
+            if (key == Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize) PopulateBindingsTable();
         }
 
-        public void LoadFullNumpadPreset()
+        public void LoadCompactPreset() => SelectKeyboardMode(KeyboardMode.Compact2);
+
+        public void LoadFullNumpadPreset() => SelectKeyboardMode(KeyboardMode.Full);
+
+        private void SelectKeyboardMode(KeyboardMode mode)
         {
-            // Only replaces keyboard/mouse bindings; current gamepad bindings and settings
-            // (default or user-customized) are left exactly as they are.
-            _activeProfile.ReplaceKeyboardBindings(InputProfile.CreateFullNumpad());
-            ActivePresetName = _activeProfile.Name;
-            NotifyProfilePropertiesChanged();
+            if (_activeProfile.KeyboardLayout is not { Supported: true } layout)
+            {
+                StatusMessage = "Frozen legacy (or newer catalog) keyboard: choosing a mode does not replace bindings. Convert legacy first; then explicitly restore defaults if desired.";
+                return;
+            }
+            if (_currentSession != null)
+                _currentSession.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, (int)mode);
+            else layout.Mode = mode;
             PopulateBindingsTable();
             Commit();
-            StatusMessage = "Loaded standard FFXI Full (Numpad) keyboard preset.";
+            StatusMessage = $"Keyboard {mode}: inherited defaults selected; explicit overrides retained. Compact 1 is a partial fallback, not verified retail parity.";
         }
 
         public void LoadGamepadPreset()
@@ -595,9 +621,38 @@ namespace Gordian.App.ViewModels
             StatusMessage = "Reset gamepad button mappings to defaults. Keyboard bindings were not changed.";
         }
 
-        public void ResetToDefaults()
+        public void ResetToDefaults() => RequestKeyboardChange(false);
+
+        private void RequestKeyboardChange(bool convert)
         {
-            LoadCompactPreset();
+            if (convert ? _activeProfile.KeyboardLayout != null : _activeProfile.KeyboardLayout is not { Supported: true })
+            {
+                StatusMessage = convert ? "Only frozen legacy keyboards can be converted." : "Convert the legacy keyboard before restoring defaults. Newer catalogs require a compatible build.";
+                return;
+            }
+            _pendingConversion = convert;
+            _pendingKeyboardMode = SelectedKeyboardMode;
+            _pendingKeyboardSnapshot = _activeProfile.SaveToJson();
+            KeyboardChangePending = true;
+            StatusMessage = convert
+                ? "Convert legacy keyboard? Every current key and missing/unbound action stays explicit; changing layouts will NOT replace these overrides. Original JSON is archived. After conversion, Restore selected defaults separately opts into inheritance. Controller, mouse and camera stay unchanged. Confirm or Cancel."
+                : $"Restore {_pendingKeyboardMode} keyboard defaults? Removes all known keyboard overrides shared by ALL characters; each character keeps its selected layout. Unknown future entries and original archive stay. Controller, mouse, sensitivity and camera are NOT reset. Compact 1 remains partial. Confirm or Cancel.";
+        }
+
+        private void ConfirmKeyboardChange()
+        {
+            if (!KeyboardChangePending) return;
+            KeyboardChangePending = false;
+            if (_pendingKeyboardSnapshot != _activeProfile.SaveToJson() || _pendingKeyboardMode != SelectedKeyboardMode)
+            {
+                StatusMessage = "Profile or selected layout changed; review again before confirming.";
+                return;
+            }
+            if (_pendingConversion) KeyboardLayout.ConvertLegacy(_activeProfile, _pendingKeyboardMode, _originalLegacyJson);
+            else KeyboardAssignments.ResetDefaults(_activeProfile);
+            Commit();
+            PopulateBindingsTable();
+            StatusMessage = _pendingConversion ? "Converted without changing keys. Restore selected defaults explicitly to enable inherited layout keys." : "Selected keyboard defaults restored; non-keyboard settings and original archive retained.";
         }
 
         public void SaveProfile()
@@ -724,6 +779,9 @@ namespace Gordian.App.ViewModels
 
         private void PopulateBindingsTable()
         {
+            _displayProfile = KeyboardLayout.Resolve(_activeProfile, SelectedKeyboardMode);
+            ActivePresetName = _activeProfile.KeyboardLayout == null ? "Frozen legacy keyboard"
+                : $"{SelectedKeyboardMode} (catalog {_activeProfile.KeyboardLayout.Revision})";
             Bindings.Clear();
 
             // Locomotion
@@ -766,6 +824,10 @@ namespace Gordian.App.ViewModels
             AddBindingRow(InputAction.TargetParty5, "Targeting", "Target Party Member 6");
             AddBindingRow(InputAction.OpenMenu, "Interface", "Open Main Menu");
             AddBindingRow(InputAction.OpenChat, "Interface", "Focus Chat Prompt");
+            AddBindingRow(InputAction.OpenPartyChat, "Chat", "Party draft");
+            AddBindingRow(InputAction.OpenSayChat, "Chat", "Say draft");
+            AddBindingRow(InputAction.OpenLinkshellChat, "Chat", "Linkshell draft");
+            AddBindingRow(InputAction.OpenTellChat, "Chat", "Tell draft");
             AddBindingRow(InputAction.CycleLogWindow, "Interface", "Select Log Window");
             AddBindingRow(InputAction.CycleCharacter, "Interface", "Next Character (multi-box, like Ctrl+Tab)");
             AddBindingRow(InputAction.Logout, "Interface", "Log Out (/logout)");
@@ -781,9 +843,11 @@ namespace Gordian.App.ViewModels
 
         private void AddBindingRow(InputAction action, string category, string displayName)
         {
-            var chords = _activeProfile.GetChords(action);
+            var chords = (_displayProfile ?? _activeProfile).GetChords(action);
             Bindings.Add(new InputBindingItemViewModel(action, category, displayName, chords));
         }
+
+        private InputProfile? _displayProfile;
 
         private static string GetCardinal(float deg)
         {

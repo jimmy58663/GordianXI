@@ -8,6 +8,16 @@ namespace Gordian.App.Tests.Services
 {
     public sealed class AvaloniaInputMapperTests
     {
+        [Theory]
+        [InlineData(Key.Scroll, "ScrollLock")]
+        [InlineData(Key.PrintScreen, "PrintScreen")]
+        [InlineData(Key.Print, "PrintScreen")]
+        [InlineData(Key.Pause, "Pause")]
+        public void DisplayAndLogoutKeysHaveEngineIdentity(Key key, string expected)
+        {
+            Assert.Equal(expected, AvaloniaInputMapper.ToGordianKey(key).ToString());
+        }
+
         [Fact]
         public void ToGordianKey_MapsAlphabetAndDigitsCorrectly()
         {

@@ -1175,13 +1175,13 @@ namespace Gordian.Engine.Tests.Input
         }
 
         [Fact]
-        public void FromJson_ProfileWithoutLockOnKeys_GetsTheDefaults()
+        public void FromJson_ProfileWithoutLockOnKeys_RemainsUnbound()
         {
             var p = InputProfile.CreateCompact();
             p.Bindings.Remove(InputAction.ToggleLockOn);
             var loaded = InputProfile.FromJson(p.SaveToJson());
-            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.T), out var a) && a == InputAction.ToggleLockOn);
-            Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadMultiply), out var b) && b == InputAction.ToggleLockOn);
+            Assert.False(loaded.TryGetAction(new InputChord(GordianKey.T), out _));
+            Assert.False(loaded.TryGetAction(new InputChord(GordianKey.NumPadMultiply), out _));
         }
 
         [Fact]

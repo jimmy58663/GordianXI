@@ -532,18 +532,29 @@ namespace Gordian.Engine.Tests.Ui
             Assert.False(await unavailable);
         }
 
-        [Fact]
-        public async Task LogOut_AsksFirst_ThenRequestsLogout()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task LogOut_AsksFirst_ThenRequestsLogout(bool shutdown)
         {
             var menus = Controller();
+            // Include the shutdown row, absent from the older minimal fixture.
+            menus.Library = UiResourceLibrary.FromDefinitions(new[]
+            {
+                List(StockUiMenuEntries.MainMenu, 384, 48, UiAnchor.TopRight, 1, 2, 3),
+                List(StockUiMenuEntries.MainMenuPage2, 384, 48, UiAnchor.TopRight, 1, 11, 12),
+                List(StockUiMenuEntries.MessageYesNoMenu, 130, 208, UiAnchor.BottomLeft, 1, 2),
+                List(StockUiMenuEntries.YesNoMenu, 16, 256, UiAnchor.BottomLeft, 1, 2),
+            });
             var requests = new List<bool>();
             menus.LogoutRequested = shutdown => { requests.Add(shutdown); return Task.CompletedTask; };
             menus.OpenMainMenu();
             menus.Move(InputAction.MenuRight);
             menus.Move(InputAction.MenuUp);    // 12 = Log Out
+            if (shutdown) menus.Move(InputAction.MenuUp); // 11 = Shut Down
             menus.Activate();
             Assert.True(menus.Top!.IsPrompt);
-            Assert.Equal("Log out?", menus.Top.Message);
+            Assert.Equal(shutdown ? "Shut down?" : "Log out?", menus.Top.Message);
             Assert.Equal(2, menus.Top.SelectedButtonId); // defaults to No
             Assert.Equal(2, menus.OpenMenus.Count);
 
@@ -557,7 +568,7 @@ namespace Gordian.Engine.Tests.Ui
             menus.Move(InputAction.MenuUp);    // Yes
             menus.Activate();
             for (int i = 0; i < 50 && requests.Count == 0; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
-            Assert.Equal(new[] { false }, requests);
+            Assert.Equal(new[] { shutdown }, requests);
             Assert.False(menus.IsOpen);
         }
 
@@ -686,11 +697,11 @@ namespace Gordian.Engine.Tests.Ui
             input.MenuContext = false;
             input.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.False(input.IsActionHeld(InputAction.MenuDown));
-            Assert.True(input.IsActionHeld(InputAction.TargetParty2));
+            Assert.True(input.IsActionHeld(InputAction.TargetPartyDown));
         }
 
         [Fact]
-        public void ProfilesSavedBeforeMenus_GetTheNavigationBindings()
+        public void ProfilesSavedBeforeMenus_KeepKeyboardUnboundAndControllerCompatibility()
         {
             var profile = InputProfile.CreateCompact();
             foreach (var action in new[] { InputAction.MenuUp, InputAction.MenuDown, InputAction.MenuLeft, InputAction.MenuRight })
@@ -698,7 +709,7 @@ namespace Gordian.Engine.Tests.Ui
                 profile.ClearAction(action);
             }
             var reloaded = InputProfile.FromJson(profile.SaveToJson());
-            Assert.Contains(new InputChord(GordianKey.Down), reloaded.GetChords(InputAction.MenuDown));
+            Assert.DoesNotContain(new InputChord(GordianKey.Down), reloaded.GetChords(InputAction.MenuDown));
             Assert.Contains(new InputChord(GamepadButton.DPadLeft), reloaded.GetChords(InputAction.MenuLeft));
         }
 

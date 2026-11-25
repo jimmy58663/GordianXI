@@ -25,6 +25,7 @@ namespace Gordian.App
     /// </summary>
     public partial class ViewportWindow : Window
     {
+        private readonly System.Collections.Generic.Dictionary<PhysicalKey, (InputState State, GordianKey Key)> _symbolShortcutKeys = new();
         private readonly string _windowKey;
         private ViewportViewModel? _viewModel;
         private VeldridViewportControl? _viewportControl;
@@ -145,6 +146,8 @@ namespace Gordian.App
                 {
                     // ImGui drops its focus and held buttons; the game's own press, if any, is released by the OS as before.
                     viewport.ImGuiInput.Focus(false);
+                    foreach (var held in _symbolShortcutKeys.Values) held.State.SetKeyUp(held.Key);
+                    _symbolShortcutKeys.Clear();
                     _imguiButtons = 0;
                 };
             }
@@ -645,7 +648,7 @@ namespace Gordian.App
         {
             // Window-level shortcuts are taken here, on the tunnelling pass, before a focused control (or Avalonia's
             // Tab navigation) can take the key, and are not fed into the character's InputState.
-            var shortcut = ViewportShortcuts.Classify(e.Key, e.KeyModifiers);
+            var shortcut = ViewportShortcuts.Classify(e.Key, e.KeyModifiers, _viewModel?.ActiveTab?.Session?.Locomotion.Profile);
             if (shortcut != ViewportShortcut.None)
             {
                 ApplyShortcut(shortcut);
@@ -701,14 +704,7 @@ namespace Gordian.App
             }
             if (chat.Input.IsOpen)
             {
-                // Tab / Shift+Tab still cycle targets while typing.
-                if (gKey == GordianKey.Tab)
-                {
-                    session.InputState.SetModifiers(mods);
-                    session.InputState.SetKeyDown(gKey);
-                    e.Handled = true;
-                    return;
-                }
+                // Chat owns Tab for auto-translate; gameplay target bindings apply only outside chat.
                 // A character key is left unhandled so the platform's text input for it follows (OnGameTextInput):
                 // that text carries Shift, Caps Lock and the keyboard layout, which the key symbol does not (it
                 // reports letters in upper case). Handling the key press would make Avalonia drop that text.
@@ -718,6 +714,7 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
+            gKey = AvaloniaInputMapper.ToGordianKey(e.Key, e.PhysicalKey);
             // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
             // The sub-target cursor (#240) takes Enter as Confirm too.
             bool confirmTaken = session.ActionService.CurrentTarget != null || session.ActionService.SubTargeting != null || session.Events.IsActive || chat.IsSelecting;
@@ -728,6 +725,10 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
+
+            // Full-size typing starts the line before gameplay sees the key, but only platform TextInput inserts
+            // the character. Handling this press would discard native text (including X11's empty-symbol keys).
+            if (!chatHidden && typed && chat.TryOpenForTyping(gKey, mods, session.Locomotion.Profile)) return;
 
             // Escape locks an unlocked stock UI (once no menu is open for it to cancel first).
             if (e.Key == Key.Escape && !(menusShown && session.ActionService.Menus.IsOpen) && session.ActionService.UiDrag.Unlocked)
@@ -742,6 +743,23 @@ namespace Gordian.App
                 Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"KeyDown {e.Key} -> {gKey} reached the game input (modifiers {mods})");
             }
 
+            // X11 German AltGr+] reports logical D9 with symbol "]" and no Ctrl/Alt modifiers.
+            // Only documented bound display shortcuts use the symbol; chat/editor text has already returned above.
+            // Remember the physical press so releasing AltGr first cannot leave a translated key held.
+            if (mods == InputModifiers.None && e.PhysicalKey != PhysicalKey.None
+                && session.Locomotion.Profile.KeyboardLayout is { Supported: true } keyboardLayout
+                && !(session.Locomotion.Profile.TryGetAction(new InputChord(gKey, mods), out var logicalAction)
+                    && keyboardLayout.Overrides.ContainsKey(logicalAction.ToString())))
+            {
+                var symbolKey = e.KeySymbol switch { "[" => GordianKey.OemOpenBracket, "]" => GordianKey.OemCloseBracket, _ => GordianKey.None };
+                if (symbolKey != GordianKey.None
+                    && session.Locomotion.Profile.TryGetAction(new InputChord(symbolKey), out var symbolAction)
+                    && symbolAction is InputAction.Screenshot or InputAction.ToggleWindows)
+                {
+                    gKey = symbolKey;
+                    _symbolShortcutKeys[e.PhysicalKey] = (session.InputState, gKey);
+                }
+            }
             if (gKey != GordianKey.None)
             {
                 session.InputState.SetModifiers(mods);
@@ -808,11 +826,12 @@ namespace Gordian.App
             // ImGui sees every release (it ignores keys it never saw go down); the game gets it too, so a key held
             // before an ImGui text field took the keyboard is not left down.
             ImGuiBridge?.Key(ImGuiKeyMap.FromAvalonia(e.Key), false);
+            if (_symbolShortcutKeys.Remove(e.PhysicalKey, out var translated)) translated.State.SetKeyUp(translated.Key);
             if (ActiveLobby != null) return;
             var session = _viewModel?.ActiveTab?.Session;
             if (session == null) return;
 
-            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
+            var gKey = AvaloniaInputMapper.ToGordianKey(e.Key, e.PhysicalKey);
             var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
 
             if (gKey != GordianKey.None)

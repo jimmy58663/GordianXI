@@ -755,6 +755,12 @@ namespace Gordian.App.ViewModels
                 return existing;
             }
 
+            if (Gordian.App.Services.AppResourceManager.Loaded is { } resources)
+            {
+                session.Chat.Input.Catalog = resources.AutoTranslate;
+                session.ChatModule.AutoTranslate = resources.AutoTranslate;
+            }
+
             var newTab = new ViewportCharacterTabViewModel(
                 session,
                 onSelect: SelectTab,

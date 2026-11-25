@@ -18,7 +18,7 @@ namespace Gordian.Engine.Input
 
         public InputProfileHub(InputProfile? profile = null)
         {
-            _profile = profile ?? InputProfile.CreateCompact();
+            _profile = profile ?? InputProfile.CreateDefault();
         }
 
         /// <summary>The application-wide hub the sessions and the shell share.</summary>
