@@ -279,7 +279,7 @@ namespace Gordian.Engine.Tests.Ui
             Choose(menus, StockUiParty.UngroupedFindMemberButton);
             await Until(() => notices.Count == 1);
             Assert.Equal("No players found.", notices[0]);
-            Assert.Equal((ushort)SearchFlags.SeekingParty, social.LastQuery!.Flags1);
+            Assert.Equal(SearchQuery.SeekingPartyFilter, social.LastQuery!.Flags1);
             Assert.Equal(new ushort[] { 243 }, social.LastQuery.Areas);
         }
 
@@ -558,6 +558,9 @@ namespace Gordian.Engine.Tests.Ui
             // Round 3: a 0 beside the listed shell (LandSandBoat's LSTYPE_NEW_LINKSHELL) is the holder.
             var unnamed = holder with { LinkshellRank2 = 0 };
             Assert.Equal((byte)1, StockUiPeople.FromSearch(unnamed, null, null, 243, linkshellId: 9).LinkshellRank);
+            // #578 round 5: retail's /sea entries carry the worn shells too; a search row shows no linkshell icon.
+            Assert.Equal((byte)0, StockUiPeople.FromSearch(holder, null, null, 243).LinkshellRank);
+            Assert.Equal((byte)0, StockUiPeople.FromSearch(pearl, null, null, 243, linkshellId: 5).LinkshellRank);
         }
 
         [Fact]

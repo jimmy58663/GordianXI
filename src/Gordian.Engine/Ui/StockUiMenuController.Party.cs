@@ -118,7 +118,7 @@ namespace Gordian.Engine.Ui
                     break;
                 case StockUiPartyAction.FindMember:
                     // Players seeking a party in this area, as "/sea party" searches.
-                    var query = new SearchQuery { Flags1 = (ushort)SearchFlags.SeekingParty };
+                    var query = new SearchQuery { Flags1 = SearchQuery.SeekingPartyFilter };
                     if (social.CurrentZone != 0) query.Areas.Add(social.CurrentZone);
                     else query.AllAreas = true;
                     _ = OpenPeopleAsync(StockUiPeoplePurpose.SearchResults, social.SearchAsync(query), from);

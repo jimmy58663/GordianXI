@@ -333,16 +333,20 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// A linkshell list member's rank in the shell <paramref name="linkshellId"/>: the rank beside whichever of their two
         /// worn shells has that id (round 2: a holder wearing their shell in slot 2 and another's pearl in slot 1 showed as a
-        /// pearl). Without an id, the first worn shell's. A rank of 0 beside the listed shell is the holder's: LandSandBoat
+        /// pearl); 0 when neither has it. A rank of 0 beside the listed shell is the holder's: LandSandBoat
         /// stores the worn item's type as the rank (<c>CLinkshell::AddMember</c> with <c>GetLSType</c>), and type 0 is its
         /// <c>LSTYPE_NEW_LINKSHELL</c>, a linkshell. The holder's own byte is 1 (LandSandBoat's search linkshell list: 1
         /// holder, 2 sack, 3 pearl; round 4's log: "Gemini: ls1 0x1 rank 1"); <c>StockUiSocialActions</c> logs the bytes.
+        /// Without an id (a search or a party list) there is no rank: only the linkshell member list shows the icons. Retail's
+        /// search server writes every player's worn shells into <c>/sea</c> entries too, which LandSandBoat does only for
+        /// linkshell lists (#578 round 5: <c>/sea all</c> rows showed linkpearl, pearlsack and linkshell icons).
         /// </summary>
         public static byte LinkshellRankOf(SearchEntity entity, uint linkshellId)
         {
-            if (linkshellId != 0 && entity.LinkshellId1 == linkshellId) return entity.LinkshellRank1 == 0 ? (byte)1 : entity.LinkshellRank1;
-            if (linkshellId != 0 && entity.LinkshellId2 == linkshellId) return entity.LinkshellRank2 == 0 ? (byte)1 : entity.LinkshellRank2;
-            return entity.LinkshellRank1 != 0 ? entity.LinkshellRank1 : entity.LinkshellRank2;
+            if (linkshellId == 0) return 0;
+            if (entity.LinkshellId1 == linkshellId) return entity.LinkshellRank1 == 0 ? (byte)1 : entity.LinkshellRank1;
+            if (entity.LinkshellId2 == linkshellId) return entity.LinkshellRank2 == 0 ? (byte)1 : entity.LinkshellRank2;
+            return 0;
         }
 
         /// <summary>The shell a linkshell list is of: the id every member wears (the one most of them share); 0 for none.</summary>

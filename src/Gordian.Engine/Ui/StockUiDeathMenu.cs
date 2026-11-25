@@ -103,7 +103,7 @@ namespace Gordian.Engine.Ui
         private void OnServerStatusChanged(byte previous, byte current)
         {
             if (_player.IsDead) Refresh();
-            else if (previous == LocalPlayerState.StatusDead) Close();
+            else if (LocalPlayerState.IsDeathStatus(previous)) Close();
         }
 
         private void OnDeathMenuChanged(DeathMenuType type)
