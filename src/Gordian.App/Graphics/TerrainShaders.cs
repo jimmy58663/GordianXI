@@ -89,6 +89,31 @@ void main()
 }
 ";
 
+        /// <summary>
+        /// The swaying variant of a zone mesh vertex shader (#606): a second vertex stream carries each vertex's wind offset
+        /// (location 4, xyz) and its placement's cycle offset (w, <c>ZoneWind.PlacementPhase</c>). The offset is added times
+        /// the wind factor at the shared clock's phase (<c>TerrainTone.z</c>, <c>ZoneWind.CyclePhase</c>) plus the
+        /// placement's offset, before the world transform, as xim's terrain shader does (<c>position0 + windFactor *
+        /// position1</c>, xi-model-viewer ui/js/renderer.js; the per-placement offset is retail's, round 3). Normals stay
+        /// as authored, as there.
+        /// </summary>
+        public static string WithWind(string vertexShader)
+        {
+            const string input = "layout(location = 3) in vec4 Color;";
+            const string transform = "vec4 worldPos = World * vec4(Position, 1.0);";
+            if (!vertexShader.Contains(input) || !vertexShader.Contains(transform))
+            {
+                throw new System.ArgumentException("Not a zone mesh vertex shader.", nameof(vertexShader));
+            }
+            const string main = "void main()";
+            int at = vertexShader.IndexOf(main, System.StringComparison.Ordinal);
+            if (at < 0) throw new System.ArgumentException("Not a zone mesh vertex shader.", nameof(vertexShader));
+            vertexShader = vertexShader.Insert(at, Gordian.Engine.Graphics.ZoneWind.GlslFunction() + "\n");
+            return vertexShader
+                .Replace(input, input + "\nlayout(location = 4) in vec4 WindDelta;")
+                .Replace(transform, "vec4 worldPos = World * vec4(Position + ZoneWindFactor(fract(TerrainTone.z + WindDelta.w)) * WindDelta.xyz, 1.0);");
+        }
+
         private const string FragmentFooter = @"
 // Modulate-2x, the highlight shoulder, then linear distance fog (not for celestial discs).
 vec3 Shade(vec3 texel)

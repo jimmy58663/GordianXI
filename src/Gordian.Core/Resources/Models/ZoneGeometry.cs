@@ -33,6 +33,16 @@ namespace Gordian.Core.Resources.Models
         public Vector2 UVScroll { get; set; } = Vector2.Zero;
 
         /// <summary>
+        /// Per-vertex wind offsets (#606), parallel to <see cref="Vertices"/>; null for a submesh that does not sway. A
+        /// Section 0x2E mesh whose config word has bit 1 set (the 48-byte "vertex-blend" layout) stores a second vector per
+        /// vertex, and the client draws the vertex at <c>position + windFactor * offset</c>, the factor one value shared by
+        /// every mesh (xi-tools docs/zone/format.md; xi-model-viewer ui/js/renderer.js; its curve: <c>ZoneWind</c>). Trees,
+        /// grass and webs carry it. In the same space as <see cref="Vertices"/> (a direction: placed by the rotation and
+        /// scale only).
+        /// </summary>
+        public Vector3[]? WindDeltas { get; set; }
+
+        /// <summary>
         /// The placement's sub-environment link (e.g. <c>ev01</c> for a cave interior); empty for the main environment.
         /// </summary>
         public string EnvironmentId { get; set; } = string.Empty;
@@ -101,6 +111,7 @@ namespace Gordian.Core.Resources.Models
             }
             Vertices = Array.Empty<MeshVertex>();
             Indices = Array.Empty<int>();
+            WindDeltas = null;
             IsRenderDataReleased = true;
         }
 

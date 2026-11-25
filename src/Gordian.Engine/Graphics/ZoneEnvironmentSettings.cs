@@ -105,11 +105,49 @@ namespace Gordian.Engine.Graphics
         public float DrawDistance { get; set; } = 300.0f;
 
         /// <summary>
-        /// The client's draw-distance multiplier (#70): scales the global draw distance, placements' own distances and,
-        /// outdoors, the fog distances <see cref="ApplyKeyframe"/> sets. The one value a draw-distance setting (#195)
-        /// changes; see <see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>.
+        /// The large-asset draw-distance multiplier (#70, #606 round 4): scales the global draw distance (the far clip and
+        /// the cull distance of placements without their own) and, outdoors, the fog distances <see cref="ApplyKeyframe"/>
+        /// sets. Set by the draw-distance preset (<see cref="ZoneDrawPolicy"/>); see
+        /// <see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>.
         /// </summary>
         public float DrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultDrawDistanceMultiplier;
+
+        /// <summary>
+        /// The small-asset draw-distance multiplier (#606 round 4): scales placements' own draw distances. See
+        /// <see cref="ZoneVisibility.DefaultSmallDrawDistanceMultiplier"/>.
+        /// </summary>
+        public float SmallDrawDistanceMultiplier { get; set; } = ZoneVisibility.DefaultSmallDrawDistanceMultiplier;
+
+        /// <summary>
+        /// Scale on the authored outdoor fog distances (#606 round 4): 1 at the Retail preset, as vanilla retail. Set by
+        /// the draw-distance preset (<see cref="ZoneDrawPolicy"/>); read by <see cref="ApplyKeyframe"/>.
+        /// </summary>
+        public float FogDistanceMultiplier { get; set; } = 1.0f;
+
+        /// <summary>
+        /// Scale on dungeons' authored fog (#612 round 2, calibrated against a capture with Windower's DrawDistance plugin
+        /// on; PROVISIONAL until a vanilla retail check). The same at every preset.
+        /// </summary>
+        public const float IndoorFogMultiplier = 3.0f;
+
+        /// <summary>
+        /// Where vanilla retail's outdoor fog closes, as a multiple of the authored fog end (#606 round 5, PROVISIONAL):
+        /// the fog runs linearly from the authored start (0 in every Konschtat keyframe) to 1.25 x the authored end.
+        /// Measured at Konschtat (-227, 71, 770) heading 22-33 in thunder (fog 0-203, colour about 0.2), vanilla retail
+        /// image-20 against GordianXI image-19 and offscreen renders at the matched camera: retail fogs the autumn tree
+        /// 182 yalms off about 74 % (from its red-blue contrast against the fog colour) and closes the fog on the hill
+        /// under the ridge trees (246-267 yalms, flat fog colour), which a linear fog from 0 to 1.2-1.25 x 203 gives;
+        /// image-14 (vanilla, round 4) fits 1.25-1.35. The old rule (start pushed to 75 % of the end, full fog at the end)
+        /// fogged the tree only 55 % and closed the fog before the hill, too early.
+        /// </summary>
+        public const float OutdoorFogEndScale = 1.25f;
+
+        /// <summary>
+        /// Scale on zone particle generators' own distances (Section 1 op 0x0A cull, op 0x2E fade): #612 calibrated it at 3
+        /// (The Eldieme Necropolis' torch light pools ahead of the camera), against a capture with Windower's DrawDistance
+        /// plugin on, so it stays 3 at every preset until a vanilla retail check (PROVISIONAL, #606 round 4).
+        /// </summary>
+        public const float GeneratorDistanceMultiplier = 3.0f;
 
         /// <summary>
         /// Scale on the placements' detail thresholds (#70); see <see cref="ZoneVisibility.DefaultLodDistanceScale"/>.
@@ -177,55 +215,31 @@ namespace Gordian.Engine.Graphics
             ModelAmbientColor = AmbientToLight(keyframe.ModelAmbientColor);
             FogColor = keyframe.TerrainFogColor;
 
-            // FFXI retail keyframes often author FogStart=0 because original PS2 hardware used an
-            // exponential fog curve that remained transparent until near the horizon.
-            // For linear GPU fog in outdoor environments, push FogStart to 75% of FogEnd (or keyframe.TerrainFogStart)
-            // so islands and distant mountains remain crisp and authentic while far terrain blends cleanly.
+            // Outdoors the fog runs linearly from the authored start to OutdoorFogEndScale x the authored end, as vanilla
+            // retail draws it (#606 round 5, Konschtat in thunder). Until round 5 the start was pushed to 75 % of the end
+            // and the fog closed at the authored end: too little fog in the middle distance and full fog too soon.
             bool hasFog = keyframe.TerrainFogEnd > keyframe.TerrainFogStart && keyframe.TerrainFogEnd > 0;
             FogEnabled = hasFog;
-            if (hasFog)
-            {
-                if (!keyframe.Indoors)
-                {
-                    FogStart = MathF.Max(keyframe.TerrainFogStart, keyframe.TerrainFogEnd * 0.75f);
-                }
-                else
-                {
-                    FogStart = keyframe.TerrainFogStart;
-                }
-            }
-            else
-            {
-                FogStart = keyframe.TerrainFogStart;
-            }
+            FogStart = keyframe.TerrainFogStart;
             FogEnd = keyframe.TerrainFogEnd;
-            // Outdoors the fog moves out with the draw distance (#70): the client takes both from the same environment
-            // field (xi-tools docs/zone/lod-draw-distance.md "Fog and draw distance coupling"), and retail draws far
-            // mountains and islands textured where the authored fog end alone fogs them into silhouettes (round 1,
-            // 2026-10-31, image-17 / image-19 / image-20).
+            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the fog is vanilla retail's. The
+            // textured far terrain and light haze of the #70 captures (round 1 image-17/19/20, round 2 image-52) came from
+            // Windower's DrawDistance plugin, which raised both.
             if (dungeonLight)
             {
-                // Indoors the authored fog scales with the draw distance too, but keeps its start and is not stretched
-                // to the draw-distance cut (#612 round 2): Garlaige's far corridor at about 45 yalms is 45 against
-                // retail's 53 this way, and was 6 (black) with the authored 0-61.7 yalm fog.
-                FogStart *= DrawDistanceMultiplier;
-                FogEnd *= DrawDistanceMultiplier;
+                // Dungeon fog keeps the scale #612 round 2 calibrated it at (Garlaige's far corridor at about 45 yalms
+                // against retail's 53; black with the authored 0-61.7 yalm fog). That capture also had Windower's
+                // DrawDistance plugin on, so vanilla's indoor fog is still to be checked (PROVISIONAL).
+                FogStart *= IndoorFogMultiplier;
+                FogEnd *= IndoorFogMultiplier;
             }
             else if (!keyframe.Indoors)
             {
-                FogStart *= DrawDistanceMultiplier;
-                FogEnd *= DrawDistanceMultiplier;
-
-                // The fog never closes before the draw-distance cut: retail draws terrain out to the cut with only
-                // light haze even in mist, where the authored fog end (Valkurm 148.5) is under the draw distance
-                // (302). Stretching both ends keeps the start/end ratio (round 2, 2026-10-31, image-52 vs image-53).
-                float global = ZoneVisibility.GlobalDrawDistance(keyframe.DrawDistance, DrawDistanceMultiplier);
-                if (hasFog && FogEnd < global)
-                {
-                    float stretch = global / FogEnd;
-                    FogStart *= stretch;
-                    FogEnd = global;
-                }
+                FogStart *= FogDistanceMultiplier;
+                // The fog may end past the draw-distance cut, as vanilla retail's does: at Konschtat at night (fog 0-464,
+                // cut 302) retail shows the ridge trees 290 yalms off in colour against the sky (image-27, #606 round 5).
+                // Until round 5 both ends shrank to the cut, which drew them as dark silhouettes.
+                FogEnd *= FogDistanceMultiplier * (hasFog ? OutdoorFogEndScale : 1.0f);
             }
 
             DrawDistance = keyframe.DrawDistance;

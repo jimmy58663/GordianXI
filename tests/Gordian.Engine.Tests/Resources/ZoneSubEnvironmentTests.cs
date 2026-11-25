@@ -89,7 +89,7 @@ namespace Gordian.Engine.Tests.Resources
             Assert.Equal(2f * ZoneEnvironmentSettings.AmbientToLight(ambient).X, settings.AmbientColor.X, 4);
             Assert.Equal(0x36 / 255f * 1.98f, settings.SunColor.X, 4);
             Assert.Equal(0f, settings.FogStart);
-            Assert.Equal(61.7f * settings.DrawDistanceMultiplier, settings.FogEnd, 3);
+            Assert.Equal(61.7f * ZoneEnvironmentSettings.IndoorFogMultiplier, settings.FogEnd, 3);
         }
 
         [Fact]

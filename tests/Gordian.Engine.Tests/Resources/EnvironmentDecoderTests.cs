@@ -183,10 +183,10 @@ namespace Gordian.Engine.Tests.Resources
         }
 
         [Fact]
-        public void ZoneEnvironmentSettings_ApplyKeyframe_PushesZeroFogStartToDistantHorizon()
+        public void ZoneEnvironmentSettings_ApplyKeyframe_RunsTheOutdoorFogFromTheAuthoredStart()
         {
-            // Multiplier 1: the authored fog distances, which the draw-distance multiplier scales outdoors (#70).
-            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings { DrawDistanceMultiplier = 1.0f };
+            // The Retail preset: vanilla retail's fog runs linearly from the authored start to 1.25 x the end (#606 round 5).
+            var settings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Retail DAT keyframe with FogStart = 0, FogEnd = 302
             var keyframe = new EnvironmentKeyframe
@@ -200,9 +200,8 @@ namespace Gordian.Engine.Tests.Resources
             settings.ApplyKeyframe(keyframe);
 
             Assert.True(settings.FogEnabled);
-            Assert.Equal(302f, settings.FogEnd);
-            // Must push FogStart to 75% of 302 (approx 226.5 yalms) rather than 0
-            Assert.Equal(302f * 0.75f, settings.FogStart, 1);
+            Assert.Equal(302f * 1.25f, settings.FogEnd, 3);
+            Assert.Equal(0f, settings.FogStart, 3);
         }
 
         [Fact]
@@ -268,7 +267,7 @@ namespace Gordian.Engine.Tests.Resources
         [Fact]
         public void ZoneEnvironmentSettings_ApplyKeyframe_CalibratesLinearFogForClearOutdoorKeyframes()
         {
-            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings { DrawDistanceMultiplier = 1.0f };
+            var outdoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
             var indoorSettings = new Gordian.Engine.Graphics.ZoneEnvironmentSettings();
 
             // Outdoor keyframe with low authored FogStart
@@ -281,12 +280,12 @@ namespace Gordian.Engine.Tests.Resources
             };
             outdoorSettings.ApplyKeyframe(outdoorKeyframe);
 
-            // Distant mountains/islands stay crisp: linear FogStart pushed to at least 75% of FogEnd (240 yalms)
+            // Vanilla retail's outdoor fog: linear from the authored start to 1.25 x the authored end (#606 round 5)
             Assert.True(outdoorSettings.FogEnabled);
-            Assert.Equal(320f, outdoorSettings.FogEnd);
-            Assert.Equal(320f * 0.75f, outdoorSettings.FogStart, 1);
+            Assert.Equal(320f * 1.25f, outdoorSettings.FogEnd, 3);
+            Assert.Equal(40f, outdoorSettings.FogStart, 3);
 
-            // Indoor keyframe keeps its authored near fog, both ends scaled by the draw-distance multiplier (#612 round 2)
+            // Indoor keyframe keeps its authored near fog, both ends scaled by the dungeon fog multiplier (#612 round 2)
             var indoorKeyframe = new EnvironmentKeyframe
             {
                 Hour = 10,
@@ -297,8 +296,8 @@ namespace Gordian.Engine.Tests.Resources
             indoorSettings.ApplyKeyframe(indoorKeyframe);
 
             Assert.True(indoorSettings.FogEnabled);
-            Assert.Equal(40f * indoorSettings.DrawDistanceMultiplier, indoorSettings.FogStart, 3);
-            Assert.Equal(320f * indoorSettings.DrawDistanceMultiplier, indoorSettings.FogEnd, 3);
+            Assert.Equal(40f * Gordian.Engine.Graphics.ZoneEnvironmentSettings.IndoorFogMultiplier, indoorSettings.FogStart, 3);
+            Assert.Equal(320f * Gordian.Engine.Graphics.ZoneEnvironmentSettings.IndoorFogMultiplier, indoorSettings.FogEnd, 3);
         }
 
         [Fact]

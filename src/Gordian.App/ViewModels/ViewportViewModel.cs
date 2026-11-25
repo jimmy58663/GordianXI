@@ -35,6 +35,7 @@ namespace Gordian.App.ViewModels
         private int _entityPartBudgetMb = ViewportRenderSettings.DefaultEntityPartBudgetMb;
         private PerformanceOverlayMode _performanceOverlay = PerformanceOverlayMode.Hidden;
         private bool _zoneBackFaceCulling = true;
+        private ZoneDrawPreset _drawDistancePreset = ZoneDrawPreset.Retail;
         private readonly object _saveLock = new();
 
         /// <summary>Whether the notice for a saved OpenGL backend was logged (once per run, not once per view model).</summary>
@@ -73,6 +74,7 @@ namespace Gordian.App.ViewModels
                 _settings.EntityPartBudgetMb = _entityPartBudgetMb;
                 _settings.PerformanceOverlay = _performanceOverlay;
                 _settings.ZoneBackFaceCulling = _zoneBackFaceCulling;
+                _settings.DrawDistancePreset = _drawDistancePreset;
                 // The overlay mode can change on a viewport's render or key thread (Ctrl+F12, /perf).
                 lock (_saveLock) _settings.SaveToFile(_settingsPath);
             }
@@ -123,6 +125,7 @@ namespace Gordian.App.ViewModels
             _entityPartBudgetMb = Math.Max(0, _settings.EntityPartBudgetMb);
             _performanceOverlay = _settings.PerformanceOverlay;
             _zoneBackFaceCulling = _settings.ZoneBackFaceCulling;
+            _drawDistancePreset = Enum.IsDefined(_settings.DrawDistancePreset) ? _settings.DrawDistancePreset : ZoneDrawPreset.Retail;
             // Every viewport window reads these each frame (#301, #322).
             ViewportRenderSettings.Apply(_settings);
             if (_enableAutoSave)
@@ -503,6 +506,31 @@ namespace Gordian.App.ViewModels
             AutoSaveSettings();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(ZoneBackFaceCulling)));
         }
+
+        /// <summary>
+        /// The draw-distance preset (#606 round 4): Retail (default), Extended, Low or Minimum; every window at once.
+        /// </summary>
+        public ZoneDrawPreset DrawDistancePreset
+        {
+            get => _drawDistancePreset;
+            set
+            {
+                if (SetProperty(ref _drawDistancePreset, value))
+                {
+                    ViewportRenderSettings.DrawDistancePreset = value;
+                    AutoSaveSettings();
+                }
+            }
+        }
+
+        /// <summary>The draw-distance presets offered in Settings.</summary>
+        public ObservableCollection<ZoneDrawPreset> AvailableDrawDistancePresets { get; } = new()
+        {
+            ZoneDrawPreset.Retail,
+            ZoneDrawPreset.Extended,
+            ZoneDrawPreset.Low,
+            ZoneDrawPreset.Minimum,
+        };
 
         /// <summary>The background frame rates offered in Settings.</summary>
         public ObservableCollection<int> AvailableBackgroundFrameRates { get; } = new() { 10, 15, 20, 30, 60 };

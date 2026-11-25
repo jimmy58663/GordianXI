@@ -257,7 +257,7 @@ void main()
                 }
                 _commandList.SetVertexBuffer(0, submesh.VertexBuffer);
                 _commandList.SetIndexBuffer(submesh.IndexBuffer, IndexFormat.UInt16);
-                _commandList.DrawIndexed(submesh.IndexCount, 1, 0, 0, 0);
+                _commandList.DrawIndexed(submesh.IndexCount, 1, submesh.IndexStart, 0, 0);
                 draws++;
             }
             return draws;

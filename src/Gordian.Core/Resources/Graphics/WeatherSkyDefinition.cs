@@ -185,6 +185,15 @@ namespace Gordian.Core.Resources.Graphics
         public bool IsSpriteSheet { get; set; }
 
         /// <summary>
+        /// A heat-haze distortion (#603): a Section 0x05 generator with linked data type 0x22, drawn as a camera-facing quad
+        /// that refracts the scene behind it (West Ronfaure's braziers, <c>f_ro/mode/ligh/s_li/dis1</c>-<c>dis5</c>).
+        /// </summary>
+        public bool IsDistortion { get; set; }
+
+        /// <summary>The distortion's haze offset (init op 0x32's second float; yalms, see <c>ZoneDataLoader.HazeOffsetOf</c>).</summary>
+        public float HazeOffset { get; set; }
+
+        /// <summary>
         /// The Section 0x25 weighted mesh this layer's particles blend (linked data type 0x1D); its MeshGroups then hold
         /// the first morph target, and each particle's draw blends the targets with its own weights.
         /// </summary>

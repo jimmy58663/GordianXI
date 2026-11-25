@@ -53,7 +53,9 @@ namespace Gordian.App.Tests.Graphics
                 // A still picture: no drifting clouds or rolling surf between the frames compared.
                 Renderer = new ZoneTerrainRenderer(_gd) { EnableWeatherClouds = false, EnableZoneEffects = false };
                 Renderer.LoadZone(zone, textures);
+                // The view these shots were framed on: far terrain out to 600 yalms (the cut before #606 round 5).
                 _env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
+                _env.DrawDistanceMultiplier = 2.0f;
                 _env.WeatherId = "fine";
                 Renderer.SkyDomeRenderer?.UpdateDome(_env);
                 var format = _gd.SwapchainFramebuffer.ColorTargets[0].Target.Format;

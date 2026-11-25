@@ -145,6 +145,47 @@ namespace Gordian.Core.Resources
         /// keeps its double-sided flag (Section 0x2E flag 0x2000; Section 0x1F particle meshes are always double-sided):
         /// an entrance overlay drawn from a single-sided zone mesh is culled like the placement it copies (#414 round 6).
         /// </summary>
+        /// <summary>
+        /// The geometry of a Distortion generator (linked data type 0x22, #603): a unit quad (raw DAT space, +-1 in X and Y)
+        /// that the generator's billboard turns to the camera and the renderer draws as a refraction of the scene behind it,
+        /// with the neutral 0x80 colour (geometry as xi-model-viewer ui/js/particle/system.js DistortionMeshProvider).
+        /// </summary>
+        internal static MeshGroup DistortionQuad(string name)
+        {
+            const uint neutral = 0x80808080;
+            var n = new Vector3(0f, 0f, 1f);
+            return new MeshGroup
+            {
+                Name = name,
+                Vertices =
+                [
+                    new MeshVertex(new Vector3(-1f, -1f, 0f), n, new Vector2(0f, 0f), neutral),
+                    new MeshVertex(new Vector3(1f, -1f, 0f), n, new Vector2(1f, 0f), neutral),
+                    new MeshVertex(new Vector3(1f, 1f, 0f), n, new Vector2(1f, 1f), neutral),
+                    new MeshVertex(new Vector3(-1f, 1f, 0f), n, new Vector2(0f, 1f), neutral),
+                ],
+                Indices = [0, 1, 2, 0, 2, 3],
+                MinBounds = new Vector3(-1f, -1f, 0f),
+                MaxBounds = new Vector3(1f, 1f, 0f),
+                IsBlend = true,
+                NoCull = true
+            };
+        }
+
+        /// <summary>
+        /// A Distortion generator's haze offset: the second float of init op 0x32 (HazeOffset; xi-model-viewer
+        /// ui/js/particle/ops/initializers.js HazeOffsetInitializer names it the horizontal offset; the first float is
+        /// unread there). West Ronfaure's brazier hazes carry 0.02, Lower Delkfutt's stage zone 540's <c>dist</c> 0.018.
+        /// </summary>
+        internal static float HazeOffsetOf(ParticleGeneratorDefinition gen)
+        {
+            foreach (var op in gen.Initializers)
+            {
+                if (op.OpCode == 0x32 && op.Args.Length >= 2) return op.Float(1);
+            }
+            return 0f;
+        }
+
         private static void AddDisplayMeshGroups(WeatherSkyLayer layer, List<MeshGroup> submeshes, string fallbackTexture)
         {
             foreach (var submesh in submeshes)
@@ -1444,8 +1485,12 @@ namespace Gordian.Core.Resources
                 if (setup == null) continue;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
                 bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
-                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) continue;
+                bool isDistortion = setup.LinkedDataType == ParticleLinkedDataType.Distortion;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted && !isDistortion) continue;
                 if (skyGenerators.Contains(gen)) continue;
+                // Heat haze (#603) is drawn where the zone places it; actor-attached distortions (every zone's foot effect
+                // ai90) and those of model DATs are not drawn.
+                if (isDistortion && (actorEffects || gen.AttachType != ParticleAttachType.None)) continue;
                 if (!actorEffects && generatorPaths.TryGetValue(gen, out string? footPath) &&
                     Gordian.Core.Resources.Graphics.ZoneFootEffects.IsFootEffectDirectory(footPath, out bool footRain))
                 {
@@ -1466,10 +1511,15 @@ namespace Gordian.Core.Resources
                 bool isWeather = !string.IsNullOrEmpty(genWeather);
                 // Sprite-sheet and weighted-mesh particles always run through the emitter (billboarding, card selection and
                 // morph weights are per particle); an actor's generators always do, so each actor runs its own instance.
-                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || isWeighted || actorEffects || actorAttached;
+                bool isEmitter = setup.MaxLifeSpan != 0 || isSprite || isWeighted || isDistortion || actorEffects || actorAttached;
                 // Camera-following generators are weather emitters; the persistent ones are the sky layers above. A cutscene
                 // scene DAT's (cameraEffects) are screen overlays the scene plays in front of the camera (Port Jeuno 324's blink).
-                if (setup.FollowCamera && !cameraEffects && (!isWeather || setup.MaxLifeSpan == 0)) continue;
+                // The exception (#613): a finite-life one outside the weather directories that only an on-demand routine
+                // starts is a screen overlay its map scheduler or event plays, as a scene file's are: Lower Delkfutt's
+                // Tower's stage zone 540 `gass` -> `set1` starts `pwp2` / `pwp3`, camera-following `2fus` meshes that
+                // reverse-subtract green from the view (retail's magenta grade from the white flash of event 36 on).
+                bool onDemandOverlay = !isWeather && setup.MaxLifeSpan != 0 && !gen.AutoRun && StartedOnDemand(genId, gen);
+                if (setup.FollowCamera && !cameraEffects && (!isWeather || setup.MaxLifeSpan == 0) && !onDemandOverlay) continue;
 
                 // A non-auto-running generator only runs when a routine in its directory starts it: a looping ambient
                 // routine (its schedule), or a short weather routine the client plays at random (lightning strikes).
@@ -1719,7 +1769,10 @@ namespace Gordian.Core.Resources
                 if (setup == null) return null;
                 bool isSprite = setup.LinkedDataType == ParticleLinkedDataType.SpriteSheet;
                 bool isWeighted = setup.LinkedDataType == ParticleLinkedDataType.WeightedMesh;
-                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted) return null;
+                // A distortion (heat haze, #603) draws a camera-facing unit quad that refracts the scene behind it; only
+                // zone-placed ones in zone DATs are loaded (not actors' or the foot effects' ai90).
+                bool isDistortion = setup.LinkedDataType == ParticleLinkedDataType.Distortion && !actorEffects;
+                if (setup.LinkedDataType != ParticleLinkedDataType.StaticMesh && !isSprite && !isWeighted && !isDistortion) return null;
 
                 string linkId = setup.LinkedDataId;
                 if (string.IsNullOrWhiteSpace(linkId) || ZoneDefDecoder.IsSkyMesh(linkId)) return null;
@@ -1727,7 +1780,11 @@ namespace Gordian.Core.Resources
                 bool isParticleMesh = true;
                 List<MeshGroup>? effectMeshes = null;
                 WeightedMesh? weightedMesh = null;
-                if (isSprite)
+                if (isDistortion)
+                {
+                    effectMeshes = [DistortionQuad(genId)];
+                }
+                else if (isSprite)
                 {
                     effectMeshes = ResolveSpriteCards(linkId, genWeather, spriteSheets, sharedEffects, outTextures);
                     if (effectMeshes == null) return null;
@@ -1787,6 +1844,11 @@ namespace Gordian.Core.Resources
                 ApplyGeneratorRenderState(effect, gen, genWeather, envData, authoredOrder);
                 if (!string.IsNullOrEmpty(genWeather)) effect.WeatherIds.Add(genWeather);
                 if (isSprite) effect.IsSpriteSheet = true;
+                if (isDistortion)
+                {
+                    effect.IsDistortion = true;
+                    effect.HazeOffset = HazeOffsetOf(gen);
+                }
                 effect.WeightedMesh = weightedMesh;
                 if (isEmitter || isSprite)
                 {

@@ -59,26 +59,52 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         [Theory]
-        [InlineData(false, 3.0f, 900.0f, 1200.0f)]
-        [InlineData(false, 1.0f, 300.0f, 400.0f)]
-        [InlineData(true, 3.0f, 0.0f, 1200.0f)] // indoors the authored start stays, both ends scale (#612 round 2)
-        public void ApplyKeyframe_MovesTheOutdoorFogWithTheMultiplier(bool indoors, float multiplier, float fogStart, float fogEnd)
+        [InlineData(false, 1.0f, 1.0f, 0.0f, 500.0f)] // Retail: authored start to 1.25 x the end, past the 300-yalm cut as retail's (#606 round 5)
+        [InlineData(false, 3.0f, 3.0f, 0.0f, 1500.0f)] // Extended: x3
+        [InlineData(true, 1.0f, 1.0f, 0.0f, 1200.0f)]   // dungeons keep their x3 fog and authored start (#612 round 2)
+        public void ApplyKeyframe_ScalesTheOutdoorFogByItsOwnMultiplier(bool indoors, float large, float fog, float fogStart, float fogEnd)
         {
-            var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = multiplier };
+            var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = large, FogDistanceMultiplier = fog };
             env.ApplyKeyframe(new EnvironmentKeyframe { Indoors = indoors, TerrainFogStart = 0.0f, TerrainFogEnd = 400.0f, DrawDistance = 300.0f });
             Assert.Equal(fogStart, env.FogStart, 3);
             Assert.Equal(fogEnd, env.FogEnd, 3);
         }
 
-        [Theory]
-        [InlineData(false, 3.0f, 679.5f, 906.0f)] // Valkurm mist: stretched out to the 906-yalm cut
-        [InlineData(true, 3.0f, 0.0f, 445.5f)]    // indoors scaled, not stretched to the cut (#612 round 2)
-        public void ApplyKeyframe_NeverClosesTheOutdoorFogBeforeTheDrawDistance(bool indoors, float multiplier, float fogStart, float fogEnd)
+        [Fact]
+        public void ApplyKeyframe_LeavesMistShortOfTheDrawDistance()
         {
-            var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = multiplier };
-            env.ApplyKeyframe(new EnvironmentKeyframe { Indoors = indoors, TerrainFogStart = 0.0f, TerrainFogEnd = 148.5f, DrawDistance = 302.0f });
-            Assert.Equal(fogStart, env.FogStart, 1);
-            Assert.Equal(fogEnd, env.FogEnd, 3);
+            // Vanilla retail fogs the far terrain into silhouettes before the cut (Konschtat image-14, #606 round 4), so
+            // Valkurm's mist (148.5) is no longer stretched out to the draw distance as it was from the #70 captures.
+            var env = new ZoneEnvironmentSettings();
+            ZoneDrawPolicy.Retail.ApplyTo(env);
+            env.ApplyKeyframe(new EnvironmentKeyframe { TerrainFogStart = 0.0f, TerrainFogEnd = 148.5f, DrawDistance = 302.0f });
+            Assert.Equal(0.0f, env.FogStart, 3);
+            Assert.Equal(148.5f * ZoneEnvironmentSettings.OutdoorFogEndScale, env.FogEnd, 3);
+            Assert.True(env.FogEnd < ZoneVisibility.GlobalDrawDistance(302.0f, env.DrawDistanceMultiplier));
+        }
+
+        [Fact]
+        public void Presets_SetTheDistancesAndTheRetailOneIsTheDefault()
+        {
+            var env = new ZoneEnvironmentSettings();
+            Assert.Equal(ZoneDrawPolicy.Retail.LargeMultiplier, env.DrawDistanceMultiplier);
+            Assert.Equal(ZoneDrawPolicy.Retail.SmallMultiplier, env.SmallDrawDistanceMultiplier);
+            Assert.Equal(ZoneDrawPolicy.Retail.FogMultiplier, env.FogDistanceMultiplier);
+            Assert.Equal(1.0f, ZoneDrawPolicy.Retail.LargeMultiplier);
+            Assert.Equal(1.0f, ZoneDrawPolicy.Retail.SmallMultiplier);
+            Assert.True(float.IsPositiveInfinity(ZoneDrawPolicy.Retail.SwayRange));
+
+            ZoneDrawPolicy.For(ZoneDrawPreset.Minimum).ApplyTo(env);
+            Assert.Equal(0.5f, env.SmallDrawDistanceMultiplier);
+            Assert.Equal(ZoneDrawPolicy.Retail, ZoneDrawPolicy.For((ZoneDrawPreset)99));
+            foreach (var preset in Enum.GetValues<ZoneDrawPreset>())
+            {
+                var policy = ZoneDrawPolicy.For(preset);
+                Assert.True(policy.LargeMultiplier >= policy.SmallMultiplier || preset == ZoneDrawPreset.Extended);
+                Assert.True(policy.LargeMultiplier >= ZoneDrawPolicy.Retail.LargeMultiplier);
+                Assert.True(policy.SubPixelCull);
+            }
+            Assert.True(ZoneDrawPolicy.Low.SwayRange > ZoneDrawPolicy.Minimum.SwayRange);
         }
 
         [Fact]

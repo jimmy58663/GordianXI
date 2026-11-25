@@ -172,6 +172,188 @@ Verification: `dotnet test --filter SharedDeviceAndZoneCacheTests` (headless D3D
     - *Survey, every DAT of the install (86,181 files, logging each link the two lookups resolve differently, 2026-11-04):* 369 generator layers change mesh: 365 in 24 zones (131 static, 234 emitters) and 4 in file 528 (`r_5w/effe/obj0/sph4`-`sph7`). No model, gear or spell DAT changes, although they load through the same code. Nearly all from a same-id terrain or prop mesh elsewhere in the file to an effect mesh in the generator's own directory: Norg's fires (252, `t_no/effe/fire`, `light01` → `light_dis`; lamps `lightnuno`), the `f_ri/effe/kiga` tree effects of zones 114, 125 and 218 (`ri_w13*_h` / `ri_tent*` → `ri_w13*_e`), Yuhtunga Jungle's lakes (123), the `d_be` doors and floors of 177 and 178, the Cloisters' crystals (201, 203, 209), Bastok Markets' auction light (235, `auc_stdl` → `auc_lt`), zone 244's vanes, zone 251's gate doors, zone 81's flags, the gates of 100 and 101. Offscreen in Norg's dock (display (0, 0, 0), noon, four headings) up to 14 % of the view changes: the old `light01` washed the whole deck yellow; `light_dis` is a small disc. Retail not yet compared there.
   - *Ignore-texture-alpha (2026-09-25):* generator render-state bit 0x1000 (StandardSetup) and the blend opcode's alpha override now reach the effect shader (`WeatherSkyLayer.IgnoreTextureAlpha` / `AlphaOverride`, flag in `SunDirection.w`): the texel alpha counts as opaque (0.5, half scale) so only the vertex alpha ramp and texture factor set coverage. Bibiki Bay's `ent1`-`ent4` set the bit; their rock atlas (`alb_fg1`/`alb_wf1`, DXT3) carries a blocky alpha mask for decal sub-meshes, which had cut the cave-mouth gradient into fully-lit and unlit tiles with hard seams. Verified offscreen at the player's logged spot (-652.66, 21.82, 899.85) at 12:00, 18:00 and 19:46 against a Windower capture: smooth light-to-dark ramp, no tile seams. The 19:46 orange tint is gone with the byte/255 lights; the remaining dusk difference is in [lighting.md](lighting.md#dusk-at-bibiki-bays-entrance-cave-6) (#6).
 
+## Wind sway (#606)
+
+Retail moves trees, grass and webs that GordianXI drew still: the Valkurm Dunes trees outside Selbina, Crawlers' Nest's webs at server (331.8, -32.8, -12.6) and La Theine Plateau's grass tufts at (-558.7, 0, 676.6) (x, height, y; the maintainer, 2026-11-18 and 2026-11-22). It is one mechanism in the mesh data, not a routine, an op or the weather.
+
+- **The data.** A Section 0x2E mesh whose config word (+4) has bit 1 set stores 48-byte vertices: position, a second vector, normal, colour, UV (xi-tools `docs/zone/format.md`, "vertex-blend"). The client draws the vertex at `position + windFactor * second`, the factor one value for every mesh. xi-model-viewer `ui/js/renderer.js` (after xim's WindFactor) makes it a triangle wave from 0 to 1 and back, two seconds each way; retail's is a gust (below). `ZoneMeshDecoder` read the 48-byte layout but dropped the second vector.
+- **The three cases** (dumped 2026-11-22, a temporary test on the retail install): the placements at the maintainer's spots have no BlockID (so not the generator-bound path, xi-tools "Generator-bound objects") and all carry wind offsets: Crawlers' Nest's webs `_dad_w09_m` (2.9 and 4.5 yalms either side; 82 placements, offsets up to 0.16 yalm, texture `dav_wf`), La Theine's tufts `_kusa_001_m`-`_kusa_003_m` (offsets up to 0.15; the zone's `_rat_w*` trees too, 16,114 of its 33,124 placed submeshes sway), Valkurm's trees `_kin_w*` (3,295 of 11,180, offsets up to 1.53 yalms on `_kin_w01b`).
+- **Census, zones 0-299:** 69 zones; 245,760 of 2,661,060 placed submeshes sway, nearly all alpha-tested foliage (`_` names), a few blended (Valkurm 78, zone 109 160) and opaque ones (Konschtat 15 and zone 108 2,560 each, zones 111 / 134 / 136 about 1,400-2,000: `con_w*`, `gar_w*` trees without the `_` prefix). The largest offset is 3.19 yalms (Jugner Forest's `kino_a01`). Zones: 2, 4, 5, 7, 8, 15, 24, 25, 39-41, 44, 45, 65, 70, 84, 95-98, 102-111, 113-128, 132, 134, 136, 147, 171, 187, 188, 191, 197, 215, 216, 233, 238-241, 243, 247, 250, 282, 285, 296, 297. **Beyond xi-tools / xi-model-viewer:** the census. West Ronfaure (100) has none, so #603's heat haze is something else ([particles.md](particles.md#heat-haze-603)).
+- **GordianXI.** `MeshGroup.WindDeltas` keeps the offsets (null for a mesh that does not sway; placed by the rotation and scale like a normal, `ZoneDefDecoder.InstantiateSubmesh`). `ZoneTerrainRenderer` uploads them as a second vertex stream and draws those submeshes with swaying variants of its opaque, cutout, decal and blend pipelines (`TerrainShaders.WithWind`: the offset times `TerrainTone.z` added before the world transform; normals as authored, as in xim); their bounds grow by the largest offset so culling keeps a leaning leaf. The factor is `ZoneWind.Factor` on the renderer's clock. Zone placements, building interiors and vessels sway; door leaves, elevators and furniture draw static. `EnableWindSway` turns it off.
+- **Checked offscreen** (`WindSwayRenderTests`): between factor 0 and 1 the Crawlers' Nest web sacs pulse (6,298 of 76,800 pixels change) and La Theine's tufts move (1,004); with the sway off nothing changes.
+- **Cost (round 1, 2026-11-23).** Nothing is animated on the CPU: the factor is one uniform and the vertex shader adds the offsets, only for submeshes that pass frustum culling. The first version still cost about 0.8 ms of CPU a frame. Release builds (`package-release.yml`'s publish), the La Theine grass spot (-558.7, 0, 676.6), rain, warm zone, 2560 x 1369, RTX 3070 Ti, D3D11, `/perf full`: `main` and every merged PR since #623 ran 257-291 FPS (scene CPU 1.8-2.4 ms), the first version 228-233 (2.7-2.9 ms). Turning the sway and the haze off at run time changed nothing. Taking the wind data out at load time restored 283 FPS. Two causes:
+  - **One buffer per swaying submesh.** 16,114 extra D3D11 vertex buffers in La Theine cost CPU every frame, whether they were drawn or not (without them: 250-254 FPS). A zone's offsets now go in a few shared buffers (`ZoneTerrainRenderer.WindPool`, up to 64 MB each), each submesh bound at its own offset; a submesh uploaded alone (`ZoneModelCache`) keeps its own.
+  - **Pipeline switches.** Swaying and still submeshes alternate in authored order, so most draws switched between the plain and the swaying pipeline. With the sway on, every zone submesh now draws with the swaying variant, a still one bound to a shared zero offset stream (`_zeroWindBuffer`, 65,536 vertices). The pipeline sequence is the same as `main`'s.
+  - With both fixes: 249-283 FPS, scene CPU 1.9-2.3 ms, against `main`'s 267 (2.1 ms) measured in between. Launches of the same build vary by about 15 FPS. In Debug, #623 runs 162 FPS (4.4 ms) and the round 1 test branch 145 (5.1 ms) at the same spot. The scene is CPU-bound (GPU under 1 ms).
+- **Retail check (round 1):** retail's sway does not grow in windy weather (the maintainer, 2026-11-22), so the fixed factor stays.
+- **Retail's curve (round 2).** The maintainer saw that Valkurm's trees do not swing steadily but in a pattern (video `20261123-2024-07.1327080.mp4`, retail at night, the palms on the hill outside Selbina, 30 fps, 16 s). Measured by phase correlation on four 64-pixel crown patches, frame by frame:
+  - One waveform carries 79 % of the motion (SVD of the eight x/y series). It repeats every **5.15 s** (autocorrelation 155 frames; folding 5.15 s), three times in the video.
+  - One cycle: from rest the crown leans out to full over about 1.9 s and holds there about 0.3 s, relaxes half way (0.52 at 0.55 of the cycle), leans out again to 0.87 (0.7 of the cycle) and settles back to rest. The holds are in the game's motion, not the video: the in-between frames keep moving.
+  - `ZoneWind.Factor` is that cycle: four harmonics fitted to it (11 % RMS residual), scaled to run from 0 to 1. **Differs from xi-model-viewer / xim.**
+  - The data holds no timing: the mesh header (`+4` config) has only the strip and vertex-blend bits, and the 48-byte vertex only the position and the offset (xi-tools `docs/zone/format.md`). So the period and shape come from the video alone.
+  - **Open (PROVISIONAL):** which end is the authored pose (taken as the rest before the lean). The two smaller palms move at other points of the cycle, so retail may give each mesh or position its own phase; one shared factor matches the two big crowns only. Settle with a video of one tree up close and its server position.
+- **Each tree at its own point of the cycle (round 3).** In game the palms looked like they moved too much, all together. A close-up retail video at Valkurm (84.17, 0.31, -68.96), heading 5 (`20261124-0518-55.4875284.mp4`, 2026-11-24, 30 fps, 17.8 s) settles it. Ten crown patches were tracked by phase correlation and `ZoneWind`'s curve was fitted to each, with its own offset, scale and axis:
+  - Every crown repeats every **5.13 s**, the period found in round 2.
+  - The curve fits seven crowns with R² 0.94-0.98, so the gust shape holds for every tree. The other three are cluttered by fronds in front (R² 0.37-0.75).
+  - Their offsets spread over the whole cycle: 0.12, 0.15, 0.50, 0.55, 0.74, 0.79, 0.87, 0.92 (and 0.22, 0.44 in the poor fits).
+  - Patches that lie on one crown share an offset within about 0.05 of a cycle.
+  - So each placement sways on its own: the wind stream now carries a fourth float, the placement's offset (`ZoneWind.PlacementPhase`). The vertex shader evaluates the curve at the shared clock's phase (`TerrainTone.z`, `ZoneWind.CyclePhase`) plus that offset (`ZoneWind.GlslFunction`). **Beyond xi-model-viewer**, whose factor is one value for the whole zone.
+  - **PROVISIONAL:** which offset retail gives which tree. The crowns could not be matched to placements, because the retail camera could not be reproduced closely enough offscreen. The offset is a hash of the placement's position, which spreads a grove evenly over the cycle as retail's does.
+  - **Amplitude (round 3):** the big crowns swing 4.3-5.6 px (of 750) from rest to full in the retail video, ours 6-8 px in an offscreen view framed close to it but not the same, so round 3 kept the authored offsets. Round 4 measured it properly (below).
+- **Amplitude (round 4).** The maintainer was sure the palms still moved too much and recorded retail and GordianXI side by side at the same spot (`20261125-0317-30.2977470.mp4`, 2026-11-25, 30 fps, 21.7 s: vanilla retail full screen, GordianXI's window over its lower part, so only retail's crowns show above it).
+  - Scale: retail draws the grove 1.33 times larger than GordianXI's window (the spacing of three crowns: 1.35, 1.32).
+  - Two crowns visible in both, tracked by phase correlation over all 650 frames: retail 8.4 and 7.4 px peak to peak (6.3 and 5.6 in GordianXI's pixels), GordianXI 11.6 and 10.5 px. Both repeat with the same period and gust shape.
+  - So retail leans the meshes 0.53-0.54 of the way GordianXI did at the full authored offsets: `ZoneWind.Amplitude` = 0.54 scales the factor (0 to 0.54 instead of 0 to 1), in `ZoneWind.Factor` and in the shader (`ZoneWind.GlslFunction`), for every swaying mesh (trees, grass, webs). **Differs from xi-model-viewer**, which leans the full offset. PROVISIONAL: measured on Valkurm's palms only.
+  - **Rest pose:** still open. A video shows only relative motion, so which end of the cycle is the authored pose cannot be read from it. The rest is kept before the lean, as in round 2.
+
+## Frame cost (#606 round 2)
+
+The maintainer measured Konschtat Highlands at server (-227.63, 70.98, 769.83): about 95-100 FPS facing heading 33 (down the valley) and about 170 facing 174 (TESTING-2026-11-22 C2, Debug build). Crawlers' Nest runs 299 (1.6 ms scene CPU, 275 draw calls).
+
+**What costs the frame (offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, a scratch harness rendering zone 108 at the spot, 2026-11-23).** The maintainer's Debug client was running throughout, so absolute times vary by about 1 ms between runs; the comparisons are within one run.
+
+| View | Draw calls | Placements in view | Frame |
+|---|---|---|---|
+| heading 33 | 5,332 | 5,610 | 5.6-5.9 ms |
+| heading 174 | 135 | 416 | 1.8-2.2 ms |
+| heading 33, sway off | 5,332 | 5,610 | 5.7-5.9 ms (no change) |
+| heading 33, `main` (no sway, no haze) | 5,332 | 5,605 | 5.6 ms |
+| heading 33, draw distance multiplier 2 / 1.5 / 1 | 2,347 / 1,302 / 735 | | 3.7 / 3.0 / 2.5 ms |
+
+- **Not the sway or the haze.** They cost about 0.3 ms here. `main` without either draws the same 5,332 calls.
+- **The cost is the draw calls** (a sampled trace of the render thread: CPU-bound, the driver's binds about 60 % of it). Looking down the valley, the camera sees 906 yalms (the global draw distance 302 times `ZoneVisibility.DefaultDrawDistanceMultiplier` 3). Within that:
+  - 2,371 flower quads `_con_han*`, two triangles each, one draw call apiece. Their own draw distance is 200 yalms, times 3 = 600.
+  - About 860 terrain pieces, each a base and a blended decal.
+  - About 1,500 more distant terrain and rock pieces.
+- **The multiplier is GordianXI's.** 3 was chosen so the Manaclipper's far islands draw (#70). Retail's value was never measured, and it also stretches each placement's own distance. Applied to the own distances only, 1 instead of 3 leaves 3,409 placements in view instead of 5,610.
+
+**Static batching (built).** Pass 1 now draws small still submeshes together (`ZoneTerrainRenderer.EnableStaticBatching`, default on):
+- **Which submeshes.** Opaque or alpha-tested, no wind, no UV scroll, at most 3,072 indices, and a placement without a blended decal (not a door, platform or vessel). At load their vertices go into shared 65,536-vertex chunks (`BatchVertexPool`) and their indices are rebased into the chunk. Every other draw of the submesh (pass 3, the AoE guide) is unchanged.
+- **How they draw.** Each frame the visible ones wait, grouped by pipeline, scene set, texture, light set and chunk, and are drawn at the end of pass 1: one call per group, their indices copied into a per-frame index buffer.
+- **Why the picture is the same.** They write depth. The only order that could show is against blended decals, which are drawn with a depth bias, so props stay after the decals as before. A placement's own base, which its decal composites over, never batches.
+- **Checked offscreen.** With the clock stopped and after warm-up, batched and unbatched frames are pixel-identical in Konschtat (108), La Theine (102), Crawlers' Nest (197), Valkurm (103) and Southern San d'Oria (230), four headings each. The first frames after a load differed in a few scattered pixels whichever came first. `StaticBatchingRenderTests` keeps the Konschtat case.
+- **Result.** At Konschtat heading 33: 5,332 to 2,816 draw calls, about 0.6-1.4 ms less per frame (15-20 %). Elsewhere the saving is smaller: La Theine 1,395 to 961 at one heading, Southern San d'Oria 363 to 183.
+
+**Still to decide:**
+- **The draw distance multiplier.** At 1 the valley view costs 2.5 ms (735 calls). A setting (#195) would let older cards trade distance for frame rate. Round 3 below has the retail comparison.
+- **Remaining per-draw cost.** Each unbatched submesh binds its own index buffer (`SetIndexBuffer` was about 14 % of the render thread). Pooling the zone's index buffers like the vertex chunks would remove most of it.
+
+### Round 3: retail's distances at Konschtat
+
+The maintainer took a screenshot of the same spot in each client (TESTING-2026-11-22 C3: `image-12.png` GordianXI, Debug build, 89.9 FPS, 9.8 ms scene CPU, 3,302 draw calls, 5,791 meshes; `image-13.png` retail). To their eye, retail draws the small foliage about half as far.
+
+**What is in view (heading 33, display (227.6, -71.0, 769.8), zone 108 data, before the culling tables).** About 13,500 placed submeshes are in the frustum. The authors gave each mesh class its own distance (record `+0x40`), not one by size:
+
+| Own distance (`+0x40`) | In view | Typical radius | What |
+|---|---|---|---|
+| none (global, 302) | 4,773 | 21 yalms | terrain blocks, cliffs, the far crags (`pl_*`, `zil_iwa*`, `con_ro*`) |
+| 50 | 1,406 | 1.3 | grass tufts `_kusa_01d`-`03d` |
+| 60 | 73 | 29 | a few terrain pieces |
+| 70 | 719 | 0.6 | bushes and small trees `con_w01`-`w08` |
+| 200 | 6,338 | 0.2 | flower quads `_con_hana_01`-`06` |
+| 300 | 215 | 8 | large trees `_con_w03`/`w05`/`w09`, crystal lines `cry_line*` |
+
+- Konschtat's environment distance is 302 in every keyframe. The terrain fog ends at 302 in cloudy weather and 340-450 in fine weather.
+- The flowers are tiny (0.2-0.3 yalm) but authored to 200 yalms. Times 3 they reach 600, where one is well under a pixel.
+
+**Retail against ours.** Offscreen at a camera matched to `image-13` (yaw 54, pitch 17, distance 10), the own distances were scaled by 3 (as now), by the square root of 3 and by 1:
+- **Grass tufts:** retail shows a single row of tufts at the foot of the slope. With the factor 1 we draw one row too (the nearest tufts, 28-49 yalms away); with the square root of 3 and with 3 we add a second and third row on the slope (54-90 yalms). So retail's own distances are scaled by between 1 and about 1.1 here, not 3.
+- **Flowers:** they barely show at any of the three. Beyond 87 yalms they are sub-pixel, and the culling tables already hide most of them. Only 272 pixels change between 3 and the square root of 3.
+- **The far crags (`zil_iwa*`, 700-780 yalms away):** retail draws them, faint in the fog. That needs a global distance of at least about 2.4 x 302, so retail's global distance is not at factor 1.
+- **This conflicts with the Manaclipper (#70).** Its islands have own distances of 400-800, and retail draws them where the factor 1 culls them all and 2 still culls the eastern group. One factor on the own distances cannot match both zones. Possible reasons: a zone floor on the multiplier (xi-tools: `XiZone` `+0x1D4`), the square-root rule xi-tools gives (the squared own distance times the multiplier), or a draw-distance add-on running in one of the two captures. **Open:** a retail look at Konschtat with no add-ons, and the Manaclipper again.
+- So nothing was changed by default in round 3. Round 4 below settles it: every earlier retail capture had Windower's DrawDistance plugin on.
+
+**What is culled today, and when.** Per frame, per submesh, in this order:
+1. Culling table of the camera floor (`ZoneVisibility.IsVisible`).
+2. Distance: the own distance x 3, else the global (302 x 3 = 906 here), measured to the placement origin.
+3. LOD slot (thresholds x 5/3).
+4. Frustum test on the submesh's box (`BoundingFrustum.IntersectsBox`).
+
+- Nothing behind the camera or outside the view is drawn. Nothing is occlusion-culled: a hill in front hides nothing from the CPU, which is why the valley view submits terrain behind the ridges.
+- Entities (`EntityRenderer`) are culled by the frustum only. The server sends only those within about 50 yalms anyway.
+- Zone particle generators stop emitting past their own distance x 3 (`ZoneParticleEmitter`, op 0x0A).
+- The free camera (`CameraMode.FreeCam`) uses the same eye for every rule. The culling table follows the floor under the free camera (with the 30-yalm reach), so flying high drops the tables and draws the whole zone within distance. That is the same as retail's camera, and costlier.
+- **Animation range.** The sway is evaluated in the vertex shader for every swaying submesh that is drawn; nothing that is culled is animated. UV scroll and the routines run the same way. There is no separate animation distance: it is the draw distance.
+
+## Draw policy (#606 round 4)
+
+**Every retail capture before round 4 had Windower's DrawDistance plugin on.** The maintainer's Windower init script held `drawdistance 10` the whole time. That covers `image-13` (round 3), the Manaclipper capture of #70 (2026-10-21), the far terrain captures of #70 round 1 (`image-17`/`19`/`20`) and the mist capture of round 2 (`image-52`). The vanilla captures below were logged in through XiLoader alone, with no Windower and no add-ons (TESTING-2026-11-22 C4: `image-14` Konschtat at the round 2 spot, heading 33, about 12:46; `image-15` to `image-17` the Manaclipper).
+
+**What vanilla retail draws at Konschtat (`image-14`, against offscreen renders at a camera matched to it, cloudy noon).**
+- **Grass tufts (own distance 50):** one row at the foot of the slope, as round 3 found, so own distances are scaled by 1. With `drawdistance 10` (`image-13`) a second, fainter row showed.
+- **Fog:** the authored fog. The far slope and the trees on the ridge are dark fog-coloured silhouettes, and the sky above is dark. With `drawdistance 10` the slope was clear out to the trees and the crags, so the plugin also pushes the fog out.
+- **Large assets:** the far mountain left of the valley and the ridge beyond the trees are drawn, fully fogged. The crag spire (`zil_iwa*`, 723-780 yalms) is not.
+  - At large-asset multiplier 1 (302 yalms) the mountain and ridge are missing.
+  - At 1.25 only a low ridge shows.
+  - From 1.5 to 2 the skyline matches.
+  - At 2.25 a second crag peak appears beside the mountain, and at 2.5 the spire.
+  - So vanilla's large-asset multiplier lies between 1.5 and 2.25; **2** is used (PROVISIONAL within that range).
+  - **Corrected in round 5 (below): 1.** These renders had the fog shrunk to the cut, so at 1 the hill and the trees came out as dark slabs, and the silhouettes compared were the wrong ones.
+- **So the large-asset distance is not the fog distance.** Vanilla draws terrain past the fog end, as silhouettes, up to the cut. The old rule that stretched the fog out to the cut (round 2, from `image-52`) came from the plugin and is gone.
+- **The Manaclipper (`image-15` to `image-17`):** vanilla still draws the reef and islands near the route. The #70 conflict, islands drawn far beyond their own 400-800 yalms, was the plugin's.
+- **What `drawdistance 10` does:** not documented in the sources found. The plugin is a Windower 4 plugin that its authors deprecated in favour of the Config plugin (2014 forum posts), whose `ClippingPlane` setting replaced it. The captures show it raised the global distance past 2.4x (the spire draws), pushed the fog out, and lengthened the own distances somewhat (a second row of tufts).
+  - xi-tools gives a squared rule: the squared own distance is multiplied by the registry multiplier, so own distances grow with its square root. If the plugin wrote 10 there, own distances grew 3.2x and the global distance 10x, with the fog moved out to match.
+  - So `image-13` and the #70 captures do not describe vanilla retail.
+
+**The policy (`ZoneDrawPolicy`, `ZoneDrawPreset`; Settings > Viewport > Draw distance).** Zone placements fall into two classes by the data, not by size:
+
+| Class | What | Cut |
+|---|---|---|
+| Large assets | placements without an own distance: terrain blocks, cliffs, buildings | the 0x2F keyframe's draw distance (`+0x58`) x the large-asset multiplier; also the far clip |
+| Small assets | placements with an own distance (record `+0x40` with `+0x46` bit 0): grass 50, bushes 70, flowers 200, trees and crystals 300 at Konschtat | the own distance x the small-asset multiplier |
+
+| Preset | Large | Small | Fog | Detail (LOD) scale | Sway range | Konschtat heading 33 |
+|---|---|---|---|---|---|---|
+| **Retail** (default) | 1 (2 in round 4) | 1 | 1 | 5/3 | everywhere | round 4 at 2: 1,102 draw calls, 1.7-1.9 ms |
+| Extended | 3 | 3 | 3 | 5/3 | everywhere | 2,815, 2.7 ms |
+| Low | 1 (1.25 in round 4) | 0.75 | 1 | 1 | 60 yalms | round 4 at 1.25: 387, 1.5 ms |
+| Minimum | 1 | 0.5 | 1 | 1 | 30 yalms | 247, 1.2 ms |
+
+The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass, sub-pixel cull on. At heading 174 every preset draws 135 calls in 1.1-1.6 ms. Round 2's baseline at heading 33 was 5,332 calls and 5.6 ms.
+- **Retail** is vanilla retail's distances. The detail scale stays at 5/3, which the maintainer asked for (#70 round 1).
+- **Extended** is GordianXI's look before round 4, near what the DrawDistance plugin gives.
+- **The fog** (outdoors) runs linearly from the authored start to 1.25 x the authored end (round 5, below), times the fog multiplier. It may end past the large-asset cut, as vanilla retail's does (round 5, below); until round 5 both ends shrank to the cut.
+  - Dungeon fog keeps the x3 that #612 round 2 calibrated (`ZoneEnvironmentSettings.IndoorFogMultiplier`) at every preset, and so do zone particle generators' own distances (`GeneratorDistanceMultiplier`, the Eldieme torch pools, #612). Both calibrations were made against captures with the plugin on, so they are PROVISIONAL until a vanilla dungeon check.
+- **Sub-pixel cull** (every preset): a placed submesh whose bounding sphere would cover less than half a pixel in radius is skipped (`ZoneDrawPolicy.SubPixelRadius`, `ZoneTerrainRenderer.SubPixelCull`).
+  - It runs after the distance rule and before the frustum test.
+  - At Konschtat with the Extended distances it skips about 2,800 tiny props. Unbatched that is 5,332 calls down to 2,946, with one pixel of 218,880 different (`StaticBatchingRenderTests`).
+  - At the Retail distances nothing in that view is that small.
+- **Sway range** (Low, Minimum): a swaying mesh farther than the range from the camera (its placement origin) binds the zero wind stream and holds its authored pose, the rest of the gust (`ZoneTerrainRenderer.SwayRange`).
+- **Index buffers:** a zone's submeshes now share a few 4 MB index buffers (`IndexPool`). Passes 1 and 3 rebind one only when it changes, where before every draw bound its own (about 14 % of the render thread, round 2).
+- **Free camera:** the same rules from the camera's eye. High above a floor no culling table applies, and everything within the preset's distances draws.
+
+**The outdoor fog curve (round 5).** Round 4's in-game check at Konschtat (heading 22-33) found GordianXI's dark fog "a little more aggressive" than vanilla retail (`image-19` GordianXI, `image-20` vanilla retail, TESTING-2026-11-22 C4).
+- **The weather was thunder**, not cloud: the fully fogged terrain is (49, 48, 52) in both, Konschtat's `thdr` keyframe (fog 0-203, colour 0.19 at 10-11 h); `clod` would give 101.
+- **Measurement.** Offscreen renders with the fog off and a depth readback give each pixel's distance at `image-19`'s camera (sky silhouette matched, IoU 0.81; eye at the player, yaw 52, pitch 10, distance 8). The fog factor then follows from a colour contrast the fog removes: the autumn tree's red-blue difference (-31 lit, +3 fog) and the grass's green-blue.
+  - Check on `image-19`: the tree 182 yalms off is fogged 54 %; the old rule (start at 75 % of the end, full at the end: 152-203) predicts 59 %.
+  - Vanilla retail fogs the same tree 74 %, and the hill under the ridge trees (246-267 yalms) is flat fog colour (luminance spread 1.8), while the old rule closed the fog at 203.
+  - A linear fog from the authored start (0) to 1.2-1.25 x the authored end fits both. Grass bands in `image-14` (vanilla, round 4's matched camera) fit 1.25-1.35. Near grass is the same colour in both captures, within the hour's light.
+- So outdoors `ApplyKeyframe` now runs the fog from the authored start to `ZoneEnvironmentSettings.OutdoorFogEndScale` (1.25) x the authored end, and the 75 % start is gone (PROVISIONAL: one zone, one weather). Konschtat in thunder fogs 0-254, cloudy 0-377, fine 0-562 (the cut was 604 yalms then; round 5 below moved it to 302 and stopped shrinking the fog to it). The offscreen render at `image-19`'s camera now darkens the tree and grades the middle of the valley instead of closing it into one flat slab.
+- **Not this change:** indoor fog, dungeon light and mist against vanilla retail, which looks much darker in Garlaige, Eldieme and Valkurm's mist (`image-21` to `image-26`): #653.
+
+**The large-asset cut (round 5): 1, not 2.** Round 5 in game (TESTING-2026-11-22 C5): at Konschtat (-226.1, 71.1, 769.0) heading 26, night, weather none, vanilla retail (`image-27`) shows the mountain left of the valley and the hill under the ridge trees against the sky, with nothing behind them. GordianXI at the Retail preset (`image-28`) drew distant meshes behind the trees as dark silhouettes. The maintainer: "Our retail draw distance actually is drawing further than it should".
+- **Measurement.** Offscreen at a camera matched to `image-28` (eye at the player, yaw 44, pitch -2, distance 8; `fine` keyframe at 22.8 h: fog 0-371, draw distance 302), with a depth readback for each pixel's distance:
+  - At 1 (302 yalms) the skyline is retail's: the mountain on the left, the hill and the trees, then sky.
+  - At 1.25 a low strip 316-376 yalms off rises behind the hill. Retail has none.
+  - At 1.5 to 2 the ridge 387-520 yalms off stands behind the trees, which is what `image-28` showed.
+  - `image-20` (vanilla, thunder, noon, round 4's camera): at 2 a second crag stands beside the mountain; at 1 it does not, as in retail.
+- **Why round 4 read 1.5-2.25.** Its renders shrank the fog to the cut. At 1 that fogged the hill and the trees into dark slabs, which looked like missing terrain.
+- **The fog no longer shrinks to the cut.** At 1 with the shrink, the ridge trees (about 290 yalms off) were black against the sky. Retail draws them in their autumn colours. Konschtat at night fogs 0-464 against the 302-yalm cut, so terrain at the cut is about 65 % fogged where it meets the sky.
+- **Low** now cuts at 1 as well (it was 1.25, past Retail). Minimum was already 1. Low still differs from Retail in its own distances (0.75), detail scale and sway range.
+- The frame cost drops with the cut (round 4's table: 735 calls and 2.5 ms at 1 against 1,102 and 1.7-1.9 ms at 2 for the same view, offscreen).
+- Confirmed in round 6 (TESTING-2026-11-22 C6): Konschtat at heading 26 against `image-27` and heading 33 in thunder against `image-20`, and wide views in La Theine Plateau and Ronfaure with no short terrain and no hard edge at the cut. Release FPS at Konschtat heading 33: Extended about 230, Retail 300, Low 310, Minimum 320.
+
+**Sway while moving (rounds 5-6, closed, inconclusive).** The maintainer saw our trees and grass stop swaying while the character moved, and thought retail's kept going. Compared by eye at the Valkurm palms (84.17, 0.31, -68.96) in round 6, retail's seem to stop too ("Watching retail it is really hard to tell, but it looks like theirs stop too"), so it was closed with no change.
+- Ours keeps swaying while moving. On local LSB (2026-11-25):
+  - The wind clock advanced at the same rate while walking (a log line in Konschtat).
+  - Running into the Valkurm fence with the camera still, the crowns moved as much as when standing (frame residual 4-9 per 0.2 s, 2-4 standing, the fence 1).
+  - Nothing in the zone draw depends on the player's movement or the camera, apart from the culling-table probe and the sway range (unlimited at Retail).
+- While the camera moves, its own motion on screen (frame residual 10-25) swamps the sway's (about 2). That is likely why the sway looks frozen in both clients. A scripted walk with the sway on and off measured alike.
+
+**Still open:**
+- **Indoor fog** under vanilla retail (Garlaige's corridor): #653.
+- **Mist** under vanilla retail (Valkurm): the fog now ends at 1.25 x the authored 148.5 yalms instead of being stretched to the cut; #653.
+
 ## AoE range guide (#356)
 
 While the sub-target cursor is up for a spell, job ability or weapon skill whose record has an area radius and shape 1 (around the target), the zone draws retail's range guide around the entity under the cursor. State: `AreaOfEffectGuide.For(SubTargeting, Catalog)` (Engine) reads the radius code and shape from the spell / command record (`mgc_` +0x45-+0x47, `comm` +0x10-+0x12; [dat-files.md](../world/dat-files.md#spell-and-command-tables)) and the viewport passes the cursor entity and radius to `ZoneTerrainRenderer.AoeGuide` each frame. Drawing (`ZoneTerrainRenderer.AoeGuide.cs`): after the actor shadows, every solid zone submesh in view is drawn again with a position-only shader (decal depth bias, no depth write, alpha blend) that works out each pixel's horizontal distance to the centre, so the mark lies on the geometry and climbs walls and stairs.
@@ -213,7 +395,7 @@ Which zone placements draw each frame, in the client's order (xi-tools `docs/zon
 - Thresholds `+0x38`/`+0x3C` are 10 / 100 in the towns; West Ronfaure also has 30/50 (1,195 records), 50/70, 30/40 and 25/40. Towns have no multi-variant placements; West Ronfaure has 1,525 (`_ron_w10_h/m/l` trees) and Valkurm 1,915 (`_kin_w01b_h/m` palms).
 - 0x2F `+0x58` is constant per zone: West Ronfaure 252.5, Valkurm 302, Metalworks 396, Whitegate 600, Bibiki Bay 800, the Manaclipper 802, Lower Jeuno 1000. The terrain fog end runs past it in most outdoor zones (Ronfaure up to 450, Valkurm 450, the Manaclipper 1,000), so with the authored values the fog alone hides far terrain.
 
-**The multiplier (3, `ZoneVisibility.DefaultDrawDistanceMultiplier`; `ZoneEnvironmentSettings.DrawDistanceMultiplier` is the one value a draw-distance setting, #195, changes, and `LodDistanceScale` the one for detail).** The client's registry multiplier is not measured directly. Offscreen on the Manaclipper (scenery at its first Route, eye on the deck looking ahead, noon): at 1 every far island is culled at its own distance, at 2 the eastern group still is, at 3 all of them draw. Retail draws those islands (maintainer's capture, 2026-10-21), so 3 is the smallest whole value consistent with it. Open: whether the own distance scales with the multiplier or its square root (xiclient multiplies the squared threshold).
+**The multiplier (since #606 round 4: large assets 2, small assets 1, fog 1, by preset; see "Draw policy (#606 round 4)").** Until round 4 it was one multiplier of 3 on everything, from the Manaclipper capture below, which had Windower's DrawDistance plugin on. The client's registry multiplier is not measured directly. Offscreen on the Manaclipper (scenery at its first Route, eye on the deck looking ahead, noon): at 1 every far island is culled at its own distance, at 2 the eastern group still is, at 3 all of them draw. Retail draws those islands (maintainer's capture, 2026-10-21), so 3 is the smallest whole value consistent with it. Open: whether the own distance scales with the multiplier or its square root (xiclient multiplies the squared threshold).
 
 **Round 1 (2026-10-31): far terrain as silhouettes.** Retail draws far mountains and islands textured (`image-17` out of Lower Jeuno, `image-19` West Ronfaure at 00:47, `image-20` Valkurm from 200 yalms up at 05:05), where GordianXI drew them as flat dark shapes. Offscreen at the `image-19` spot with every cull off, the mountains were already fully fog-coloured: the cause was the fog, not culling or LOD. The authored fog end (Ronfaure 357 at that hour) is under the mountains' distance; with the fog scaled by the multiplier (1,071) they show textured with light haze, as in retail, and the Manaclipper's islands get their colours back. In the `image-20` view, with every cull off, nothing exists north of the cliff band at that X (the zone's edge); the rest of the retail view is the area to the sides, which the hilltop's table hid until the floor reach bound. Small Lower Jeuno props were never seen to disappear (round 1), which fits own distances of 60-100 × 3. GordianXI samples zone textures at mip 0 only (`GpuTextureCache`, `maximumLod: 0`), so the softening at range in the retail shots is retail's mipmapping; here, lower detail at range comes from the `_m`/`_l` variants.
 

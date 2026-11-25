@@ -2121,6 +2121,16 @@
                                                Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
 
+                                <!-- Draw distance (#606 round 4, #195) -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Draw distance:" Foreground="#A0A0A0" FontSize="12"/>
+                                    <ComboBox ItemsSource="{Binding Viewport.AvailableDrawDistancePresets}"
+                                              SelectedItem="{Binding Viewport.DrawDistancePreset, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"/>
+                                    <TextBlock Text="Retail (default): the distances of the retail client without add-ons; far hills fade into the fog. Extended: three times as far, like Windower's DrawDistance plugin (costs the most). Low: for older graphics cards; grass and flowers end sooner and trees far away stop swaying. Minimum: for integrated graphics; the shortest distances."
+                                               Foreground="#707585" FontSize="11" TextWrapping="Wrap"/>
+                                </StackPanel>
+
                                 <!-- Zone cache (multi-box) -->
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="Zone cache for other characters' zones (MB of GPU memory):" Foreground="#A0A0A0" FontSize="12"/>
