@@ -26,6 +26,7 @@ namespace Gordian.App.Graphics
     public sealed partial class ZoneTerrainRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
+        private readonly System.Collections.Generic.List<Shader> _ownedShaders = new();
         // Layouts, light table, texture cache and resident zones shared by every window on the device (#300, #322).
         private readonly GpuSharedResources _shared;
         private readonly bool _ownsShared;
@@ -633,16 +634,31 @@ namespace Gordian.App.Graphics
         {
         }
 
-        private ZoneTerrainRenderer(GpuSharedResources shared, OutputDescription outputs, bool ownsShared)
+        internal ZoneTerrainRenderer(GpuSharedResources shared, OutputDescription outputs, Action pipelineCreated)
+            : this(shared, outputs, ownsShared: false, pipelineCreated) { }
+
+        private ZoneTerrainRenderer(GpuSharedResources shared, OutputDescription outputs, bool ownsShared, Action? pipelineCreated = null)
         {
             _shared = shared ?? throw new ArgumentNullException(nameof(shared));
             _ownsShared = ownsShared;
             _gd = shared.Device;
             _outputs = outputs;
-            InitializePipeline();
-            _entityRenderer = new EntityRenderer(_shared, _outputs);
-            BuildFallbackScene();
-            BuildOceanWaterPlane();
+            try
+            {
+                InitializePipeline();
+                pipelineCreated?.Invoke();
+                _entityRenderer = new EntityRenderer(_shared, _outputs);
+                BuildFallbackScene();
+                BuildOceanWaterPlane();
+            }
+            catch
+            {
+                // Construction can submit uploads before it fails. The caller never receives
+                // this instance, so it cannot dispose these partially acquired resources.
+                _gd.WaitForIdle();
+                Dispose();
+                throw;
+            }
         }
 
         /// <summary>The GPU resources this renderer draws with (shared with the other windows on the device).</summary>
@@ -715,23 +731,34 @@ namespace Gordian.App.Graphics
                 "main");
 
             Shader[] opaqueShaders = factory.CreateFromSpirv(vsDesc, fsOpaqueDesc);
+            _ownedShaders.AddRange(opaqueShaders);
             Shader[] decalShaders = factory.CreateFromSpirv(vsDecalDesc, fsBlendDesc);
+            _ownedShaders.AddRange(decalShaders);
             Shader[] cutoutShaders = factory.CreateFromSpirv(vsDesc, fsCutoutDesc);
+            _ownedShaders.AddRange(cutoutShaders);
             Shader[] blendShaders = factory.CreateFromSpirv(vsDesc, fsBlendDesc);
+            _ownedShaders.AddRange(blendShaders);
             Shader[] waterShaders = factory.CreateFromSpirv(vsWaterDesc, fsWaterDesc);
+            _ownedShaders.AddRange(waterShaders);
             Shader[] weatherSkyShaders = factory.CreateFromSpirv(vsWeatherSkyDesc, fsWeatherSkyDesc);
+            _ownedShaders.AddRange(weatherSkyShaders);
             // The swaying variants (#606): the same stages with the wind offset added in the vertex shader.
             var vsWindDesc = new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(TerrainShaders.WithWind(TerrainShaders.VertexShaderGlsl)), "main");
             var vsWindDecalDesc = new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(TerrainShaders.WithWind(TerrainShaders.VertexShaderDecalGlsl)), "main");
             Shader[] windOpaqueShaders = factory.CreateFromSpirv(vsWindDesc, fsOpaqueDesc);
+            _ownedShaders.AddRange(windOpaqueShaders);
             Shader[] windDecalShaders = factory.CreateFromSpirv(vsWindDecalDesc, fsBlendDesc);
+            _ownedShaders.AddRange(windDecalShaders);
             Shader[] windCutoutShaders = factory.CreateFromSpirv(vsWindDesc, fsCutoutDesc);
+            _ownedShaders.AddRange(windCutoutShaders);
             Shader[] windBlendShaders = factory.CreateFromSpirv(vsWindDesc, fsBlendDesc);
+            _ownedShaders.AddRange(windBlendShaders);
             var vsZoneEffectDesc = new ShaderDescription(
                 ShaderStages.Vertex,
                 Encoding.UTF8.GetBytes(ZoneShaders.VertexShaderZoneEffectGlsl),
                 "main");
             Shader[] zoneEffectShaders = factory.CreateFromSpirv(vsZoneEffectDesc, fsWeatherSkyDesc);
+            _ownedShaders.AddRange(zoneEffectShaders);
 
             // 4. Vertex Layout (36-byte MeshVertex stride: Pos(12) + Norm(12) + UV(8) + Color(4))
             var vertexLayout = new VertexLayoutDescription(
@@ -962,8 +989,10 @@ namespace Gordian.App.Graphics
 
             // 9f. Heat-haze Pipeline (#603): Distortion quads blended over a copy of the scene, depth-tested, no depth write.
             var distortionDesc = weatherSkyPipelineDesc;
-            distortionDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, factory.CreateFromSpirv(vsZoneEffectDesc,
-                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderDistortionGlsl), "main")));
+            Shader[] distortionShaders = factory.CreateFromSpirv(vsZoneEffectDesc,
+                new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(ZoneShaders.FragmentShaderDistortionGlsl), "main"));
+            _ownedShaders.AddRange(distortionShaders);
+            distortionDesc.ShaderSet = new ShaderSetDescription(new[] { vertexLayout }, distortionShaders);
             _distortionPipeline = factory.CreateGraphicsPipeline(distortionDesc);
 
             // 9d. Lens-flare Pipeline: screen-space additive sprites drawn over the finished scene, no depth test
@@ -3801,6 +3830,8 @@ namespace Gordian.App.Graphics
             _distortionSceneCopy?.Dispose();
             _commandList?.Dispose();
             _pipeline?.Dispose();
+            foreach (var shader in _ownedShaders) shader.Dispose();
+            _ownedShaders.Clear();
             _terrainBlendPipeline?.Dispose();
             _cutoutPipeline?.Dispose();
             _blendPipeline?.Dispose();

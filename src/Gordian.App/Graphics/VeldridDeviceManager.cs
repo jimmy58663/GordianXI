@@ -217,7 +217,12 @@ namespace Gordian.App.Graphics
             uint clampedWidth = Math.Max(1, width);
             uint clampedHeight = Math.Max(1, height);
 
-            if (clampedWidth == CurrentWidth && clampedHeight == CurrentHeight)
+            // A successful Vulkan Resize can still be clamped to the native child's
+            // old extent while Avalonia's deferred positioning catches up. Requested
+            // dimensions are not evidence that the actual framebuffer has that size.
+            if (clampedWidth == CurrentWidth && clampedHeight == CurrentHeight
+                && Framebuffer is { } framebuffer
+                && framebuffer.Width == clampedWidth && framebuffer.Height == clampedHeight)
             {
                 return;
             }
