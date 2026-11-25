@@ -59,10 +59,9 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         [Theory]
-        [InlineData(false, 2.0f, 1.0f, 0.0f, 500.0f)] // Retail: authored start to 1.25 x the end, inside the 600-yalm cut (#606 round 5)
-        [InlineData(false, 3.0f, 3.0f, 0.0f, 900.0f)] // Extended: 0-1500, shrunk to the 900-yalm cut
-        [InlineData(false, 1.0f, 1.0f, 0.0f, 300.0f)] // Minimum: shrunk to the 300-yalm cut
-        [InlineData(true, 2.0f, 1.0f, 0.0f, 1200.0f)]   // dungeons keep their x3 fog and authored start (#612 round 2)
+        [InlineData(false, 1.0f, 1.0f, 0.0f, 500.0f)] // Retail: authored start to 1.25 x the end, past the 300-yalm cut as retail's (#606 round 5)
+        [InlineData(false, 3.0f, 3.0f, 0.0f, 1500.0f)] // Extended: x3
+        [InlineData(true, 1.0f, 1.0f, 0.0f, 1200.0f)]   // dungeons keep their x3 fog and authored start (#612 round 2)
         public void ApplyKeyframe_ScalesTheOutdoorFogByItsOwnMultiplier(bool indoors, float large, float fog, float fogStart, float fogEnd)
         {
             var env = new ZoneEnvironmentSettings { DrawDistanceMultiplier = large, FogDistanceMultiplier = fog };
@@ -91,7 +90,7 @@ namespace Gordian.Engine.Tests.Graphics
             Assert.Equal(ZoneDrawPolicy.Retail.LargeMultiplier, env.DrawDistanceMultiplier);
             Assert.Equal(ZoneDrawPolicy.Retail.SmallMultiplier, env.SmallDrawDistanceMultiplier);
             Assert.Equal(ZoneDrawPolicy.Retail.FogMultiplier, env.FogDistanceMultiplier);
-            Assert.Equal(2.0f, ZoneDrawPolicy.Retail.LargeMultiplier);
+            Assert.Equal(1.0f, ZoneDrawPolicy.Retail.LargeMultiplier);
             Assert.Equal(1.0f, ZoneDrawPolicy.Retail.SmallMultiplier);
             Assert.True(float.IsPositiveInfinity(ZoneDrawPolicy.Retail.SwayRange));
 
@@ -102,6 +101,7 @@ namespace Gordian.Engine.Tests.Graphics
             {
                 var policy = ZoneDrawPolicy.For(preset);
                 Assert.True(policy.LargeMultiplier >= policy.SmallMultiplier || preset == ZoneDrawPreset.Extended);
+                Assert.True(policy.LargeMultiplier >= ZoneDrawPolicy.Retail.LargeMultiplier);
                 Assert.True(policy.SubPixelCull);
             }
             Assert.True(ZoneDrawPolicy.Low.SwayRange > ZoneDrawPolicy.Minimum.SwayRange);

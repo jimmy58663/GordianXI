@@ -38,7 +38,7 @@ namespace Gordian.Engine.Graphics
     /// </summary>
     /// <param name="LargeMultiplier">Scale on the environment's draw distance (far clip, large assets).</param>
     /// <param name="SmallMultiplier">Scale on placements' own draw distances.</param>
-    /// <param name="FogMultiplier">Scale on the authored outdoor fog distances (never past the large-asset cut).</param>
+    /// <param name="FogMultiplier">Scale on the authored outdoor fog distances (the fog may end past the large-asset cut, as retail's does).</param>
     /// <param name="LodDistanceScale">Scale on the placements' detail thresholds (<see cref="ZoneVisibility.DefaultLodDistanceScale"/>).</param>
     /// <param name="SubPixelCull">Skip placed submeshes whose bounds cover less than <see cref="SubPixelRadius"/> pixels.</param>
     /// <param name="SwayRange">Yalms from the camera within which swaying meshes move; infinity everywhere (retail).</param>
@@ -57,10 +57,11 @@ namespace Gordian.Engine.Graphics
         public const float SubPixelRadius = 0.5f;
 
         /// <summary>
-        /// The vanilla retail client (no Windower, no add-ons; TESTING-2026-11-22 C4, image-14 to image-17): large assets to
-        /// twice the environment's distance (Konschtat's skyline matches from 1.5 to 2.25, PROVISIONAL), own distances as
-        /// authored, vanilla retail's outdoor fog (multiplier 1; the curve is <see cref="ZoneEnvironmentSettings.OutdoorFogEndScale"/>),
-        /// with full detail out to 5/3 of the authored thresholds as the maintainer asked (#70 round 1).
+        /// The vanilla retail client (no Windower, no add-ons; TESTING-2026-11-22 C4 and C5, image-14 to image-28): large
+        /// assets to the environment's own distance (<see cref="ZoneVisibility.DefaultDrawDistanceMultiplier"/>, Konschtat's
+        /// skyline in image-27 and image-20), own distances as authored, vanilla retail's outdoor fog (multiplier 1; the
+        /// curve is <see cref="ZoneEnvironmentSettings.OutdoorFogEndScale"/>), with full detail out to 5/3 of the authored
+        /// thresholds as the maintainer asked (#70 round 1).
         /// </summary>
         public static readonly ZoneDrawPolicy Retail = new(ZoneVisibility.DefaultDrawDistanceMultiplier, ZoneVisibility.DefaultSmallDrawDistanceMultiplier, 1.0f,
                                                            ZoneVisibility.DefaultLodDistanceScale, true, float.PositiveInfinity);
@@ -68,8 +69,8 @@ namespace Gordian.Engine.Graphics
         /// <summary>GordianXI's distances before round 4 (3 on everything), near what Windower's DrawDistance plugin gave.</summary>
         public static readonly ZoneDrawPolicy Extended = new(3.0f, 3.0f, 3.0f, ZoneVisibility.DefaultLodDistanceScale, true, float.PositiveInfinity);
 
-        /// <summary>For older cards.</summary>
-        public static readonly ZoneDrawPolicy Low = new(1.25f, 0.75f, 1.0f, 1.0f, true, 60.0f);
+        /// <summary>For older cards: retail's large-asset cut, shorter own distances, full detail only at the authored distances.</summary>
+        public static readonly ZoneDrawPolicy Low = new(1.0f, 0.75f, 1.0f, 1.0f, true, 60.0f);
 
         /// <summary>For integrated graphics.</summary>
         public static readonly ZoneDrawPolicy Minimum = new(1.0f, 0.5f, 1.0f, 1.0f, true, 30.0f);

@@ -222,10 +222,9 @@ namespace Gordian.Engine.Graphics
             FogEnabled = hasFog;
             FogStart = keyframe.TerrainFogStart;
             FogEnd = keyframe.TerrainFogEnd;
-            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the fog is vanilla retail's, and
-            // terrain past the fog end but inside the draw distance shows as fog-coloured silhouettes, as vanilla retail
-            // draws them (Konschtat image-14, no add-ons). The textured far terrain and light haze of the #70 captures
-            // (round 1 image-17/19/20, round 2 image-52) came from Windower's DrawDistance plugin, which raised both.
+            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the fog is vanilla retail's. The
+            // textured far terrain and light haze of the #70 captures (round 1 image-17/19/20, round 2 image-52) came from
+            // Windower's DrawDistance plugin, which raised both.
             if (dungeonLight)
             {
                 // Dungeon fog keeps the scale #612 round 2 calibrated it at (Garlaige's far corridor at about 45 yalms
@@ -237,17 +236,10 @@ namespace Gordian.Engine.Graphics
             else if (!keyframe.Indoors)
             {
                 FogStart *= FogDistanceMultiplier;
+                // The fog may end past the draw-distance cut, as vanilla retail's does: at Konschtat at night (fog 0-464,
+                // cut 302) retail shows the ridge trees 290 yalms off in colour against the sky (image-27, #606 round 5).
+                // Until round 5 both ends shrank to the cut, which drew them as dark silhouettes.
                 FogEnd *= FogDistanceMultiplier * (hasFog ? OutdoorFogEndScale : 1.0f);
-
-                // The fog never runs past the draw-distance cut (the Low and Minimum presets cut short of the authored
-                // fog end): both ends shrink by the same ratio, so terrain is fully fogged where it stops.
-                float global = ZoneVisibility.GlobalDrawDistance(keyframe.DrawDistance, DrawDistanceMultiplier);
-                if (hasFog && FogEnd > global)
-                {
-                    float shrink = global / FogEnd;
-                    FogStart *= shrink;
-                    FogEnd = global;
-                }
             }
 
             DrawDistance = keyframe.DrawDistance;

@@ -114,6 +114,7 @@ namespace Gordian.App.Tests.Graphics
                 var camera = new Gordian.Engine.Graphics.ViewportCamera { FarClip = 5000f };
                 camera.Update(new Vector3(0, 10, 0), 15.0f, 180.0f, 6.0f, 640f / 480f);
                 var env = Gordian.Engine.Graphics.ZoneEnvironmentSettings.CreateDay();
+                env.DrawDistanceMultiplier = 2.0f; // the view this test was framed on (the cut before #606 round 5)
                 env.WeatherId = "fine";
                 renderer.SkyDomeRenderer?.UpdateDome(env);
                 var colorTarget = gd.SwapchainFramebuffer.ColorTargets[0].Target;

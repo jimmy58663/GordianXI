@@ -288,6 +288,7 @@ The maintainer took a screenshot of the same spot in each client (TESTING-2026-1
   - From 1.5 to 2 the skyline matches.
   - At 2.25 a second crag peak appears beside the mountain, and at 2.5 the spire.
   - So vanilla's large-asset multiplier lies between 1.5 and 2.25; **2** is used (PROVISIONAL within that range).
+  - **Corrected in round 5 (below): 1.** These renders had the fog shrunk to the cut, so at 1 the hill and the trees came out as dark slabs, and the silhouettes compared were the wrong ones.
 - **So the large-asset distance is not the fog distance.** Vanilla draws terrain past the fog end, as silhouettes, up to the cut. The old rule that stretched the fog out to the cut (round 2, from `image-52`) came from the plugin and is gone.
 - **The Manaclipper (`image-15` to `image-17`):** vanilla still draws the reef and islands near the route. The #70 conflict, islands drawn far beyond their own 400-800 yalms, was the plugin's.
 - **What `drawdistance 10` does:** not documented in the sources found. The plugin is a Windower 4 plugin that its authors deprecated in favour of the Config plugin (2014 forum posts), whose `ClippingPlane` setting replaced it. The captures show it raised the global distance past 2.4x (the spire draws), pushed the fog out, and lengthened the own distances somewhat (a second row of tufts).
@@ -303,15 +304,15 @@ The maintainer took a screenshot of the same spot in each client (TESTING-2026-1
 
 | Preset | Large | Small | Fog | Detail (LOD) scale | Sway range | Konschtat heading 33 |
 |---|---|---|---|---|---|---|
-| **Retail** (default) | 2 | 1 | 1 | 5/3 | everywhere | 1,102 draw calls, 1.7-1.9 ms |
+| **Retail** (default) | 1 (2 in round 4) | 1 | 1 | 5/3 | everywhere | round 4 at 2: 1,102 draw calls, 1.7-1.9 ms |
 | Extended | 3 | 3 | 3 | 5/3 | everywhere | 2,815, 2.7 ms |
-| Low | 1.25 | 0.75 | 1 | 1 | 60 yalms | 387, 1.5 ms |
+| Low | 1 (1.25 in round 4) | 0.75 | 1 | 1 | 60 yalms | round 4 at 1.25: 387, 1.5 ms |
 | Minimum | 1 | 0.5 | 1 | 1 | 30 yalms | 247, 1.2 ms |
 
 The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass, sub-pixel cull on. At heading 174 every preset draws 135 calls in 1.1-1.6 ms. Round 2's baseline at heading 33 was 5,332 calls and 5.6 ms.
 - **Retail** is vanilla retail's distances. The detail scale stays at 5/3, which the maintainer asked for (#70 round 1).
 - **Extended** is GordianXI's look before round 4, near what the DrawDistance plugin gives.
-- **The fog** (outdoors) runs linearly from the authored start to 1.25 x the authored end (round 5, below), times the fog multiplier, never past the large-asset cut: if it would end past the cut, both ends shrink by the same ratio (Low and Minimum in fine weather).
+- **The fog** (outdoors) runs linearly from the authored start to 1.25 x the authored end (round 5, below), times the fog multiplier. It may end past the large-asset cut, as vanilla retail's does (round 5, below); until round 5 both ends shrank to the cut.
   - Dungeon fog keeps the x3 that #612 round 2 calibrated (`ZoneEnvironmentSettings.IndoorFogMultiplier`) at every preset, and so do zone particle generators' own distances (`GeneratorDistanceMultiplier`, the Eldieme torch pools, #612). Both calibrations were made against captures with the plugin on, so they are PROVISIONAL until a vanilla dungeon check.
 - **Sub-pixel cull** (every preset): a placed submesh whose bounding sphere would cover less than half a pixel in radius is skipped (`ZoneDrawPolicy.SubPixelRadius`, `ZoneTerrainRenderer.SubPixelCull`).
   - It runs after the distance rule and before the frustum test.
@@ -327,10 +328,23 @@ The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass
   - Check on `image-19`: the tree 182 yalms off is fogged 54 %; the old rule (start at 75 % of the end, full at the end: 152-203) predicts 59 %.
   - Vanilla retail fogs the same tree 74 %, and the hill under the ridge trees (246-267 yalms) is flat fog colour (luminance spread 1.8), while the old rule closed the fog at 203.
   - A linear fog from the authored start (0) to 1.2-1.25 x the authored end fits both. Grass bands in `image-14` (vanilla, round 4's matched camera) fit 1.25-1.35. Near grass is the same colour in both captures, within the hour's light.
-- So outdoors `ApplyKeyframe` now runs the fog from the authored start to `ZoneEnvironmentSettings.OutdoorFogEndScale` (1.25) x the authored end, and the 75 % start is gone (PROVISIONAL: one zone, one weather). Konschtat in thunder fogs 0-254, cloudy 0-377, fine 0-562 (under the 604-yalm cut). The offscreen render at `image-19`'s camera now darkens the tree and grades the middle of the valley instead of closing it into one flat slab.
+- So outdoors `ApplyKeyframe` now runs the fog from the authored start to `ZoneEnvironmentSettings.OutdoorFogEndScale` (1.25) x the authored end, and the 75 % start is gone (PROVISIONAL: one zone, one weather). Konschtat in thunder fogs 0-254, cloudy 0-377, fine 0-562 (the cut was 604 yalms then; round 5 below moved it to 302 and stopped shrinking the fog to it). The offscreen render at `image-19`'s camera now darkens the tree and grades the middle of the valley instead of closing it into one flat slab.
 - **Not this change:** indoor fog, dungeon light and mist against vanilla retail, which looks much darker in Garlaige, Eldieme and Valkurm's mist (`image-21` to `image-26`): #653.
 
+**The large-asset cut (round 5): 1, not 2.** Round 5 in game (TESTING-2026-11-22 C5): at Konschtat (-226.1, 71.1, 769.0) heading 26, night, weather none, vanilla retail (`image-27`) shows the mountain left of the valley and the hill under the ridge trees against the sky, with nothing behind them. GordianXI at the Retail preset (`image-28`) drew distant meshes behind the trees as dark silhouettes. The maintainer: "Our retail draw distance actually is drawing further than it should".
+- **Measurement.** Offscreen at a camera matched to `image-28` (eye at the player, yaw 44, pitch -2, distance 8; `fine` keyframe at 22.8 h: fog 0-371, draw distance 302), with a depth readback for each pixel's distance:
+  - At 1 (302 yalms) the skyline is retail's: the mountain on the left, the hill and the trees, then sky.
+  - At 1.25 a low strip 316-376 yalms off rises behind the hill. Retail has none.
+  - At 1.5 to 2 the ridge 387-520 yalms off stands behind the trees, which is what `image-28` showed.
+  - `image-20` (vanilla, thunder, noon, round 4's camera): at 2 a second crag stands beside the mountain; at 1 it does not, as in retail.
+- **Why round 4 read 1.5-2.25.** Its renders shrank the fog to the cut. At 1 that fogged the hill and the trees into dark slabs, which looked like missing terrain.
+- **The fog no longer shrinks to the cut.** At 1 with the shrink, the ridge trees (about 290 yalms off) were black against the sky. Retail draws them in their autumn colours. Konschtat at night fogs 0-464 against the 302-yalm cut, so terrain at the cut is about 65 % fogged where it meets the sky.
+- **Low** now cuts at 1 as well (it was 1.25, past Retail). Minimum was already 1. Low still differs from Retail in its own distances (0.75), detail scale and sway range.
+- The frame cost drops with the cut (round 4's table: 735 calls and 2.5 ms at 1 against 1,102 and 1.7-1.9 ms at 2 for the same view, offscreen).
+- PROVISIONAL: one zone, two views. A view across open ground in another zone at the Retail preset would confirm it.
+
 **Still open:**
+- **Sway while moving** (round 5): the maintainer sees our trees and grass stop swaying while the character moves, and retail's keep going. Not reproduced. In our client on local LSB (Konschtat, 2026-11-25) a log line showed the wind clock advancing at the same rate while walking (eye moving, phase still 0.1 per 0.5 s). Nothing in the zone draw depends on the camera or the player's movement apart from the culling-table probe and the sway range, which is unlimited at Retail. Check in round 6, below.
 - **Indoor fog** under vanilla retail (Garlaige's corridor): #653.
 - **Mist** under vanilla retail (Valkurm): the fog now ends at 1.25 x the authored 148.5 yalms instead of being stretched to the cut; #653.
 

@@ -22,14 +22,17 @@ namespace Gordian.Engine.Graphics
 
         /// <summary>
         /// The large-asset multiplier of the Retail preset, on the environment's draw distance (xi-tools:
-        /// <c>GetAnotherSomething</c>, a registry float). 2, from vanilla retail (#606 round 4, no Windower): at Konschtat
-        /// (-227.63, 70.98, 769.83) heading 33, image-14 shows the far mountain left of the valley and the ridge beyond
-        /// it as fog-coloured silhouettes but not the crag spire 723-780 yalms off, which offscreen matches 1.5 to 2.25
-        /// times 302 (PROVISIONAL within that range). It was 3 from #70 to round 3, set from captures taken with
-        /// Windower's DrawDistance plugin at 10. The default of <see cref="ZoneEnvironmentSettings.DrawDistanceMultiplier"/>;
-        /// the presets are <see cref="ZoneDrawPolicy"/>.
+        /// <c>GetAnotherSomething</c>, a registry float). 1: vanilla retail cuts large assets at the 0x2F keyframe's own
+        /// draw distance (#606 round 5, no Windower). At Konschtat (-226.1, 71.1, 769.0) heading 26, night, retail
+        /// (image-27) shows the mountain left of the valley and the hill under the ridge trees against the sky, with nothing
+        /// behind them. Offscreen at a camera matched to GordianXI's image-28, 1.0 (302 yalms) draws the same skyline; 1.25
+        /// adds a low strip 316-376 yalms off behind the hill, and 1.5 to 2 the ridge 387-520 yalms off that image-28 showed
+        /// as silhouettes. Image-20 (thunder, noon) agrees: at 2 a second crag stands beside the mountain, which retail does
+        /// not draw. Round 4's reading of image-14 (1.5 to 2.25) compared silhouettes whose fog had been shrunk to the cut.
+        /// It was 3 from #70 to round 3, from captures taken with Windower's DrawDistance plugin at 10. The default of
+        /// <see cref="ZoneEnvironmentSettings.DrawDistanceMultiplier"/>; the presets are <see cref="ZoneDrawPolicy"/>.
         /// </summary>
-        public const float DefaultDrawDistanceMultiplier = 2.0f;
+        public const float DefaultDrawDistanceMultiplier = 1.0f;
 
         /// <summary>
         /// The small-asset multiplier of the Retail preset, on placements' own draw distances: 1, as vanilla retail
