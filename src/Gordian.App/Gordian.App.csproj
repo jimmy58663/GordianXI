@@ -24,6 +24,13 @@
     <InternalsVisibleTo Include="Gordian.App.Tests" />
   </ItemGroup>
 
+  <!-- macOS (#651): SslStream's default Apple backend has no TLS 1.3, and LandSandBoat's login and lobby servers accept
+       only TLS 1.3. This .NET 10 switch moves client-side SslStream to Network.framework (TLS 1.2 and 1.3). Only the
+       macOS runtime reads it; Windows (SChannel) and Linux (OpenSSL) ignore it. Same as DOTNET_SYSTEM_NET_SECURITY_USENETWORKFRAMEWORK=1. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Net.Security.UseNetworkFramework" Value="true" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.2.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.2.0" />

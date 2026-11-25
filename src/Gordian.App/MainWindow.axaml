@@ -309,13 +309,20 @@
                                             <TextBox Grid.Column="0" Text="{Binding FormServerHost, Mode=TwoWay}" PlaceholderText="e.g. 127.0.0.1 or play.myserver.net"/>
                                             <TextBox Grid.Column="2" Text="{Binding FormServerPort, Mode=TwoWay}" PlaceholderText="54231" ToolTip.Tip="Auth (login) port, 54231 by default"/>
                                         </Grid>
-                                        <Expander Header="Advanced: lobby ports" HorizontalAlignment="Stretch">
-                                            <Grid ColumnDefinitions="Auto, 90, 20, Auto, 90" RowDefinitions="Auto">
-                                                <TextBlock Grid.Column="0" Text="Data port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                <TextBox Grid.Column="1" Text="{Binding FormDataPort, Mode=TwoWay}" PlaceholderText="54230" ToolTip.Tip="xi_data port, 54230 by default"/>
-                                                <TextBlock Grid.Column="3" Text="View port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                <TextBox Grid.Column="4" Text="{Binding FormViewPort, Mode=TwoWay}" PlaceholderText="54001" ToolTip.Tip="xi_view port, 54001 by default"/>
-                                            </Grid>
+                                        <Expander Header="Advanced: lobby connection" HorizontalAlignment="Stretch">
+                                            <StackPanel Spacing="8">
+                                                <Grid ColumnDefinitions="Auto, 90, 20, Auto, 90" RowDefinitions="Auto">
+                                                    <TextBlock Grid.Column="0" Text="Data port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBox Grid.Column="1" Text="{Binding FormDataPort, Mode=TwoWay}" PlaceholderText="54230" ToolTip.Tip="xi_data port, 54230 by default"/>
+                                                    <TextBlock Grid.Column="3" Text="View port:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <TextBox Grid.Column="4" Text="{Binding FormViewPort, Mode=TwoWay}" PlaceholderText="54001" ToolTip.Tip="xi_view port, 54001 by default"/>
+                                                </Grid>
+                                                <Grid ColumnDefinitions="Auto, *">
+                                                    <TextBlock Grid.Column="0" Text="Encryption:" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                    <ComboBox Grid.Column="1" ItemsSource="{Binding LobbyTransportChoices}" SelectedIndex="{Binding FormLobbyTransportIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                                                              ToolTip.Tip="Automatic uses TLS on servers that require xiloader 3.0 and plain connections on older ones. Change it only if the server's version is detected wrongly."/>
+                                                </Grid>
+                                            </StackPanel>
                                         </Expander>
                                     </StackPanel>
 

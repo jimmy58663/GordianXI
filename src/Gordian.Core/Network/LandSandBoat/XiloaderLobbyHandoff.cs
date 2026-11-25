@@ -17,7 +17,8 @@ namespace Gordian.Core.Network.LandSandBoat
     /// the auth server's session hash into the header's +0x0C of every lobby request (xiloader's <c>send</c> hook), and
     /// answers LandSandBoat's data channel (xi_data, 54230): 0xFE with the session hash at connect, 0xA1 (account id)
     /// when the server prompts 0x01, 0xA2 (the session key) when it prompts 0x02. LandSandBoat ignores the AuthCode, the
-    /// body hashes and the selection digest the client sends.
+    /// body hashes and the selection digest the client sends. Since xiloader 3.0 (LandSandBoat 778b74294a) the data and
+    /// view connections run over TLS with the auth server's key (<see cref="LsbLobbyTls"/>); the packets are unchanged.
     /// <para>
     /// Flows (XiPackets lobby/Protocol.md; LandSandBoat src/login/view_session.cpp and data_session.cpp; xiloader
     /// src/network.cpp): a character list = view 0x1F -> data 0x01, data 0xA1 -> data 0x03 + view 0x20; select = view
@@ -55,7 +56,8 @@ namespace Gordian.Core.Network.LandSandBoat
         private readonly Action<PacketLogEntry>? _log;
         private readonly TcpClient _dataClient = new();
         private readonly LobbyKeyCounter _keyCounter = new();
-        private NetworkStream? _data;
+        private readonly string? _serverKey;
+        private Stream? _data;
         private readonly System.Threading.Channels.Channel<byte[]> _messages = System.Threading.Channels.Channel.CreateUnbounded<byte[]>(
             new System.Threading.Channels.UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
         private Task? _pump;
@@ -65,8 +67,13 @@ namespace Gordian.Core.Network.LandSandBoat
         private bool _broken;
         private bool _disposed;
 
+        /// <param name="serverKey">
+        /// The auth server's key fingerprint when the data channel runs over TLS (<see cref="LsbAuthentication.LobbyServerKey"/>),
+        /// or null for plain TCP (LandSandBoat before xiloader 3.0).
+        /// </param>
         public XiloaderLobbyHandoff(string host, int dataPort, uint accountId, byte[] sessionHash, byte[]? customKey = null,
-            string clientVersion = DefaultClientVersion, Action<PacketLogEntry>? log = null, TimeSpan? timeout = null)
+            string clientVersion = DefaultClientVersion, Action<PacketLogEntry>? log = null, TimeSpan? timeout = null,
+            string? serverKey = null)
         {
             ArgumentNullException.ThrowIfNull(host);
             ArgumentNullException.ThrowIfNull(sessionHash);
@@ -78,6 +85,7 @@ namespace Gordian.Core.Network.LandSandBoat
             _baseKey = CreateBaseKey();
             if (customKey is { Length: 20 }) customKey.CopyTo(_baseKey, 0);
             ClientVersion = clientVersion;
+            _serverKey = serverKey;
             _log = log;
             Timeout = timeout ?? TimeSpan.FromSeconds(10);
         }
@@ -103,11 +111,19 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>The lobby key counter as current LandSandBoat follows it (see <see cref="LobbyKeyCounter"/>).</summary>
         public uint KeyCounter => _keyCounter.Value;
 
-        /// <summary>Connects xi_data and sends 0xFE with the session hash, as xiloader does when the client starts.</summary>
+        /// <summary>Whether the data channel runs over TLS (LandSandBoat since xiloader 3.0, <see cref="LsbLobbyTls"/>).</summary>
+        public bool UsesTls => _serverKey != null;
+
+        /// <summary>
+        /// Connects xi_data (over TLS when the server needs it, checked against the auth server's key) and sends 0xFE with
+        /// the session hash, as xiloader does when the client starts.
+        /// </summary>
         public async Task OpenAsync(CancellationToken ct)
         {
             await _dataClient.ConnectAsync(_host, _dataPort, ct).ConfigureAwait(false);
-            _data = _dataClient.GetStream();
+            _data = _serverKey == null
+                ? _dataClient.GetStream()
+                : await LsbLobbyTls.AuthenticateAsync(_dataClient.GetStream(), _host, _dataPort, "data", _serverKey, Timeout, ct).ConfigureAwait(false);
             _pump = Task.Run(() => PumpDataAsync(_data));
             var packet = new byte[LobbyPackets.DataPacketSize];
             LobbyPackets.WriteDataSessionHash(packet, _sessionHash);
@@ -292,7 +308,7 @@ namespace Gordian.Core.Network.LandSandBoat
         /// ends. A cancelled socket read can lose bytes that were arriving, so reads here are never cancelled: the
         /// timeouts apply to the queue instead.
         /// </summary>
-        private async Task PumpDataAsync(NetworkStream stream)
+        private async Task PumpDataAsync(Stream stream)
         {
             try
             {
@@ -322,7 +338,7 @@ namespace Gordian.Core.Network.LandSandBoat
             }
         }
 
-        private static async Task<bool> ReadExactlyAsync(NetworkStream stream, Memory<byte> buffer, CancellationToken ct)
+        private static async Task<bool> ReadExactlyAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
         {
             int read = 0;
             while (read < buffer.Length)
