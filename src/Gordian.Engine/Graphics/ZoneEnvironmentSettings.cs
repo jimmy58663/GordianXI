@@ -131,6 +131,18 @@ namespace Gordian.Engine.Graphics
         public const float IndoorFogMultiplier = 3.0f;
 
         /// <summary>
+        /// Where vanilla retail's outdoor fog closes, as a multiple of the authored fog end (#606 round 5, PROVISIONAL):
+        /// the fog runs linearly from the authored start (0 in every Konschtat keyframe) to 1.25 x the authored end.
+        /// Measured at Konschtat (-227, 71, 770) heading 22-33 in thunder (fog 0-203, colour about 0.2), vanilla retail
+        /// image-20 against GordianXI image-19 and offscreen renders at the matched camera: retail fogs the autumn tree
+        /// 182 yalms off about 74 % (from its red-blue contrast against the fog colour) and closes the fog on the hill
+        /// under the ridge trees (246-267 yalms, flat fog colour), which a linear fog from 0 to 1.2-1.25 x 203 gives;
+        /// image-14 (vanilla, round 4) fits 1.25-1.35. The old rule (start pushed to 75 % of the end, full fog at the end)
+        /// fogged the tree only 55 % and closed the fog before the hill, too early.
+        /// </summary>
+        public const float OutdoorFogEndScale = 1.25f;
+
+        /// <summary>
         /// Scale on zone particle generators' own distances (Section 1 op 0x0A cull, op 0x2E fade): #612 calibrated it at 3
         /// (The Eldieme Necropolis' torch light pools ahead of the camera), against a capture with Windower's DrawDistance
         /// plugin on, so it stays 3 at every preset until a vanilla retail check (PROVISIONAL, #606 round 4).
@@ -203,29 +215,14 @@ namespace Gordian.Engine.Graphics
             ModelAmbientColor = AmbientToLight(keyframe.ModelAmbientColor);
             FogColor = keyframe.TerrainFogColor;
 
-            // FFXI retail keyframes often author FogStart=0 because original PS2 hardware used an
-            // exponential fog curve that remained transparent until near the horizon.
-            // For linear GPU fog in outdoor environments, push FogStart to 75% of FogEnd (or keyframe.TerrainFogStart)
-            // so islands and distant mountains remain crisp and authentic while far terrain blends cleanly.
+            // Outdoors the fog runs linearly from the authored start to OutdoorFogEndScale x the authored end, as vanilla
+            // retail draws it (#606 round 5, Konschtat in thunder). Until round 5 the start was pushed to 75 % of the end
+            // and the fog closed at the authored end: too little fog in the middle distance and full fog too soon.
             bool hasFog = keyframe.TerrainFogEnd > keyframe.TerrainFogStart && keyframe.TerrainFogEnd > 0;
             FogEnabled = hasFog;
-            if (hasFog)
-            {
-                if (!keyframe.Indoors)
-                {
-                    FogStart = MathF.Max(keyframe.TerrainFogStart, keyframe.TerrainFogEnd * 0.75f);
-                }
-                else
-                {
-                    FogStart = keyframe.TerrainFogStart;
-                }
-            }
-            else
-            {
-                FogStart = keyframe.TerrainFogStart;
-            }
+            FogStart = keyframe.TerrainFogStart;
             FogEnd = keyframe.TerrainFogEnd;
-            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the authored fog stands, and
+            // The fog scales by its own multiplier (#606 round 4). At the Retail preset (1) the fog is vanilla retail's, and
             // terrain past the fog end but inside the draw distance shows as fog-coloured silhouettes, as vanilla retail
             // draws them (Konschtat image-14, no add-ons). The textured far terrain and light haze of the #70 captures
             // (round 1 image-17/19/20, round 2 image-52) came from Windower's DrawDistance plugin, which raised both.
@@ -240,7 +237,7 @@ namespace Gordian.Engine.Graphics
             else if (!keyframe.Indoors)
             {
                 FogStart *= FogDistanceMultiplier;
-                FogEnd *= FogDistanceMultiplier;
+                FogEnd *= FogDistanceMultiplier * (hasFog ? OutdoorFogEndScale : 1.0f);
 
                 // The fog never runs past the draw-distance cut (the Low and Minimum presets cut short of the authored
                 // fog end): both ends shrink by the same ratio, so terrain is fully fogged where it stops.

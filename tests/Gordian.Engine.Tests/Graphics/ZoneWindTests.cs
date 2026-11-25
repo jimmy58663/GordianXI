@@ -18,15 +18,16 @@ namespace Gordian.Engine.Tests.Graphics
         [InlineData(-ZoneWind.PeriodSeconds, 0.0f)]
         public void Factor_RestsAtTheCycleStartAndLeansFullyAtThePeak(double seconds, float expected)
         {
-            Assert.Equal(expected, ZoneWind.Factor(seconds), 2);
+            // The curve's full lean is retail's amplitude, about half the authored offset (round 4 side-by-side video).
+            Assert.Equal(expected * ZoneWind.Amplitude, ZoneWind.Factor(seconds), 2);
         }
 
         [Fact]
         public void Factor_RelaxesHalfWayBetweenTheTwoLeans()
         {
             // Measured: about 0.52 at 0.55 of the cycle, then a second lean to about 0.87 at 0.7.
-            Assert.InRange(ZoneWind.Factor(0.55 * ZoneWind.PeriodSeconds), 0.45f, 0.6f);
-            Assert.InRange(ZoneWind.Factor(0.7 * ZoneWind.PeriodSeconds), 0.8f, 0.95f);
+            Assert.InRange(ZoneWind.Factor(0.55 * ZoneWind.PeriodSeconds) / ZoneWind.Amplitude, 0.45f, 0.6f);
+            Assert.InRange(ZoneWind.Factor(0.7 * ZoneWind.PeriodSeconds) / ZoneWind.Amplitude, 0.8f, 0.95f);
         }
 
         [Fact]
@@ -35,9 +36,12 @@ namespace Gordian.Engine.Tests.Graphics
             for (int i = 0; i <= 1000; i++)
             {
                 float f = ZoneWind.Factor(i * ZoneWind.PeriodSeconds / 1000.0);
-                Assert.InRange(f, 0.0f, 1.0f);
+                Assert.InRange(f, 0.0f, ZoneWind.Amplitude);
             }
         }
+
+        [Fact]
+        public void Amplitude_IsAboutHalfTheAuthoredOffset() => Assert.InRange(ZoneWind.Amplitude, 0.5f, 0.6f);
 
         [Fact]
         public void Factor_IsZeroForAClockThatIsNotANumber() => Assert.Equal(0.0f, ZoneWind.Factor(double.NaN));

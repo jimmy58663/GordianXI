@@ -27,22 +27,35 @@ namespace Gordian.Engine.Graphics
     /// <see cref="PlacementPhase"/> gives each placement its own offset (*PROVISIONAL*: which value retail gives which
     /// tree is not known, so the offset is a hash of the placement's position).
     /// </para>
+    /// <para>
+    /// **Differs from xi-model-viewer:** retail leans the meshes only about half way along their authored offsets
+    /// (<see cref="Amplitude"/>, round 4: a side-by-side video of retail and GordianXI at the same palms, 2026-11-25).
+    /// </para>
     /// </summary>
     public static class ZoneWind
     {
         /// <summary>Seconds per gust cycle, from the retail video (autocorrelation and folding agree to 0.02 s).</summary>
         public const double PeriodSeconds = 5.15;
 
-        /// <summary>Seconds into a cycle at which the meshes lean out the furthest (factor 1).</summary>
+        /// <summary>Seconds into a cycle at which the meshes lean out the furthest (factor <see cref="Amplitude"/>).</summary>
         public const double PeakSeconds = 0.375 * PeriodSeconds;
 
+        /// <summary>
+        /// The furthest the meshes lean, as a fraction of their authored wind offsets: 0.54 (#606 round 4, PROVISIONAL).
+        /// Measured on the maintainer's video of vanilla retail and GordianXI side by side at the Valkurm palms (84.17,
+        /// 0.31, -68.96), 2026-11-25: two crowns tracked by phase correlation over 650 frames move 8.4 and 7.4 px peak to
+        /// peak in retail and 11.6 and 10.5 px in GordianXI at full offsets, with retail drawn 1.33 times larger (crown
+        /// spacing of three palms), so retail's swing is 0.53-0.54 of ours. Period and gust shape are the same in both.
+        /// </summary>
+        public const float Amplitude = 0.54f;
+
         // f(phase) = Mean + sum over k of Cos[k] cos(2 pi k phase) + Sin[k] sin(2 pi k phase): the fit to the video, scaled
-        // so one cycle runs from 0 (the authored pose, at phase 0) to 1.
+        // so one cycle runs from 0 (the authored pose, at phase 0) to 1, then scaled by Amplitude.
         private const double Mean = 0.5811;
         private static readonly double[] Cos = { -0.3292, -0.2476, 0.0147, -0.0191 };
         private static readonly double[] Sin = { 0.0804, -0.0490, 0.0719, -0.0495 };
 
-        /// <summary>The wind factor at a time on a running clock (seconds): 0 at the start of each cycle, 1 at <see cref="PeakSeconds"/>.</summary>
+        /// <summary>The wind factor at a time on a running clock (seconds): 0 at the start of each cycle, <see cref="Amplitude"/> at <see cref="PeakSeconds"/>.</summary>
         public static float Factor(double seconds) => FactorAtPhase(CyclePhase(seconds));
 
         /// <summary>How far into its cycle (0 to 1) the shared wind clock is at <paramref name="seconds"/>; 0 for a clock that is not a number.</summary>
@@ -94,12 +107,12 @@ namespace Gordian.Engine.Graphics
                 sb.Append(" + (").Append(Sin[k].ToString("R", CultureInfo.InvariantCulture)).Append(") * sin(").Append(n).Append(".0 * a)");
             }
             sb.AppendLine(";");
-            sb.AppendLine("    return clamp(f, 0.0, 1.0);");
+            sb.Append("    return ").Append(Amplitude.ToString("R", CultureInfo.InvariantCulture)).AppendLine(" * clamp(f, 0.0, 1.0);");
             sb.AppendLine("}");
             return sb.ToString();
         }
 
-        /// <summary>The wind factor at <paramref name="phase"/> (0 to 1) of the cycle.</summary>
+        /// <summary>The wind factor at <paramref name="phase"/> (0 to 1) of the cycle: 0 to <see cref="Amplitude"/>.</summary>
         public static float FactorAtPhase(double phase)
         {
             if (!double.IsFinite(phase)) return 0.0f;
@@ -111,7 +124,7 @@ namespace Gordian.Engine.Graphics
                 double angle = 2.0 * Math.PI * (k + 1) * phase;
                 f += Cos[k] * Math.Cos(angle) + Sin[k] * Math.Sin(angle);
             }
-            return (float)Math.Clamp(f, 0.0, 1.0);
+            return Amplitude * (float)Math.Clamp(f, 0.0, 1.0);
         }
     }
 }

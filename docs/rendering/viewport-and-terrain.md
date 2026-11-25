@@ -199,7 +199,11 @@ Retail moves trees, grass and webs that GordianXI drew still: the Valkurm Dunes 
   - Patches that lie on one crown share an offset within about 0.05 of a cycle.
   - So each placement sways on its own: the wind stream now carries a fourth float, the placement's offset (`ZoneWind.PlacementPhase`). The vertex shader evaluates the curve at the shared clock's phase (`TerrainTone.z`, `ZoneWind.CyclePhase`) plus that offset (`ZoneWind.GlslFunction`). **Beyond xi-model-viewer**, whose factor is one value for the whole zone.
   - **PROVISIONAL:** which offset retail gives which tree. The crowns could not be matched to placements, because the retail camera could not be reproduced closely enough offscreen. The offset is a hash of the placement's position, which spreads a grove evenly over the cycle as retail's does.
-  - **Amplitude:** the big crowns swing 4.3-5.6 px (of 750) from rest to full in the retail video. Ours swing 6-8 px in an offscreen view framed close to it, but not the same. That is the same order, so the offsets stay as authored. With the trees out of step, much less of the grove moves at once; judge it again in game.
+  - **Amplitude (round 3):** the big crowns swing 4.3-5.6 px (of 750) from rest to full in the retail video, ours 6-8 px in an offscreen view framed close to it but not the same, so round 3 kept the authored offsets. Round 4 measured it properly (below).
+- **Amplitude (round 4).** The maintainer was sure the palms still moved too much and recorded retail and GordianXI side by side at the same spot (`20261125-0317-30.2977470.mp4`, 2026-11-25, 30 fps, 21.7 s: vanilla retail full screen, GordianXI's window over its lower part, so only retail's crowns show above it).
+  - Scale: retail draws the grove 1.33 times larger than GordianXI's window (the spacing of three crowns: 1.35, 1.32).
+  - Two crowns visible in both, tracked by phase correlation over all 650 frames: retail 8.4 and 7.4 px peak to peak (6.3 and 5.6 in GordianXI's pixels), GordianXI 11.6 and 10.5 px. Both repeat with the same period and gust shape.
+  - So retail leans the meshes 0.53-0.54 of the way GordianXI did at the full authored offsets: `ZoneWind.Amplitude` = 0.54 scales the factor (0 to 0.54 instead of 0 to 1), in `ZoneWind.Factor` and in the shader (`ZoneWind.GlslFunction`), for every swaying mesh (trees, grass, webs). **Differs from xi-model-viewer**, which leans the full offset. PROVISIONAL: measured on Valkurm's palms only.
   - **Rest pose:** still open. A video shows only relative motion, so which end of the cycle is the authored pose cannot be read from it. The rest is kept before the lean, as in round 2.
 
 ## Frame cost (#606 round 2)
@@ -307,7 +311,7 @@ The maintainer took a screenshot of the same spot in each client (TESTING-2026-1
 The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass, sub-pixel cull on. At heading 174 every preset draws 135 calls in 1.1-1.6 ms. Round 2's baseline at heading 33 was 5,332 calls and 5.6 ms.
 - **Retail** is vanilla retail's distances. The detail scale stays at 5/3, which the maintainer asked for (#70 round 1).
 - **Extended** is GordianXI's look before round 4, near what the DrawDistance plugin gives.
-- **The fog** is the authored fog times the fog multiplier, never past the large-asset cut: if it would end past the cut, both ends shrink by the same ratio (Low and Minimum in fine weather).
+- **The fog** (outdoors) runs linearly from the authored start to 1.25 x the authored end (round 5, below), times the fog multiplier, never past the large-asset cut: if it would end past the cut, both ends shrink by the same ratio (Low and Minimum in fine weather).
   - Dungeon fog keeps the x3 that #612 round 2 calibrated (`ZoneEnvironmentSettings.IndoorFogMultiplier`) at every preset, and so do zone particle generators' own distances (`GeneratorDistanceMultiplier`, the Eldieme torch pools, #612). Both calibrations were made against captures with the plugin on, so they are PROVISIONAL until a vanilla dungeon check.
 - **Sub-pixel cull** (every preset): a placed submesh whose bounding sphere would cover less than half a pixel in radius is skipped (`ZoneDrawPolicy.SubPixelRadius`, `ZoneTerrainRenderer.SubPixelCull`).
   - It runs after the distance rule and before the frustum test.
@@ -317,10 +321,18 @@ The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass
 - **Index buffers:** a zone's submeshes now share a few 4 MB index buffers (`IndexPool`). Passes 1 and 3 rebind one only when it changes, where before every draw bound its own (about 14 % of the render thread, round 2).
 - **Free camera:** the same rules from the camera's eye. High above a floor no culling table applies, and everything within the preset's distances draws.
 
+**The outdoor fog curve (round 5).** Round 4's in-game check at Konschtat (heading 22-33) found GordianXI's dark fog "a little more aggressive" than vanilla retail (`image-19` GordianXI, `image-20` vanilla retail, TESTING-2026-11-22 C4).
+- **The weather was thunder**, not cloud: the fully fogged terrain is (49, 48, 52) in both, Konschtat's `thdr` keyframe (fog 0-203, colour 0.19 at 10-11 h); `clod` would give 101.
+- **Measurement.** Offscreen renders with the fog off and a depth readback give each pixel's distance at `image-19`'s camera (sky silhouette matched, IoU 0.81; eye at the player, yaw 52, pitch 10, distance 8). The fog factor then follows from a colour contrast the fog removes: the autumn tree's red-blue difference (-31 lit, +3 fog) and the grass's green-blue.
+  - Check on `image-19`: the tree 182 yalms off is fogged 54 %; the old rule (start at 75 % of the end, full at the end: 152-203) predicts 59 %.
+  - Vanilla retail fogs the same tree 74 %, and the hill under the ridge trees (246-267 yalms) is flat fog colour (luminance spread 1.8), while the old rule closed the fog at 203.
+  - A linear fog from the authored start (0) to 1.2-1.25 x the authored end fits both. Grass bands in `image-14` (vanilla, round 4's matched camera) fit 1.25-1.35. Near grass is the same colour in both captures, within the hour's light.
+- So outdoors `ApplyKeyframe` now runs the fog from the authored start to `ZoneEnvironmentSettings.OutdoorFogEndScale` (1.25) x the authored end, and the 75 % start is gone (PROVISIONAL: one zone, one weather). Konschtat in thunder fogs 0-254, cloudy 0-377, fine 0-562 (under the 604-yalm cut). The offscreen render at `image-19`'s camera now darkens the tree and grades the middle of the valley instead of closing it into one flat slab.
+- **Not this change:** indoor fog, dungeon light and mist against vanilla retail, which looks much darker in Garlaige, Eldieme and Valkurm's mist (`image-21` to `image-26`): #653.
+
 **Still open:**
-- **The fog curve.** In `image-14`, vanilla fogs the far slope and the ridge trees (200-300 yalms) almost black. Ours (fog start pushed to 75 % of the end, `ApplyKeyframe`) leaves them coloured. The skyline and the cut now match; the fog curve and colour do not.
-- **Indoor fog** under vanilla retail (Garlaige's corridor).
-- **Mist** under vanilla retail (Valkurm): the fog now ends at the authored 148.5 yalms instead of being stretched to the cut.
+- **Indoor fog** under vanilla retail (Garlaige's corridor): #653.
+- **Mist** under vanilla retail (Valkurm): the fog now ends at 1.25 x the authored 148.5 yalms instead of being stretched to the cut; #653.
 
 ## AoE range guide (#356)
 

@@ -193,7 +193,7 @@ namespace Gordian.App.Tests.Graphics
                 }
                 renderer.Dispose();
 
-                Assert.True(swayed > 200, $"the swaying meshes should move between factor 0 and 1: {swayed} pixels");
+                Assert.True(swayed > 200, $"the swaying meshes should move between rest and the full lean: {swayed} pixels");
                 Assert.True(still < 20, $"nothing should move with the sway off: {still} pixels");
             }
             finally

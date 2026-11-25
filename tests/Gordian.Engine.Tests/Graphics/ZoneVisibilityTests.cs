@@ -59,9 +59,9 @@ namespace Gordian.Engine.Tests.Graphics
         }
 
         [Theory]
-        [InlineData(false, 2.0f, 1.0f, 300.0f, 400.0f)] // Retail: the authored fog, inside the 600-yalm cut (#606 round 4)
-        [InlineData(false, 3.0f, 3.0f, 675.0f, 900.0f)] // Extended: 900-1200, shrunk to the 900-yalm cut
-        [InlineData(false, 1.0f, 1.0f, 225.0f, 300.0f)] // Minimum: shrunk to the 300-yalm cut
+        [InlineData(false, 2.0f, 1.0f, 0.0f, 500.0f)] // Retail: authored start to 1.25 x the end, inside the 600-yalm cut (#606 round 5)
+        [InlineData(false, 3.0f, 3.0f, 0.0f, 900.0f)] // Extended: 0-1500, shrunk to the 900-yalm cut
+        [InlineData(false, 1.0f, 1.0f, 0.0f, 300.0f)] // Minimum: shrunk to the 300-yalm cut
         [InlineData(true, 2.0f, 1.0f, 0.0f, 1200.0f)]   // dungeons keep their x3 fog and authored start (#612 round 2)
         public void ApplyKeyframe_ScalesTheOutdoorFogByItsOwnMultiplier(bool indoors, float large, float fog, float fogStart, float fogEnd)
         {
@@ -79,7 +79,8 @@ namespace Gordian.Engine.Tests.Graphics
             var env = new ZoneEnvironmentSettings();
             ZoneDrawPolicy.Retail.ApplyTo(env);
             env.ApplyKeyframe(new EnvironmentKeyframe { TerrainFogStart = 0.0f, TerrainFogEnd = 148.5f, DrawDistance = 302.0f });
-            Assert.Equal(148.5f, env.FogEnd, 3);
+            Assert.Equal(0.0f, env.FogStart, 3);
+            Assert.Equal(148.5f * ZoneEnvironmentSettings.OutdoorFogEndScale, env.FogEnd, 3);
             Assert.True(env.FogEnd < ZoneVisibility.GlobalDrawDistance(302.0f, env.DrawDistanceMultiplier));
         }
 

@@ -58,8 +58,9 @@ namespace Gordian.Engine.Graphics
 
         /// <summary>
         /// The vanilla retail client (no Windower, no add-ons; TESTING-2026-11-22 C4, image-14 to image-17): large assets to
-        /// twice the environment's distance (Konschtat's skyline matches from 1.5 to 2.25, PROVISIONAL), own distances and
-        /// fog as authored, with full detail out to 5/3 of the authored thresholds as the maintainer asked (#70 round 1).
+        /// twice the environment's distance (Konschtat's skyline matches from 1.5 to 2.25, PROVISIONAL), own distances as
+        /// authored, vanilla retail's outdoor fog (multiplier 1; the curve is <see cref="ZoneEnvironmentSettings.OutdoorFogEndScale"/>),
+        /// with full detail out to 5/3 of the authored thresholds as the maintainer asked (#70 round 1).
         /// </summary>
         public static readonly ZoneDrawPolicy Retail = new(ZoneVisibility.DefaultDrawDistanceMultiplier, ZoneVisibility.DefaultSmallDrawDistanceMultiplier, 1.0f,
                                                            ZoneVisibility.DefaultLodDistanceScale, true, float.PositiveInfinity);
