@@ -28,7 +28,7 @@
 Layered monorepo (five assemblies since #433: [docs/architecture.md](docs/architecture.md)), clean-room rules, Avalonia MVVM shell, encrypted account profiles, packet inspector. → [docs/app/desktop-shell.md](docs/app/desktop-shell.md)
 
 ### ✅ Phase 2: Direct Authentication
-Native LSB login (`LsbLoginClient`, xiloader 3.0's TLS lobby since #656); direct retail login since #537. The old bootloader proxy handoff was removed. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
+Native LSB login (`LsbLoginClient`, xiloader 3.0's TLS lobby since #656) and LSB account management (create, password, two-factor; #652); direct retail login since #537. The old bootloader proxy handoff was removed. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)
 
 ### ✅ Phase 3: Complete LSB Packet Engine & Zone Transitions
 Blowfish, UDP framing, zero-allocation O(1) dispatcher, 86 S2C decoders / 77 C2S opcodes, zone transitions, datagram telemetry. → [docs/network/session-and-packets.md](docs/network/session-and-packets.md)

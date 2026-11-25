@@ -23,10 +23,30 @@ namespace Gordian.App.Services
         private const string TargetDllName = "FFXiMain.dll";
 
         /// <summary>
-        /// Attempts to locate the Final Fantasy XI installation directory.
-        /// Returns the absolute path to the folder containing FFXiMain.dll, or null if not found.
+        /// The app-wide default install folder the user chose (saved in profiles.json), or null. It wins over the
+        /// registry, and is the only way to find the install off Windows.
+        /// </summary>
+        public static string? DefaultGameDirectory { get; set; }
+
+        /// <summary>
+        /// The FFXI install to use when a profile names none: the app-wide <see cref="DefaultGameDirectory"/> when it is
+        /// set and holds the game's file tables, else the registry's (<see cref="DetectRegistryGameDirectory"/>).
         /// </summary>
         public static string? DetectGameDirectory()
+        {
+            string? configured = DefaultGameDirectory?.Trim();
+            if (!string.IsNullOrEmpty(configured) && AppResourceManager.LooksLikeGameDirectory(configured))
+            {
+                return configured;
+            }
+            return DetectRegistryGameDirectory();
+        }
+
+        /// <summary>
+        /// Attempts to locate the Final Fantasy XI installation directory in the registry (Windows only).
+        /// Returns the absolute path to the folder containing FFXiMain.dll, or null if not found.
+        /// </summary>
+        public static string? DetectRegistryGameDirectory()
         {
             if (!OperatingSystem.IsWindows())
             {

@@ -30,6 +30,7 @@ namespace Gordian.App.Tests
         {
             _testRegistry.Dispose();
             GordianStorage.ProfilesDirectory = null!;
+            Gordian.App.Services.GameDirectoryDetector.DefaultGameDirectory = null;
             if (Directory.Exists(_tempProfilesDir))
             {
                 Directory.Delete(_tempProfilesDir, true);
@@ -295,6 +296,51 @@ namespace Gordian.App.Tests
             Assert.Equal("polpass", saved.PolPassword);
             Assert.Equal(TwoFactorMode.EnterAtLaunch, saved.TwoFactor);
             Assert.Equal("Retail", vm.Profiles.Single(p => p.ProfileName == "Switched").ServerBadgeText);
+        }
+
+        [Fact]
+        public void DefaultGameDirectory_IsSavedAndStartsNewProfiles()
+        {
+            string install = Path.Combine(_tempProfilesDir, "FINAL FANTASY XI");
+            Directory.CreateDirectory(install);
+            File.WriteAllBytes(Path.Combine(install, "VTABLE.DAT"), new byte[1]);
+            File.WriteAllBytes(Path.Combine(install, "FTABLE.DAT"), new byte[1]);
+
+            using (var vm = new MainWindowViewModel(_testRegistry))
+            {
+                vm.DefaultGameDirectory = install;
+                Assert.Equal(install, Gordian.App.Services.GameDirectoryDetector.DetectGameDirectory());
+                vm.NewProfileCommand.Execute(null);
+                Assert.Equal(install, vm.FormGameDirectory);
+            }
+
+            Gordian.App.Services.GameDirectoryDetector.DefaultGameDirectory = null;
+            using var reloaded = new MainWindowViewModel(_testRegistry);
+            Assert.Equal(install, reloaded.DefaultGameDirectory);
+            Assert.Equal(install, Gordian.App.Services.GameDirectoryDetector.DefaultGameDirectory);
+        }
+
+        [Fact]
+        public void OpenPrefilledProfile_FillsTheEditorOnTheProfilesTab()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.SelectedTabIndex = MainWindowViewModel.LsbAccountsTabIndex;
+            string taken = vm.Profiles[0].ProfileName;
+            vm.OpenPrefilledProfile(new AccountProfile
+            {
+                ProfileName = taken,
+                ServerType = ProfileServerType.LandSandBoat,
+                ServerHost = "play.example",
+                ServerPort = 50000,
+                Username = "newbie",
+                Password = "secret12",
+            });
+
+            Assert.Equal(MainWindowViewModel.ProfilesTabIndex, vm.SelectedTabIndex);
+            Assert.True(vm.IsEditorOpen);
+            Assert.Equal($"{taken} 2", vm.FormProfileName);
+            Assert.Equal(("play.example", 50000, "newbie", "secret12"), (vm.FormServerHost, vm.FormServerPort, vm.FormUsername, vm.FormPassword));
+            Assert.True(vm.FormIsLsb);
         }
 
         [Fact]

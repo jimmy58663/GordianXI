@@ -31,7 +31,7 @@ namespace Gordian.Core.Network.LandSandBoat
     /// the Blowfish session key and acquiring the zone map endpoint without requiring a third-party bootloader.
     /// Protocol wire specifications referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
-    public sealed class LsbLoginClient
+    public sealed partial class LsbLoginClient
     {
         public const int DefaultConnectPort = 54231;
         public const int DefaultDataPort = 54230;
@@ -54,8 +54,8 @@ namespace Gordian.Core.Network.LandSandBoat
         public KnownServerCertificateStore CertificateStore { get; init; } = KnownServerCertificateStore.Default;
 
         /// <summary>
-        /// The client version the lobby login (0x26) reports: the installed FFXI version from <c>patch.cfg</c> when the
-        /// caller knows the install, else <see cref="XiloaderLobbyHandoff.DefaultClientVersion"/>. LandSandBoat compares
+        /// The client version the lobby login (0x26) reports: the desktop shell always sets the installed FFXI version from
+        /// <c>patch.cfg</c>; <see cref="XiloaderLobbyHandoff.DefaultClientVersion"/> is only the default for other callers. LandSandBoat compares
         /// its first 6 characters with <c>login.CLIENT_VER</c> and by default refuses older ones (<c>VER_LOCK = 2</c>).
         /// </summary>
         public string ClientVersion { get; set; } = XiloaderLobbyHandoff.DefaultClientVersion;
@@ -112,9 +112,8 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>
         /// Authenticates against xi_connect (TCP TLS) using JSON command 0x10 (LOGIN_ATTEMPT).
         /// Returns the account ID and 16-byte session hash, with the server's key and whether the lobby uses TLS. The
-        /// server's version check is negotiated: GordianXI reports <see cref="DefaultXiloaderVersion"/> (or the version this
-        /// server last accepted) and, when the server answers that it requires another xiloader major.minor, logs in once
-        /// more reporting that version. <paramref name="transport"/> overrides the lobby transport the version implies.
+        /// server's version check is negotiated (<see cref="SendAuthCommandAsync"/>). <paramref name="transport"/>
+        /// overrides the lobby transport the accepted version implies.
         /// </summary>
         public async Task<LsbAuthentication> AuthenticateAsync(
             string host,
@@ -127,40 +126,72 @@ namespace Gordian.Core.Network.LandSandBoat
         {
             ArgumentNullException.ThrowIfNull(host);
 
-            var version = XiloaderVersionFor(host, port);
-            var (result, error) = await AuthenticateTrustedAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
-            if (error != null
-                && TryParseRequiredXiloaderVersion(error, out var required)
-                && (required.Major, required.Minor) != (version.Major, version.Minor))
+            var reply = await SendAuthCommandAsync(host, port, new LsbAuthRequest(LsbAuthCommand.Login, username, password, Otp: otp ?? string.Empty), ct).ConfigureAwait(false);
+            if (reply.ErrorMessage != null)
             {
-                var retryVersion = (required.Major, required.Minor, (byte)0);
-                GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; logging in again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
-                version = retryVersion;
-                (result, error) = await AuthenticateTrustedAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+                throw new InvalidOperationException($"LandSandBoat auth error: {reply.ErrorMessage}");
             }
-            if (error != null)
+            if (reply.Result != LsbAuthResult.LoginSuccess)
             {
-                throw new InvalidOperationException($"LandSandBoat auth error: {error}");
+                throw new InvalidOperationException($"Authentication failed with result code {reply.Result}. Check username and password.");
             }
 
-            s_acceptedVersions[ServerKey(host, port)] = version;
+            var root = reply.Root;
+            uint accountId = root.GetProperty("account_id").GetUInt32();
+            byte[] sessionHash = new byte[16];
+            int idx = 0;
+            foreach (var b in root.GetProperty("session_hash").EnumerateArray())
+            {
+                if (idx < 16) sessionHash[idx++] = b.GetByte();
+            }
+            // The account id stays out of the log: logs are shared in bug reports (CodeQL cs/cleartext-storage, #441).
+            GordianLog.Info(LogCategories.LsbLogin, $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
+
+            var version = reply.Version;
             bool lobbyTls = LsbLobbyTls.UsesTls(version, transport);
             GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}; " +
-                $"lobby over {(lobbyTls ? "TLS" : "plain TCP")}{(transport == LsbLobbyTransport.Auto ? "" : $" (profile override {transport})")}; server key {result.ServerKey}.");
-            return new LsbAuthentication(result.AccountId, result.SessionHash, version, result.ServerKey, lobbyTls);
+                $"lobby over {(lobbyTls ? "TLS" : "plain TCP")}{(transport == LsbLobbyTransport.Auto ? "" : $" (profile override {transport})")}; server key {reply.ServerKey}.");
+            return new LsbAuthentication(accountId, sessionHash, version, reply.ServerKey, lobbyTls);
         }
 
         /// <summary>
-        /// One login attempt as <see cref="AuthenticateOnceAsync"/>; when the server's certificate is not trusted, asks
+        /// Sends one xi_connect command and returns the server's JSON reply. The server's version check is negotiated:
+        /// GordianXI reports <see cref="DefaultXiloaderVersion"/> (or the version this server last accepted) and, when the
+        /// server answers that it requires another xiloader major.minor, sends the command once more reporting that
+        /// version, then remembers the version the server accepted per server. Every command (login, account creation,
+        /// password change, two-factor) goes through the same check (LandSandBoat src/login/auth_session.cpp).
+        /// </summary>
+        internal async Task<LsbAuthReply> SendAuthCommandAsync(string host, int port, LsbAuthRequest request, CancellationToken ct)
+        {
+            ArgumentNullException.ThrowIfNull(host);
+            var version = XiloaderVersionFor(host, port);
+            var reply = await SendTrustedAsync(host, port, request, version, ct).ConfigureAwait(false);
+            if (reply.ErrorMessage != null
+                && TryParseRequiredXiloaderVersion(reply.ErrorMessage, out var required)
+                && (required.Major, required.Minor) != (version.Major, version.Minor))
+            {
+                var retryVersion = (required.Major, required.Minor, (byte)0);
+                GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} rejected xiloader version {version.Major}.{version.Minor}.{version.Patch} and requires {required.Major}.{required.Minor}.x; sending again as {retryVersion.Item1}.{retryVersion.Item2}.{retryVersion.Item3}.");
+                version = retryVersion;
+                reply = await SendTrustedAsync(host, port, request, version, ct).ConfigureAwait(false);
+            }
+            if (reply.ErrorMessage == null || !TryParseRequiredXiloaderVersion(reply.ErrorMessage, out _))
+            {
+                s_acceptedVersions[ServerKey(host, port)] = version;
+            }
+            return reply;
+        }
+
+        /// <summary>
+        /// One command as <see cref="SendOnceAsync"/>; when the server's certificate is not trusted, asks
         /// <see cref="ConfirmServerCertificate"/> and, if the user trusts it, pins it and connects again.
         /// </summary>
-        private async Task<((uint AccountId, byte[] SessionHash, string ServerKey) Result, string? Error)> AuthenticateTrustedAsync(
-            string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
-            CancellationToken ct)
+        private async Task<LsbAuthReply> SendTrustedAsync(string host, int port, LsbAuthRequest request,
+            (byte Major, byte Minor, byte Patch) version, CancellationToken ct)
         {
             try
             {
-                return await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+                return await SendOnceAsync(host, port, request, version, ct).ConfigureAwait(false);
             }
             catch (UntrustedServerCertificateException ex) when (ConfirmServerCertificate != null)
             {
@@ -170,19 +201,19 @@ namespace Gordian.Core.Network.LandSandBoat
                 CertificateStore.Set(host, port, info.Sha256Fingerprint);
                 GordianLog.Info(LogCategories.LsbLogin, $"Trusted the TLS certificate of {host}:{port} (SHA-256 {info.Sha256Fingerprint}).");
             }
-            return await AuthenticateOnceAsync(host, port, username, password, otp, version, ct).ConfigureAwait(false);
+            return await SendOnceAsync(host, port, request, version, ct).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// One login attempt: the result, or the server's <c>error_message</c>. The TLS handshake fails with
+        /// One command over one TLS connection: the server's JSON reply. The TLS handshake fails with
         /// <see cref="UntrustedServerCertificateException"/>, before anything is sent, unless the server's certificate is
-        /// trusted (<see cref="ServerCertificateTrust.Evaluate"/> against <see cref="CertificateStore"/>).
+        /// trusted (<see cref="ServerCertificateTrust.Evaluate"/> against <see cref="CertificateStore"/>). The request is
+        /// xiloader's JSON (command, username, password, new_password, otp, trust_token, trust_this_computer, version).
         /// </summary>
-        private async Task<((uint AccountId, byte[] SessionHash, string ServerKey) Result, string? Error)> AuthenticateOnceAsync(
-            string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
-            CancellationToken ct)
+        private async Task<LsbAuthReply> SendOnceAsync(string host, int port, LsbAuthRequest request,
+            (byte Major, byte Minor, byte Patch) version, CancellationToken ct)
         {
-            GordianLog.Info(LogCategories.LsbLogin, $"Connecting to auth server {host}:{port} for user '{username}' (xiloader version {version.Major}.{version.Minor}.{version.Patch})...");
+            GordianLog.Info(LogCategories.LsbLogin, $"Connecting to auth server {host}:{port} for user '{request.Username}' ({LsbAuthCommand.Describe(request.Command)}, xiloader version {version.Major}.{version.Minor}.{version.Patch})...");
             using var ctsAuth = CancellationTokenSource.CreateLinkedTokenSource(ct);
             ctsAuth.CancelAfter(10000); // 10 second timeout for auth server
             var authCt = ctsAuth.Token;
@@ -219,23 +250,20 @@ namespace Gordian.Core.Network.LandSandBoat
                 throw new UntrustedServerCertificateException(refused);
             }
 
-            // Command 0x10 = LOGIN_ATTEMPT
-            var authPayload = new Dictionary<string, object>
+            var payload = new Dictionary<string, object>
             {
-                ["command"] = 0x10,
-                ["username"] = username,
-                ["password"] = password,
-                ["new_password"] = "",
-                ["otp"] = otp ?? string.Empty,
+                ["command"] = request.Command,
+                ["username"] = request.Username,
+                ["password"] = request.Password,
+                ["new_password"] = request.NewPassword,
+                ["otp"] = request.Otp,
                 ["trust_token"] = "",
                 ["trust_this_computer"] = false,
-                // LSB auth rejects any major.minor other than its SupportedXiloaderVersion (negotiated in AuthenticateAsync).
+                // LSB auth rejects any major.minor other than its SupportedXiloaderVersion (negotiated in SendAuthCommandAsync).
                 ["version"] = new int[] { version.Major, version.Minor, version.Patch }
             };
 
-            string jsonString = JsonSerializer.Serialize(authPayload);
-            byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonString);
-
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
             await sslStream.WriteAsync(jsonBytes, authCt).ConfigureAwait(false);
             await sslStream.FlushAsync(authCt).ConfigureAwait(false);
 
@@ -246,37 +274,8 @@ namespace Gordian.Core.Network.LandSandBoat
                 throw new InvalidOperationException("LandSandBoat auth server closed the connection without responding.");
             }
 
-            string replyJson = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-            using var doc = JsonDocument.Parse(replyJson);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("error_message", out var errorElem) && !string.IsNullOrWhiteSpace(errorElem.GetString()))
-            {
-                return (default, errorElem.GetString());
-            }
-
-            int result = root.TryGetProperty("result", out var resElem) ? resElem.GetInt32() : 0;
-            if (result != 1) // 1 = LOGIN_SUCCESS
-            {
-                throw new InvalidOperationException($"Authentication failed with result code {result}. Check username and password.");
-            }
-
-            uint accountId = root.GetProperty("account_id").GetUInt32();
-            var hashArray = root.GetProperty("session_hash");
-
-            byte[] sessionHash = new byte[16];
-            int idx = 0;
-            foreach (var b in hashArray.EnumerateArray())
-            {
-                if (idx < 16)
-                {
-                    sessionHash[idx++] = b.GetByte();
-                }
-            }
-
-            // The account id stays out of the log: logs are shared in bug reports (CodeQL cs/cleartext-storage, #441).
-            GordianLog.Info(LogCategories.LsbLogin, $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
-            return ((accountId, sessionHash, serverKey), null);
+            using var doc = JsonDocument.Parse(buffer.AsMemory(0, bytesRead));
+            return LsbAuthReply.From(doc.RootElement.Clone(), serverKey, version);
         }
 
         /// <summary>

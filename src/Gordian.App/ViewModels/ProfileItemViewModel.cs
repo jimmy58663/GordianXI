@@ -57,6 +57,9 @@ namespace Gordian.App.ViewModels
         /// <summary>Re-reads <see cref="EnteredCode"/> after a launch used (and cleared) the typed code.</summary>
         public void RefreshEnteredCode() => OnPropertyChanged(nameof(EnteredCode));
 
+        /// <summary>Raises every property after the profile was changed in place (the LSB Accounts tab, #652).</summary>
+        public void RefreshProfile() => OnPropertyChanged(string.Empty);
+
         public override bool? IsSelectedForLaunch
         {
             get => _isSelectedForLaunch;
@@ -96,8 +99,27 @@ namespace Gordian.App.ViewModels
 
         public string ServerBadgeColor => IsLsb ? "#9CDCFE" : "#CE9178";
 
-        /// <summary>Whether the profile plays with its own FFXI install rather than the registry one.</summary>
-        public bool HasCustomGameDirectory => !string.IsNullOrWhiteSpace(_profile.GameDirectory);
+        /// <summary>
+        /// Whether the profile plays with its own FFXI install rather than the default one (the app-wide default folder,
+        /// else the registry's). New profiles start with the default folder, which doesn't count.
+        /// </summary>
+        public bool HasCustomGameDirectory =>
+            !string.IsNullOrWhiteSpace(_profile.GameDirectory) && !SameFolder(_profile.GameDirectory, Services.GameDirectoryDetector.DetectGameDirectory());
+
+        private static bool SameFolder(string a, string? b)
+        {
+            if (string.IsNullOrWhiteSpace(b)) return false;
+            try
+            {
+                return string.Equals(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(a.Trim())),
+                    System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(b.Trim())),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or System.IO.PathTooLongException)
+            {
+                return false;
+            }
+        }
 
         public string GameDirectoryTip => $"FFXI install: {_profile.GameDirectory}";
 
