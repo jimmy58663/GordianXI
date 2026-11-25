@@ -160,7 +160,7 @@ namespace Gordian.Engine.Ui
             if (IsItemList)
             {
                 if (SelectedItemRow is not { IsStorageOptions: false, UsableWhileWorn: true } row || ItemLookup?.Invoke(row.ItemId) is not { } known) return null;
-                return StockUiItems.UseFooter(known, row.ChargesLeft, row.UseReadyAtUtc, utcNow);
+                return StockUiItems.UseFooter(known, row.ChargesLeft, row.UseReadyAtUtc, utcNow, row.Equipped);
             }
             if (!IsEquipment || !StockUiCheck.TryGetSlot(SelectedButtonId, out var slot) || Inventory is not { } inventory) return null;
             if (StockUiItems.EquippedItem(inventory, slot) is not { } item || ItemLookup?.Invoke(item.ItemId) is not { } record

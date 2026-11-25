@@ -377,11 +377,14 @@ namespace Gordian.Engine.Ui
         /// Enchanted equipment's line at the description's bottom right (the maintainer's retail capture, round 3 of the
         /// 2026-11-22 test, image-10: Hi-elixir tank "&lt;3/3 0:17/[1:00, 0:30]&gt;"): charges left / full charges, the live
         /// countdown until the Use is ready, then the reuse delay and the use delay after equipping. Durations are m:ss, and
-        /// h:mm:ss from an hour (the hour form is not checked against retail).
+        /// h:mm:ss from an hour (retail image-18, Living bullet pouch "[1:00:00, 0:10]", round 4). Not <paramref name="worn"/>,
+        /// the countdown stops at the use delay after equipping, going lower only once the piece is worn (retail, round 4 of
+        /// the 2026-11-22 test: the Hi-Elixir Tank's reuse countdown stops at 0:30 until equipped).
         /// </summary>
-        public static string UseFooter(ItemRecord record, int chargesLeft, DateTime? readyAtUtc, DateTime utcNow)
+        public static string UseFooter(ItemRecord record, int chargesLeft, DateTime? readyAtUtc, DateTime utcNow, bool worn = true)
         {
             double left = readyAtUtc is { } ready && ready != DateTime.MaxValue && ready > utcNow ? Math.Ceiling((ready - utcNow).TotalSeconds) : 0;
+            if (!worn) left = Math.Max(left, record.UseDelay);
             return string.Create(CultureInfo.InvariantCulture,
                 $"<{chargesLeft}/{record.MaxCharges} {Duration((long)left)}/[{Duration(record.ReuseDelay)}, {Duration(record.UseDelay)}]>");
         }

@@ -176,12 +176,13 @@ namespace Gordian.Engine.Ui
         }
 
         /// <summary>
-        /// The footer: enchanted equipment's charges and delays (<see cref="StockUiItems.UseFooter"/>, as if ready and full; the
+        /// The footer: enchanted equipment's charges and delays (<see cref="StockUiItems.UseFooter"/>, full and not worn, so the
+        /// countdown shows the use delay after equipping; the
         /// item info window draws the live one, <c>StockUiOpenMenu.DescribedUseFooter</c>), "&lt;Item Level:119&gt;" for an
         /// item with an item level, else empty.
         /// </summary>
         public static string Footer(ItemRecord record) =>
-            StockUiItems.IsUsableEquipment(record) ? StockUiItems.UseFooter(record, record.MaxCharges, null, default)
+            StockUiItems.IsUsableEquipment(record) ? StockUiItems.UseFooter(record, record.MaxCharges, null, default, worn: false)
             : record.ItemLevel > 0 ? string.Create(CultureInfo.InvariantCulture, $"<Item Level:{record.ItemLevel}>") : string.Empty;
 
         /// <summary>

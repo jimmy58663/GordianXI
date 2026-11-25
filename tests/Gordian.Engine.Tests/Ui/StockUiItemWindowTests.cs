@@ -837,7 +837,7 @@ namespace Gordian.Engine.Tests.Ui
             h.SelectItem(list, (ushort)BulletPouch.ItemId);
             Assert.Equal("<1/1 0:05/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(5)));
             Assert.Equal("<1/1 0:00/[1:00:00, 0:10]>", list.DescribedUseFooter(t0.AddSeconds(11)));
-            Assert.Equal("<1/1 0:00/[1:00:00, 0:10]>", StockUiItemDescription.Footer(BulletPouch));
+            Assert.Equal("<1/1 0:10/[1:00:00, 0:10]>", StockUiItemDescription.Footer(BulletPouch)); // retail image-18, not worn
         }
 
         [Fact]
@@ -849,6 +849,10 @@ namespace Gordian.Engine.Tests.Ui
             var now = new DateTime(2026, 11, 24, 5, 0, 0, DateTimeKind.Utc);
             Assert.Equal("<3/3 0:17/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 3, now.AddSeconds(16.2), now));
             Assert.Equal("<0/3 0:00/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 0, DateTime.MaxValue, now));
+            // Not worn (round 4): the reuse countdown stops at the 0:30 use delay until the tank is equipped.
+            Assert.Equal("<2/3 0:45/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, now.AddSeconds(45), now, worn: false));
+            Assert.Equal("<2/3 0:30/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, now.AddSeconds(10), now, worn: false));
+            Assert.Equal("<2/3 0:30/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, null, now, worn: false));
             Assert.Equal("24:00:00", StockUiItems.Duration(86400));
             Assert.Equal("10:00", StockUiItems.Duration(600));
         }
