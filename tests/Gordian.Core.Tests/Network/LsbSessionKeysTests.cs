@@ -413,18 +413,21 @@ namespace Gordian.Core.Tests.Network
         }
 
         /// <summary>
-        /// A loopback xi_connect stand-in that requires xiloader 2.1.x and answers others with LandSandBoat's
-        /// "Unsupported xiloader version" error (auth_session.cpp). Records the versions it was sent.
+        /// A loopback xi_connect stand-in that requires one xiloader major.minor (2.1.x unless told otherwise) and answers
+        /// others with LandSandBoat's "Unsupported xiloader version" error (auth_session.cpp). Records the versions it was sent.
         /// </summary>
         internal sealed class FakeAuthServer : IDisposable
         {
             private readonly System.Net.Sockets.TcpListener _listener = new(System.Net.IPAddress.Loopback, 0);
             private readonly System.Security.Cryptography.X509Certificates.X509Certificate2 _certificate;
             private readonly System.Threading.CancellationTokenSource _cts = new();
+            private readonly int _requiredMajor, _requiredMinor;
             public System.Collections.Concurrent.ConcurrentQueue<string> Versions { get; } = new();
 
-            public FakeAuthServer()
+            public FakeAuthServer(int requiredMajor = 2, int requiredMinor = 1)
             {
+                _requiredMajor = requiredMajor;
+                _requiredMinor = requiredMinor;
                 using var rsa = RSA.Create(2048);
                 var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 using var ephemeral = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
@@ -470,9 +473,9 @@ namespace Gordian.Core.Tests.Network
                 using var request = System.Text.Json.JsonDocument.Parse(buffer.AsMemory(0, n));
                 var v = request.RootElement.GetProperty("version").EnumerateArray().Select(e => e.GetInt32()).ToArray();
                 Versions.Enqueue($"{v[0]}.{v[1]}.{v[2]}");
-                string reply = v[0] == 2 && v[1] == 1
+                string reply = v[0] == _requiredMajor && v[1] == _requiredMinor
                     ? "{\"result\":1,\"account_id\":7,\"session_hash\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}"
-                    : System.Text.Json.JsonSerializer.Serialize(new { error_message = $"Unsupported xiloader version {v[0]}.{v[1]}.{v[2]}.\nThis server requires version 2.1.x." });
+                    : System.Text.Json.JsonSerializer.Serialize(new { error_message = $"Unsupported xiloader version {v[0]}.{v[1]}.{v[2]}.\nThis server requires version {_requiredMajor}.{_requiredMinor}.x." });
                 await ssl.WriteAsync(Encoding.UTF8.GetBytes(reply), _cts.Token);
                 await ssl.FlushAsync(_cts.Token);
             }
@@ -495,21 +498,57 @@ namespace Gordian.Core.Tests.Network
                 CertificateStore = ServerCertificateTrustTests.ScratchStore(),
                 ConfirmServerCertificate = (_, _) => Task.FromResult(true),
             };
-            var (account, hash) = await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken);
+            var auth = await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken);
+            var (account, hash) = auth;
             Assert.Equal(7u, account);
             Assert.Equal(Hash, hash);
-            Assert.Equal(new[] { "2.2.0", "2.1.0" }, server.Versions.ToArray());
+            Assert.Equal(new[] { "3.0.0", "2.1.0" }, server.Versions.ToArray());
             Assert.Equal(((byte)2, (byte)1, (byte)0), LsbLoginClient.XiloaderVersionFor("127.0.0.1", server.Port));
+            // A server older than xiloader 3.0 serves the lobby without TLS.
+            Assert.False(auth.LobbyUsesTls);
+            Assert.Null(auth.LobbyServerKey);
+            Assert.Equal(LsbLobbyTls.KeyFingerprint(server.Certificate), auth.ServerKeyFingerprint);
 
             // The next login to the same server reports the version it accepted straight away.
             await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken);
-            Assert.Equal(new[] { "2.2.0", "2.1.0", "2.1.0" }, server.Versions.ToArray());
+            Assert.Equal(new[] { "3.0.0", "2.1.0", "2.1.0" }, server.Versions.ToArray());
+        }
+
+        [Fact]
+        public async Task VersionFallback_CurrentServerAcceptsTheFirstAttemptAndUsesTlsForTheLobby()
+        {
+            using var server = new FakeAuthServer(3, 0);
+            var client = new LsbLoginClient
+            {
+                CertificateStore = ServerCertificateTrustTests.ScratchStore(),
+                ConfirmServerCertificate = (_, _) => Task.FromResult(true),
+            };
+            var auth = await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken);
+            Assert.Equal(new[] { "3.0.0" }, server.Versions.ToArray());
+            Assert.Equal(((byte)3, (byte)0, (byte)0), auth.XiloaderVersion);
+            Assert.True(auth.LobbyUsesTls);
+            Assert.Equal(LsbLobbyTls.KeyFingerprint(server.Certificate), auth.LobbyServerKey);
+        }
+
+        [Fact]
+        public async Task VersionFallback_ProfileOverrideDecidesTheLobbyTransport()
+        {
+            using var server = new FakeAuthServer(3, 0);
+            var client = new LsbLoginClient
+            {
+                CertificateStore = ServerCertificateTrustTests.ScratchStore(),
+                ConfirmServerCertificate = (_, _) => Task.FromResult(true),
+            };
+            var plain = await client.AuthenticateAsync("127.0.0.1", server.Port, "user", "pass", ct: TestContext.Current.CancellationToken,
+                transport: LsbLobbyTransport.Plain);
+            Assert.False(plain.LobbyUsesTls);
+            Assert.Null(plain.LobbyServerKey);
         }
 
         [Fact]
         public void VersionFallback_DefaultIsTheCurrentLandSandBoatVersion()
         {
-            Assert.Equal(((byte)2, (byte)2, (byte)0), LsbLoginClient.DefaultXiloaderVersion);
+            Assert.Equal(((byte)3, (byte)0, (byte)0), LsbLoginClient.DefaultXiloaderVersion);
             Assert.Equal(LsbLoginClient.DefaultXiloaderVersion, LsbLoginClient.XiloaderVersionFor("never.contacted.invalid", 1));
         }
     }

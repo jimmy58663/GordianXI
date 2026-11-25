@@ -120,7 +120,7 @@ namespace Gordian.Core.Network.Lobby
     public sealed class LobbySession : ILobbyBackend, IDisposable
     {
         private readonly TcpClient _client;
-        private readonly NetworkStream _stream;
+        private readonly Stream _stream;
         private readonly ILobbyHandoff _handoff;
         private readonly byte[] _lobbyLoginPacket = new byte[LobbyPackets.LobbyLoginSize];
         private readonly LobbyKeyModifier _modifier = new();
@@ -131,10 +131,10 @@ namespace Gordian.Core.Network.Lobby
         private bool _broken;
         private bool _disposed;
 
-        private LobbySession(TcpClient client, ILobbyHandoff handoff, Action<PacketLogEntry>? log, TimeSpan timeout)
+        private LobbySession(TcpClient client, Stream stream, ILobbyHandoff handoff, Action<PacketLogEntry>? log, TimeSpan timeout)
         {
             _client = client;
-            _stream = client.GetStream();
+            _stream = stream;
             _handoff = handoff;
             _log = log;
             Timeout = timeout;
@@ -164,10 +164,12 @@ namespace Gordian.Core.Network.Lobby
         /// <summary>
         /// Connects to the lobby, lets the handoff open its side, logs in with 0x26 and reads the character and world
         /// lists. The session owns <paramref name="handoff"/> and disposes it. Throws <see cref="LobbyRequestException"/>
-        /// when the lobby refuses the login (a version lock or maintenance answers 0x04).
+        /// when the lobby refuses the login (a version lock or maintenance answers 0x04). <paramref name="secure"/>, when
+        /// given, wraps the connection before anything is sent (LandSandBoat's TLS lobby, <c>LsbLobbyTls</c>) and returns
+        /// the stream to use, which owns the one it was given.
         /// </summary>
         public static async Task<LobbySession> ConnectAsync(string host, int port, ILobbyHandoff handoff, Action<PacketLogEntry>? log = null,
-            TimeSpan? timeout = null, CancellationToken ct = default)
+            TimeSpan? timeout = null, CancellationToken ct = default, Func<Stream, CancellationToken, Task<Stream>>? secure = null)
         {
             ArgumentNullException.ThrowIfNull(host);
             ArgumentNullException.ThrowIfNull(handoff);
@@ -178,7 +180,9 @@ namespace Gordian.Core.Network.Lobby
                 long start = Stopwatch.GetTimestamp();
                 await client.ConnectAsync(host, port, ct).ConfigureAwait(false);
                 GordianLog.Info(LogCategories.Lobby, $"Lobby connected to {client.Client.RemoteEndPoint} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");
-                session = new LobbySession(client, handoff, log, timeout ?? TimeSpan.FromSeconds(10));
+                Stream stream = client.GetStream();
+                if (secure != null) stream = await secure(stream, ct).ConfigureAwait(false);
+                session = new LobbySession(client, stream, handoff, log, timeout ?? TimeSpan.FromSeconds(10));
                 start = Stopwatch.GetTimestamp();
                 await handoff.OpenAsync(ct).ConfigureAwait(false);
                 GordianLog.Info(LogCategories.Lobby, $"Lobby handoff ({handoff.Name}) ready in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:0} ms.");

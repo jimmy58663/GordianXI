@@ -2,9 +2,13 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +21,8 @@ namespace Gordian.Core.Tests.Network
     /// A loopback stand-in for LandSandBoat's xi_data / xi_view lobby services, written from the wire behaviour
     /// documented in docs/network/session-and-packets.md (LandSandBoat src/login/view_session.cpp and
     /// data_session.cpp): which channel answers which request, the free-slot convention, the error replies, the
-    /// connections it drops and the session-key accounting. One client session at a time.
+    /// connections it drops and the session-key accounting. One client session at a time. Given a certificate it serves
+    /// both channels over TLS 1.3 as LandSandBoat does since 778b74294a (xiloader 3.0).
     /// </summary>
     internal sealed class FakeLsbLobbyServer : IDisposable
     {
@@ -34,7 +39,8 @@ namespace Gordian.Core.Tests.Network
         private readonly TcpListener _data = new(IPAddress.Loopback, 0);
         private readonly TcpListener _view = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _cts = new();
-        private NetworkStream? _dataStream, _viewStream;
+        private readonly X509Certificate2? _tlsCertificate;
+        private Stream? _dataStream, _viewStream;
         private TcpClient? _viewClient;
         private uint _requestedCharacter;
         private string _requestedNewName = string.Empty;
@@ -47,10 +53,11 @@ namespace Gordian.Core.Tests.Network
         // prompt would be dropped while the request was counted).
         private readonly TaskCompletionSource _dataReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public FakeLsbLobbyServer(uint accountId, byte[] sessionHash)
+        public FakeLsbLobbyServer(uint accountId, byte[] sessionHash, X509Certificate2? tlsCertificate = null)
         {
             AccountId = accountId;
             SessionHash = sessionHash;
+            _tlsCertificate = tlsCertificate;
             _data.Start();
             _view.Start();
             _ = AcceptDataAsync();
@@ -82,6 +89,32 @@ namespace Gordian.Core.Tests.Network
         public List<Character> Characters { get; } = new();
         public List<byte> ViewCommands { get; } = new();
         public List<byte> DataCommands { get; } = new();
+
+        /// <summary>How many TLS handshakes failed (a client that refused the certificate, or spoke plain TCP).</summary>
+        public int FailedHandshakes { get; private set; }
+
+        /// <summary>The connection's stream: as accepted, or wrapped in TLS 1.3 when the server has a certificate.</summary>
+        private async Task<Stream> SecureAsync(TcpClient client)
+        {
+            Stream stream = client.GetStream();
+            if (_tlsCertificate == null) return stream;
+            var ssl = new SslStream(stream);
+            try
+            {
+                await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = _tlsCertificate,
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                }, _cts.Token);
+            }
+            catch (Exception)
+            {
+                FailedHandshakes++;
+                await ssl.DisposeAsync();
+                throw;
+            }
+            return ssl;
+        }
 
         /// <summary>The key the server stored for the map session (the scheme follows <see cref="CounterKeys"/>).</summary>
         public byte[]? StoredKey { get; private set; }
@@ -117,7 +150,7 @@ namespace Gordian.Core.Tests.Network
             try
             {
                 var client = await _data.AcceptTcpClientAsync(_cts.Token);
-                _dataStream = client.GetStream();
+                _dataStream = await SecureAsync(client);
                 var buffer = new byte[28];
                 while (!_cts.IsCancellationRequested)
                 {
@@ -148,14 +181,15 @@ namespace Gordian.Core.Tests.Network
                 while (!_cts.IsCancellationRequested)
                 {
                     _viewClient = await _view.AcceptTcpClientAsync(_cts.Token);
-                    _viewStream = _viewClient.GetStream();
+                    try { _viewStream = await SecureAsync(_viewClient); }
+                    catch (Exception) when (!_cts.IsCancellationRequested) { _viewClient.Dispose(); continue; }
                     await ServeViewAsync(_viewStream);
                 }
             }
             catch (Exception) { }
         }
 
-        private async Task ServeViewAsync(NetworkStream stream)
+        private async Task ServeViewAsync(Stream stream)
         {
             var header = new byte[4];
             while (!_cts.IsCancellationRequested)
@@ -387,7 +421,7 @@ namespace Gordian.Core.Tests.Network
             await _dataStream.WriteAsync(packet);
         }
 
-        private static async Task<bool> ReadExactly(NetworkStream stream, Memory<byte> buffer)
+        private static async Task<bool> ReadExactly(Stream stream, Memory<byte> buffer)
         {
             int read = 0;
             while (read < buffer.Length)

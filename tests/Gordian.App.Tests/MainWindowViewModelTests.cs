@@ -298,6 +298,23 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void SaveProfile_KeepsTheLobbyEncryptionChoice()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.NewProfileCommand.Execute(null);
+            Assert.Equal((int)Gordian.Core.Network.LandSandBoat.LsbLobbyTransport.Auto, vm.FormLobbyTransportIndex);
+            vm.FormProfileName = "OldServer";
+            vm.FormServerHost = "10.0.0.5";
+            vm.FormUsername = "user";
+            vm.FormLobbyTransportIndex = (int)Gordian.Core.Network.LandSandBoat.LsbLobbyTransport.Plain;
+            vm.SaveProfileCommand.Execute(null);
+
+            var item = vm.Profiles.Single(p => p.ProfileName == "OldServer");
+            Assert.Equal(Gordian.Core.Network.LandSandBoat.LsbLobbyTransport.Plain, item.Profile.LobbyTransport);
+            Assert.Equal(3, vm.LobbyTransportChoices.Count);
+        }
+
+        [Fact]
         public void ProfileCard_AsksForTheCodeOnlyForEnterAtLaunch_AndKeepsDigitsOnly()
         {
             var atLaunch = new ProfileItemViewModel(new AccountProfile { ProfileName = "A", TwoFactor = TwoFactorMode.EnterAtLaunch }, _testRegistry);

@@ -26,9 +26,9 @@ namespace Gordian.Core.Network.LandSandBoat
 
     /// <summary>
     /// Clean-room C# (.NET 10) login client for LandSandBoat private servers.
-    /// Interacts directly with xi_connect (port 54231) and xi_data (port 54230) via TLS,
-    /// generating the Blowfish session key and acquiring the zone map endpoint without
-    /// requiring a third-party bootloader.
+    /// Logs in to xi_connect (port 54231, TLS), then opens the lobby's xi_data (54230) and xi_view (54001) connections,
+    /// over TLS on servers that require xiloader 3.0 and plain TCP before that (<see cref="LsbLobbyTls"/>), generating
+    /// the Blowfish session key and acquiring the zone map endpoint without requiring a third-party bootloader.
     /// Protocol wire specifications referenced from LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
     public sealed class LsbLoginClient
@@ -54,6 +54,13 @@ namespace Gordian.Core.Network.LandSandBoat
         public KnownServerCertificateStore CertificateStore { get; init; } = KnownServerCertificateStore.Default;
 
         /// <summary>
+        /// The client version the lobby login (0x26) reports: the installed FFXI version from <c>patch.cfg</c> when the
+        /// caller knows the install, else <see cref="XiloaderLobbyHandoff.DefaultClientVersion"/>. LandSandBoat compares
+        /// its first 6 characters with <c>login.CLIENT_VER</c> and by default refuses older ones (<c>VER_LOCK = 2</c>).
+        /// </summary>
+        public string ClientVersion { get; set; } = XiloaderLobbyHandoff.DefaultClientVersion;
+
+        /// <summary>
         /// Asked when an auth server's certificate does not verify and is not the one pinned for that server: return
         /// <see langword="true"/> to trust and pin it. Without a handler such a server is refused
         /// (<see cref="UntrustedServerCertificateException"/>). Credentials are only sent once the server is trusted.
@@ -61,10 +68,11 @@ namespace Gordian.Core.Network.LandSandBoat
         public Func<ServerCertificateInfo, CancellationToken, Task<bool>>? ConfirmServerCertificate { get; set; }
 
         /// <summary>
-        /// The xiloader version GordianXI reports first: what current LandSandBoat requires (2.2 since 08ae16d27d, the
-        /// xi_profile transport). An older server that wants another major.minor says so and the login is retried.
+        /// The xiloader version GordianXI reports first: what current LandSandBoat requires (3.0 since 9b6df7c7e2, with the
+        /// lobby over TLS from 778b74294a). An older server that wants another major.minor says so and the login is
+        /// retried; the version it accepts decides whether the lobby uses TLS (<see cref="LsbLobbyTls.UsesTls"/>).
         /// </summary>
-        public static readonly (byte Major, byte Minor, byte Patch) DefaultXiloaderVersion = (2, 2, 0);
+        public static readonly (byte Major, byte Minor, byte Patch) DefaultXiloaderVersion = (3, 0, 0);
 
         /// <summary>The xiloader version each auth server (host:port) accepted, for the rest of this process.</summary>
         private static readonly ConcurrentDictionary<string, (byte Major, byte Minor, byte Patch)> s_acceptedVersions =
@@ -103,17 +111,19 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>
         /// Authenticates against xi_connect (TCP TLS) using JSON command 0x10 (LOGIN_ATTEMPT).
-        /// Returns the account ID and 16-byte session hash. The server's version check is negotiated: GordianXI reports
-        /// <see cref="DefaultXiloaderVersion"/> (or the version this server last accepted) and, when the server answers
-        /// that it requires another xiloader major.minor, logs in once more reporting that version.
+        /// Returns the account ID and 16-byte session hash, with the server's key and whether the lobby uses TLS. The
+        /// server's version check is negotiated: GordianXI reports <see cref="DefaultXiloaderVersion"/> (or the version this
+        /// server last accepted) and, when the server answers that it requires another xiloader major.minor, logs in once
+        /// more reporting that version. <paramref name="transport"/> overrides the lobby transport the version implies.
         /// </summary>
-        public async Task<(uint AccountId, byte[] SessionHash)> AuthenticateAsync(
+        public async Task<LsbAuthentication> AuthenticateAsync(
             string host,
             int port = DefaultConnectPort,
             string username = "",
             string password = "",
             string otp = "",
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            LsbLobbyTransport transport = LsbLobbyTransport.Auto)
         {
             ArgumentNullException.ThrowIfNull(host);
 
@@ -134,15 +144,17 @@ namespace Gordian.Core.Network.LandSandBoat
             }
 
             s_acceptedVersions[ServerKey(host, port)] = version;
-            GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}.");
-            return result;
+            bool lobbyTls = LsbLobbyTls.UsesTls(version, transport);
+            GordianLog.Info(LogCategories.LsbLogin, $"Auth server {host}:{port} accepted xiloader version {version.Major}.{version.Minor}.{version.Patch}; " +
+                $"lobby over {(lobbyTls ? "TLS" : "plain TCP")}{(transport == LsbLobbyTransport.Auto ? "" : $" (profile override {transport})")}; server key {result.ServerKey}.");
+            return new LsbAuthentication(result.AccountId, result.SessionHash, version, result.ServerKey, lobbyTls);
         }
 
         /// <summary>
         /// One login attempt as <see cref="AuthenticateOnceAsync"/>; when the server's certificate is not trusted, asks
         /// <see cref="ConfirmServerCertificate"/> and, if the user trusts it, pins it and connects again.
         /// </summary>
-        private async Task<((uint AccountId, byte[] SessionHash) Result, string? Error)> AuthenticateTrustedAsync(
+        private async Task<((uint AccountId, byte[] SessionHash, string ServerKey) Result, string? Error)> AuthenticateTrustedAsync(
             string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
             CancellationToken ct)
         {
@@ -166,7 +178,7 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <see cref="UntrustedServerCertificateException"/>, before anything is sent, unless the server's certificate is
         /// trusted (<see cref="ServerCertificateTrust.Evaluate"/> against <see cref="CertificateStore"/>).
         /// </summary>
-        private async Task<((uint AccountId, byte[] SessionHash) Result, string? Error)> AuthenticateOnceAsync(
+        private async Task<((uint AccountId, byte[] SessionHash, string ServerKey) Result, string? Error)> AuthenticateOnceAsync(
             string host, int port, string username, string password, string otp, (byte Major, byte Minor, byte Patch) version,
             CancellationToken ct)
         {
@@ -180,10 +192,12 @@ namespace Gordian.Core.Network.LandSandBoat
 
             string? pinned = CertificateStore.Get(host, port);
             ServerCertificateInfo? refused = null;
+            string serverKey = string.Empty;
             bool ValidateRemoteCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate? certificate,
                 System.Security.Cryptography.X509Certificates.X509Chain? chain, SslPolicyErrors sslPolicyErrors)
             {
                 if (certificate == null) return false;
+                serverKey = LsbLobbyTls.KeyFingerprint(certificate);
                 var decision = ServerCertificateTrust.Evaluate(sslPolicyErrors, ServerCertificateTrust.Fingerprint(certificate), pinned);
                 if (decision == CertificateTrustDecision.Trusted) return true;
                 refused = ServerCertificateInfo.From(host, port, certificate, sslPolicyErrors,
@@ -262,7 +276,7 @@ namespace Gordian.Core.Network.LandSandBoat
 
             // The account id stays out of the log: logs are shared in bug reports (CodeQL cs/cleartext-storage, #441).
             GordianLog.Info(LogCategories.LsbLogin, $"Auth success! Session hash acquired ({sessionHash.Length} bytes).");
-            return ((accountId, sessionHash), null);
+            return ((accountId, sessionHash, serverKey), null);
         }
 
         /// <summary>
@@ -355,9 +369,9 @@ namespace Gordian.Core.Network.LandSandBoat
         }
 
         /// <summary>
-        /// Connects to LandSandBoat xi_data (port 54230, plain TCP) and xi_view (port 54001, plain TCP),
-        /// requests character information, selects the target character, registers the Blowfish session key,
-        /// and acquires the target zone map IP and UDP port.
+        /// Connects to LandSandBoat xi_data (port 54230) and xi_view (port 54001), over TLS checked against
+        /// <paramref name="lobbyServerKey"/> when it is given and plain TCP otherwise, requests character information,
+        /// selects the target character, registers the Blowfish session key, and acquires the target zone map IP and UDP port.
         /// </summary>
         public async Task<MapSessionTicket> SelectCharacterAsync(
             string host,
@@ -369,7 +383,8 @@ namespace Gordian.Core.Network.LandSandBoat
             uint targetCharacterId = 0,
             byte[]? customBlowfishKey = null,
             CancellationToken ct = default,
-            int targetCharacterSlot = 0)
+            int targetCharacterSlot = 0,
+            string? lobbyServerKey = null)
         {
             ArgumentNullException.ThrowIfNull(host);
             ArgumentNullException.ThrowIfNull(sessionHash);
@@ -379,7 +394,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 throw new ArgumentException("Session hash must be exactly 16 bytes.", nameof(sessionHash));
             }
 
-            await using var lobby = await OpenLobbyAsync(host, dataPort, viewPort, accountId, sessionHash, customBlowfishKey, ct).ConfigureAwait(false);
+            await using var lobby = await OpenLobbyAsync(host, dataPort, viewPort, accountId, sessionHash, customBlowfishKey, ct, lobbyServerKey).ConfigureAwait(false);
 
             var slots = new List<LsbCharacterSlot>();
             foreach (var character in lobby.Characters)
@@ -399,14 +414,26 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>
         /// Opens a lobby session (the character select screen's connection) for an account that has authenticated:
-        /// the data and view channels with the character list read. The caller owns and disposes it.
+        /// the data and view channels with the character list read. The caller owns and disposes it. With
+        /// <paramref name="lobbyServerKey"/> (<see cref="LsbAuthentication.LobbyServerKey"/>) both channels run over TLS
+        /// and must present that key; without it they are plain TCP.
         /// </summary>
         public Task<LobbySession> OpenLobbyAsync(string host, int dataPort, int viewPort, uint accountId, byte[] sessionHash,
-            byte[]? customBlowfishKey = null, CancellationToken ct = default)
+            byte[]? customBlowfishKey = null, CancellationToken ct = default, string? lobbyServerKey = null)
         {
             Action<PacketLogEntry> log = entry => PacketInspected?.Invoke(this, entry);
-            var handoff = new XiloaderLobbyHandoff(host, dataPort, accountId, sessionHash, customBlowfishKey, log: log);
-            return LobbySession.ConnectAsync(host, viewPort, handoff, log, ct: ct);
+            var handoff = new XiloaderLobbyHandoff(host, dataPort, accountId, sessionHash, customBlowfishKey, ClientVersion, log,
+                serverKey: lobbyServerKey);
+            Func<Stream, CancellationToken, Task<Stream>>? secure = lobbyServerKey == null ? null
+                : (stream, token) => LsbLobbyTls.AuthenticateAsync(stream, host, viewPort, "view", lobbyServerKey, handoff.Timeout, token);
+            return LobbySession.ConnectAsync(host, viewPort, handoff, log, ct: ct, secure: secure);
+        }
+
+        /// <summary>Opens the lobby for <paramref name="auth"/>, over TLS when it says so (see the overload taking the account id).</summary>
+        public Task<LobbySession> OpenLobbyAsync(string host, int dataPort, int viewPort, LsbAuthentication auth, CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(auth);
+            return OpenLobbyAsync(host, dataPort, viewPort, auth.AccountId, auth.SessionHash, null, ct, auth.LobbyServerKey);
         }
 
         /// <summary>
@@ -421,15 +448,16 @@ namespace Gordian.Core.Network.LandSandBoat
             int connectPort = DefaultConnectPort,
             int dataPort = DefaultDataPort,
             int viewPort = DefaultViewPort,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            LsbLobbyTransport transport = LsbLobbyTransport.Auto)
         {
             const int maxAttempts = 2;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
-                    var (accountId, sessionHash) = await AuthenticateAsync(host, connectPort, username, password, otp, ct).ConfigureAwait(false);
-                    return await OpenLobbyAsync(host, dataPort, viewPort, accountId, sessionHash, null, ct).ConfigureAwait(false);
+                    var auth = await AuthenticateAsync(host, connectPort, username, password, otp, ct, transport).ConfigureAwait(false);
+                    return await OpenLobbyAsync(host, dataPort, viewPort, auth, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)
                 {
@@ -486,33 +514,36 @@ namespace Gordian.Core.Network.LandSandBoat
             string? targetCharacterName = null,
             uint targetCharacterId = 0,
             CancellationToken ct = default,
-            int targetCharacterSlot = 0)
+            int targetCharacterSlot = 0,
+            LsbLobbyTransport transport = LsbLobbyTransport.Auto)
         {
             const int maxAttempts = 2;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
-                    var (accountId, sessionHash) = await AuthenticateAsync(
+                    var auth = await AuthenticateAsync(
                         host,
                         connectPort,
                         username,
                         password,
                         otp,
-                        ct
+                        ct,
+                        transport
                     ).ConfigureAwait(false);
 
                     return await SelectCharacterAsync(
                         host,
                         dataPort,
                         viewPort,
-                        accountId,
-                        sessionHash,
+                        auth.AccountId,
+                        auth.SessionHash,
                         targetCharacterName,
                         targetCharacterId,
                         null,
                         ct,
-                        targetCharacterSlot
+                        targetCharacterSlot,
+                        auth.LobbyServerKey
                     ).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)

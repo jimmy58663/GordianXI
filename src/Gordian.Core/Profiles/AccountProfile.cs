@@ -134,6 +134,13 @@ namespace Gordian.Core.Profiles
         /// <summary>The LandSandBoat view (xi_view) port, or 0 for the default.</summary>
         public int ViewPort { get; set; }
 
+        /// <summary>
+        /// How the LandSandBoat lobby (data and view) connections are made: <see cref="Network.LandSandBoat.LsbLobbyTransport.Auto"/>
+        /// (the default, also what an older profile file loads as) follows the xiloader version the server accepted; TLS
+        /// or Plain override it for a server that version detection gets wrong (#656).
+        /// </summary>
+        public Network.LandSandBoat.LsbLobbyTransport LobbyTransport { get; set; }
+
         /// <summary>The server host in effect (<see cref="ServerHost"/>, trimmed).</summary>
         [JsonIgnore]
         public string EffectiveServerHost => (ServerHost ?? string.Empty).Trim();

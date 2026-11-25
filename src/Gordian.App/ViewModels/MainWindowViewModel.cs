@@ -37,6 +37,7 @@ namespace Gordian.App.ViewModels
         private int _formServerPort = AccountProfile.DefaultLsbAuthPort;
         private int _formDataPort = AccountProfile.DefaultLsbDataPort;
         private int _formViewPort = AccountProfile.DefaultLsbViewPort;
+        private int _formLobbyTransportIndex;
         private ProfileServerType _formServerType = ProfileServerType.LandSandBoat;
         private string _formUsername = string.Empty;
         private string _formPassword = string.Empty;
@@ -218,6 +219,17 @@ namespace Gordian.App.ViewModels
             get => _formViewPort;
             set => SetProperty(ref _formViewPort, value);
         }
+
+        /// <summary>The lobby connection choice, an index into <see cref="LobbyTransportChoices"/> (<see cref="LsbLobbyTransport"/> order).</summary>
+        public int FormLobbyTransportIndex
+        {
+            get => _formLobbyTransportIndex;
+            set => SetProperty(ref _formLobbyTransportIndex, value);
+        }
+
+        /// <summary>The lobby connection choices, in <see cref="LsbLobbyTransport"/> order.</summary>
+        public IReadOnlyList<string> LobbyTransportChoices { get; } =
+            new[] { "Automatic", "TLS (xiloader 3.0 servers)", "Plain (older servers)" };
 
         /// <summary>The 2FA mode radio group's value.</summary>
         public TwoFactorMode FormTwoFactorMode
@@ -1316,6 +1328,7 @@ namespace Gordian.App.ViewModels
             FormServerPort = item.Profile.EffectiveServerPort;
             FormDataPort = item.Profile.EffectiveDataPort;
             FormViewPort = item.Profile.EffectiveViewPort;
+            FormLobbyTransportIndex = (int)item.Profile.LobbyTransport;
             FormUsername = item.Profile.Username;
             FormPassword = item.Profile.Password;
             FormPolId = item.Profile.PolId;
@@ -1385,6 +1398,7 @@ namespace Gordian.App.ViewModels
             FormServerPort = AccountProfile.DefaultLsbAuthPort;
             FormDataPort = AccountProfile.DefaultLsbDataPort;
             FormViewPort = AccountProfile.DefaultLsbViewPort;
+            FormLobbyTransportIndex = (int)LsbLobbyTransport.Auto;
             FormUsername = string.Empty;
             FormPassword = string.Empty;
             FormPolId = string.Empty;
@@ -1478,6 +1492,7 @@ namespace Gordian.App.ViewModels
                 ServerPort = lsb ? FormServerPort : AccountProfile.DefaultLsbAuthPort,
                 DataPort = lsb ? FormDataPort : 0,
                 ViewPort = lsb ? FormViewPort : 0,
+                LobbyTransport = lsb && Enum.IsDefined((LsbLobbyTransport)FormLobbyTransportIndex) ? (LsbLobbyTransport)FormLobbyTransportIndex : LsbLobbyTransport.Auto,
                 Username = FormUsername.Trim(),
                 Password = FormPassword,
                 PolId = lsb ? string.Empty : FormPolId.Trim(),
@@ -1672,6 +1687,9 @@ namespace Gordian.App.ViewModels
                             int connectPort = profile.EffectiveServerPort;
                             int dataPort = profile.EffectiveDataPort;
                             int viewPort = profile.EffectiveViewPort;
+                            // The lobby login reports the install's FFXI version, as the legacy client does; LandSandBoat
+                            // refuses one older than its CLIENT_VER by default.
+                            client.ClientVersion = InstalledClientVersion(profile) ?? XiloaderLobbyHandoff.DefaultClientVersion;
 
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
@@ -1701,7 +1719,8 @@ namespace Gordian.App.ViewModels
                                 dataPort: dataPort,
                                 viewPort: viewPort,
                                 targetCharacterName: targetCharName,
-                                targetCharacterSlot: profile.CharacterSlot
+                                targetCharacterSlot: profile.CharacterSlot,
+                                transport: profile.LobbyTransport
                             ).ConfigureAwait(false);
 
                             // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
@@ -1815,6 +1834,26 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
+        /// The FFXI version installed where <paramref name="profile"/> plays (its own install, else the registry's), from
+        /// <c>patch.cfg</c>, or null when it can't be read.
+        /// </summary>
+        private static string? InstalledClientVersion(AccountProfile profile)
+        {
+            try
+            {
+                string? root = string.IsNullOrWhiteSpace(profile.GameDirectory) ? GameDirectoryDetector.DetectGameDirectory() : profile.GameDirectory.Trim();
+                string? version = root == null ? null : Gordian.Core.Network.Retail.PatchConfigFile.ReadInstalledVersion(root);
+                if (version == null) GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] No FFXI version in the install's patch.cfg; the lobby login reports {XiloaderLobbyHandoff.DefaultClientVersion}.");
+                return version;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Could not read the install's patch.cfg ({ex.Message}); the lobby login reports {XiloaderLobbyHandoff.DefaultClientVersion}.");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Whether a profile opens the character select screen: one that names no character (no name, slot 0). Profiles
         /// with a character keep logging straight in (the saved-profile fast path).
         /// </summary>
@@ -1834,7 +1873,8 @@ namespace Gordian.App.ViewModels
                 return;
             }
 
-            var lobbySession = await client.LoginToLobbyAsync(serverHost, profile.Username, profile.Password, otp, connectPort, dataPort, viewPort).ConfigureAwait(false);
+            var lobbySession = await client.LoginToLobbyAsync(serverHost, profile.Username, profile.Password, otp, connectPort, dataPort, viewPort,
+                transport: profile.LobbyTransport).ConfigureAwait(false);
             var resources = AppResourceManager.Instance;
             var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
             var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;

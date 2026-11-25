@@ -80,7 +80,7 @@ When executing tasks or testing code changes, run these native .NET CLI commands
 ## 🔄 Login & Launch Architecture
 GordianXI logs in by itself: it starts no bootloader (`xiloader`, `pol.exe`), and logging in never modifies the user's game folder.
 1. **Registry Detection:** `GameDirectoryDetector.cs` queries 32-bit `InstallFolder\0001` across `PlayOnlineUS`, `PlayOnlineEU`, and `PlayOnline` (and `1000` for the PlayOnline Viewer).
-2. **LandSandBoat:** `LsbLoginClient` logs in to the auth, data and view servers directly; `LobbySession` with `XiloaderLobbyHandoff` runs character select (`docs/network/session-and-packets.md`).
+2. **LandSandBoat:** `LsbLoginClient` logs in to the auth, data and view servers directly (the data and view channels over TLS on xiloader 3.0 servers, `LsbLobbyTls`); `LobbySession` with `XiloaderLobbyHandoff` runs character select (`docs/network/session-and-packets.md`).
 3. **Retail:** the direct (POL-bypass) login in `src/Gordian.Core/Network/Retail`, launched by `LaunchRetailAsync` in `MainWindowViewModel` (`docs/network/retail-login.md`).
 
 ---
