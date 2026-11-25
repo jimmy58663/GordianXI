@@ -495,6 +495,7 @@ The config rows table feeds the list pages (`ConfigRowText`), the help table the
     - Hides are never saved, so a restart also clears them.
   - [ ] **Addons respect cutscenes:** addon overlays (minimap, party frames, any ImGui window) are not drawn while an event hides the HUD (`EventDialogController.IsCutsceneHud`, the event message mode), as the stock windows are. Retail's minimap is itself an addon (Windower) that stays up through intros, so an addon opts in through the suppression API; the default for every addon is hidden during a cutscene (maintainer's requirement, 2026-10-01). Phase 6, with the addon runtime.
 - [x] Viewport performance overlay ([#30](https://github.com/jimmy58663/GordianXI/issues/30)): hidden by default; Ctrl+F12 or `/perf` steps FPS -> detailed (frame pacing graph, draw call counters, CPU and GPU pass timings) -> hidden. See [rendering/viewport-and-terrain.md](../rendering/viewport-and-terrain.md#tier-3-imgui-overlays-and-the-performance-overlay-30).
+- [x] Viewport position overlay: `/coords` or Ctrl+Shift+F10 shows your X, height, Y, heading and the distance to your target. See [rendering/viewport-and-terrain.md](../rendering/viewport-and-terrain.md).
 
 ## Party menu, vitals block and invite orb (#397, #391)
 

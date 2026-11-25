@@ -318,6 +318,8 @@ namespace Gordian.App.Services
         {
             // /perf drives the viewport performance overlay (#30), a process-wide viewport setting.
             session.ActionService.PerformanceOverlayCommand = Gordian.App.Graphics.PerformanceOverlayModes.HandleCommand;
+            // /coords drives the position overlay, also process-wide.
+            session.ActionService.PositionOverlayCommand = Gordian.App.Graphics.PositionOverlay.HandleCommand;
             PostToUi(() =>
             {
                 _primaryViewModel.AddSession(session);
