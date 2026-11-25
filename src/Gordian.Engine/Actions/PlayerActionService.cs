@@ -1827,7 +1827,8 @@ namespace Gordian.Engine.Actions
             var item = StockUiItems.FindItem(inventory, Menus.ItemLookup, name, StockUiItems.UsableContainers);
             if (item == null) return PlayerActionResult.Warn($"You do not have any {name}.", ChatCommandResultKind.ItemUse);
             var record = StockUiShop.Lookup(Menus.ItemLookup, item.ItemId);
-            if (!StockUiItems.IsUsable(record)) return PlayerActionResult.Warn($"{record.Name} cannot be used.", ChatCommandResultKind.ItemUse);
+            bool worn = StockUiItems.EquippedSlots(inventory).Contains((item.Container, item.Slot));
+            if (!StockUiItems.IsUsable(record, worn)) return PlayerActionResult.Warn($"{record.Name} cannot be used.", ChatCommandResultKind.ItemUse);
             var (target, error) = ResolveItemTarget(record.ValidTargets, targetText);
             if (target is not { } t) return PlayerActionResult.Warn(error ?? "No valid target.", ChatCommandResultKind.ItemUse);
             try

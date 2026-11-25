@@ -204,6 +204,8 @@ namespace Gordian.Core.Resources.Tables
                     ushort wepIlvl = BinaryPrimitives.ReadUInt16LittleEndian(block.Slice(0x32, 2));
                     if (wepIlvl > 0) item.ItemLevel = (byte)wepIlvl;
                 }
+
+                ReadEquipmentUse(block, item, armorOffset: 0x1C, weaponOffset: 0x28);
             }
             else
             {
@@ -243,6 +245,8 @@ namespace Gordian.Core.Resources.Tables
                     ushort wepIlvl = BinaryPrimitives.ReadUInt16LittleEndian(block.Slice(0x36, 2));
                     if (wepIlvl > 0) item.ItemLevel = (byte)wepIlvl;
                 }
+
+                ReadEquipmentUse(block, item, armorOffset: 0x20, weaponOffset: 0x2C);
             }
 
             // Decode embedded strings
@@ -255,6 +259,26 @@ namespace Gordian.Core.Resources.Tables
             }
 
             return item;
+        }
+
+        /// <summary>
+        /// An equipment record's enchantment fields (the Use of a Warp Ring or a Living Bullet Pouch): the charges (byte), the
+        /// activation time in quarter seconds (byte), the use delay after equipping (u16, seconds) and the reuse delay (u32,
+        /// seconds), at retail 0x20 in armour (type 5) and 0x2C in weapons (type 4); legacy records 4 bytes earlier. Field
+        /// names from xi-tools <c>src/xi/ui/items/xi_layout.py</c>. **Differs from xi-tools:** its cast time / use delay /
+        /// reuse delay are u16 fields at +2 / +4 / +6; the retail DATs read against LandSandBoat <c>item_usable.sql</c>
+        /// (2026-11-22) have the activation byte at +1 (Living Bullet Pouch 8 = 2 s, Warp Ring and Warp Cudgel 32 = 8 s), the
+        /// use delay at +2 (10, 8, 3 s) and a u32 reuse delay at +4 (3600, 600, 60 s; Tavnazian Ring 86400). Weapons without a
+        /// Use (Kraken Club) read 0. Other item types keep the armour reading above (not checked).
+        /// </summary>
+        private static void ReadEquipmentUse(ReadOnlySpan<byte> block, ItemRecord item, int armorOffset, int weaponOffset)
+        {
+            int offset = item.ItemType switch { 4 => weaponOffset, 5 => armorOffset, _ => -1 };
+            if (offset < 0 || block.Length < offset + 8) return;
+            item.MaxCharges = block[offset];
+            item.CastTime = block[offset + 1];
+            item.UseDelay = BinaryPrimitives.ReadUInt16LittleEndian(block.Slice(offset + 2, 2));
+            item.ReuseDelay = BinaryPrimitives.ReadUInt32LittleEndian(block.Slice(offset + 4, 4));
         }
 
         private static void DecodeStrings(ReadOnlySpan<byte> block, ItemRecord item)

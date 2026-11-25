@@ -207,17 +207,7 @@ namespace Gordian.Engine.Events
         {
             bool self = _player != null && serverId != 0 && serverId == _player.ServerId;
             string name = self ? _playerName() : !string.IsNullOrEmpty(entity?.Name) ? entity!.Name : string.Empty;
-            bool? female = null;
-            if (entity != null && entity.Appearance.ModelId == 0)
-            {
-                female = ((entity.Appearance.FaceModel >> 8) & 0xFF) switch
-                {
-                    1 or 3 or 5 or 8 => false,
-                    2 or 4 or 6 or 7 => true,
-                    _ => null,
-                };
-            }
-            return new MessageEntity(name, female, entity?.TakesArticle ?? false);
+            return new MessageEntity(name, MessageEntity.SexOf(entity), entity?.TakesArticle ?? false);
         }
 
         /// <summary>

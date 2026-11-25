@@ -65,7 +65,7 @@ namespace Gordian.App.Graphics
         /// </summary>
         public static void Draw(StockUiRenderer renderer, UiResourceLibrary library, UiFont font, StockUiLogFont? logFont,
             Func<ushort, ItemRecord?>? itemLookup, ushort itemId, StockUiItemDescriptionPage? page, StockUiPlacement at, long timestamp,
-            int? stackCount = null, ushort linkshellColor = 0)
+            int? stackCount = null, ushort linkshellColor = 0, string? footer = null)
         {
             if (FrameOf(library, page) is not { } info) return;
             float s = at.Scale;
@@ -86,7 +86,9 @@ namespace Gordian.App.Graphics
             // The text box: from (48,4) to 8 px before the right edge, the window's height (StockUiTextBoxes clips to it).
             StockUiTextBoxes.DrawLines(renderer, font, logFont, page.Lines, at.X + TextX * s, at.Y + TextY * s,
                 info.Frame.Width - TextX - RightInset, info.Frame.Height - TextY, s);
-            if (page.Footer.Length == 0 && !page.HasMore) return;
+            // Enchanted equipment's live footer (its countdown) in place of the page's (#624 round 3).
+            footer ??= page.Footer;
+            if (footer.Length == 0 && !page.HasMore) return;
             float footerY = at.Y + (TextY + page.Lines.Count * StockUiLogFont.CellHeight) * s;
             float right = at.X + (info.Frame.Width - RightInset) * s;
             if (page.HasMore && library.TryGetGroup("kaipage", out var arrow) && arrow.Images.Count > 0)
@@ -99,7 +101,7 @@ namespace Gordian.App.Graphics
                 right -= 12 * s;
                 renderer.DrawImage(arrow.Images[index], right + 2 * s, footerY + 3 * s, s);
             }
-            StockUiTextBoxes.DrawLine(renderer, font, logFont, page.Footer, right - StockUiTextBoxes.MeasureLine(font, logFont, page.Footer) * s, footerY, s);
+            StockUiTextBoxes.DrawLine(renderer, font, logFont, footer, right - StockUiTextBoxes.MeasureLine(font, logFont, footer) * s, footerY, s);
         }
 
         /// <summary>
@@ -112,7 +114,8 @@ namespace Gordian.App.Graphics
         {
             var page = menu.ShownDescriptionPage;
             if (page == null && !emptyWhenNone) return;
-            Draw(renderer, library, font, logFont, menu.ItemLookup, menu.DescribedItem, page, at, timestamp, menu.DescribedStackCount, menu.DescribedLinkshellColor);
+            Draw(renderer, library, font, logFont, menu.ItemLookup, menu.DescribedItem, page, at, timestamp, menu.DescribedStackCount, menu.DescribedLinkshellColor,
+                menu.DescribedUseFooter(DateTime.UtcNow));
         }
 
         /// <summary>The stack count right-aligned on the icon's bottom right, in <c>fontshp</c> with its own outline.</summary>
