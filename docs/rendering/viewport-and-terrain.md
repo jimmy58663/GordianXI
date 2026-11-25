@@ -343,11 +343,14 @@ The timings are offscreen, Release, 2560 x 1369, D3D11, RTX 3070 Ti, second pass
 - The frame cost drops with the cut (round 4's table: 735 calls and 2.5 ms at 1 against 1,102 and 1.7-1.9 ms at 2 for the same view, offscreen).
 - Confirmed in round 6 (TESTING-2026-11-22 C6): Konschtat at heading 26 against `image-27` and heading 33 in thunder against `image-20`, and wide views in La Theine Plateau and Ronfaure with no short terrain and no hard edge at the cut. Release FPS at Konschtat heading 33: Extended about 230, Retail 300, Low 310, Minimum 320.
 
+**Sway while moving (rounds 5-6, closed, inconclusive).** The maintainer saw our trees and grass stop swaying while the character moved, and thought retail's kept going. Compared by eye at the Valkurm palms (84.17, 0.31, -68.96) in round 6, retail's seem to stop too ("Watching retail it is really hard to tell, but it looks like theirs stop too"), so it was closed with no change.
+- Ours keeps swaying while moving. On local LSB (2026-11-25):
+  - The wind clock advanced at the same rate while walking (a log line in Konschtat).
+  - Running into the Valkurm fence with the camera still, the crowns moved as much as when standing (frame residual 4-9 per 0.2 s, 2-4 standing, the fence 1).
+  - Nothing in the zone draw depends on the player's movement or the camera, apart from the culling-table probe and the sway range (unlimited at Retail).
+- While the camera moves, its own motion on screen (frame residual 10-25) swamps the sway's (about 2). That is likely why the sway looks frozen in both clients. A scripted walk with the sway on and off measured alike.
+
 **Still open:**
-- **Sway while moving** (round 5): the maintainer sees our trees and grass stop swaying while the character moves, and retail's keep going. Not reproduced. In our client on local LSB (Konschtat, 2026-11-25) a log line showed the wind clock advancing at the same rate while walking (eye moving, phase still 0.1 per 0.5 s). Nothing in the zone draw depends on the camera or the player's movement apart from the culling-table probe and the sway range, which is unlimited at Retail.
-  - Round 6: the maintainer's video (GordianXI only, Valkurm palms, 2026-11-25 19:07): "much easier to see on the Valkurm trees than the grass". Standing, the crowns move between frames (residual 6-11 after aligning, the rock face 0.2). Running, the camera's own motion swamps the comparison, so the video can't show whether the crowns still sway.
-  - Not reproduced again in our client on local LSB (Valkurm (84.17, 0.31, -68.96), 2026-11-25). Running into the fence with the camera still, the crowns kept moving as much as standing (residual 4-9 per 0.2 s running, 2-4 standing, the fence 1), so the movement state does not stop the sway. The same scripted walk with the sway on and off: while the camera moves, the scene's own motion (residual 10-25 per frame pair) swamps the sway's (about 2), so the two walks measure alike.
-  - No retail footage of moving past the palms exists yet (rounds 2-4 filmed retail standing). Needed: retail running past the same palms, and retail running into the fence there with the camera still.
 - **Indoor fog** under vanilla retail (Garlaige's corridor): #653.
 - **Mist** under vanilla retail (Valkurm): the fog now ends at 1.25 x the authored 148.5 yalms instead of being stretched to the cut; #653.
 
