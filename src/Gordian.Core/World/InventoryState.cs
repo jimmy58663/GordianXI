@@ -159,6 +159,10 @@ namespace Gordian.Core.World
         private readonly object _lock = new object();
         private readonly ContainerState[] _containers = new ContainerState[(int)ContainerId.Count];
         private readonly (ContainerId Container, byte Slot)[] _equippedGear = new (ContainerId, byte)[(int)EquipSlotId.Count];
+        private readonly DateTime[] _equippedAtUtc = new DateTime[(int)EquipSlotId.Count];
+
+        /// <summary>The clock <see cref="GetEquippedAtUtc"/> records equip times on (tests replace it).</summary>
+        public Func<DateTime> Clock { get; set; } = () => DateTime.UtcNow;
 
         public event Action<ContainerId, byte, InventoryItem?>? ItemChanged;
         public event Action<ContainerId, byte, ushort>? ContainerSizesChanged;
@@ -402,13 +406,30 @@ namespace Gordian.Core.World
             }
         }
 
+        /// <summary>
+        /// When the item now in <paramref name="equipSlot"/> was put there (the client's clock), or <see cref="DateTime.MinValue"/>.
+        /// An enchanted piece's Use is ready its use delay after this: LandSandBoat starts the delay when the item is equipped,
+        /// at login too (<c>charutils::EquipItem</c>, <c>CItemUsable::setAssignTime</c>), and keeps it out of the item's ExtData.
+        /// </summary>
+        public DateTime GetEquippedAtUtc(EquipSlotId equipSlot)
+        {
+            int idx = (int)equipSlot;
+            if (idx < 0 || idx >= _equippedAtUtc.Length) return DateTime.MinValue;
+            lock (_lock)
+            {
+                return _equippedAtUtc[idx];
+            }
+        }
+
         public void SetEquip(EquipSlotId equipSlot, ContainerId container, byte slot)
         {
             int idx = (int)equipSlot;
             if (idx < 0 || idx >= _equippedGear.Length) return;
 
+            var now = Clock();
             lock (_lock)
             {
+                if (_equippedGear[idx] != (container, slot)) _equippedAtUtc[idx] = now;
                 _equippedGear[idx] = (container, slot);
             }
 

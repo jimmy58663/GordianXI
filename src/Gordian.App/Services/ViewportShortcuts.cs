@@ -27,6 +27,9 @@ namespace Gordian.App.Services
 
         /// <summary>Ctrl+Shift+F11: shows or hides the interactive ImGui input test window (#380).</summary>
         ToggleImGuiTestWindow,
+
+        /// <summary>Ctrl+Shift+F10: shows or hides the position overlay (position, heading, distance to target), like <c>/coords</c>.</summary>
+        TogglePositionOverlay,
     }
 
     /// <summary>
@@ -46,6 +49,7 @@ namespace Gordian.App.Services
                 Key.F11 when ctrl && shift => ViewportShortcut.ToggleImGuiTestWindow,
                 Key.F11 => ViewportShortcut.ToggleFullscreen,
                 Key.F12 when ctrl => shift ? ViewportShortcut.RestoreStockUi : ViewportShortcut.CyclePerformanceOverlay,
+                Key.F10 when ctrl && shift => ViewportShortcut.TogglePositionOverlay,
                 Key.F10 when ctrl => ViewportShortcut.ToggleFog,
                 Key.F10 => ViewportShortcut.CycleTimeOfDay,
                 Key.F9 when ctrl && shift => ViewportShortcut.ToggleZoneBackFaceCulling,

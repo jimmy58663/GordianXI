@@ -151,6 +151,24 @@ namespace Gordian.Engine.Ui
         /// </summary>
         public ushort DescribedLinkshellColor => IsItemList && SelectedItemRow is { IsStorageOptions: false } row ? row.LinkshellColor : (ushort)0;
 
+        /// <summary>
+        /// The live footer of the described enchanted equipment (<see cref="StockUiItems.UseFooter"/>: charges left and the
+        /// countdown), for an item list's row or the Equipment grid's slot; null for anything else (the page's own footer).
+        /// </summary>
+        public string? DescribedUseFooter(DateTime utcNow)
+        {
+            if (IsItemList)
+            {
+                if (SelectedItemRow is not { IsStorageOptions: false, UsableWhileWorn: true } row || ItemLookup?.Invoke(row.ItemId) is not { } known) return null;
+                return StockUiItems.UseFooter(known, row.ChargesLeft, row.UseReadyAtUtc, utcNow, row.Equipped);
+            }
+            if (!IsEquipment || !StockUiCheck.TryGetSlot(SelectedButtonId, out var slot) || Inventory is not { } inventory) return null;
+            if (StockUiItems.EquippedItem(inventory, slot) is not { } item || ItemLookup?.Invoke(item.ItemId) is not { } record
+                || StockUiItems.IsUsable(record) || !StockUiItems.IsUsableEquipment(record)) return null;
+            var ready = StockUiItems.UsableAtUtc(record, item.ExtData, inventory.GetEquippedAtUtc(slot), utcNow, ItemOwner?.Clock);
+            return StockUiItems.UseFooter(record, StockUiItems.ChargesLeft(record, item.ExtData), ready, utcNow);
+        }
+
         private ushort _pagesItem;
         private Func<string, float>? _pagesMeasure;
         private IReadOnlyList<StockUiItemDescriptionPage> _pages = Array.Empty<StockUiItemDescriptionPage>();
@@ -363,7 +381,7 @@ namespace Gordian.Engine.Ui
         /// <summary>A container's rows in the client's order (auto / manual sort).</summary>
         private List<StockUiItemRow> OrderedRows(ContainerId container, bool usableOnly = false)
         {
-            var rows = StockUiItems.Rows(Inventory, container, ItemLookup, usableOnly);
+            var rows = StockUiItems.Rows(Inventory, container, ItemLookup, usableOnly, Clock);
             StockUiItems.ApplyOrder(rows, _itemOrder.TryGetValue(container, out var order) ? order : null);
             return rows;
         }
@@ -378,6 +396,23 @@ namespace Gordian.Engine.Ui
             var rows = StockUiItems.Rows(Inventory, ContainerId.TempItems, ItemLookup, usableOnly);
             if (rows.Count == 0) return inventoryRows;
             rows.AddRange(inventoryRows);
+            return rows;
+        }
+
+        /// <summary>
+        /// The command menu's Items list: the temporary items, the inventory's usable items (enchanted equipment while worn), then
+        /// the enchanted equipment worn from the Mog Wardrobes (the maintainer's retail check, round 1, 2026-11-22: a Living
+        /// Bullet Pouch equipped from a wardrobe is listed to use it; where in the list is not checked). Retail lists the same
+        /// items whoever the target is (round 1: #625's per-target filter was wrong and is gone).
+        /// </summary>
+        private List<StockUiItemRow> CommandMenuRows()
+        {
+            var rows = WithTemporaryItems(OrderedRows(ContainerId.Inventory, usableOnly: true), usableOnly: true);
+            foreach (var container in StockUiItems.EquippableContainers)
+            {
+                if (container == ContainerId.Inventory) continue;
+                rows.AddRange(OrderedRows(container, usableOnly: true).FindAll(r => r.Equipped));
+            }
             return rows;
         }
 
@@ -441,7 +476,7 @@ namespace Gordian.Engine.Ui
             {
                 StockUiItemListKind.Equipment when menu.EquipSetNumber > 0 => StockUiEquipSets.SetRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, MenuMessageText),
                 StockUiItemListKind.Equipment => StockUiItems.EquipRows(Inventory, menu.ItemContainer, menu.ItemEquipSlot, ItemLookup, Character()),
-                StockUiItemListKind.Usable => WithTemporaryItems(OrderedRows(ContainerId.Inventory, usableOnly: true), usableOnly: true),
+                StockUiItemListKind.Usable => CommandMenuRows(),
                 StockUiItemListKind.Crystals => StockUiSynthesis.CrystalRows(OrderedRows(ContainerId.Inventory)),
                 StockUiItemListKind.SynthesisMaterials when menu.Parent is { IsSynthesisGrid: true } grid =>
                     StockUiSynthesis.MaterialRows(OrderedRows(ContainerId.Inventory), grid.SynthesisCrystal, grid.SynthesisSlots),
@@ -650,7 +685,6 @@ namespace Gordian.Engine.Ui
                         denominator = StockUiItems.Fill(Inventory, onTemporary ? ContainerId.TempItems : ContainerId.Inventory).Used;
                         break;
                     }
-                        break;
                     case StockUiItemListKind.Crystals:
                         // "Items 3/30" (capture Crystal_Synthesis.png): the crystals listed over the inventory's size.
                         numerator = window.ItemRows.Count;
@@ -732,6 +766,9 @@ namespace Gordian.Engine.Ui
                     ActivateEquipRow(list, row);
                     return;
                 case StockUiItemListKind.Usable:
+                    // A grey row (a worn piece whose Use is not ready) does nothing: retail opens no sub-target cursor and
+                    // sends nothing (round 3 of the 2026-11-22 test).
+                    if (row.IsGreyedAt(DateTime.UtcNow)) return;
                     UseItem(row, list.ItemTarget, list);
                     return;
                 case StockUiItemListKind.RecycleBin:
@@ -769,12 +806,16 @@ namespace Gordian.Engine.Ui
             if (library == null || !library.TryGetMenu(StockUiItems.ActionMenu, out var definition)) return;
             var record = ItemLookup?.Invoke(row.ItemId);
             var greyed = new HashSet<int>();
-            bool usable = StockUiItems.IsUsable(record) && Contains(StockUiItems.UsableContainers, row.Container);
+            bool usable = StockUiItems.IsUsable(record, row.Equipped) && Contains(StockUiItems.UsableContainers, row.Container);
             if (!usable) greyed.Add(StockUiItems.UseButton);
             if (row.Equipped || row.Container == ContainerId.RecycleBin) greyed.Add(StockUiItems.DropButton);
             var menu = new StockUiOpenMenu(definition, list, Array.Empty<string>(), null) { ItemAction = row };
             menu.SetGreyed(greyed.Count > 0 ? greyed : null);
-            menu.SelectedButtonId = usable || greyed.Contains(StockUiItems.DropButton) ? StockUiItems.UseButton : StockUiItems.DropButton;
+            // Worn enchanted equipment: Use is greyed while its equip or reuse delay runs, and comes back when it ends
+            // (the maintainer on retail, round 2 of the 2026-11-22 test).
+            bool waiting = usable && row.UsableAtUtc is { } usableAt && usableAt > DateTime.UtcNow;
+            if (waiting) menu.SetGreyedUntil(StockUiItems.UseButton, row.UsableAtUtc!.Value);
+            menu.SelectedButtonId = usable && !waiting || greyed.Contains(StockUiItems.DropButton) ? StockUiItems.UseButton : StockUiItems.DropButton;
             lock (_sync) PushOpen(menu);
             Changed?.Invoke();
         }
@@ -830,7 +871,7 @@ namespace Gordian.Engine.Ui
                 OpenSynthesisGrid(list, row);
                 return;
             }
-            if (!StockUiItems.IsUsable(known))
+            if (!StockUiItems.IsUsable(known, row.Equipped))
             {
                 NoticePosted?.Invoke($"{record.Name} cannot be used.");
                 return;

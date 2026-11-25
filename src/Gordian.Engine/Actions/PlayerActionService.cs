@@ -1639,6 +1639,8 @@ namespace Gordian.Engine.Actions
                         return StockUiUsage;
                     case "perf":
                         return PerformanceOverlayUsage;
+                    case "coords":
+                        return PositionOverlayUsage;
                     case "heal":
                         return "Usage: /heal [on|off] - Rest to recover HP and MP faster; send it again to stand up.";
                     case "sit":
@@ -1700,6 +1702,7 @@ namespace Gordian.Engine.Actions
             sb.AppendLine("  /uilayout [window] [...]  - Stock UI scale, move, hide or reset windows; unlock to drag them (/uil)");
             sb.AppendLine("  /stockui [hide|show <el>] - Hide or show stock HUD elements until restart (target, party, chat, all...)");
             sb.AppendLine("  /perf [off|fps|full]      - Viewport performance overlay (Ctrl+F12 cycles)");
+            sb.AppendLine("  /coords [on|off]          - Viewport position overlay: position, heading, distance to target (Ctrl+Shift+F10)");
             sb.AppendLine("  /lockstyle [on|off]       - Lock your equipment's appearance, or show whether it is locked");
             sb.AppendLine("  /item \"<name>\" [target]   - Use an item (<me>, <t> or a name; yourself or your target without one)");
             sb.AppendLine("  /equip <slot> [\"<name>\"]  - Equip an item in a slot, or without a name remove the slot's item (/eq)");
@@ -1825,7 +1828,8 @@ namespace Gordian.Engine.Actions
             var item = StockUiItems.FindItem(inventory, Menus.ItemLookup, name, StockUiItems.UsableContainers);
             if (item == null) return PlayerActionResult.Warn($"You do not have any {name}.", ChatCommandResultKind.ItemUse);
             var record = StockUiShop.Lookup(Menus.ItemLookup, item.ItemId);
-            if (!StockUiItems.IsUsable(record)) return PlayerActionResult.Warn($"{record.Name} cannot be used.", ChatCommandResultKind.ItemUse);
+            bool worn = StockUiItems.EquippedSlots(inventory).Contains((item.Container, item.Slot));
+            if (!StockUiItems.IsUsable(record, worn)) return PlayerActionResult.Warn($"{record.Name} cannot be used.", ChatCommandResultKind.ItemUse);
             var (target, error) = ResolveItemTarget(record.ValidTargets, targetText);
             if (target is not { } t) return PlayerActionResult.Warn(error ?? "No valid target.", ChatCommandResultKind.ItemUse);
             try
@@ -3138,6 +3142,9 @@ namespace Gordian.Engine.Actions
 
                 case ChatCommandResultKind.PerformanceOverlay:
                     return PerformanceOverlayCommandResult(cmd.Message ?? string.Empty);
+
+                case ChatCommandResultKind.PositionOverlay:
+                    return PositionOverlayCommandResult(cmd.Message ?? string.Empty);
 
                 case ChatCommandResultKind.TreasureLot:
                     return await TreasureAsync(cmd.Message ?? string.Empty, lot: true).ConfigureAwait(false);
