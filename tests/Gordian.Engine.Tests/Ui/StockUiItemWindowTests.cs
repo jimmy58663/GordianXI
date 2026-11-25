@@ -847,7 +847,7 @@ namespace Gordian.Engine.Tests.Ui
             // item_usable row: 3 charges, use delay 30 s, reuse delay 60 s.
             var tank = new ItemRecord { ItemId = 26271, ItemType = StockUiItems.ItemTypeArmor, MaxCharges = 3, UseDelay = 30, ReuseDelay = 60 };
             var now = new DateTime(2026, 11, 24, 5, 0, 0, DateTimeKind.Utc);
-            Assert.Equal("<3/3 0:17/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 3, now.AddSeconds(16.2), now));
+            Assert.Equal("<3/3 0:17/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 3, now.AddSeconds(17.2), now));
             Assert.Equal("<0/3 0:00/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 0, DateTime.MaxValue, now));
             // Not worn (round 4): the reuse countdown stops at the 0:30 use delay until the tank is equipped.
             Assert.Equal("<2/3 0:45/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, now.AddSeconds(45), now, worn: false));
@@ -871,15 +871,28 @@ namespace Gordian.Engine.Tests.Ui
         [Fact]
         public void UsableAt_ReadsTheTimerExtData()
         {
-            // LandSandBoat Exdata::ItemTimerInfo: header 1, charges left, flags, last Use (Earth seconds since the Vana'diel epoch).
+            // LandSandBoat S2C 0x020 (0x020_item_attr.cpp): header 1, charges left, flags, and while a reuse runs the NEXT Use
+            // (last Use + reuse delay; Earth seconds since the Vana'diel epoch). Round 5: reading it as the last Use counted the
+            // reuse twice (the Hi-Elixir Tank's 1:00 reuse started at 1:59).
             var now = new DateTime(2026, 11, 22, 12, 0, 0, DateTimeKind.Utc);
-            uint usedAt = (uint)(new DateTimeOffset(now.AddMinutes(-10)).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds);
+            uint usedAt = (uint)(new DateTimeOffset(now.AddMinutes(50)).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds);
             var ext = new byte[24];
             ext[0] = StockUiItems.TimerExtDataHeader;
             ext[1] = 1;
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ext.AsSpan(4), usedAt);
             Assert.Equal(now.AddMinutes(50), StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
             Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now.AddHours(1)));
+            ext[3] = StockUiItems.TimerReadyFlag; // ready: bytes 4-7 are not a wait
+            Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
+            ext[3] = 0;
+            // The Hi-Elixir Tank just used: next Use 60 s away counts down from 1:00 (0:59 a moment later), not 1:59.
+            var tank = new ItemRecord { ItemId = 26271, ItemType = StockUiItems.ItemTypeArmor, MaxCharges = 3, UseDelay = 30, ReuseDelay = 60, ValidTargets = StockUiItems.TargetSelf };
+            ext[1] = 2;
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ext.AsSpan(4),
+                (uint)(new DateTimeOffset(now.AddSeconds(60)).ToUnixTimeSeconds() - VanaTime.VanadielEpochUnixSeconds));
+            var ready = StockUiItems.UsableAtUtc(tank, ext, DateTime.MinValue, now);
+            Assert.Equal("<2/3 0:59/[1:00, 0:30]>", StockUiItems.UseFooter(tank, 2, ready, now.AddSeconds(0.5), worn: false));
+            ext[1] = 1;
             ext[1] = 0; // no charges left
             Assert.Equal(DateTime.MaxValue, StockUiItems.UsableAtUtc(BulletPouch, ext, DateTime.MinValue, now));
             Assert.Null(StockUiItems.UsableAtUtc(BulletPouch, new byte[24], DateTime.MinValue, now)); // no timer record

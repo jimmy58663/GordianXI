@@ -379,11 +379,12 @@ namespace Gordian.Engine.Ui
         /// countdown until the Use is ready, then the reuse delay and the use delay after equipping. Durations are m:ss, and
         /// h:mm:ss from an hour (retail image-18, Living bullet pouch "[1:00:00, 0:10]", round 4). Not <paramref name="worn"/>,
         /// the countdown stops at the use delay after equipping, going lower only once the piece is worn (retail, round 4 of
-        /// the 2026-11-22 test: the Hi-Elixir Tank's reuse countdown stops at 0:30 until equipped).
+        /// the 2026-11-22 test: the Hi-Elixir Tank's reuse countdown stops at 0:30 until equipped). The countdown drops part
+        /// seconds, so a 1:00 reuse shows 0:59 right after the Use (round 5).
         /// </summary>
         public static string UseFooter(ItemRecord record, int chargesLeft, DateTime? readyAtUtc, DateTime utcNow, bool worn = true)
         {
-            double left = readyAtUtc is { } ready && ready != DateTime.MaxValue && ready > utcNow ? Math.Ceiling((ready - utcNow).TotalSeconds) : 0;
+            double left = readyAtUtc is { } ready && ready != DateTime.MaxValue && ready > utcNow ? Math.Floor((ready - utcNow).TotalSeconds) : 0;
             if (!worn) left = Math.Max(left, record.UseDelay);
             return string.Create(CultureInfo.InvariantCulture,
                 $"<{chargesLeft}/{record.MaxCharges} {Duration((long)left)}/[{Duration(record.ReuseDelay)}, {Duration(record.UseDelay)}]>");
@@ -397,12 +398,18 @@ namespace Gordian.Engine.Ui
         /// <summary>ExtData header of an item's timer record (LandSandBoat <c>Exdata::ItemTimerInfo</c>: "must be 1 for client to recognize timer data").</summary>
         public const byte TimerExtDataHeader = 1;
 
+        /// <summary>The timer record's byte 3 flag "ready to use" (LandSandBoat <c>0x020_item_attr.cpp</c>): bytes 4-7 then hold no wait.</summary>
+        public const byte TimerReadyFlag = 0x40;
+
         /// <summary>
         /// When a worn enchanted piece's Use is ready, or null when it is ready now or the time is not known; <see cref="DateTime.MaxValue"/>
         /// when it has no charges left. Ready is the later of the use delay after equipping (<paramref name="equippedAtUtc"/>,
-        /// <see cref="InventoryState.GetEquippedAtUtc"/>) and the reuse delay after the last Use. The item's ExtData is
-        /// LandSandBoat's timer record (<c>Exdata::ItemTimerInfo</c>): byte 0 the header 1, byte 1 the charges left, bytes 4-7
-        /// the last Use as Earth seconds since the Vana'diel epoch (<c>CItemUsable::setLastUseTime</c>).
+        /// <see cref="InventoryState.GetEquippedAtUtc"/>) and the next Use after the reuse delay. The item's ExtData is
+        /// LandSandBoat's timer record as S2C 0x020 sends it (<c>Exdata::ItemTimerInfo</c>, <c>0x020_item_attr.cpp</c>): byte 0
+        /// the header 1, byte 1 the charges left, byte 3 flags (0x40 ready, 0x20 no charges left), and while a reuse runs
+        /// bytes 4-7 the NEXT Use (last Use + reuse delay) as Earth seconds since the Vana'diel epoch. The stored record holds
+        /// the last Use there, which the packet replaces; reading it as the last Use counted the reuse twice (round 5 of the
+        /// 2026-11-22 test: the Hi-Elixir Tank's 1:00 reuse counted down from 1:59).
         /// </summary>
         public static DateTime? UsableAtUtc(ItemRecord record, ReadOnlySpan<byte> extData, DateTime equippedAtUtc, DateTime utcNow, VanaClock? clock = null)
         {
@@ -411,10 +418,10 @@ namespace Gordian.Engine.Ui
             if (extData.Length >= 8 && extData[0] == TimerExtDataHeader)
             {
                 if (extData[1] == 0) return DateTime.MaxValue;
-                uint lastUse = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(extData.Slice(4, 4));
-                if (lastUse != 0)
+                uint nextUse = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(extData.Slice(4, 4));
+                if (nextUse != 0 && (extData[3] & TimerReadyFlag) == 0)
                 {
-                    long unix = lastUse + VanaTime.VanadielEpochUnixSeconds - (clock?.ServerClockOffsetSeconds ?? 0) + record.ReuseDelay;
+                    long unix = nextUse + VanaTime.VanadielEpochUnixSeconds - (clock?.ServerClockOffsetSeconds ?? 0);
                     var reused = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
                     if (reused > ready) ready = reused;
                 }
