@@ -23,9 +23,18 @@ namespace Gordian.Engine.Actions
         /// </summary>
         public Func<string, string>? PerformanceOverlayCommand { get; set; }
 
+        /// <summary>
+        /// Handles <c>/coords [on | off]</c> and returns the reply; set by the client's viewport (the position overlay is
+        /// drawn there), null without one.
+        /// </summary>
+        public Func<string, string>? PositionOverlayCommand { get; set; }
+
         internal const string StockUiUsage =
             "Usage: /stockui [hide | show <element ...|all>] | reset. Elements: target, vitals, party, alliance, buffs, menus, chat, names, cursor. " +
             "Hides stock HUD elements until the client restarts (an addon's hides are its own; /uilayout <window> hide is saved per character). Hidden elements take no input; Ctrl+Shift+F12 in the viewport or the Command Console's /stockui reset restores them.";
+
+        internal const string PositionOverlayUsage =
+            "Usage: /coords [on | off] - Viewport position overlay: your X, height and Y (server order) and heading, and the distance to your target (Ctrl+Shift+F10 toggles).";
 
         internal const string PerformanceOverlayUsage =
             "Usage: /perf [off | fps | full | next] - Viewport performance overlay: hidden, FPS only, or frame graph, draw calls and pass timings (Ctrl+F12 cycles).";
@@ -88,6 +97,14 @@ namespace Gordian.Engine.Actions
                 sb.Append(owner).Append(" hides ").Append(StockUiVisibilityState.Describe(set)).Append(". ");
             }
             return sb.ToString().TrimEnd();
+        }
+
+        private PlayerActionResult PositionOverlayCommandResult(string args)
+        {
+            var handler = PositionOverlayCommand;
+            return handler is null
+                ? PlayerActionResult.Warn("The position overlay needs a viewport window.", ChatCommandResultKind.PositionOverlay)
+                : PlayerActionResult.Info(handler(args), ChatCommandResultKind.PositionOverlay);
         }
 
         private PlayerActionResult PerformanceOverlayCommandResult(string args)

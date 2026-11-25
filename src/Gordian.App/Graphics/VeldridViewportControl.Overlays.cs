@@ -117,7 +117,8 @@ namespace Gordian.App.Graphics
         {
             bool interactive = ImGuiOverlayRegistry.AnyVisible;
             if (!interactive) ImGuiInput.Reset();
-            if ((_frameOverlayMode == PerformanceOverlayMode.Hidden && !interactive) || _overlayLayerFailed) return;
+            bool position = !IsThumbnail && ViewportRenderSettings.PositionOverlay;
+            if ((_frameOverlayMode == PerformanceOverlayMode.Hidden && !position && !interactive) || _overlayLayerFailed) return;
             var gd = _deviceManager.Device;
             var framebuffer = _deviceManager.Framebuffer;
             if (gd == null || framebuffer == null) return;
@@ -142,12 +143,14 @@ namespace Gordian.App.Graphics
 
             var info = new PerformanceOverlayInfo(_frameOverlayMode, _perfStats, _activeBackendName, _gpuDeviceName,
                 framebuffer.Width, framebuffer.Height, _swapchainVsync);
-            _overlayLayer.Render(framebuffer, _perfFrameSeconds, info, DrawTier3, interactive ? ImGuiInput : null);
+            var where = position ? PositionOverlayInfo.From(_activeSession) : default;
+            _overlayLayer.Render(framebuffer, _perfFrameSeconds, (info, where), DrawTier3, interactive ? ImGuiInput : null);
         }
 
-        private static void DrawTier3(PerformanceOverlayInfo info)
+        private static void DrawTier3((PerformanceOverlayInfo Performance, PositionOverlayInfo Position) state)
         {
-            if (info.Mode != PerformanceOverlayMode.Hidden) PerformanceOverlay.Draw(info);
+            if (state.Performance.Mode != PerformanceOverlayMode.Hidden) PerformanceOverlay.Draw(state.Performance);
+            if (state.Position.Shown) PositionOverlay.Draw(state.Position);
             ImGuiOverlayRegistry.DrawAll();
         }
 

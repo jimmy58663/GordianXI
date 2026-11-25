@@ -160,7 +160,9 @@ namespace Gordian.Core.Network
         LocalEcho,
         LocalNotice,
         ServerCommand,
-        Unrecognized
+        Unrecognized,
+        /// <summary><c>/coords [on|off]</c>: the viewport's position overlay (your X, height, Y and the distance to your target); client only.</summary>
+        PositionOverlay
     }
 
     public sealed class ChatCommandResult
@@ -335,6 +337,7 @@ namespace Gordian.Core.Network
                     "uilayout" or "uil" => new ChatCommandResult { Kind = ChatCommandResultKind.UiLayout, Message = args },
                     "stockui" => new ChatCommandResult { Kind = ChatCommandResultKind.StockUiVisibility, Message = args },
                     "perf" => new ChatCommandResult { Kind = ChatCommandResultKind.PerformanceOverlay, Message = args },
+                    "coords" => new ChatCommandResult { Kind = ChatCommandResultKind.PositionOverlay, Message = args },
 
                     // Equipment appearance
                     "lockstyle" => new ChatCommandResult { Kind = ChatCommandResultKind.Lockstyle, Message = args },
