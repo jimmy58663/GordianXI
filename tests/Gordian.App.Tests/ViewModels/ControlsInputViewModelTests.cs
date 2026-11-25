@@ -163,7 +163,8 @@ namespace Gordian.App.Tests.ViewModels
             string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
             try
             {
-                var vm1 = new ControlsInputViewModel(tempFile);
+                // A restart owns a new hub; the application-wide default is shared with parallel tests.
+                var vm1 = new ControlsInputViewModel(tempFile, new InputProfileHub());
                 vm1.InvertMouseY = true;
                 vm1.InvertGamepadCameraY = true;
                 vm1.MouseSensitivityX = 3.5f;
@@ -172,7 +173,7 @@ namespace Gordian.App.Tests.ViewModels
                 Assert.True(File.Exists(tempFile));
 
                 // Reinstantiate to simulate application restart
-                var vm2 = new ControlsInputViewModel(tempFile);
+                var vm2 = new ControlsInputViewModel(tempFile, new InputProfileHub());
                 Assert.True(vm2.InvertMouseY);
                 Assert.True(vm2.InvertGamepadCameraY);
                 Assert.Equal(3.5f, vm2.MouseSensitivityX);
