@@ -51,7 +51,11 @@ with tempfile.TemporaryDirectory(prefix="gordian-input-") as temp:
         env["DISPLAY"] = ":" + number
         subprocess.run(["setxkbmap", "-layout", options.input_layout], env=env, check=True, timeout=10)
         dll = root / "tests/Gordian.InputProbe/bin/Debug/net10.0/Gordian.InputProbe.dll"
-        result = subprocess.run(["dotnet", str(dll)], env=env, cwd=state, timeout=120)
+        result = subprocess.run(["dotnet", str(dll)], env=env, cwd=state, timeout=120,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        print(result.stdout, end="", flush=True)
+        if result.returncode == 0 and "PASS: input fixture complete" not in result.stdout:
+            raise RuntimeError("input process exited without completing its assertions")
         sys.exit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
     finally:
         os.close(read_fd)

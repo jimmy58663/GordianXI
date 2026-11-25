@@ -1,5 +1,11 @@
 # Keyboard Size and chat entry (#648)
 
+> **Independent-candidate scope:** This branch is based on upstream main without
+> PR #646 or PR #647. Older native/GPU and owner results below describe the
+> original stacked candidate, not this separated revision. See
+> [independent review and test boundaries](independent-648.md).
+
+
 **Follow-up:** [Keyboard catalog v1](keyboard-presets.md) now implements actual
 keyboard layers, frozen legacy maps, explicit conversion and confirmed keyboard-only
 restore. The narrative below records the earlier chat-only patch and proposal;
@@ -30,14 +36,13 @@ Selecting Keyboard Size does **not** reset the dashboard's keyboard, mouse or ga
 ## Regression checks
 
 ```sh
-python3 third_party/NeoVeldrid/build.py
 dotnet test GordianXI.slnx
 dotnet build tests/Gordian.InputProbe
-python3 tests/Gordian.ViewportProbe/run-probe.py --input --input-layout us
-python3 tests/Gordian.ViewportProbe/run-probe.py --input --input-layout de
+python3 tests/Gordian.InputProbe/run-probe.py --input-layout us
+python3 tests/Gordian.InputProbe/run-probe.py --input-layout de
 ```
 
-Use the isolated Xvfb/dependency environment from [the Linux probe guide](../rendering/linux-viewport-644.md). Add `--strict-validation` with the validation-layer environment configured. Never run the fixture on an owner's display.
+Use the isolated Xvfb/dependency environment from [the independent input guide](independent-648.md). The input-only fixture does not initialize the GPU viewport. Never run the fixture on an owner's display.
 
 `StockUiKeyboardChatTests` covers explicit modes versus both presets, immediate changes/reset, save/reload, per-character independence, reserved keys/modifiers, Space/Confirm precedence and preservation of bindings. The real XTEST probe covers selected Full versus both Compact modes, the first character exactly once, shifted empty-symbol input, Caps Lock, shortcut/numpad/function-key isolation, hidden chat and stock fields. It also constructs fresh sessions from saved values for all three modes and tests shared-profile refresh without losing the selection. It retains the existing punctuation and explicit-opening checks. These tests use disconnected synthetic sessions, not retail assets or accounts.
 

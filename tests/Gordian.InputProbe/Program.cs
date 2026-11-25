@@ -11,7 +11,6 @@ using Gordian.Engine.Input;
 using Gordian.Engine.Macros;
 using Gordian.Engine.Sessions;
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 // Synthetic events only, on the runner's fresh authenticated display. Never start
@@ -401,6 +400,7 @@ try
         vm.RemoveSession(fresh);
     }
     Console.WriteLine("PASS: fresh sessions restore all three Keyboard Size values; shared-profile refresh preserves selection");
+    Console.WriteLine("PASS: input fixture complete");
     return 0;
 }
 catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -446,7 +446,6 @@ void Drain()
     var clock = Stopwatch.StartNew();
     Pump(() => clock.ElapsedMilliseconds > 60, "synthetic key dispatch");
 }
-static object? Field(object o, string n) => o.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(o);
 static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
 static void Pump(Func<bool> condition, string message)
 {

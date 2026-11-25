@@ -1,5 +1,11 @@
 # Keyboard catalog v1 (#648)
 
+> **Independent-candidate scope:** This branch is based on upstream main without
+> PR #646 or PR #647. Older native/GPU and owner results below describe the
+> original stacked candidate, not this separated revision. See
+> [independent review and test boundaries](independent-648.md).
+
+
 This implements **binding layers**, not a claim of complete retail parity. New
 input-profile storage is layered Full, matching the unchanged character page's
 absent/reset value. Existing files remain frozen until explicit conversion.

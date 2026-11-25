@@ -1,5 +1,11 @@
 # Controller follow-up (#648)
 
+> **Independent-candidate scope:** This branch is based on upstream main without
+> PR #646 or PR #647. Older native/GPU and owner results below describe the
+> original stacked candidate, not this separated revision. See
+> [independent review and test boundaries](independent-648.md).
+
+
 ## Evidence and scope
 
 The owner reports that Autorun's assignment row displays **RB**, but physical **LB** activates it, and D-pad Down does not select self. The owner has accepted the corrected camera Normal directions. This follow-up does not change camera math, settings defaults, driver mappings or the owner's files.

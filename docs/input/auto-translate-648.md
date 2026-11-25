@@ -1,5 +1,11 @@
 # Chat auto-translate (#648; partial scope of #388)
 
+> **Independent-candidate scope:** This branch is based on upstream main without
+> PR #646 or PR #647. Older native/GPU and owner results below describe the
+> original stacked candidate, not this separated revision. See
+> [independent review and test boundaries](independent-648.md).
+
+
 Tab in an open **chat** field searches a fixed-phrase dictionary instead of cycling
 targets. A unique prefix match is inserted immediately, without submitting. Outside
 chat, target bindings are unchanged. Ctrl+Tab remains a viewport
@@ -101,20 +107,18 @@ packet bytes, incoming synthetic loopback, multibyte/expanded byte budgets and C
 marker-injection rejection. Negative controls remove rendering, change FD to FE,
 and restore the old native Tab route; each fails its corresponding assertion.
 
-Build the pinned private dependency first, then run:
+Use the upstream package sources (no private graphics dependency), then run:
 
 ```sh
-python3 third_party/NeoVeldrid/build.py
 # Use an absolute operator-owned TMPDIR (shared /tmp/gordian-tests may be foreign-owned).
 dotnet test GordianXI.slnx
 dotnet build tests/Gordian.InputProbe
-dotnet build tests/Gordian.ViewportProbe
-VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation python3 tests/Gordian.ViewportProbe/run-probe.py --input --strict-validation
-VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation python3 tests/Gordian.ViewportProbe/run-probe.py --input --input-layout de --strict-validation
+python3 tests/Gordian.InputProbe/run-probe.py
+python3 tests/Gordian.InputProbe/run-probe.py --input-layout de
 ```
 
-Select Xvfb, Vulkan ICD and validation-layer locations as described in
-[the viewport guide](../rendering/linux-viewport-644.md). The runner isolates
+Select Xvfb as described in
+[the independent input guide](independent-648.md). The runner isolates
 HOME/XDG/TMP, display authorization and settings; it does not borrow an owner session.
 For **optional read-only installed-art** testing set `GORDIAN_COMPLETION_GAME_ROOT`
 to the actual FFXI DAT root. The input probe then draws the production `DrawInput`
