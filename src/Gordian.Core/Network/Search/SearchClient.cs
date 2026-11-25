@@ -327,7 +327,7 @@ namespace Gordian.Core.Network.Search
                 int onPage = 0;
                 while (true)
                 {
-                    // #578 rounds 3-5: retail writes a field code LandSandBoat does not (0x07, after Level, now read as 8 bits).
+                    // #578 rounds 3-5: retail writes a field code LandSandBoat does not (0x07 after Level, the Master Level).
                     // The first entries' field order (with any other unknown code's width worked out) and what was read (no names).
                     string fields = players.Count < LoggedEntries ? page.DescribeEntryFields(position) : string.Empty;
                     if (!page.TryReadEntity(ref position, out var player)) break;
@@ -335,7 +335,7 @@ namespace Gordian.Core.Network.Search
                     if (fields.Length > 0)
                     {
                         GordianLog.Debug(LogCategories.Search, $"Search entry {players.Count + 1} fields: {fields}; nation {player.Nation}, rank {player.Rank}, " +
-                            $"job {player.MainJob}/{player.SubJob}, level {player.MainLevel}/{player.SubLevel}, race {player.Race}, field 07 {player.Unknown07}, flags 0x{player.Flags1:X4}, area {player.ZoneId}.");
+                            $"job {player.MainJob}/{player.SubJob}, level {player.MainLevel}/{player.SubLevel}, race {player.Race}, master level {player.MasterLevel}, flags 0x{player.Flags1:X4}, area {player.ZoneId}.");
                     }
                     players.Add(player);
                 }

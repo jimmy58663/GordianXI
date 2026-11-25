@@ -468,10 +468,10 @@ namespace Gordian.Engine.Tests.Network
 
         /// <summary>
         /// #578 round 5 and the 2026-11-25 <c>/sea all</c> capture: retail's field 0x07 is 8 bits in every entry (0-50, only at
-        /// level 99), read as <see cref="SearchEntity.Unknown07"/>.
+        /// level 99), the Master Level, read as <see cref="SearchEntity.MasterLevel"/>.
         /// </summary>
         [Fact]
-        public void SearchEntityPage_ReadsRetailsField07()
+        public void SearchEntityPage_ReadsRetailsMasterLevel()
         {
             byte[] content = EntityAnswerWith(0, total: 1, final: true, linkshell: false, 0x07, 8, 50,
                 ("Ayame", 230, 10, 3, 99, 59, 0x8010, 0x1234, 0));
@@ -480,7 +480,7 @@ namespace Gordian.Engine.Tests.Network
             Assert.StartsWith("00 01 02 03 04 07 05 10 06 08", page.DescribeEntryFields(position));
 
             Assert.True(page.TryReadEntity(ref position, out var player));
-            Assert.Equal(50, player.Unknown07);
+            Assert.Equal(50, player.MasterLevel);
             Assert.Null(player.UnknownFieldCode);
             Assert.Equal(3, player.Race);
             Assert.Equal(7, player.Rank);
