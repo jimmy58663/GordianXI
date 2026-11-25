@@ -50,13 +50,13 @@ namespace Gordian.Engine.Tests.Network
         }
 
         private static byte[] EntityAnswer(byte type, int total, bool final, bool linkshell, params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl,
-            uint Flags1, uint Id, uint Comment)[] players) => EntityAnswerWith(type, total, final, linkshell, 0, 0, players);
+            uint Flags1, uint Id, uint Comment)[] players) => EntityAnswerWith(type, total, final, linkshell, 0, 0, 0, players);
 
         /// <summary>
-        /// <see cref="EntityAnswer"/> with retail's field 0x07 (#578 round 4) of <paramref name="width07"/> bits after Level, as
-        /// retail writes it; 0 leaves it out, as LandSandBoat does.
+        /// <see cref="EntityAnswer"/> with a field <paramref name="code"/> of <paramref name="width"/> bits after Level, as retail
+        /// writes its field 0x07 (#578 round 4); a width of 0 leaves it out, as LandSandBoat does.
         /// </summary>
-        private static byte[] EntityAnswerWith(byte type, int total, bool final, bool linkshell, int width07, ulong value07,
+        private static byte[] EntityAnswerWith(byte type, int total, bool final, bool linkshell, byte code, int width, ulong value,
             params (string Name, ushort Zone, byte Mjob, byte Sjob, byte Mlvl, byte Slvl, uint Flags1, uint Id, uint Comment)[] players)
         {
             var data = new byte[1024];
@@ -73,7 +73,7 @@ namespace Gordian.Engine.Tests.Network
                     bits.Put(2, 5); bits.Put(1, 2);                                 // nation
                     bits.Put(3, 5); bits.Put(p.Mjob, 5); bits.Put(p.Sjob, 5);        // job
                     bits.Put(4, 5); bits.Put(p.Mlvl, 8); bits.Put(p.Slvl, 8);        // level
-                    if (width07 > 0) { bits.Put(7, 5); bits.Put(value07, width07); } // retail's unknown field
+                    if (width > 0) { bits.Put(code, 5); bits.Put(value, width); }   // retail's extra field
                     bits.Put(5, 5); bits.Put(3, 4);                                 // race
                     bits.Put(0x10, 5); bits.Put(7, 8);                              // rank
                 }
@@ -430,8 +430,9 @@ namespace Gordian.Engine.Tests.Network
         }
 
         /// <summary>
-        /// #578 round 4: retail writes field code 0x07 after Level, which LandSandBoat never sends, and the reading used to stop
-        /// there, so Race, Rank, Flags1 and Id were lost. Its width comes from the fields after it, for any width the entry fits.
+        /// #578 round 4: retail wrote field code 0x07 after Level, which LandSandBoat never sends, and the reading used to stop
+        /// there, so Race, Rank, Flags1 and Id were lost. A code the decoder does not know (here 0x09) gets its width from the
+        /// fields after it, for any width the entry fits.
         /// </summary>
         [Theory]
         [InlineData(4, 0x9UL)]
@@ -440,14 +441,14 @@ namespace Gordian.Engine.Tests.Network
         [InlineData(32, 0x12345678UL)]
         public void SearchEntityPage_ReadsPastAnUnknownField(int width, ulong value)
         {
-            byte[] content = EntityAnswerWith(0, total: 2, final: true, linkshell: false, width, value,
+            byte[] content = EntityAnswerWith(0, total: 2, final: true, linkshell: false, 0x09, width, value,
                 ("Ayame", 230, 3, 4, 75, 37, 0x8010, 0x1234, 0x20), ("Cybin", 100, 1, 2, 10, 5, 0, 0x99, 0));
             var page = new SearchEntityPage(content);
             int position = SearchEntityPage.EntriesOffset;
-            Assert.StartsWith($"00 01 02 03 04 ?07[{width} bits = 0x{value:X}] 05 10 06 08", page.DescribeEntryFields(position));
+            Assert.StartsWith($"00 01 02 03 04 ?09[{width} bits = 0x{value:X}] 05 10 06 08", page.DescribeEntryFields(position));
 
             Assert.True(page.TryReadEntity(ref position, out var first));
-            Assert.Equal((byte?)7, first.UnknownFieldCode);
+            Assert.Equal((byte?)9, first.UnknownFieldCode);
             Assert.Equal(width, first.UnknownFieldWidth);
             Assert.Equal((uint)value, first.UnknownFieldValue);
             Assert.Equal(1, first.Nation);
@@ -463,6 +464,27 @@ namespace Gordian.Engine.Tests.Network
             Assert.Equal(7, second.Rank);
             Assert.Equal(0x99u, second.CharacterId);
             Assert.False(page.TryReadEntity(ref position, out _));
+        }
+
+        /// <summary>
+        /// #578 round 5 and the 2026-11-25 <c>/sea all</c> capture: retail's field 0x07 is 8 bits in every entry (0-50, only at
+        /// level 99), read as <see cref="SearchEntity.Unknown07"/>.
+        /// </summary>
+        [Fact]
+        public void SearchEntityPage_ReadsRetailsField07()
+        {
+            byte[] content = EntityAnswerWith(0, total: 1, final: true, linkshell: false, 0x07, 8, 50,
+                ("Ayame", 230, 10, 3, 99, 59, 0x8010, 0x1234, 0));
+            var page = new SearchEntityPage(content);
+            int position = SearchEntityPage.EntriesOffset;
+            Assert.StartsWith("00 01 02 03 04 07 05 10 06 08", page.DescribeEntryFields(position));
+
+            Assert.True(page.TryReadEntity(ref position, out var player));
+            Assert.Equal(50, player.Unknown07);
+            Assert.Null(player.UnknownFieldCode);
+            Assert.Equal(3, player.Race);
+            Assert.Equal(7, player.Rank);
+            Assert.Equal(0x1234u, player.CharacterId);
         }
 
         [Fact]

@@ -1,5 +1,6 @@
 // tests/Gordian.Core.Tests/Network/SearchAnswerDiagnosisTests.cs
 using System;
+using System.Linq;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Security.Cryptography;
@@ -280,6 +281,9 @@ namespace Gordian.Core.Tests.Network
         {
             public Func<SearchFrame.AnswerKey, byte[]> Answer = _ => Array.Empty<byte>();
 
+            /// <summary>Each request as the server read it (deciphered, trailer cut off).</summary>
+            public readonly List<byte[]> Requests = new();
+
             public Task<ISearchConnection> ConnectAsync(string host, int port, CancellationToken cancellationToken) =>
                 Task.FromResult<ISearchConnection>(new Connection(this));
 
@@ -291,7 +295,9 @@ namespace Gordian.Core.Tests.Network
                 {
                     var copy = (byte[])frame.Clone();
                     Assert.True(SearchFrame.TryDecryptRequest(copy, out var key));
-                    _answers.Enqueue(owner.Answer(key));
+                    owner.Requests.Add(copy.AsSpan(0, copy.Length - SearchFrame.TrailerSize).ToArray());
+                    var answer = owner.Answer(key);
+                    if (answer.Length > 0) _answers.Enqueue(answer);
                     return Task.CompletedTask;
                 }
 
@@ -342,34 +348,91 @@ namespace Gordian.Core.Tests.Network
             Assert.True(exchange.Complete);
         }
 
+        private static byte[] Page(byte flags)
+        {
+            byte[] content = Content();
+            content[0x0A] = flags;
+            content[0x0B] = 0x80;
+            return content;
+        }
+
         /// <summary>
-        /// Round 2 on retail: <c>/sea</c> got one answer (type 0x83, its own seed, no final flag) and nothing more. The client
-        /// keeps it and stops after <see cref="SearchClient.AnswerGap"/>, not the whole timeout.
+        /// #643, the 2026-11-25 <c>/sea all</c> capture: retail's server sends one page per request, without the final flag, and
+        /// the client asks for each next one (type 0x10, the first request's last 4 payload bytes at the end) until a page comes
+        /// flagged final; there the third was final and empty.
         /// </summary>
         [Fact]
-        public async Task Client_KeepsARetailAnswerAndStopsAfterTheGap()
+        public async Task Client_AsksRetailForEachNextPage_UntilTheFinalOne()
         {
-            var transport = new OneAnswerTransport
+            var transport = new OneAnswerTransport();
+            transport.Answer = key => SearchFrame.EncryptResponse(Page(transport.Requests.Count < 3 ? (byte)0x00 : (byte)0x80), key, 8,
+                serverSeed: 0x5EED0000u + (uint)transport.Requests.Count);
+            var client = new SearchClient("search.test", 54002, transport) { Timeout = TimeSpan.FromSeconds(10), RequestsNextPages = true };
+            var body = new byte[0x38];
+            body[0x0B] = 0x00;
+            body[0x10] = 0x13;
+            BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(0x34, 4), 0xC0FFEE11);
+
+            var exchange = await client.ExchangeAsync(body, TestContext.Current.CancellationToken);
+
+            Assert.Equal(3, exchange.Contents.Count);
+            Assert.True(exchange.Complete);
+            Assert.Equal(3, transport.Requests.Count);
+            Assert.Equal(0x00, transport.Requests[0][0x0B]);
+            foreach (var next in transport.Requests.Skip(1))
             {
-                Answer = key =>
-                {
-                    byte[] content = Content();
-                    content[0x0A] = 0x00;
-                    content[0x0B] = 0x83;
-                    return SearchFrame.EncryptResponse(content, key, 8, serverSeed: 0x5EED1234);
-                },
-            };
-            var client = new SearchClient("search.test", 54002, transport) { Timeout = TimeSpan.FromSeconds(10), AnswerGap = TimeSpan.FromMilliseconds(100) };
+                Assert.Equal(0x38, next.Length);
+                Assert.Equal(0x10, BinaryPrimitives.ReadUInt16LittleEndian(next.AsSpan(0x08, 2)));
+                Assert.Equal(0x80, next[0x0A]);
+                Assert.Equal((byte)SearchRequestType.NextPage, next[0x0B]);
+                Assert.True(next.AsSpan(0x0C, 0x28).IndexOfAnyExcept((byte)0) < 0);
+                Assert.Equal(0xC0FFEE11u, BinaryPrimitives.ReadUInt32LittleEndian(next.AsSpan(0x34, 4)));
+            }
+        }
+
+        /// <summary>A server that never flags a page final gets <see cref="SearchClient.MaxNextPageRequests"/> next-page requests, then the client stops.</summary>
+        [Fact]
+        public async Task Client_StopsAskingAfterTheMostNextPageRequests()
+        {
+            var transport = new OneAnswerTransport();
+            transport.Answer = key => SearchFrame.EncryptResponse(Page(0x00), key, 8, serverSeed: 0x5EED1234);
+            var client = new SearchClient("search.test", 54002, transport) { Timeout = TimeSpan.FromSeconds(10), RequestsNextPages = true };
             var body = new byte[0x20];
             body[0x0B] = 0x03;
 
-            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var exchange = await client.ExchangeAsync(body, TestContext.Current.CancellationToken);
+
+            Assert.False(exchange.Complete);
+            Assert.Equal(1 + SearchClient.MaxNextPageRequests, transport.Requests.Count);
+            Assert.Equal(1 + SearchClient.MaxNextPageRequests, exchange.Contents.Count);
+        }
+
+        /// <summary>LandSandBoat sends every page after the one request; the client never asks it for the next page.</summary>
+        [Fact]
+        public async Task Client_NeverAsksLandSandBoatForTheNextPage()
+        {
+            var transport = new OneAnswerTransport();
+            transport.Answer = key => SearchFrame.EncryptResponse(Page(0x00), key, 8);
+            var client = new SearchClient("search.test", 54002, transport) { Timeout = TimeSpan.FromMilliseconds(300) };
+            var body = new byte[0x20];
+            body[0x0B] = 0x03;
+
             var exchange = await client.ExchangeAsync(body, TestContext.Current.CancellationToken);
 
             Assert.Single(exchange.Contents);
-            Assert.Equal(0x83, exchange.Contents[0][0x0B]);
             Assert.False(exchange.Complete);
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed}");
+            Assert.Single(transport.Requests);
+        }
+
+        [Fact]
+        public void BuildNextPage_KeepsTheFirstRequestsLengthAndTail()
+        {
+            var first = new byte[0x20];
+            BinaryPrimitives.WriteUInt32LittleEndian(first.AsSpan(0x1C, 4), 0x01020304);
+            byte[] next = SearchRequestBuilder.BuildNextPage(first);
+            Assert.Equal(0x20, next.Length);
+            Assert.Equal(0x01020304u, BinaryPrimitives.ReadUInt32LittleEndian(next.AsSpan(0x1C, 4)));
+            Assert.Equal(0x18, SearchRequestBuilder.BuildNextPage(new byte[0x10]).Length);
         }
     }
 }

@@ -28,8 +28,13 @@ namespace Gordian.Core.Network.Search
         AuctionHistoryStack = 0x06,
         /// <summary>A player's search comment.</summary>
         SearchComment = 0x08,
-        /// <summary>The next part of an Auction House item list (LandSandBoat sends the whole list again).</summary>
-        AuctionRequestMore = 0x10,
+        /// <summary>
+        /// The next page of the answer to the request before it on the same connection: the retail client sends it after each
+        /// answer without the final flag (<c>/sea all</c>, #643, the 2026-11-25 capture; see
+        /// <see cref="SearchRequestBuilder.BuildNextPage"/>). LandSandBoat names it <c>TCP_AH_REQUEST_MORE</c> and answers it
+        /// only as the Auction House item list again.
+        /// </summary>
+        NextPage = 0x10,
         /// <summary>The Auction House item list of a category.</summary>
         AuctionRequest = 0x15
     }
@@ -47,6 +52,13 @@ namespace Gordian.Core.Network.Search
         Level = 0x04,
         Race = 0x05,
         Flags1 = 0x06,
+        /// <summary>
+        /// A field retail's search server writes right after Level and LandSandBoat never does (#578): 8 bits. In the
+        /// 2026-11-25 <c>/sea all</c> capture (40 entries) it was 0 for every player below level 99 and 0-50 at 99, five of them
+        /// at 50, which fits the Master Level (capped at 50), but retail's list shows no Master Level and the value is
+        /// unconfirmed. <b>Beyond LandSandBoat.</b>
+        /// </summary>
+        Unknown07 = 0x07,
         Id = 0x08,
         Party = 0x0A,
         Linkshell = 0x0B,
@@ -109,9 +121,12 @@ namespace Gordian.Core.Network.Search
         /// <summary>The flags as <see cref="SearchFlags"/>.</summary>
         public SearchFlags Flags => (SearchFlags)Flags1;
 
+        /// <summary>Retail's field <see cref="SearchFieldType.Unknown07"/> (probably the Master Level, unconfirmed); 0 on LandSandBoat.</summary>
+        public byte Unknown07 { get; init; }
+
         /// <summary>
-        /// The code of a field the decoder does not know that the entry carried, or <c>null</c> (#578 round 4: retail writes code
-        /// 0x07 after Level, which LandSandBoat never sends). <see cref="SearchEntityPage.TryReadEntity"/> works out its width
+        /// The code of a field the decoder does not know that the entry carried, or <c>null</c> (#578 round 4: retail wrote code
+        /// 0x07 after Level, which LandSandBoat never sends, now <see cref="Unknown07"/>). <see cref="SearchEntityPage.TryReadEntity"/> works out its width
         /// from the fields after it (<see cref="UnknownFieldWidth"/>) and keeps its value (<see cref="UnknownFieldValue"/>, the
         /// first 32 bits) for the log, so the fields after it (Race, Rank, Flags1, Id ...) are still read.
         /// </summary>
@@ -303,7 +318,7 @@ namespace Gordian.Core.Network.Search
         /// </summary>
         public static byte[] BuildAuctionList(byte category, ReadOnlySpan<byte> sortKeys, bool more = false)
         {
-            var body = NewBody(more ? SearchRequestType.AuctionRequestMore : SearchRequestType.AuctionRequest, 0x18 + (sortKeys.Length * 8));
+            var body = NewBody(more ? SearchRequestType.NextPage : SearchRequestType.AuctionRequest, 0x18 + (sortKeys.Length * 8));
             body[0x12] = (byte)sortKeys.Length;
             body[0x16] = category;
             for (int i = 0; i < sortKeys.Length; i++) body[0x18 + (8 * i)] = sortKeys[i];
@@ -316,6 +331,26 @@ namespace Gordian.Core.Network.Search
             var body = NewBody(stack ? SearchRequestType.AuctionHistoryStack : SearchRequestType.AuctionHistorySingle, 0x18);
             BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(0x12, 2), itemId);
             body[0x15] = (byte)(stack ? 1 : 0);
+            return body;
+        }
+
+        /// <summary>
+        /// The request for the next page of <paramref name="request"/>'s answer (#643), as the retail client sent it in the
+        /// 2026-11-25 <c>/sea all</c> capture (<c>ffxi_sea_all.pcapng</c>, maintainer's own client): a body as long as the first
+        /// request's (at least 0x18), length word 0x10, byte 0x0A 0x80 (meaning unknown; retail sets it in its first request
+        /// too), type <see cref="SearchRequestType.NextPage"/>, zeros, and the first request's last 4 payload bytes again at
+        /// the end. Those 4 bytes key the answer (<see cref="SearchFrame"/>), so the next page is keyed as the first was. Each
+        /// is sent with a fresh seed, as retail did. <b>Beyond LandSandBoat:</b> it sends every page after the one request.
+        /// </summary>
+        public static byte[] BuildNextPage(ReadOnlySpan<byte> request)
+        {
+            int length = Math.Max(request.Length, 0x18);
+            length = (length + 7) & ~7;
+            var body = new byte[length];
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), 0x10);
+            body[0x0A] = 0x80;
+            body[0x0B] = (byte)SearchRequestType.NextPage;
+            if (request.Length >= 0x10) request.Slice(request.Length - 4, 4).CopyTo(body.AsSpan(length - 4, 4));
             return body;
         }
 
@@ -660,6 +695,7 @@ namespace Gordian.Core.Network.Search
             ushort languages = 0;
             byte lsRank1 = 0, lsRank2 = 0;
             byte? unknownCode = null;
+            byte unknown07 = 0;
             int unknownWidth = 0;
             uint unknownValue = 0;
             Span<char> chars = stackalloc char[15];
@@ -689,6 +725,7 @@ namespace Gordian.Core.Network.Search
                         ok = Need(ref reader, 16);
                         if (ok) { mainLevel = (byte)reader.Read(8); subLevel = (byte)reader.Read(8); }
                         break;
+                    case SearchFieldType.Unknown07: ok = Need(ref reader, 8); if (ok) unknown07 = (byte)reader.Read(8); break;
                     case SearchFieldType.Race: ok = Need(ref reader, 4); if (ok) race = (byte)reader.Read(4); break;
                     case SearchFieldType.Rank: ok = Need(ref reader, 8); if (ok) rank = (byte)reader.Read(8); break;
                     case SearchFieldType.Flags1: ok = Need(ref reader, 16); if (ok) flags1 = reader.Read(16); break;
@@ -710,8 +747,8 @@ namespace Gordian.Core.Network.Search
                     case SearchFieldType.Flags2: ok = Need(ref reader, 32); if (ok) flags2 = reader.Read(32); break;
                     case SearchFieldType.Language: ok = Need(ref reader, 16); if (ok) languages = (ushort)reader.Read(16); break;
                     default:
-                        // A field LandSandBoat does not send (retail's 0x07, #578 round 4): its width is the one after which the
-                        // rest of the entry reads as known fields, so the fields after it are not lost.
+                        // A field the decoder does not know (retail's 0x07 was one until #578 round 5): its width is the one after
+                        // which the rest of the entry reads as known fields, so the fields after it are not lost.
                         int width = unknownCode is null ? ResyncWidth(reader, previousCode) : 0;
                         ok = width > 0;
                         if (ok)
@@ -730,6 +767,7 @@ namespace Gordian.Core.Network.Search
             entity = new SearchEntity(name, zone, nation, mainJob, subJob, mainLevel, subLevel, race, rank, flags1, flags2, id, comment,
                 languages, lsRank1, lsRank2, ls1, ls2)
             {
+                Unknown07 = unknown07,
                 UnknownFieldCode = unknownCode,
                 UnknownFieldWidth = unknownWidth,
                 UnknownFieldValue = unknownValue,
@@ -750,6 +788,7 @@ namespace Gordian.Core.Network.Search
             (uint)SearchFieldType.Nation => 2,
             (uint)SearchFieldType.Job => 10,
             (uint)SearchFieldType.Level => 16,
+            (uint)SearchFieldType.Unknown07 => 8,
             (uint)SearchFieldType.Race => 4,
             (uint)SearchFieldType.Rank => 8,
             (uint)SearchFieldType.Flags1 => 16,
@@ -771,7 +810,7 @@ namespace Gordian.Core.Network.Search
         /// <summary>
         /// Where a field comes in an entry, in the order LandSandBoat's <c>search_list.cpp</c> and <c>linkshell_list.cpp</c> write
         /// them (Name, Area, Nation, Job, Level, Race, Rank, Flags1, Id, linkshell rank block, Unknown0E, Comment, Flags2,
-        /// Language); retail's entries keep it (#578 round 4 logs). -1 for a code not in it.
+        /// Language), with retail's Unknown07 after Level; retail's entries keep it (#578 round 4 logs). -1 for a code not in it.
         /// </summary>
         private static int FieldOrder(uint code) => code switch
         {
@@ -780,15 +819,16 @@ namespace Gordian.Core.Network.Search
             (uint)SearchFieldType.Nation => 2,
             (uint)SearchFieldType.Job => 3,
             (uint)SearchFieldType.Level => 4,
-            (uint)SearchFieldType.Race => 5,
-            (uint)SearchFieldType.Rank => 6,
-            (uint)SearchFieldType.Flags1 => 7,
-            (uint)SearchFieldType.Id => 8,
-            (uint)SearchFieldType.LinkshellRank => 9,
-            (uint)SearchFieldType.Unknown0E => 10,
-            (uint)SearchFieldType.Comment => 11,
-            (uint)SearchFieldType.Flags2 => 12,
-            (uint)SearchFieldType.Language => 13,
+            (uint)SearchFieldType.Unknown07 => 5,
+            (uint)SearchFieldType.Race => 6,
+            (uint)SearchFieldType.Rank => 7,
+            (uint)SearchFieldType.Flags1 => 8,
+            (uint)SearchFieldType.Id => 9,
+            (uint)SearchFieldType.LinkshellRank => 10,
+            (uint)SearchFieldType.Unknown0E => 11,
+            (uint)SearchFieldType.Comment => 12,
+            (uint)SearchFieldType.Flags2 => 13,
+            (uint)SearchFieldType.Language => 14,
             _ => -1,
         };
 
