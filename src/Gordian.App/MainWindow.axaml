@@ -1885,7 +1885,7 @@
 
                                 <TextBlock Text="Active Keyboard Layout:" Foreground="#A0A0A0" FontSize="12" Margin="0,4,0,0"/>
                                 <TextBlock Text="{Binding Controls.ActivePresetName}" Foreground="#4EC9B0" FontSize="13" FontWeight="Bold"/>
-                                <TextBlock Text="Layout applies to the selected character (without one, this is a dashboard preview). Keyboard overrides are shared. Legacy maps stay frozen until explicit conversion. Controller, mouse and camera settings never reset here. Compact 1 is a partial fallback; retail verification remains pending."
+                                <TextBlock Text="Layout and keyboard overrides are shared by all characters. Existing profiles migrate automatically, preserving every binding. Restore defaults separately to opt into inherited keys. Controller, mouse and camera settings never reset here. Compact 1 is a partial fallback; retail verification remains pending."
                                            Foreground="#707585" FontSize="10" TextWrapping="Wrap"/>
 
                                 <Separator Background="#333337" Margin="0,4"/>
@@ -1912,7 +1912,7 @@
                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                             Background="#512BD4" Foreground="White" FontSize="11" Margin="4,0,0,0"/>
                                 </Grid>
-                                <Button Content="Convert legacy (keep every key)..." Command="{Binding Controls.ConvertKeyboardCommand}"/>
+
                                 <StackPanel IsVisible="{Binding Controls.KeyboardChangePending}" Spacing="6">
                                     <TextBlock Text="{Binding Controls.StatusMessage}" TextWrapping="Wrap" Foreground="White"/>
                                     <Button Content="Confirm keyboard change" Command="{Binding Controls.ConfirmKeyboardChangeCommand}"/>

@@ -232,9 +232,9 @@ namespace Gordian.Engine.Sessions
         private void OnSharedInputProfileChanged(object? source)
         {
             InputState.BlockHeldKeysUntilRelease();
-            Locomotion.Profile = Input.KeyboardLayout.Resolve(_inputProfiles.Profile,
-                (Input.KeyboardMode)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.KeyboardSize));
+            Locomotion.Profile = _inputProfiles.CreateSessionCopy();
             ApplyCameraSettings();
+            ActionService.Menus.OnInputProfileChanged();
         }
 
         public CharacterSession(
@@ -266,12 +266,11 @@ namespace Gordian.Engine.Sessions
                 LocalPlayer,
                 ActionService
             );
-            // The config menu's Mouse/Camera page drives both devices in the session's input profile; only
+            // The config menu's Mouse/Camera page drives mouse inversion in the session's input profile; only
             // choices the player has made are applied, so an untouched page leaves the profile's own settings alone.
             OnSharedInputProfileChanged(null);
             ActionService.UiSettings.Changed += (key, _) =>
             {
-                if (key == Ui.StockUiSettingKey.KeyboardSize) OnSharedInputProfileChanged(null);
                 if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY
                     or Ui.StockUiSettingKey.FirstPersonInvertX or Ui.StockUiSettingKey.FirstPersonInvertY) ApplyCameraSettings();
             };

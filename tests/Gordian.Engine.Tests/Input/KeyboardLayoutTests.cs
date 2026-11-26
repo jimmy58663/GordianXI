@@ -10,7 +10,7 @@ public class KeyboardLayoutTests
     [Fact]
     public void LegacyLoad_DoesNotInventMissingOrExplicitlyUnboundKeyboardKeys()
     {
-        var saved = new InputProfile("Compact custom", "frozen");
+        var saved = new InputProfile("Compact custom", "preserved");
         saved.Bind(InputAction.MoveForward, new InputChord(GordianKey.B));
         saved.Bindings[InputAction.ToggleLockOn] = new();
         var loaded = InputProfile.FromJson(saved.SaveToJson());
@@ -25,11 +25,11 @@ public class KeyboardLayoutTests
         var hub = new InputProfileHub(profile);
         using var session = new Gordian.Engine.Sessions.CharacterSession("Preset_" + Guid.NewGuid().ToString("N"), 1001, "fixture",
             new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
-        Assert.True(session.Locomotion.Profile.TryGetAction(new InputChord(GordianKey.NumPad8), out var action));
+        Assert.True(session.Locomotion.Profile.TryGetAction(new InputChord(GordianKey.W), out var action));
         Assert.Equal(InputAction.MoveForward, action);
         Assert.Empty(hub.Profile.GetChords(InputAction.MoveForward));
-        session.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 2);
-        Assert.True(session.Locomotion.Profile.TryGetAction(new InputChord(GordianKey.W), out action));
+        session.ActionService.Menus.SetSetting(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 0);
+        Assert.True(session.Locomotion.Profile.TryGetAction(new InputChord(GordianKey.NumPad8), out action));
         Assert.Equal(InputAction.MoveForward, action);
     }
 
@@ -71,10 +71,10 @@ public class KeyboardLayoutTests
         var hub = new InputProfileHub(InputProfile.CreateDefault());
         using var session = new Gordian.Engine.Sessions.CharacterSession("Held_" + Guid.NewGuid().ToString("N"), 1001, "fixture",
             new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
-        session.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 2);
+        session.ActionService.Menus.SetSetting(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 2);
         session.InputState.SetKeyDown(GordianKey.NumPad7);
         session.InputState.Update(session.Locomotion.Profile, TimeSpan.FromMilliseconds(16));
-        session.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 0);
+        session.ActionService.Menus.SetSetting(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, 0);
         session.InputState.Update(session.Locomotion.Profile, TimeSpan.FromMilliseconds(16));
         Assert.False(session.InputState.WasActionTriggered(InputAction.ToggleAutorun));
         Assert.False(session.InputState.IsActionHeld(InputAction.ToggleAutorun));
@@ -111,11 +111,11 @@ public class KeyboardLayoutTests
     }
 
     [Fact]
-    public void UnknownEmptyAndFutureChords_SurviveConvertRestoreReload()
+    public void UnknownEmptyAndFutureChords_SurviveAutomaticMigrationRestoreReload()
     {
         var p = InputProfile.FromJson("""{"futureSetting":{"x":7},"bindings":{"FutureEmpty":[],"FutureAction":["FutureKey"],"MoveForward":["FutureMove"]}}""");
         Assert.Contains("FutureEmpty", p.SaveToJson());
-        KeyboardLayout.ConvertLegacy(p, KeyboardMode.Full);
+        Assert.NotNull(p.KeyboardLayout);
         KeyboardAssignments.ResetDefaults(p);
         var loaded = InputProfile.FromJson(p.SaveToJson()).Clone();
         Assert.Contains("futureSetting", loaded.SaveToJson());
@@ -126,20 +126,19 @@ public class KeyboardLayoutTests
 
     [Theory]
     [InlineData(0)] [InlineData(1)] [InlineData(2)]
-    public void EveryMode_ReloadsSessionLocally_PreservesOtherCharacterAndDraft(int mode)
+    public void EveryMode_ReloadsSharedLayout_PreservesOtherCharacterDraft(int mode)
     {
         var hub = new InputProfileHub(InputProfile.CreateDefault());
         string name = "ReloadPreset_" + Guid.NewGuid().ToString("N");
         using var a = new Gordian.Engine.Sessions.CharacterSession(name, 1001, "fixture", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
         using var b = new Gordian.Engine.Sessions.CharacterSession(name + "B", 1002, "fixture", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
         a.Chat.Input.Open(); a.Chat.Input.InsertText("unsent draft");
-        a.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, mode);
+        a.ActionService.Menus.SetSetting(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, mode);
         hub.SetProfile(InputProfile.FromJson(hub.Profile.SaveToJson()));
         Assert.Equal("unsent draft", a.Chat.Input.Text);
         Assert.Contains(new InputChord(mode == 0 ? GordianKey.NumPad8 : GordianKey.W), a.Locomotion.Profile.GetChords(InputAction.MoveForward));
-        Assert.Contains(new InputChord(GordianKey.NumPad8), b.Locomotion.Profile.GetChords(InputAction.MoveForward));
-        var settings = Gordian.Engine.Ui.StockUiSettings.LoadOrDefault(Gordian.Engine.Ui.StockUiSettings.GetSettingsPath(name));
-        Assert.Equal(mode, settings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize));
+        Assert.Contains(new InputChord(mode == 0 ? GordianKey.NumPad8 : GordianKey.W), b.Locomotion.Profile.GetChords(InputAction.MoveForward));
+        Assert.Equal(mode, (int)InputProfile.FromJson(hub.Profile.SaveToJson()).KeyboardLayout!.Mode);
         Assert.Empty(hub.Profile.GetChords(InputAction.MoveForward));
     }
 

@@ -38,6 +38,115 @@
 - Tests never touch the player's settings (#383): the shell's per-user files (`input_profile.json`, `viewport_settings.json`, `sound_settings.json`, `window_placements.json`) live under `GordianStorage.UserSettingsDirectory` (LocalAppData/GordianXI by default); the App test assembly points it at a scratch folder from a module initializer (`TestSettingsIsolation`) before any test runs, so `MainWindowViewModel` and the view models it owns read and write nothing real. Gamepad d-pad right in the paged main menu turns the page, and the menu hints follow the device in use and this profile: see [stock-ui.md](../ui/stock-ui.md#target-command-menu).
 - Before #314 only the Command Console's selected character got the saved profile (`ControlsInputViewModel.SetSession` handed it the object); the others ran on `InputProfile.CreateCompact()` defaults. `SetSession` now only picks whose telemetry the page shows.
 
+### Shared keyboard layouts and automatic migration
+
+`keyboardLayout` lives beside the bindings in the shared `input_profile.json`, with
+`revision: 1`, numeric `mode` (0 Full, 1 Compact 1, 2 Compact 2), and `overrides`
+keyed by action name. Missing overrides inherit defaults; `[]` explicitly unbinds;
+a nonempty list replaces that action's keyboard chords. New storage uses Full.
+Both Controls & Input and Config → Misc. 2 → Keyboard Size edit this **same shared
+mode for every character**. Old character-local KeyboardSize values are ignored;
+other character settings, including camera inversion, stay per character.
+
+`FromJson` automatically migrates a legacy version-1 map without keyboardLayout:
+a Full-named profile stays Full; Compact and other custom legacy names use Compact 2
+(the old default). Names only choose the base, never classify keys as customized.
+Every known action, including missing/unbound actions and keys identical to old
+defaults, becomes an explicit override. Unknown actions, empty entries, unreadable
+future chords and JSON extension fields are retained. The exact input JSON string
+is archived once as `legacySnapshot`. `LoadOrCreate` atomically saves this migration;
+if saving fails it retains the original file and the migrated in-memory map, logs
+the failure and can retry on the next load. Clone never migrates again. Unsupported
+profile versions, catalog revisions and modes are not migrated or reinterpreted.
+
+Switching layouts never resets explicit overrides. A separately confirmed **Restore
+selected defaults** releases known keyboard overrides to inheritance, preserving
+unknown entries/chords, the archive, mouse/gamepad bindings and all camera settings.
+There is no Convert button or frozen-legacy mode. Cancellation changes nothing;
+a profile/layout change while confirmation is pending invalidates that confirmation.
+Older builds cannot promise lossless editing of this schema: keep the archive when
+downgrading. The retained bindings map is not a flattened modern keyboard export.
+
+Sessions resolve deep copies, then apply their own camera choices. Shared changes
+refresh both assignment displays and open config rows, and block held keys until
+release (including native repeats), preventing new actions under a changed map.
+Draft text survives. Explicit keys suppress inherited collisions only in the same
+menu/game context; explicit collisions retain both definitions and use enum order.
+The in-game assignment UI records both sides of a swap as overrides.
+
+#### Catalog sources and limits
+
+The clean-room Full/Compact 2 catalog references the [Square Enix PC manual,
+printed pp. 2–3](https://support.na.square-enix.com/document/manual/20/FFXI_manual_vc09_AE5.pdf)
+and [March 27, 2012 controls table, post 298313](https://forum.square-enix.com/ffxi/threads/22099?p=298313#post298313).
+Compact 1 is a **partial community fallback**, not certified retail parity:
+[FFXIclopedia's Starter Guide](https://ffxiclopedia.fandom.com/wiki/Starters_Guide#List_of_controls)
+labels its table only “Compact”, omits keys and conflicts with the official Compact 2
+R/zoom rows. [Horizon Controls](https://horizonffxi.wiki/Controls) has similar conflicts
+and apparently reversed movement headings; it does not establish retail defaults.
+Existing maintainer key-assignment observations corroborate Compact 2's Y/N,
+V/H/F/Z, period/comma, A/D left-stick and Q/E right-stick behavior.
+
+All rows below describe inherited keys, not migrated overrides. Num means the physical
+numeric keypad, independent of Num Lock. “Fallback” is not a retail assertion.
+
+| Function | Full | Compact 1 | Compact 2 |
+|---|---|---|---|
+| Movement | Num8/2/4/6 | W/S/A/D | W/S/A/D |
+| Turn in place / camera pan | no Q/E default | Q/E unbound | Q/E virtual-right-stick pan |
+| Strafe | Shift+Num4/6 | Shift+A/D fallback | Shift+A/D |
+| Camera | arrows | I/J/K/L plus arrows fallback | arrows, no inherited IJKL |
+| Autorun | Num7 | unbound: source blank | R |
+| Walk/run | Num/ | R | Z plus Num/ fallback |
+| Heal / lock | Num* contextual LockOnOrHeal | H contextual; T/Num* lock-only fallback | H heal; T/Num* lock-only fallback |
+| View | Num5 | V | V |
+| Confirm / cancel | Enter/NumEnter; Esc | Y/Enter/Space; N/Esc | Enter plus Y/Space fallback; Esc plus N fallback |
+| Chat | Space/Enter, ordinary typing | explicit Space/Enter | explicit Space/Enter |
+| Select window | Num+ | F plus Num+ fallback | F plus Num+ fallback |
+| Main menu | Num- | main minus | minus/M/Num- fallback |
+| Target cycle | Tab/Num0, Shift+Tab previous | Tab/Shift+Tab fallback | Tab/Shift+Tab fallback |
+| Zoom in/out | PageUp/Num9, PageDown/Num3 | PageUp/Down; conflicting punctuation left unbound | period/comma plus PageUp/Down fallback |
+| Center view | Home uses existing ResetCamera, not fixed-view parity | End fallback differs from community Home | End fallback |
+| Hide/show / screenshot | ScrollLock / PrintScreen | ScrollLock / PrintScreen | ] / [ |
+| Logout | Pause | unbound | unbound |
+| Party slots | F1–F6 | F1–F6 | F1–F6 |
+| F7/F8/F9 | self / nearest non-player / nearest other player | same | same |
+| F10/F11/F12 | self / first member of other alliance parties | same | same |
+| Ctrl/Alt + 1–0 | macros | macros | macros |
+| Ctrl/Alt + P/S/L/T/R | Party/Say/Linkshell/Tell/Reply drafts | shared fallback | same |
+| Ctrl/Alt + A/B/C/E | attack toggle / pet commands / check / equipment | shared fallback | same |
+| Ctrl/Alt + H/I/J/M/W | heal / items / abilities / spells / weapon skills | shared fallback | same |
+| Ctrl/Alt + minus/V | main menu / view | shared fallback | same |
+| Ctrl/Alt + D/F/G/N/Y/Z/brackets | unbound | community-only rows not implemented | unbound |
+
+Full Num3 zoom follows both official sources, not the community Num6 typo (movement).
+F11/F12 select first displayed members, **not leader flags**. F8 includes monsters
+and pets, using existing targetability and 50-yalm range guards; exact retail frustum
+eligibility is unverified. Plain F7–F12 are gameplay keys for layered profiles, even
+when unbound; modified diagnostic/emergency shortcuts and window fullscreen controls
+remain. German AltGr bracket symbols apply only to bound display shortcuts after
+editor/chat routing, with physical release tracking. No global keyboard hooks.
+Hide/show uses a separate transient stock-UI visibility owner and preserves other
+hide requests; screenshots use the existing handler. Actions use existing service
+and menu constructors. Attack/check remain available in the engaged command menu;
+other menu shortcuts are gated while a menu is open. Mouse schemes and controller
+camera direction are unchanged by this feature.
+
+Exact Compact 1 assignments (autorun, R/Z, punctuation, Q/E, target cycle, Home/End),
+Compact 2 simultaneous Q/E/arrow priority, rates, view cycling and moving-only autorun
+still need retail validation. Full is Gordian's new-install policy, not a claim that
+modern retail starts Full. The official 2012 new-character default is Compact 2.
+
+Regression coverage lives in the solution: `SharedKeyboardMigrationTests`,
+`KeyboardLayoutTests`, `KeyboardPresetUiTests`, `KeyboardShortcutTests`,
+`StockUiKeyAssignTests`, `StockUiKeyboardChatTests`, `KeypadIdentityTests` and
+`ViewportShortcutsTests`. They cover migration, exact archive/idempotence, unknown
+schemas/entries, all layout transitions, customization/unbinding, fresh-hub disk
+restart, two-character sharing, stale character settings, drafts, held keys,
+assignment swaps and non-keyboard preservation. Run `dotnet build GordianXI.slnx`
+and `dotnet test GordianXI.slnx --no-build`. These isolated unit tests are not
+Windows, physical-controller, native-compositor or in-game acceptance.
+
 ### Gamepad layout and key assignment (#21, #326)
 
 - **Defaults** (`InputProfile.BindDefaultGamepadButtons`), retail's layout from the maintainer's checks (in-game test rounds 1-2, 2026-10-10) plus the GordianXI additions:

@@ -68,7 +68,6 @@ namespace Gordian.App.ViewModels
             if (!ReferenceEquals(_hub.Profile, _activeProfile))
             {
                 _activeProfile = _hub.Profile;
-                _originalLegacyJson = _activeProfile.KeyboardLayout == null ? _activeProfile.SaveToJson() : null;
             }
             NotifyProfilePropertiesChanged();
             PopulateBindingsTable();
@@ -513,19 +512,14 @@ namespace Gordian.App.ViewModels
             }
         }
 
-        public ICommand ConvertKeyboardCommand { get; }
         public ICommand ConfirmKeyboardChangeCommand { get; }
         public ICommand CancelKeyboardChangeCommand { get; }
         public ICommand LoadCompact1PresetCommand { get; }
         private string? _pendingKeyboardSnapshot;
         private KeyboardMode _pendingKeyboardMode;
-        private bool _pendingConversion;
-        private string? _originalLegacyJson;
         private bool _keyboardChangePending;
         public bool KeyboardChangePending { get => _keyboardChangePending; private set => SetProperty(ref _keyboardChangePending, value); }
-        private KeyboardMode SelectedKeyboardMode => _currentSession != null
-            ? (KeyboardMode)_currentSession.ActionService.UiSettings.GetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize)
-            : _activeProfile.KeyboardLayout?.Mode ?? KeyboardMode.Full;
+        private KeyboardMode SelectedKeyboardMode => _activeProfile.KeyboardLayout?.Mode ?? KeyboardMode.Full;
 
         public ICommand LoadCompactPresetCommand { get; }
         public ICommand LoadFullNumpadPresetCommand { get; }
@@ -556,8 +550,6 @@ namespace Gordian.App.ViewModels
                 _activeProfile = InputProfile.CreateDefault();
             }
 
-            if (File.Exists(_profilePath) && _activeProfile.KeyboardLayout == null) _originalLegacyJson = File.ReadAllText(_profilePath);
-            ConvertKeyboardCommand = new RelayCommand(() => RequestKeyboardChange(true));
             ConfirmKeyboardChangeCommand = new RelayCommand(ConfirmKeyboardChange);
             CancelKeyboardChangeCommand = new RelayCommand(() => { KeyboardChangePending = false; _pendingKeyboardSnapshot = null; StatusMessage = "Keyboard change cancelled; nothing changed."; });
             LoadCompact1PresetCommand = new RelayCommand(() => SelectKeyboardMode(KeyboardMode.Compact1));
@@ -580,15 +572,8 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public void SetSession(CharacterSession? session)
         {
-            if (_currentSession != null) _currentSession.ActionService.UiSettings.Changed -= OnCharacterKeyboardChanged;
             _currentSession = session;
-            if (_currentSession != null) _currentSession.ActionService.UiSettings.Changed += OnCharacterKeyboardChanged;
             PopulateBindingsTable();
-        }
-
-        private void OnCharacterKeyboardChanged(Gordian.Engine.Ui.StockUiSettingKey key, int value)
-        {
-            if (key == Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize) PopulateBindingsTable();
         }
 
         public void LoadCompactPreset() => SelectKeyboardMode(KeyboardMode.Compact2);
@@ -597,14 +582,12 @@ namespace Gordian.App.ViewModels
 
         private void SelectKeyboardMode(KeyboardMode mode)
         {
-            if (_activeProfile.KeyboardLayout is not { Supported: true } layout)
+            if (_activeProfile.Version != 1 || _activeProfile.KeyboardLayout is not { Supported: true } layout)
             {
-                StatusMessage = "Frozen legacy (or newer catalog) keyboard: choosing a mode does not replace bindings. Convert legacy first; then explicitly restore defaults if desired.";
+                StatusMessage = "Unsupported keyboard catalog; a compatible build is required.";
                 return;
             }
-            if (_currentSession != null)
-                _currentSession.ActionService.UiSettings.SetValue(Gordian.Engine.Ui.StockUiSettingKey.KeyboardSize, (int)mode);
-            else layout.Mode = mode;
+            layout.Mode = mode;
             PopulateBindingsTable();
             Commit();
             StatusMessage = $"Keyboard {mode}: inherited defaults selected; explicit overrides retained. Compact 1 is a partial fallback, not verified retail parity.";
@@ -621,22 +604,19 @@ namespace Gordian.App.ViewModels
             StatusMessage = "Reset gamepad button mappings to defaults. Keyboard bindings were not changed.";
         }
 
-        public void ResetToDefaults() => RequestKeyboardChange(false);
+        public void ResetToDefaults() => RequestKeyboardChange();
 
-        private void RequestKeyboardChange(bool convert)
+        private void RequestKeyboardChange()
         {
-            if (convert ? _activeProfile.KeyboardLayout != null : _activeProfile.KeyboardLayout is not { Supported: true })
+            if (_activeProfile.Version != 1 || _activeProfile.KeyboardLayout is not { Supported: true })
             {
-                StatusMessage = convert ? "Only frozen legacy keyboards can be converted." : "Convert the legacy keyboard before restoring defaults. Newer catalogs require a compatible build.";
+                StatusMessage = "Unsupported keyboard catalog; a compatible build is required.";
                 return;
             }
-            _pendingConversion = convert;
             _pendingKeyboardMode = SelectedKeyboardMode;
             _pendingKeyboardSnapshot = _activeProfile.SaveToJson();
             KeyboardChangePending = true;
-            StatusMessage = convert
-                ? "Convert legacy keyboard? Every current key and missing/unbound action stays explicit; changing layouts will NOT replace these overrides. Original JSON is archived. After conversion, Restore selected defaults separately opts into inheritance. Controller, mouse and camera stay unchanged. Confirm or Cancel."
-                : $"Restore {_pendingKeyboardMode} keyboard defaults? Removes all known keyboard overrides shared by ALL characters; each character keeps its selected layout. Unknown future entries and original archive stay. Controller, mouse, sensitivity and camera are NOT reset. Compact 1 remains partial. Confirm or Cancel.";
+            StatusMessage = $"Restore {_pendingKeyboardMode} keyboard defaults for ALL characters? Removes known keyboard overrides. Unknown future entries and original archive stay. Controller, mouse, sensitivity and camera are NOT reset. Compact 1 remains partial. Confirm or Cancel.";
         }
 
         private void ConfirmKeyboardChange()
@@ -648,11 +628,10 @@ namespace Gordian.App.ViewModels
                 StatusMessage = "Profile or selected layout changed; review again before confirming.";
                 return;
             }
-            if (_pendingConversion) KeyboardLayout.ConvertLegacy(_activeProfile, _pendingKeyboardMode, _originalLegacyJson);
-            else KeyboardAssignments.ResetDefaults(_activeProfile);
+            KeyboardAssignments.ResetDefaults(_activeProfile);
             Commit();
             PopulateBindingsTable();
-            StatusMessage = _pendingConversion ? "Converted without changing keys. Restore selected defaults explicitly to enable inherited layout keys." : "Selected keyboard defaults restored; non-keyboard settings and original archive retained.";
+            StatusMessage = "Selected keyboard defaults restored; non-keyboard settings and original archive retained.";
         }
 
         public void SaveProfile()
@@ -780,7 +759,7 @@ namespace Gordian.App.ViewModels
         private void PopulateBindingsTable()
         {
             _displayProfile = KeyboardLayout.Resolve(_activeProfile, SelectedKeyboardMode);
-            ActivePresetName = _activeProfile.KeyboardLayout == null ? "Frozen legacy keyboard"
+            ActivePresetName = _activeProfile.KeyboardLayout == null ? "Unsupported keyboard profile"
                 : $"{SelectedKeyboardMode} (catalog {_activeProfile.KeyboardLayout.Revision})";
             Bindings.Clear();
 

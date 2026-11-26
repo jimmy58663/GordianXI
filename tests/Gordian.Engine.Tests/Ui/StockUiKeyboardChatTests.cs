@@ -7,60 +7,25 @@ namespace Gordian.Engine.Tests.Ui;
 public class StockUiKeyboardChatTests
 {
     [Theory]
-    [InlineData(0, false, true)]
-    [InlineData(0, true, true)]
-    [InlineData(1, false, false)]
-    [InlineData(1, true, false)]
-    [InlineData(2, false, false)]
-    [InlineData(2, true, false)]
-    public void ExplicitKeyboardSize_WinsOverDashboardPreset(int size, bool fullPreset, bool opens)
+    [InlineData(KeyboardMode.Full, 2, true)]
+    [InlineData(KeyboardMode.Compact1, 0, false)]
+    [InlineData(KeyboardMode.Compact2, 0, false)]
+    public void SharedKeyboardMode_IgnoresStaleCharacterSelection(KeyboardMode mode, int stale, bool opens)
     {
         var settings = new StockUiSettings();
-        settings.SetValue(StockUiSettingKey.KeyboardSize, size);
-        var profile = fullPreset ? InputProfile.CreateFullNumpad() : InputProfile.CreateCompact();
+        settings.SetValue(StockUiSettingKey.KeyboardSize, stale);
+        var profile = InputProfile.CreateDefault();
+        profile.KeyboardLayout!.Mode = mode;
+        profile = KeyboardLayout.Resolve(profile, mode);
         string before = profile.SaveToJson();
         var chat = new StockUiChat { Settings = () => settings };
         Assert.Equal(opens, chat.TryOpenForTyping(GordianKey.W, InputModifiers.None, profile));
         Assert.Equal(opens, chat.Input.IsOpen);
-        Assert.Empty(chat.Input.Text); // Only platform TextInput may supply the initial character.
-        Assert.Equal(before, profile.SaveToJson()); // No preset replacement or lost custom bindings.
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void UntouchedAndResetSettings_UseDisplayedFullDefault(bool full)
-    {
-        var settings = new StockUiSettings();
-        var chat = new StockUiChat { Settings = () => settings };
-        var profile = full ? InputProfile.CreateFullNumpad() : InputProfile.CreateCompact();
-        Assert.True(chat.TryOpenForTyping(GordianKey.A, InputModifiers.Shift, profile));
-        chat.Input.Cancel();
-        settings.SetValue(StockUiSettingKey.KeyboardSize, full ? 1 : 0);
-        Assert.Equal(!full, chat.TryOpenForTyping(GordianKey.A, InputModifiers.Shift, profile));
+        Assert.Empty(chat.Input.Text);
+        Assert.Equal(before, profile.SaveToJson());
         chat.Input.Cancel();
         settings.ResetAll();
-        Assert.True(chat.TryOpenForTyping(GordianKey.A, InputModifiers.Shift, profile));
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(2)]
-    public void SavedKeyboardSize_IsUsedAfterReload(int size)
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"keyboard-chat-{Guid.NewGuid():N}.json");
-        try
-        {
-            var settings = new StockUiSettings();
-            settings.SetValue(StockUiSettingKey.KeyboardSize, size);
-            settings.SaveToFile(path);
-            var restored = StockUiSettings.LoadOrDefault(path);
-            var chat = new StockUiChat { Settings = () => restored };
-            Assert.True(restored.HasValue(StockUiSettingKey.KeyboardSize));
-            Assert.Equal(size == 0, chat.TryOpenForTyping(GordianKey.A, InputModifiers.None, InputProfile.CreateFullNumpad()));
-        }
-        finally { File.Delete(path); }
+        Assert.Equal(opens, chat.TryOpenForTyping(GordianKey.W, InputModifiers.Shift, profile));
     }
 
     [Theory]
@@ -80,23 +45,9 @@ public class StockUiKeyboardChatTests
     [InlineData(GordianKey.Escape, InputModifiers.None)]
     public void FullSize_DoesNotTreatGameplayOrShortcutsAsTyping(GordianKey key, InputModifiers modifiers)
     {
-        var settings = new StockUiSettings();
-        settings.SetValue(StockUiSettingKey.KeyboardSize, 0);
-        var chat = new StockUiChat { Settings = () => settings };
-        Assert.False(chat.TryOpenForTyping(key, modifiers, InputProfile.CreateFullNumpad()));
+        var chat = new StockUiChat { Settings = () => new StockUiSettings() };
+        Assert.False(chat.TryOpenForTyping(key, modifiers, KeyboardLayout.Resolve(InputProfile.CreateDefault(), KeyboardMode.Full)));
         Assert.False(chat.Input.IsOpen);
-    }
-
-    [Fact]
-    public void DifferentCharacters_KeepIndependentSelections()
-    {
-        var first = new StockUiSettings();
-        var second = new StockUiSettings();
-        first.SetValue(StockUiSettingKey.KeyboardSize, 0);
-        second.SetValue(StockUiSettingKey.KeyboardSize, 2);
-        var profile = InputProfile.CreateCompact();
-        Assert.True(new StockUiChat { Settings = () => first }.TryOpenForTyping(GordianKey.A, InputModifiers.None, profile));
-        Assert.False(new StockUiChat { Settings = () => second }.TryOpenForTyping(GordianKey.A, InputModifiers.None, profile));
     }
 
     [Theory]

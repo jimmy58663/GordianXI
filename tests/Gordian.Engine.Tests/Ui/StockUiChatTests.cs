@@ -598,7 +598,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void SavedProfilesGetTheLogWindowKeys()
+        public void SavedProfilesKeepKeyboardKeys_WhileControllerCompatibilityRemains()
         {
             var old = InputProfile.CreateFullNumpad();
             old.Bindings.Remove(InputAction.CycleLogWindow);
@@ -607,7 +607,7 @@ namespace Gordian.Engine.Tests.Ui
 
             var loaded = InputProfile.FromJson(old.SaveToJson());
             Assert.True(loaded.TryGetAction(new InputChord(GordianKey.NumPadAdd), out var key));
-            Assert.Equal(InputAction.CycleLogWindow, key);
+            Assert.Equal(InputAction.TargetNearest, key);
             Assert.True(loaded.TryGetAction(new InputChord(GamepadButton.Y), out var pad));
             Assert.Equal(InputAction.CycleLogWindow, pad);
         }

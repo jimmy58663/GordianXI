@@ -110,8 +110,8 @@ namespace Gordian.Engine.Ui
         /// <summary>
         /// Opens Full-size chat for an ordinary typing key, without synthesizing its character. The caller must
         /// leave the press unhandled for platform TextInput (layout, Shift and Caps Lock) and keep it out of gameplay.
-        /// Misc. 2 Keyboard Size includes its displayed Full default; absence is not a different mode.
-        /// This reads the character's live settings, including restored values, rather than caching the dashboard name.
+        /// Uses the shared profile's layout, never the obsolete per-character Keyboard Size value.
+        /// A legacy factory profile without provenance retains its named layout for direct callers.
         /// </summary>
         public bool TryOpenForTyping(GordianKey key, InputModifiers modifiers, InputProfile? profile)
         {
@@ -119,10 +119,9 @@ namespace Gordian.Engine.Ui
             // Full-size reserves the numeric keypad, navigation, function keys and modifier shortcuts for gameplay.
             if (key is not (>= GordianKey.A and <= GordianKey.Z or >= GordianKey.D0 and <= GordianKey.D9
                 or >= GordianKey.OemTilde and <= GordianKey.OemSlash)) return false;
-            var settings = Settings();
-            bool full = settings != null
-                ? settings.GetValue(StockUiSettingKey.KeyboardSize) == 0
-                : profile?.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) == true;
+            bool full = profile?.KeyboardLayout is { Supported: true } keyboard
+                ? keyboard.Mode == KeyboardMode.Full
+                : profile?.KeyboardLayout == null && profile?.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) == true;
             if (!full) return false;
             if (profile?.KeyboardLayout is { Supported: true } layout
                 && profile.TryGetAction(new InputChord(key, modifiers), out var action)

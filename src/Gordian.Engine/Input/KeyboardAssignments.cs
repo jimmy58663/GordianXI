@@ -217,7 +217,7 @@ namespace Gordian.Engine.Input
 
         /// <summary>
         /// Releases known layered keyboard overrides to the selected catalog. Unknown entries and all non-keyboard
-        /// settings stay. Legacy callers without provenance use Full; UI conversion is always explicit.
+        /// settings stay. Direct legacy factory callers without provenance use Full; files migrate on load.
         /// </summary>
         public static void ResetDefaults(InputProfile profile)
         {
@@ -231,8 +231,7 @@ namespace Gordian.Engine.Input
                         layout.Overrides.Remove(name);
                 return;
             }
-            // This legacy API is retained for callers without a character setting. New UI paths
-            // require explicit conversion and pass a catalog mode; never infer intent from a name.
+            // Compatibility for direct factory callers. Persisted profiles migrate before reaching the UI.
             var defaults = KeyboardLayout.Catalog(KeyboardMode.Full);
             foreach (var chords in profile.Bindings.Values) chords.RemoveAll(IsKeyboard);
             foreach (var (action, chords) in defaults.Bindings)

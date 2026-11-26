@@ -534,10 +534,10 @@ namespace Gordian.Engine.Input
 
         #region Standard FFXI Factory Presets
 
-        /// <summary>New storage uses explicit catalog provenance. Existing files remain frozen.</summary>
+        /// <summary>New storage uses Full with inherited keys; legacy files migrate with explicit overrides on load.</summary>
         public static InputProfile CreateDefault()
         {
-            var p = new InputProfile("Full (layered)", "Keyboard catalog v1; shared overrides, per-character layout.");
+            var p = new InputProfile("Full (layered)", "Keyboard catalog v1; shared layout and overrides.");
             p.KeyboardLayout = new KeyboardLayout { Mode = KeyboardMode.Full };
             BindDefaultGamepadButtons(p);
             return p;
@@ -828,8 +828,11 @@ namespace Gordian.Engine.Input
             ArgumentNullException.ThrowIfNull(json);
             var profile = JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
-            // Legacy files have no keyboard provenance: even missing actions may be intentional.
-            // Retain existing controller compatibility without inventing or migrating keyboard keys.
+            if (profile.Version != 1 || profile.KeyboardLayout is { Supported: false }) return profile;
+            if (profile.KeyboardLayout == null)
+                global::Gordian.Engine.Input.KeyboardLayout.MigrateLegacy(profile,
+                    profile.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) ? KeyboardMode.Full : KeyboardMode.Compact2, json);
+            // Preserve keyboard entries exactly while applying existing controller compatibility upgrades.
             var keyboard = profile.Bindings.ToDictionary(p => p.Key, p => p.Value.Where(c => c.Key != GordianKey.None && !c.IsMouseChord && !c.IsGamepadChord).ToList());
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
@@ -881,7 +884,18 @@ namespace Gordian.Engine.Input
                 try
                 {
                     string json = File.ReadAllText(filePath);
-                    return FromJson(json);
+                    var profile = FromJson(json);
+                    // Only the migration that archived these exact input bytes needs persisting.
+                    // A failed write is not a parse failure: retain the original and the migrated in-memory map.
+                    if (profile.KeyboardLayout?.LegacySnapshot == json)
+                    {
+                        try { profile.SaveToFile(filePath); }
+                        catch (Exception saveEx)
+                        {
+                            GordianLog.Warn(LogCategories.Input, $"Could not persist keyboard migration to '{filePath}': {saveEx.Message}");
+                        }
+                    }
+                    return profile;
                 }
                 catch (Exception ex)
                 {

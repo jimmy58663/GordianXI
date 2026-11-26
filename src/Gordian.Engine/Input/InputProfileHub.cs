@@ -49,6 +49,6 @@ namespace Gordian.Engine.Input
         public void NotifyChanged(object? source = null) => Changed?.Invoke(source);
 
         /// <summary>A deep copy of the profile for one character's session.</summary>
-        public InputProfile CreateSessionCopy() => _profile.Clone();
+        public InputProfile CreateSessionCopy() => KeyboardLayout.Resolve(_profile, _profile.KeyboardLayout?.Mode ?? KeyboardMode.Full);
     }
 }

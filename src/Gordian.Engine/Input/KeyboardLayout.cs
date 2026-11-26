@@ -9,7 +9,7 @@ namespace Gordian.Engine.Input;
 public enum KeyboardMode { Full, Compact1, Compact2 }
 
 /// <summary>Keyboard-only provenance. Absent override inherits; [] explicitly unbinds.
-/// Unknown names and fields are retained. No profile-name inference or automatic legacy conversion.</summary>
+/// Unknown names and fields are retained; legacy profiles migrate on load with every key explicit.</summary>
 public sealed class KeyboardLayout
 {
     [JsonPropertyName("revision")] public int Revision { get; set; } = 1;
@@ -18,13 +18,13 @@ public sealed class KeyboardLayout
     [JsonPropertyName("legacySnapshot")] public string? LegacySnapshot { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 
-    /// <summary>Explicit opt-in only. All known legacy actions, even missing ones, remain explicit.
+    /// <summary>One-time load migration. All known legacy actions, even missing ones, remain explicit.
     /// A separate confirmed restore releases them to inheritance. Original JSON is retained for rollback.</summary>
-    public static void ConvertLegacy(InputProfile profile, KeyboardMode mode, string? originalJson = null)
+    internal static void MigrateLegacy(InputProfile profile, KeyboardMode mode, string originalJson)
     {
         if (profile.KeyboardLayout != null) throw new InvalidOperationException("Profile already has keyboard provenance.");
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
-        var layout = new KeyboardLayout { Mode = mode, LegacySnapshot = originalJson ?? profile.SaveToJson() };
+        var layout = new KeyboardLayout { Mode = mode, LegacySnapshot = originalJson };
         foreach (var action in Enum.GetValues<InputAction>())
             if (action != InputAction.None)
                 layout.Overrides[action.ToString()] = profile.GetChords(action).Where(IsKeyboard).Select(c => c.ToString()).ToList();
@@ -43,7 +43,7 @@ public sealed class KeyboardLayout
     public static InputProfile Resolve(InputProfile source, KeyboardMode mode)
     {
         var result = source.Clone();
-        if (source.KeyboardLayout is not { Supported: true } layout || !Enum.IsDefined(mode)) return result;
+        if (source.Version != 1 || source.KeyboardLayout is not { Supported: true } layout || !Enum.IsDefined(mode)) return result;
         foreach (var chords in result.Bindings.Values) chords.RemoveAll(IsKeyboard);
         foreach (var (action, chords) in Catalog(mode).Bindings)
             foreach (var chord in chords.Where(IsKeyboard)) result.Bind(action, chord);
@@ -72,7 +72,7 @@ public sealed class KeyboardLayout
     }
 
     /// <summary>Independently authored from Square Enix PC manual pp.2-3 and March 27 2012 post 298313.
-    /// Compact 1 is a documented partial community fallback, not certified retail parity; see keyboard-presets.md.</summary>
+    /// Compact 1 is a documented partial community fallback, not certified retail parity; see docs/input/console-and-input.md.</summary>
     public static InputProfile Catalog(KeyboardMode mode)
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));

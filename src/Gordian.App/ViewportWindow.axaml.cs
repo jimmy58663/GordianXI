@@ -734,7 +734,7 @@ namespace Gordian.App
             }
 
             // Full-size typing starts the line before gameplay sees the key, but only platform TextInput inserts
-            // the character. The upstream typed-symbol policy remains until the separate #647 fix lands.
+            // the character, preserving the platform's layout, Shift and Caps Lock handling.
             if (!chatHidden && typed && chat.TryOpenForTyping(gKey, mods, session.Locomotion.Profile)) return;
 
             // Escape locks an unlocked stock UI (once no menu is open for it to cancel first).
