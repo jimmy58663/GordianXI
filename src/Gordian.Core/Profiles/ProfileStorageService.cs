@@ -33,6 +33,13 @@ namespace Gordian.Core.Profiles
         public int Version { get; set; } = 1;
         public List<ProfileFolderEntry> Folders { get; set; } = new();
         public List<AccountProfile> Profiles { get; set; } = new();
+
+        /// <summary>
+        /// The app-wide default FFXI install folder, or empty for the registry's (Windows only). New profiles start with
+        /// it, and the launcher uses it for a profile that names no folder. Off Windows there is no registry, so this is
+        /// where the install is set once (#652).
+        /// </summary>
+        public string DefaultGameDirectory { get; set; } = string.Empty;
     }
 
     /// <summary>

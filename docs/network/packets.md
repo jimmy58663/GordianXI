@@ -406,6 +406,12 @@ The rows carry the details; these are the ones most useful to other client and s
 | Service | Dir | Id | Name | Size | GordianXI status | Notes |
 |---|---|---|---|---|---|---|
 | xi_connect (TLS, 54231) | C2S | `0x10` | login attempt (LSB) | JSON | `built` | LSB-only JSON command; returns the account id and session hash. `version` 3.0.0 first, negotiated down for older servers. Not in XiPackets. |
+| xi_connect | C2S | `0x20` | create account (LSB) | JSON | `built` | `result` 3 created, 4 name taken, 8 creation off, 9 database error ([session-and-packets.md](session-and-packets.md#account-management-652)). Not in XiPackets. |
+| xi_connect | C2S | `0x30` | change password (LSB) | JSON | `built` | `new_password`, and `otp` when the account has two-factor; `result` 6 or 7. Not in XiPackets. |
+| xi_connect | C2S | `0x31` | start two-factor (LSB) | JSON | `built` | `result` 0x10 with `TOTP_uri` (unescaped `otpauth://` link); refused with `error_message`. Not in XiPackets. |
+| xi_connect | C2S | `0x32` | remove two-factor (LSB) | JSON | `built` | `otp` = a code or the recovery code; `result` 0x12. Not in XiPackets. |
+| xi_connect | C2S | `0x33` | new recovery code (LSB) | JSON | `built` | `otp` = a code or the recovery code; `result` 0x11 with `recovery_code`. Not in XiPackets. |
+| xi_connect | C2S | `0x34` | verify two-factor (LSB) | JSON | `built` | `otp` = a code from the new secret; `result` 0x11 with `recovery_code`. Not in XiPackets. |
 | xi_data (TLS since xiloader 3.0, 54230) | C2S | `0xFE` | session hash (LSB) | 28 | `built` | The first packet on the channel; LSB answers nothing. |
 | xi_data | C2S | `0xA1` | account id (LSB) | 28 | `built` | Account id 1, search server address 5, session hash 12; answered with data `0x03` and view `0x20`. Not in XiPackets. |
 | xi_data | S2C | `0x01` | account prompt (LSB) | 5 | `decoded` | LSB's answer to view `0x1F`: the client sends `0xA1` again. |

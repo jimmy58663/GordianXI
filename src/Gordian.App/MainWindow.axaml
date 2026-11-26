@@ -7,6 +7,7 @@
         xmlns:sessions="clr-namespace:Gordian.Engine.Sessions;assembly=Gordian.Engine"
         xmlns:common="clr-namespace:Gordian.App.Common"
         xmlns:gfx="clr-namespace:Gordian.App.Graphics"
+        xmlns:profiles="clr-namespace:Gordian.Core.Profiles;assembly=Gordian.Core"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="840"
         x:Class="Gordian.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -58,7 +59,7 @@
 
                     <!-- Account Selection Checklist Table / TreeView -->
                     <Border Grid.Row="0" Background="#252526" CornerRadius="6" Padding="15">
-                        <Grid RowDefinitions="Auto, Auto, Auto, Auto, *">
+                        <Grid RowDefinitions="Auto, Auto, Auto, Auto, Auto, *">
                             <TextBlock Grid.Row="0" Text="Multi-Character Launch Checklist" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
                             <TextBlock Grid.Row="1" Text="Select profiles to queue. Online characters will be automatically detected and skipped." FontSize="11" Foreground="#A0A0A0" Margin="0,2,0,8"/>
 
@@ -91,8 +92,19 @@
                                 </StackPanel>
                             </Grid>
 
+                            <!-- The app-wide default FFXI install: new profiles start with it, and a profile without a folder uses it. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto, *, Auto, Auto" Margin="0,0,0,8">
+                                <TextBlock Grid.Column="0" Text="Default FFXI install:" Foreground="#A0A0A0" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox Grid.Column="1" Text="{Binding DefaultGameDirectory, Mode=TwoWay}" PlaceholderText="{Binding DefaultGameDirectoryPlaceholder}" FontSize="11"
+                                         ToolTip.Tip="The FFXI folder (with VTABLE.DAT) new profiles start with, and the one used by a profile that names none. Needed on Linux and macOS, where there is no registry to find it."/>
+                                <Button Grid.Column="2" Content="Browse..." Click="OnBrowseDefaultGameDirectoryClick" Margin="6,0,0,0"
+                                        Background="#3E3E42" Foreground="#DCDCDC" FontSize="11" Height="28" Padding="10,4" CornerRadius="3"/>
+                                <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDefaultGameDirectoryCommand}" Margin="6,0,0,0"
+                                        Background="#3E3E42" Foreground="#DCDCDC" FontSize="11" Height="28" Padding="10,4" CornerRadius="3"/>
+                            </Grid>
+
                             <!-- Drop Zone for Moving Out of Folders to Root Level -->
-                            <Border Grid.Row="3" Margin="0,0,0,6" Padding="8,4" Background="#1E1E22" CornerRadius="3"
+                            <Border Grid.Row="4" Margin="0,0,0,6" Padding="8,4" Background="#1E1E22" CornerRadius="3"
                                     BorderBrush="#3E3E42" BorderThickness="1"
                                     DragDrop.AllowDrop="True"
                                     DragDrop.DragOver="OnRootDragOver"
@@ -105,7 +117,7 @@
                             </Border>
 
                             <!-- Hierarchical Launch TreeView -->
-                            <Border Grid.Row="4" Background="#1E1E1E" CornerRadius="4" Padding="6" BorderBrush="#333337" BorderThickness="1">
+                            <Border Grid.Row="5" Background="#1E1E1E" CornerRadius="4" Padding="6" BorderBrush="#333337" BorderThickness="1">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <TreeView ItemsSource="{Binding LaunchTree}"
                                               SelectedItem="{Binding SelectedTreeNode, Mode=TwoWay}"
@@ -369,7 +381,7 @@
                                     <!-- Auto-Login only: the character select screen picks the character itself. -->
                                     <StackPanel Spacing="10" IsVisible="{Binding FormAutoLogin}">
                                         <TextBlock Text="Character Name:" Foreground="#A0A0A0"/>
-                                        <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+                                        <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Gordian (in-game name)"/>
 
                                         <TextBlock Text="Character Slot:" Foreground="#A0A0A0"/>
                                         <ComboBox ItemsSource="{Binding CharacterSlotChoices}" SelectedIndex="{Binding FormCharacterSlot, Mode=TwoWay}" HorizontalAlignment="Stretch" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
@@ -378,8 +390,8 @@
                                     <TextBlock Text="Game Folder:" Foreground="#A0A0A0" Margin="0,5,0,0"/>
                                     <Grid ColumnDefinitions="*, 8, Auto, 6, Auto">
                                         <TextBox Grid.Column="0" Text="{Binding FormGameDirectory, Mode=TwoWay}"
-                                                 PlaceholderText="Installed FFXI (found automatically)"
-                                                 ToolTip.Tip="Only for a separate FFXI install, such as a private server's own client folder (the folder with VTABLE.DAT and FTABLE.DAT)."/>
+                                                 PlaceholderText="Empty: the default FFXI install (Profiles and Launch)"
+                                                 ToolTip.Tip="The FFXI install this profile plays with (the folder with VTABLE.DAT and FTABLE.DAT). New profiles start with the default install; change it for a server that ships its own client files."/>
                                         <Button Grid.Column="2" Content="Browse..." Click="OnBrowseGameDirectoryClick" Background="#3E3E42" Foreground="White"/>
                                         <Button Grid.Column="4" Content="Clear" Command="{Binding ClearGameDirectoryCommand}" Background="#3E3E42" Foreground="White"/>
                                     </Grid>
@@ -426,6 +438,144 @@
                     </Grid>
                 </Border>
             </Grid>
+        </TabItem>
+
+        <!-- TAB: LandSandBoat account management (#652). Retail accounts are managed on Square Enix's website. -->
+        <TabItem Header="LSB Accounts" FontSize="14" FontWeight="SemiBold">
+            <ScrollViewer Margin="0,10,0,0" VerticalScrollBarVisibility="Auto" DataContext="{Binding LsbAccounts}" x:DataType="vm:LsbAccountsViewModel">
+                <Border Background="#252526" CornerRadius="6" Padding="18" MaxWidth="760" HorizontalAlignment="Left">
+                    <StackPanel Spacing="10" TextElement.FontSize="12" TextElement.FontWeight="Normal">
+                        <TextBlock Text="LandSandBoat Account Management" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#A0A0A0"
+                                   Text="Create an account on a LandSandBoat private server, change its password, or set up two-factor, as xiloader does. Retail accounts are managed on Square Enix's account website."/>
+
+                        <!-- Server and account -->
+                        <TextBlock Text="Fill from a profile (optional):" Foreground="#A0A0A0"/>
+                        <ComboBox ItemsSource="{Binding SourceProfiles}" SelectedItem="{Binding SourceProfile, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                                  PlaceholderText="Pick a LandSandBoat profile to fill the server and account">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="profiles:AccountProfile">
+                                    <TextBlock>
+                                        <Run Text="{Binding ProfileName}"/>
+                                        <Run Text=" (" Foreground="#888888"/><Run Text="{Binding Username}" Foreground="#888888"/><Run Text=" @ " Foreground="#888888"/><Run Text="{Binding EffectiveServerHost}" Foreground="#888888"/><Run Text=")" Foreground="#888888"/>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Text="Server Host and Auth Port:" Foreground="#A0A0A0"/>
+                        <Grid ColumnDefinitions="*, 8, 90">
+                            <TextBox Grid.Column="0" Text="{Binding ServerHost, Mode=TwoWay}" PlaceholderText="e.g. 127.0.0.1 or play.myserver.net"/>
+                            <TextBox Grid.Column="2" Text="{Binding ServerPort, Mode=TwoWay}" PlaceholderText="54231" ToolTip.Tip="Auth (login) port, 54231 by default"/>
+                        </Grid>
+
+                        <TextBlock Text="Account Name:" Foreground="#A0A0A0"/>
+                        <TextBox Text="{Binding Username, Mode=TwoWay}" MaxLength="16" PlaceholderText="1-16 characters"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,6,0,0">
+                            <RadioButton GroupName="LsbAccountTask" Content="Create account" IsChecked="{Binding IsCreateAccount, Mode=TwoWay}"/>
+                            <RadioButton GroupName="LsbAccountTask" Content="Change password" IsChecked="{Binding IsChangePassword, Mode=TwoWay}"/>
+                            <RadioButton GroupName="LsbAccountTask" Content="Two-factor" IsChecked="{Binding IsTwoFactor, Mode=TwoWay}"/>
+                        </StackPanel>
+
+                        <!-- Current password: everything but creation -->
+                        <StackPanel Spacing="6" IsVisible="{Binding !IsCreateAccount}">
+                            <TextBlock Text="Current Password:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding Password, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding ShowPasswords}" MaxLength="32"/>
+                        </StackPanel>
+
+                        <!-- New password: creation and change -->
+                        <StackPanel Spacing="6" IsVisible="{Binding !IsTwoFactor}">
+                            <TextBlock Text="{Binding NewPasswordLabel}" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding NewPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding ShowPasswords}" MaxLength="32" PlaceholderText="6-32 characters"/>
+                            <TextBlock Text="Confirm Password:" Foreground="#A0A0A0"/>
+                            <TextBox Text="{Binding ConfirmPassword, Mode=TwoWay}" PasswordChar="•" RevealPassword="{Binding ShowPasswords}" MaxLength="32"/>
+                        </StackPanel>
+
+                        <CheckBox Content="Show passwords" IsChecked="{Binding ShowPasswords, Mode=TwoWay}" Foreground="#A0A0A0"/>
+                        <CheckBox Content="Set up two-factor for the new account" IsChecked="{Binding SetUpTwoFactorOnCreate, Mode=TwoWay}" Foreground="#A0A0A0"
+                                  IsVisible="{Binding IsCreateAccount}" IsEnabled="{Binding ShowsCreateButton}"
+                                  ToolTip.Tip="After creating the account, show its two-factor QR code and key; the new profile gets the key, so GordianXI makes the codes"/>
+
+                        <!-- Two-factor code: change password (if the account has it), the two-factor tasks, and a setup started by Create Account -->
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowsCodeField}">
+                            <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap"
+                                       Text="Two-factor Code (if the account has two-factor; the recovery code also works for removing it or making a new one):"/>
+                            <Grid ColumnDefinitions="200, 8, Auto">
+                                <TextBox Grid.Column="0" Text="{Binding Code, Mode=TwoWay}" PlaceholderText="6-digit code"/>
+                                <Button Grid.Column="2" Content="Fill code" Command="{Binding FillCodeCommand}" IsEnabled="{Binding CanFillCodeFromProfile}"
+                                        ToolTip.Tip="Make the current code from the key being set up, or from a saved profile's authenticator key"
+                                        Background="#3E3E42" Foreground="#DCDCDC" Height="30" Padding="10,4" CornerRadius="3"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="4" IsVisible="{Binding !IsCreateAccount}">
+                            <CheckBox Content="Update saved profiles of this account" IsChecked="{Binding UpdateProfiles, Mode=TwoWay}" Foreground="#A0A0A0"
+                                      ToolTip.Tip="After a password change or a two-factor change, save the new password or key to the profiles that use this account"/>
+                            <TextBlock Text="{Binding MatchingProfilesText}" FontSize="11" Foreground="#888888" TextWrapping="Wrap" Margin="28,0,0,0"/>
+                        </StackPanel>
+
+                        <!-- Actions -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0" IsEnabled="{Binding IsIdle}">
+                            <Button Content="Create Account" Command="{Binding CreateAccountCommand}" IsVisible="{Binding ShowsCreateButton}"
+                                    Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
+                            <Button Content="Change Password" Command="{Binding ChangePasswordCommand}" IsVisible="{Binding IsChangePassword}"
+                                    Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsTwoFactor}">
+                                <Button Content="Set Up Two-factor" Command="{Binding BeginTotpSetupCommand}" IsVisible="{Binding !HasPendingSetup}"
+                                        Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
+                                <Button Content="Remove Two-factor" Command="{Binding RemoveTotpCommand}" IsVisible="{Binding !HasPendingSetup}"
+                                        Background="#3E3E42" Foreground="#DCDCDC" Height="32" Padding="14,4" CornerRadius="3"/>
+                                <Button Content="New Recovery Code" Command="{Binding RegenerateRecoveryCodeCommand}" IsVisible="{Binding !HasPendingSetup}"
+                                        Background="#3E3E42" Foreground="#DCDCDC" Height="32" Padding="14,4" CornerRadius="3"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Two-factor setup in progress: QR code and key, then confirm with a code -->
+                        <Border IsVisible="{Binding HasPendingSetup}" Background="#1E1E22" CornerRadius="6" Padding="14" BorderBrush="#3E3E42" BorderThickness="1">
+                            <Grid ColumnDefinitions="Auto, 16, *">
+                                <Border Grid.Column="0" Background="White" CornerRadius="4" Padding="6" VerticalAlignment="Top">
+                                    <Image Source="{Binding QrCodePng, Converter={x:Static common:PngBytesToBitmapConverter.Instance}}" Width="200" Height="200"
+                                           RenderOptions.BitmapInterpolationMode="None"/>
+                                </Border>
+                                <StackPanel Grid.Column="2" Spacing="8">
+                                    <TextBlock Text="Scan with an authenticator app" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="#A0A0A0" Text="Or type this key into the app (time-based, 6 digits, 30 seconds):"/>
+                                    <SelectableTextBlock Text="{Binding PendingKeyText}" FontFamily="Consolas,Menlo,monospace" FontSize="14" Foreground="#9CDCFE" TextWrapping="Wrap"/>
+                                    <Button Content="Copy key" Command="{Binding CopyKeyCommand}" Background="#3E3E42" Foreground="#DCDCDC" Height="28" Padding="10,4" CornerRadius="3"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="#A0A0A0"
+                                               Text="Enter the app's current code above (or Fill code to let GordianXI make it), then confirm. Nothing changes for the login until you confirm."/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" IsEnabled="{Binding IsIdle}">
+                                        <Button Content="Confirm Two-factor" Command="{Binding ConfirmTotpSetupCommand}"
+                                                Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
+                                        <Button Content="Cancel" Command="{Binding CancelTotpSetupCommand}"
+                                                Background="#3E3E42" Foreground="#DCDCDC" Height="32" Padding="14,4" CornerRadius="3"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Recovery code, shown once -->
+                        <Border IsVisible="{Binding HasRecoveryCode}" Background="#2D2A1E" CornerRadius="6" Padding="14" BorderBrush="#8A6D1F" BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Recovery code" FontWeight="SemiBold" Foreground="#FFD27F"/>
+                                <SelectableTextBlock Text="{Binding RecoveryCode}" FontFamily="Consolas,Menlo,monospace" FontSize="16" Foreground="#FFFFFF"/>
+                                <TextBlock TextWrapping="Wrap" Foreground="#D0C090"
+                                           Text="Write this down and keep it safe. It removes two-factor if you lose the authenticator. GordianXI does not save it and will not show it again."/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Copy recovery code" Command="{Binding CopyRecoveryCodeCommand}" Background="#3E3E42" Foreground="#DCDCDC" Height="28" Padding="10,4" CornerRadius="3"/>
+                                    <Button Content="Continue to the new profile" Command="{Binding ContinueToNewProfileCommand}" IsVisible="{Binding HasPendingNewProfile}"
+                                            Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="28" Padding="12,4" CornerRadius="3"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Status -->
+                        <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#F48771" IsVisible="{Binding IsError}"/>
+                        <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#B5CEA8" IsVisible="{Binding !IsError}"/>
+                    </StackPanel>
+                </Border>
+            </ScrollViewer>
         </TabItem>
 
         <!-- TAB: Logs (#566). Left: the logs folder's tree; right: a terminal-style viewer. -->

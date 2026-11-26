@@ -117,6 +117,11 @@ namespace Gordian.App
 
             _viewModel = new MainWindowViewModel();
             DataContext = _viewModel;
+            _viewModel.LsbAccounts.CopyToClipboard = async text =>
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard != null) await clipboard.SetTextAsync(text);
+            };
 
             if (Services.DevLaunchOptions.Current.ProfileName is { } launchProfile)
             {
@@ -431,6 +436,25 @@ namespace Gordian.App
         /// <summary>The profile editor's Browse button: picks the profile's FFXI install folder.</summary>
         private async void OnBrowseGameDirectoryClick(object? sender, RoutedEventArgs e)
         {
+            string? path = await PickGameDirectoryAsync(_viewModel.FormGameDirectory);
+            if (path == null) return;
+            _viewModel.FormGameDirectory = path;
+            if (!AppResourceManager.LooksLikeGameDirectory(path))
+            {
+                _viewModel.StatusMessage = $"'{path}' has no VTABLE.DAT and FTABLE.DAT: pick the FFXI folder itself (e.g. ...{System.IO.Path.DirectorySeparatorChar}SquareEnix{System.IO.Path.DirectorySeparatorChar}FINAL FANTASY XI).";
+            }
+        }
+
+        /// <summary>The Profiles tab's Browse button: picks the app-wide default FFXI install folder.</summary>
+        private async void OnBrowseDefaultGameDirectoryClick(object? sender, RoutedEventArgs e)
+        {
+            string? path = await PickGameDirectoryAsync(_viewModel.DefaultGameDirectory);
+            if (path != null) _viewModel.DefaultGameDirectory = path;
+        }
+
+        /// <summary>A folder picker for an FFXI install, starting at <paramref name="current"/> when it exists; null when cancelled.</summary>
+        private async System.Threading.Tasks.Task<string?> PickGameDirectoryAsync(string? current)
+        {
             try
             {
                 var options = new Avalonia.Platform.Storage.FolderPickerOpenOptions
@@ -438,26 +462,19 @@ namespace Gordian.App
                     Title = "Choose the FFXI install folder (the one with VTABLE.DAT)",
                     AllowMultiple = false,
                 };
-                string current = _viewModel.FormGameDirectory;
                 if (!string.IsNullOrWhiteSpace(current) && System.IO.Directory.Exists(current))
                 {
                     options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(System.IO.Path.GetFullPath(current)));
                 }
 
                 var folders = await StorageProvider.OpenFolderPickerAsync(options);
-                string? path = folders.Count > 0 ? Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(folders[0]) : null;
-                if (path == null) return;
-
-                _viewModel.FormGameDirectory = path;
-                if (!AppResourceManager.LooksLikeGameDirectory(path))
-                {
-                    _viewModel.StatusMessage = $"'{path}' has no VTABLE.DAT and FTABLE.DAT: pick the FFXI folder itself (e.g. ...\\SquareEnix\\FINAL FANTASY XI).";
-                }
+                return folders.Count > 0 ? Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(folders[0]) : null;
             }
             catch (Exception ex)
             {
                 Gordian.Core.Diagnostics.GordianLog.Error(Gordian.Core.Diagnostics.LogCategories.App, "Could not open the folder picker", ex);
                 _viewModel.StatusMessage = $"Could not open the folder picker: {ex.Message}";
+                return null;
             }
         }
 

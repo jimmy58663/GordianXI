@@ -38,6 +38,7 @@ namespace Gordian.App.ViewModels
         private int _formDataPort = AccountProfile.DefaultLsbDataPort;
         private int _formViewPort = AccountProfile.DefaultLsbViewPort;
         private int _formLobbyTransportIndex;
+        private string _defaultGameDirectory = string.Empty;
         private ProfileServerType _formServerType = ProfileServerType.LandSandBoat;
         private string _formUsername = string.Empty;
         private string _formPassword = string.Empty;
@@ -101,8 +102,14 @@ namespace Gordian.App.ViewModels
         /// <summary>The Logs tab's settings expander: levels, network file, chat logs (#566).</summary>
         public LoggingSettingsViewModel LoggingSettings { get; } = new();
 
+        /// <summary>The main window's tab index of the Profiles and Launch tab.</summary>
+        public const int ProfilesTabIndex = 0;
+
+        /// <summary>The main window's tab index of the LSB Accounts tab (#652).</summary>
+        public const int LsbAccountsTabIndex = 1;
+
         /// <summary>The main window's tab index of the Logs tab.</summary>
-        public const int LogsTabIndex = 1;
+        public const int LogsTabIndex = 2;
 
         private int _selectedTabIndex;
 
@@ -110,8 +117,15 @@ namespace Gordian.App.ViewModels
         public int SelectedTabIndex
         {
             get => _selectedTabIndex;
-            set => SetProperty(ref _selectedTabIndex, value);
+            set
+            {
+                if (!SetProperty(ref _selectedTabIndex, value)) return;
+                if (value == LsbAccountsTabIndex) LsbAccounts.RefreshProfiles();
+            }
         }
+
+        /// <summary>The LSB Accounts tab: account creation, password change and two-factor for LandSandBoat (#652).</summary>
+        public LsbAccountsViewModel LsbAccounts { get; }
 
         /// <summary>The status box's history: this launch's latest status messages, oldest first (#566).</summary>
         public ObservableCollection<string> RecentStatusLines { get; } = new();
@@ -219,6 +233,34 @@ namespace Gordian.App.ViewModels
             get => _formViewPort;
             set => SetProperty(ref _formViewPort, value);
         }
+
+        /// <summary>
+        /// The app-wide default FFXI install folder (profiles.json), or empty for the registry's. New profiles start with
+        /// it and a profile without a folder uses it (<see cref="GameDirectoryDetector.DetectGameDirectory"/>).
+        /// </summary>
+        public string DefaultGameDirectory
+        {
+            get => _defaultGameDirectory;
+            set
+            {
+                string trimmed = (value ?? string.Empty).Trim();
+                if (!SetProperty(ref _defaultGameDirectory, trimmed)) return;
+                GameDirectoryDetector.DefaultGameDirectory = trimmed;
+                // The cards' own-install marker compares against the default.
+                foreach (var item in Profiles) item.RefreshProfile();
+                if (trimmed.Length > 0 && !AppResourceManager.LooksLikeGameDirectory(trimmed))
+                    StatusMessage = $"'{trimmed}' has no VTABLE.DAT and FTABLE.DAT: pick the FFXI folder itself (e.g. ...{Path.DirectorySeparatorChar}SquareEnix{Path.DirectorySeparatorChar}FINAL FANTASY XI).";
+                if (!_loadingProfiles) SaveProfilesToStore();
+            }
+        }
+
+        /// <summary>What an empty default folder means: the registry's install, or that none was found.</summary>
+        public string DefaultGameDirectoryPlaceholder =>
+            GameDirectoryDetector.DetectRegistryGameDirectory() is { } detected
+                ? $"Empty: use the detected install ({detected})"
+                : "Choose the FFXI install folder (the one with VTABLE.DAT)";
+
+        private bool _loadingProfiles;
 
         /// <summary>The lobby connection choice, an index into <see cref="LobbyTransportChoices"/> (<see cref="LsbLobbyTransport"/> order).</summary>
         public int FormLobbyTransportIndex
@@ -496,6 +538,7 @@ namespace Gordian.App.ViewModels
 
         /// <summary>Clears the profile's game folder back to the registry install.</summary>
         public ICommand ClearGameDirectoryCommand { get; }
+        public ICommand ClearDefaultGameDirectoryCommand { get; }
         public ICommand LaunchSelectedCommand { get; }
         public ICommand TerminateAllCommand { get; }
         public ICommand SelectAllCommand { get; }
@@ -524,6 +567,7 @@ namespace Gordian.App.ViewModels
             ClearFormCommand = new RelayCommand(ClearForm);
             NewProfileCommand = new RelayCommand(NewProfile);
             ClearGameDirectoryCommand = new RelayCommand(() => FormGameDirectory = string.Empty);
+            ClearDefaultGameDirectoryCommand = new RelayCommand(() => DefaultGameDirectory = string.Empty);
             LaunchSelectedCommand = new RelayCommand(LaunchSelected);
             TerminateAllCommand = new RelayCommand(TerminateAll);
             SelectAllCommand = new RelayCommand(SelectAll);
@@ -559,6 +603,11 @@ namespace Gordian.App.ViewModels
             AttachViewportFocus(ViewportWindowManager.Default.WindowFocus);
 
             LoadProfiles();
+            LsbAccounts = new LsbAccountsViewModel(
+                new LsbLoginClient { ConfirmServerCertificate = ConfirmServerCertificateAsync },
+                () => Profiles.Select(p => p.Profile),
+                OpenPrefilledProfile,
+                SaveChangedProfile);
         }
 
         public void LoadProfiles()
@@ -568,6 +617,9 @@ namespace Gordian.App.ViewModels
             string profilesDir = GordianStorage.ProfilesDirectory;
 
             var doc = ProfileStorageService.Load(profilesDir);
+            _loadingProfiles = true;
+            try { DefaultGameDirectory = doc.DefaultGameDirectory; }
+            finally { _loadingProfiles = false; }
 
             // Recreate saved folders preserving their expansion states
             foreach (var folderEntry in doc.Folders)
@@ -1284,6 +1336,7 @@ namespace Gordian.App.ViewModels
             var doc = new ProfileStoreDocument();
             CollectFolderEntries(LaunchTree, doc.Folders);
             CollectProfilesInTreeOrder(LaunchTree, doc.Profiles);
+            doc.DefaultGameDirectory = _defaultGameDirectory;
             ProfileStorageService.Save(GordianStorage.ProfilesDirectory, doc);
         }
 
@@ -1351,6 +1404,9 @@ namespace Gordian.App.ViewModels
         public void NewProfile()
         {
             ClearForm();
+            // A new profile starts with the app-wide install folder; it can be changed per profile (a server shipping its
+            // own client files, say).
+            FormGameDirectory = DefaultGameDirectory;
             FormFolder = SelectedTreeNode switch
             {
                 LaunchFolderViewModel folder => folder.FolderPath,
@@ -1382,6 +1438,39 @@ namespace Gordian.App.ViewModels
             }
 
             StatusMessage = $"Deleted profile '{item.Profile.ProfileName}'.";
+        }
+
+        /// <summary>
+        /// Opens the profile editor filled in from <paramref name="template"/> (a just-created LSB account, #652) on the
+        /// Profiles tab, starting from the default install like any new profile. A name already in use gets a number.
+        /// </summary>
+        public void OpenPrefilledProfile(AccountProfile template)
+        {
+            NewProfile();
+            string name = string.IsNullOrWhiteSpace(template.ProfileName) ? template.Username : template.ProfileName.Trim();
+            string unique = name;
+            for (int n = 2; Profiles.Any(p => string.Equals(p.ProfileName, unique, StringComparison.OrdinalIgnoreCase)); n++) unique = $"{name} {n}";
+            FormProfileName = unique;
+            FormServerType = template.EffectiveServerType;
+            FormServerHost = template.EffectiveServerHost;
+            FormServerPort = template.EffectiveServerPort;
+            FormDataPort = template.EffectiveDataPort;
+            FormViewPort = template.EffectiveViewPort;
+            FormUsername = template.Username;
+            FormPassword = template.Password;
+            // A key from two-factor setup during account creation: the profile makes the codes itself.
+            FormOtpSeed = template.OtpSeed ?? string.Empty;
+            FormTwoFactorMode = template.EffectiveTwoFactorMode;
+            SelectedTabIndex = ProfilesTabIndex;
+            StatusMessage = $"New profile for account '{template.Username}': add a character or two-factor if you like, then Save.";
+        }
+
+        /// <summary>Saves a profile changed outside the editor (a password or key from the LSB Accounts tab) and refreshes its card.</summary>
+        public void SaveChangedProfile(AccountProfile profile)
+        {
+            profile.SaveToFile(GordianStorage.ProfilesDirectory);
+            SaveProfilesToStore();
+            Profiles.FirstOrDefault(p => ReferenceEquals(p.Profile, profile))?.RefreshProfile();
         }
 
         public void ClearForm()
@@ -1600,6 +1689,58 @@ namespace Gordian.App.ViewModels
             LaunchProfiles([profile]);
         }
 
+        /// <summary>A login stopped because every two-factor code the server would take now was just used (#652).</summary>
+        private sealed class TwoFactorCodeNotReadyException(string message) : InvalidOperationException(message);
+
+        /// <summary>The ledger accounts with a "new two-factor code ready" notice pending, so each gets one notice.</summary>
+        private readonly HashSet<string> _pendingCodeNotices = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// For an LSB profile with a stored authenticator key, makes each login attempt's code through the shared
+        /// <see cref="TotpCodeLedger"/>, so a login soon after another (Log Out, a retry, right after two-factor setup)
+        /// never resends a code LandSandBoat already accepted; null for the other modes, which send
+        /// <see cref="TakeOneTimeCode"/>'s code. When every usable code was just sent, the login stops instead of waiting,
+        /// and "New two-factor code ready" goes to the status box and the log once the next one can be used; the player
+        /// launches again then (maintainer, #652).
+        /// </summary>
+        private Func<CancellationToken, Task<string>>? LsbOneTimeCode(AccountProfile profile)
+        {
+            if (profile.EffectiveTwoFactorMode != TwoFactorMode.AuthenticatorKey || !TotpEngine.IsValidSecret(profile.OtpSeed)) return null;
+            string account = TotpCodeLedger.AccountKey(profile.EffectiveServerHost, profile.EffectiveServerPort, profile.Username);
+            string secret = profile.OtpSeed;
+            return _ =>
+            {
+                string? code = TotpCodeLedger.Shared.TryTake(account, secret, DateTimeOffset.UtcNow, out var wait);
+                if (code != null) return Task.FromResult(code);
+                NoticeWhenCodeReady(profile.ProfileName, account, wait);
+                throw new TwoFactorCodeNotReadyException(
+                    $"the last two-factor codes for this account were just used. A new code is ready in {Math.Ceiling(wait.TotalSeconds):0} s; launch again then.");
+            };
+        }
+
+        /// <summary>Writes "New two-factor code ready" to the status box and the log after <paramref name="wait"/>, once per account.</summary>
+        private void NoticeWhenCodeReady(string profileName, string account, TimeSpan wait)
+        {
+            lock (_pendingCodeNotices)
+            {
+                if (!_pendingCodeNotices.Add(account)) return;
+            }
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(wait).ConfigureAwait(false);
+                    string message = $"[{profileName}] New two-factor code ready.";
+                    GordianLog.Info(LogCategories.LsbLogin, message);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = message);
+                }
+                finally
+                {
+                    lock (_pendingCodeNotices) _pendingCodeNotices.Remove(account);
+                }
+            });
+        }
+
         /// <summary>
         /// The one-time code a login of <paramref name="profile"/> sends now. A code typed on the card is used once: it is
         /// cleared from the card here, and a later login (the return to character select after Log Out) needs a new one.
@@ -1689,7 +1830,7 @@ namespace Gordian.App.ViewModels
                             int viewPort = profile.EffectiveViewPort;
                             // The lobby login reports the install's FFXI version, as the legacy client does; LandSandBoat
                             // refuses one older than its CLIENT_VER by default.
-                            client.ClientVersion = InstalledClientVersion(profile) ?? XiloaderLobbyHandoff.DefaultClientVersion;
+                            client.ClientVersion = InstalledClientVersion(profile);
 
                             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                             {
@@ -1720,7 +1861,8 @@ namespace Gordian.App.ViewModels
                                 viewPort: viewPort,
                                 targetCharacterName: targetCharName,
                                 targetCharacterSlot: profile.CharacterSlot,
-                                transport: profile.LobbyTransport
+                                transport: profile.LobbyTransport,
+                                oneTimeCode: LsbOneTimeCode(profile)
                             ).ConfigureAwait(false);
 
                             // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
@@ -1730,6 +1872,15 @@ namespace Gordian.App.ViewModels
                             Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
                                 TakeOneTimeCode(profile), showLicence: false);
                             await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
+                        }
+                        catch (TwoFactorCodeNotReadyException ex)
+                        {
+                            GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Not launched: {ex.Message}");
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] Not launched: {ex.Message}";
+                                RefreshAllStatuses();
+                            });
                         }
                         catch (Exception ex)
                         {
@@ -1834,22 +1985,23 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
-        /// The FFXI version installed where <paramref name="profile"/> plays (its own install, else the registry's), from
-        /// <c>patch.cfg</c>, or null when it can't be read.
+        /// The FFXI version installed where <paramref name="profile"/> plays (its own folder, else the app-wide default,
+        /// else the registry's), from <c>patch.cfg</c>. The lobby login reports it as the legacy client does; without a
+        /// readable version the launch stops, so a profile always logs in with a real install behind it.
         /// </summary>
-        private static string? InstalledClientVersion(AccountProfile profile)
+        private static string InstalledClientVersion(AccountProfile profile)
         {
+            string? root = string.IsNullOrWhiteSpace(profile.GameDirectory) ? GameDirectoryDetector.DetectGameDirectory() : profile.GameDirectory.Trim();
+            if (root == null)
+                throw new InvalidOperationException("No FFXI install found: set the default install folder (Profiles and Launch) or the profile's own folder.");
             try
             {
-                string? root = string.IsNullOrWhiteSpace(profile.GameDirectory) ? GameDirectoryDetector.DetectGameDirectory() : profile.GameDirectory.Trim();
-                string? version = root == null ? null : Gordian.Core.Network.Retail.PatchConfigFile.ReadInstalledVersion(root);
-                if (version == null) GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] No FFXI version in the install's patch.cfg; the lobby login reports {XiloaderLobbyHandoff.DefaultClientVersion}.");
-                return version;
+                return Gordian.Core.Network.Retail.PatchConfigFile.ReadInstalledVersion(root)
+                    ?? throw new InvalidOperationException($"The FFXI install at '{root}' has no version in patch.cfg. Check the install folder.");
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Could not read the install's patch.cfg ({ex.Message}); the lobby login reports {XiloaderLobbyHandoff.DefaultClientVersion}.");
-                return null;
+                throw new InvalidOperationException($"Could not read the FFXI version from '{Path.Combine(root, Gordian.Core.Network.Retail.PatchConfigFile.FileName)}': {ex.Message}", ex);
             }
         }
 
@@ -1874,7 +2026,7 @@ namespace Gordian.App.ViewModels
             }
 
             var lobbySession = await client.LoginToLobbyAsync(serverHost, profile.Username, profile.Password, otp, connectPort, dataPort, viewPort,
-                transport: profile.LobbyTransport).ConfigureAwait(false);
+                transport: profile.LobbyTransport, oneTimeCode: LsbOneTimeCode(profile)).ConfigureAwait(false);
             var resources = AppResourceManager.Instance;
             var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
             var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;

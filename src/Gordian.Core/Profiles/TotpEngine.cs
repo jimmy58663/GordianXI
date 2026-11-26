@@ -6,18 +6,26 @@ namespace Gordian.Core.Profiles
 {
     public static class TotpEngine
     {
+        /// <summary>The TOTP period in seconds (RFC 6238's default, as LandSandBoat and authenticator apps use).</summary>
+        public const int PeriodSeconds = 30;
+
+        /// <summary>The 30-second step <paramref name="time"/> falls in (Unix seconds / 30).</summary>
+        public static long StepAt(DateTimeOffset time) => time.ToUnixTimeSeconds() / PeriodSeconds;
+
+        /// <summary>When <paramref name="step"/> begins.</summary>
+        public static DateTimeOffset StepStart(long step) => DateTimeOffset.FromUnixTimeSeconds(step * PeriodSeconds);
+
         /// <summary>
         /// Generates a synchronized 6-digit Time-Based One-Time Password from a Base32 authentication secret string.
         /// </summary>
-        public static string GenerateCurrentCode(string base32Secret)
+        public static string GenerateCurrentCode(string base32Secret) => GenerateCode(base32Secret, StepAt(DateTimeOffset.UtcNow));
+
+        /// <summary>The 6-digit code of <paramref name="base32Secret"/> for one 30-second <paramref name="timeStep"/> (RFC 6238, HMAC-SHA1).</summary>
+        public static string GenerateCode(string base32Secret, long timeStep)
         {
             if (string.IsNullOrEmpty(base32Secret)) return "000000";
 
             byte[] secretBytes = Base32Decode(base32Secret);
-            
-            // Calculate Unix timestamp 30-second window step index parameters
-            long unixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            long timeStep = unixTime / 30;
 
             byte[] stepBytes = BitConverter.GetBytes(timeStep);
             if (BitConverter.IsLittleEndian)
