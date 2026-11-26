@@ -18,6 +18,13 @@
 
 ## Chat auto-translate
 
+The App's `AutoTranslateKeyRoutingTests` exercise the real viewport's registered
+key handlers on an isolated Avalonia headless dispatcher. Tab and Shift+Tab complete
+a synthetic phrase without entering gameplay target input; routed Escape cancels
+completion before the draft, and target bindings work again after chat closes.
+This is routed-event integration coverage, not native OS input, rendering or in-game
+acceptance. Run with `dotnet test tests/Gordian.App.Tests --filter FullyQualifiedName~AutoTranslateKeyRoutingTests`.
+
 ### Fixed-phrase data and protocol
 
 `AutoTranslateCatalog` reads installed English `ROM/168/25.DAT` through the normal
