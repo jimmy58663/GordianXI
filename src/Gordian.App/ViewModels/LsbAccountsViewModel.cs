@@ -34,6 +34,7 @@ namespace Gordian.App.ViewModels
         private readonly Func<IEnumerable<AccountProfile>> _profiles;
         private readonly Action<AccountProfile> _openProfileEditor;
         private readonly Action<AccountProfile> _saveProfile;
+        private readonly TotpCodeLedger _ledger;
 
         private string _serverHost = string.Empty;
         private int _serverPort = AccountProfile.DefaultLsbAuthPort;
@@ -56,8 +57,9 @@ namespace Gordian.App.ViewModels
         private bool _isBusy;
 
         public LsbAccountsViewModel(ILsbAccountClient client, Func<IEnumerable<AccountProfile>> profiles,
-            Action<AccountProfile> openProfileEditor, Action<AccountProfile> saveProfile)
+            Action<AccountProfile> openProfileEditor, Action<AccountProfile> saveProfile, TotpCodeLedger? ledger = null)
         {
+            _ledger = ledger ?? TotpCodeLedger.Shared;
             _client = client;
             _profiles = profiles;
             _openProfileEditor = openProfileEditor;
@@ -501,6 +503,8 @@ namespace Gordian.App.ViewModels
             string host = ServerHost.Trim(), user = Username.Trim(), password = Password, code = Code.Trim();
             if (code.Length == 0) { SetStatus("Enter the current code from the authenticator, or use Fill code.", error: true); return; }
             string recovery = string.Empty;
+            // A code from the new key: the server takes its step for the account, so a login right after must use another.
+            NoteSent(code, setup.Secret);
             if (!await RunAsync("Confirming two-factor...", async () => recovery = await _client.ConfirmTotpSetupAsync(host, ServerPort, user, password, code))) return;
 
             PendingSetup = null;
@@ -557,7 +561,12 @@ namespace Gordian.App.ViewModels
             SetStatus("New recovery code made; the old one no longer works. Write it down: it is not shown again.");
         }
 
-        /// <summary>Fills <see cref="Code"/> with the current code of the pending setup's key, else of a matching profile's key.</summary>
+        private string LedgerAccount => TotpCodeLedger.AccountKey(ServerHost, ServerPort, Username);
+
+        /// <summary>
+        /// Fills <see cref="Code"/> from the pending setup's key, else a matching profile's key, with a code the server has
+        /// not taken yet for this account (<see cref="TotpCodeLedger"/>: LandSandBoat refuses a code twice).
+        /// </summary>
         public void FillCode()
         {
             string? key = PendingSetup?.Secret ?? ProfileKey();
@@ -566,15 +575,35 @@ namespace Gordian.App.ViewModels
                 SetStatus("No authenticator key to make a code from: start setup, or save the key in a profile of this account.", error: true);
                 return;
             }
-            Code = TotpEngine.GenerateCurrentCode(key);
+            string? code = _ledger.TryTake(LedgerAccount, key, DateTimeOffset.UtcNow, out var wait);
+            if (code == null)
+            {
+                SetStatus($"The last codes were just used; try again in {Math.Ceiling(wait.TotalSeconds):0} s.", error: true);
+                return;
+            }
+            Code = code;
         }
 
-        /// <summary>The typed code, or when none was typed the current code of a matching profile's key (empty if neither).</summary>
+        /// <summary>
+        /// The typed code (noted as sent, when it is one of a known key's), or when none was typed an unused code of a
+        /// matching profile's key; empty if neither.
+        /// </summary>
         private string CodeOrProfileCode()
         {
-            if (!string.IsNullOrWhiteSpace(Code)) return Code.Trim();
             string? key = ProfileKey();
-            return key == null ? string.Empty : TotpEngine.GenerateCurrentCode(key);
+            if (!string.IsNullOrWhiteSpace(Code))
+            {
+                NoteSent(Code, PendingSetup?.Secret ?? key);
+                return Code.Trim();
+            }
+            if (key == null) return string.Empty;
+            return _ledger.TryTake(LedgerAccount, key, DateTimeOffset.UtcNow, out _) ?? string.Empty;
+        }
+
+        /// <summary>Records a code sent for this account so a login right after doesn't resend it.</summary>
+        private void NoteSent(string code, string? secret)
+        {
+            if (secret != null) _ledger.NoteSent(LedgerAccount, secret, code, DateTimeOffset.UtcNow);
         }
 
         /// <summary>Applies <paramref name="change"/> to each matching profile and saves it, when <see cref="UpdateProfiles"/> is on.</summary>

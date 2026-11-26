@@ -1690,6 +1690,23 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
+        /// For an LSB profile with a stored authenticator key, makes each login attempt's code through the shared
+        /// <see cref="TotpCodeLedger"/>, so a login soon after another (Log Out, a retry, right after two-factor setup)
+        /// never resends a code LandSandBoat already accepted; null for the other modes, which send
+        /// <see cref="TakeOneTimeCode"/>'s code.
+        /// </summary>
+        private Func<CancellationToken, Task<string>>? LsbOneTimeCode(AccountProfile profile)
+        {
+            if (profile.EffectiveTwoFactorMode != TwoFactorMode.AuthenticatorKey || !TotpEngine.IsValidSecret(profile.OtpSeed)) return null;
+            string account = TotpCodeLedger.AccountKey(profile.EffectiveServerHost, profile.EffectiveServerPort, profile.Username);
+            string secret = profile.OtpSeed;
+            return ct => TotpCodeLedger.Shared.TakeAsync(account, secret,
+                wait => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    StatusMessage = $"[{profile.ProfileName}] Waiting {Math.Ceiling(wait.TotalSeconds):0} s for a new two-factor code (the last ones were just used)."),
+                ct: ct);
+        }
+
+        /// <summary>
         /// The one-time code a login of <paramref name="profile"/> sends now. A code typed on the card is used once: it is
         /// cleared from the card here, and a later login (the return to character select after Log Out) needs a new one.
         /// </summary>
@@ -1809,7 +1826,8 @@ namespace Gordian.App.ViewModels
                                 viewPort: viewPort,
                                 targetCharacterName: targetCharName,
                                 targetCharacterSlot: profile.CharacterSlot,
-                                transport: profile.LobbyTransport
+                                transport: profile.LobbyTransport,
+                                oneTimeCode: LsbOneTimeCode(profile)
                             ).ConfigureAwait(false);
 
                             // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
@@ -1964,7 +1982,7 @@ namespace Gordian.App.ViewModels
             }
 
             var lobbySession = await client.LoginToLobbyAsync(serverHost, profile.Username, profile.Password, otp, connectPort, dataPort, viewPort,
-                transport: profile.LobbyTransport).ConfigureAwait(false);
+                transport: profile.LobbyTransport, oneTimeCode: LsbOneTimeCode(profile)).ConfigureAwait(false);
             var resources = AppResourceManager.Instance;
             var library = resources != null ? Gordian.Core.Resources.Ui.UiResourceLibrary.LoadLobby(resources) : null;
             var text = resources != null ? Gordian.Core.Resources.Tables.LobbyTextTables.Load(resources.LoadDatBytes) : null;

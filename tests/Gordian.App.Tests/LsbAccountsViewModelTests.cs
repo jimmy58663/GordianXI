@@ -71,12 +71,13 @@ namespace Gordian.App.Tests
             public List<AccountProfile> Profiles { get; } = new();
             public List<AccountProfile> Opened { get; } = new();
             public List<AccountProfile> Saved { get; } = new();
+            public TotpCodeLedger Ledger { get; } = new();
             public LsbAccountsViewModel Vm { get; }
 
             public Harness(params AccountProfile[] profiles)
             {
                 Profiles.AddRange(profiles);
-                Vm = new LsbAccountsViewModel(Client, () => Profiles, Opened.Add, Saved.Add);
+                Vm = new LsbAccountsViewModel(Client, () => Profiles, Opened.Add, Saved.Add, Ledger);
             }
         }
 
@@ -227,6 +228,22 @@ namespace Gordian.App.Tests
             Assert.Equal("RECOVERY1", h.Vm.RecoveryCode);
             Assert.Equal((Secret, TwoFactorMode.AuthenticatorKey), (main.OtpSeed, main.TwoFactor));
             Assert.Equal(main, Assert.Single(h.Saved));
+        }
+
+        [Fact]
+        public async Task TwoFactor_ATypedVerifyCodeIsNotSentAgainByTheNextLogin()
+        {
+            var h = new Harness(Lsb("Main", "knot"));
+            h.Vm.SourceProfile = h.Profiles[0];
+            await h.Vm.BeginTotpSetupAsync();
+            var now = DateTimeOffset.UtcNow;
+            // Typed from a phone app rather than filled.
+            h.Vm.Code = TotpEngine.GenerateCode(Secret, TotpEngine.StepAt(now));
+            await h.Vm.ConfirmTotpSetupAsync();
+
+            // LandSandBoat took that step for the account: the profile's next login must send a newer one.
+            string? next = h.Ledger.TryTake(TotpCodeLedger.AccountKey("play.example", 54231, "knot"), Secret, now, out _);
+            Assert.Equal(TotpEngine.GenerateCode(Secret, TotpEngine.StepAt(now) + 1), next);
         }
 
         [Fact]

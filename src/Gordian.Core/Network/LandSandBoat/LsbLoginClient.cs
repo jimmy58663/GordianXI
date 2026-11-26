@@ -133,7 +133,11 @@ namespace Gordian.Core.Network.LandSandBoat
             }
             if (reply.Result != LsbAuthResult.LoginSuccess)
             {
-                throw new InvalidOperationException($"Authentication failed with result code {reply.Result}. Check username and password.");
+                // LandSandBoat answers 2 for a wrong name or password and for a refused two-factor code, including one
+                // it already accepted (src/login/auth_session.cpp, otp_helpers.h validateTOTP).
+                throw new InvalidOperationException(reply.Result == LsbAuthResult.Error && !string.IsNullOrEmpty(otp)
+                    ? "The server refused the login (result 2): check the account name and password, and that the two-factor code is current and was not used for this account in the last 30 seconds."
+                    : $"Authentication failed with result code {reply.Result}. Check username and password.");
             }
 
             var root = reply.Root;
@@ -438,6 +442,8 @@ namespace Gordian.Core.Network.LandSandBoat
         /// <summary>
         /// Authenticates and opens a lobby session (see <see cref="OpenLobbyAsync"/>), retrying once on a transient
         /// failure as <see cref="LoginAndSelectAsync"/> does.
+        /// <paramref name="oneTimeCode"/>, when given, makes the two-factor code for each attempt (a retry must not resend
+        /// a code the server already accepted, see <c>TotpCodeLedger</c>); otherwise <paramref name="otp"/> is sent.
         /// </summary>
         public async Task<LobbySession> LoginToLobbyAsync(
             string host,
@@ -448,14 +454,16 @@ namespace Gordian.Core.Network.LandSandBoat
             int dataPort = DefaultDataPort,
             int viewPort = DefaultViewPort,
             CancellationToken ct = default,
-            LsbLobbyTransport transport = LsbLobbyTransport.Auto)
+            LsbLobbyTransport transport = LsbLobbyTransport.Auto,
+            Func<CancellationToken, Task<string>>? oneTimeCode = null)
         {
             const int maxAttempts = 2;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
-                    var auth = await AuthenticateAsync(host, connectPort, username, password, otp, ct, transport).ConfigureAwait(false);
+                    string code = oneTimeCode != null ? await oneTimeCode(ct).ConfigureAwait(false) : otp;
+                    var auth = await AuthenticateAsync(host, connectPort, username, password, code, ct, transport).ConfigureAwait(false);
                     return await OpenLobbyAsync(host, dataPort, viewPort, auth, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (attempt < maxAttempts && IsTransientLobbyException(ex) && !ct.IsCancellationRequested)
@@ -499,6 +507,7 @@ namespace Gordian.Core.Network.LandSandBoat
 
         /// <summary>
         /// Performs full LandSandBoat login and character selection pipeline in one shot.
+        /// <paramref name="oneTimeCode"/>, when given, makes the two-factor code for each attempt, as in <see cref="LoginToLobbyAsync"/>.
         /// Includes automatic transient retry to gracefully handle server-side session hash collisions,
         /// lingering socket teardown, or timing races during reconnect.
         /// </summary>
@@ -514,19 +523,21 @@ namespace Gordian.Core.Network.LandSandBoat
             uint targetCharacterId = 0,
             CancellationToken ct = default,
             int targetCharacterSlot = 0,
-            LsbLobbyTransport transport = LsbLobbyTransport.Auto)
+            LsbLobbyTransport transport = LsbLobbyTransport.Auto,
+            Func<CancellationToken, Task<string>>? oneTimeCode = null)
         {
             const int maxAttempts = 2;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
+                    string code = oneTimeCode != null ? await oneTimeCode(ct).ConfigureAwait(false) : otp;
                     var auth = await AuthenticateAsync(
                         host,
                         connectPort,
                         username,
                         password,
-                        otp,
+                        code,
                         ct,
                         transport
                     ).ConfigureAwait(false);
