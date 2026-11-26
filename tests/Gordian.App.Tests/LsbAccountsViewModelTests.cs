@@ -103,6 +103,53 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public async Task CreateAccount_WithTwoFactor_ShowsTheSetupThenOpensTheProfileWithTheKey()
+        {
+            var h = new Harness();
+            h.Vm.ServerHost = "play.example";
+            h.Vm.Username = "newbie";
+            h.Vm.NewPassword = h.Vm.ConfirmPassword = "secret12";
+            h.Vm.SetUpTwoFactorOnCreate = true;
+            await h.Vm.CreateAccountAsync();
+
+            Assert.Equal(new[] { "create play.example:54231 newbie secret12", "totp-begin newbie" }, h.Client.Calls);
+            Assert.True(h.Vm.HasPendingSetup);
+            Assert.True(h.Vm.ShowsCodeField);
+            Assert.False(h.Vm.ShowsCreateButton);
+            Assert.Empty(h.Opened);
+
+            h.Vm.FillCode();
+            await h.Vm.ConfirmTotpSetupAsync();
+            Assert.Equal("RECOVERY1", h.Vm.RecoveryCode);
+            // The recovery code stays up until the player moves on.
+            Assert.Empty(h.Opened);
+            Assert.True(h.Vm.HasPendingNewProfile);
+
+            h.Vm.ContinueToNewProfile();
+            var profile = Assert.Single(h.Opened);
+            Assert.Equal(("newbie", "secret12", Secret, TwoFactorMode.AuthenticatorKey), (profile.Username, profile.Password, profile.OtpSeed, profile.TwoFactor));
+            Assert.False(h.Vm.HasPendingNewProfile);
+            Assert.False(h.Vm.HasRecoveryCode);
+            Assert.True(h.Vm.ShowsCreateButton);
+        }
+
+        [Fact]
+        public async Task CreateAccount_WithTwoFactor_CancelOpensTheProfileWithoutAKey()
+        {
+            var h = new Harness();
+            h.Vm.ServerHost = "play.example";
+            h.Vm.Username = "newbie";
+            h.Vm.NewPassword = h.Vm.ConfirmPassword = "secret12";
+            h.Vm.SetUpTwoFactorOnCreate = true;
+            await h.Vm.CreateAccountAsync();
+            h.Vm.CancelTotpSetup();
+
+            var profile = Assert.Single(h.Opened);
+            Assert.Equal((string.Empty, TwoFactorMode.None), (profile.OtpSeed, profile.EffectiveTwoFactorMode));
+            Assert.False(h.Vm.HasPendingSetup);
+        }
+
+        [Fact]
         public async Task CreateAccount_ShowsTheServersRefusal()
         {
             var h = new Harness();

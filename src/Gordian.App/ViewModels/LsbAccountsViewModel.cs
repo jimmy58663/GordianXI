@@ -44,6 +44,8 @@ namespace Gordian.App.ViewModels
         private string _code = string.Empty;
         private bool _showPasswords;
         private bool _updateProfiles = true;
+        private bool _setUpTwoFactorOnCreate;
+        private AccountProfile? _pendingNewProfile;
         private LsbAccountTask _task = LsbAccountTask.CreateAccount;
         private AccountProfile? _sourceProfile;
         private LsbTotpSetup? _pendingSetup;
@@ -70,6 +72,7 @@ namespace Gordian.App.ViewModels
             FillCodeCommand = new RelayCommand(FillCode);
             CopyKeyCommand = new RelayCommand(() => _ = CopyAsync(_pendingSetup?.Secret, "key"));
             CopyRecoveryCodeCommand = new RelayCommand(() => _ = CopyAsync(_recoveryCode, "recovery code"));
+            ContinueToNewProfileCommand = new RelayCommand(ContinueToNewProfile);
             RefreshProfiles();
         }
 
@@ -152,6 +155,26 @@ namespace Gordian.App.ViewModels
             set => SetProperty(ref _updateProfiles, value);
         }
 
+        /// <summary>Whether Create Account also sets up two-factor before opening the new profile.</summary>
+        public bool SetUpTwoFactorOnCreate
+        {
+            get => _setUpTwoFactorOnCreate;
+            set => SetProperty(ref _setUpTwoFactorOnCreate, value);
+        }
+
+        /// <summary>
+        /// The profile a just-created account opens once its two-factor setup is done (confirmed, cancelled or failed), or
+        /// null outside that flow.
+        /// </summary>
+        public bool HasPendingNewProfile => _pendingNewProfile != null;
+
+        private void SetPendingNewProfile(AccountProfile? profile)
+        {
+            _pendingNewProfile = profile;
+            OnPropertyChanged(nameof(HasPendingNewProfile));
+            OnPropertyChanged(nameof(ShowsCreateButton));
+        }
+
         /// <summary>The saved LandSandBoat profiles of this account on this server (same host, auth port and account name).</summary>
         public IReadOnlyList<AccountProfile> MatchingProfiles =>
             string.IsNullOrWhiteSpace(ServerHost) || string.IsNullOrWhiteSpace(Username)
@@ -198,6 +221,8 @@ namespace Gordian.App.ViewModels
                 OnPropertyChanged(nameof(IsChangePassword));
                 OnPropertyChanged(nameof(IsTwoFactor));
                 OnPropertyChanged(nameof(NewPasswordLabel));
+                OnPropertyChanged(nameof(ShowsCodeField));
+                OnPropertyChanged(nameof(ShowsCreateButton));
                 SetStatus(string.Empty);
             }
         }
@@ -206,6 +231,12 @@ namespace Gordian.App.ViewModels
         public bool IsChangePassword { get => SelectedTask == LsbAccountTask.ChangePassword; set { if (value) SelectedTask = LsbAccountTask.ChangePassword; } }
         /// <summary>The new-password field's label: the account's password when creating, the new one when changing.</summary>
         public string NewPasswordLabel => IsCreateAccount ? "Password:" : "New Password:";
+
+        /// <summary>The code field shows for every task but creation, and during a setup started from creation.</summary>
+        public bool ShowsCodeField => !IsCreateAccount || HasPendingSetup;
+
+        /// <summary>Create Account hides while its two-factor setup runs.</summary>
+        public bool ShowsCreateButton => IsCreateAccount && !HasPendingSetup && !HasPendingNewProfile;
 
         public bool IsTwoFactor { get => SelectedTask == LsbAccountTask.TwoFactor; set { if (value) SelectedTask = LsbAccountTask.TwoFactor; } }
 
@@ -249,6 +280,8 @@ namespace Gordian.App.ViewModels
                 QrCodePng = value == null ? null : RenderQrCode(value.OtpAuthUri);
                 OnPropertyChanged(nameof(HasPendingSetup));
                 OnPropertyChanged(nameof(PendingKeyText));
+                OnPropertyChanged(nameof(ShowsCodeField));
+                OnPropertyChanged(nameof(ShowsCreateButton));
             }
         }
 
@@ -304,6 +337,7 @@ namespace Gordian.App.ViewModels
         public ICommand FillCodeCommand { get; }
         public ICommand CopyKeyCommand { get; }
         public ICommand CopyRecoveryCodeCommand { get; }
+        public ICommand ContinueToNewProfileCommand { get; }
 
         private string? CheckServer()
         {
@@ -359,7 +393,9 @@ namespace Gordian.App.ViewModels
 
         /// <summary>
         /// Creates the account, then opens the profile editor filled in with it (server, ports, account, password and the
-        /// default install), as the player picked (#652).
+        /// default install), as the player picked (#652). With <see cref="SetUpTwoFactorOnCreate"/> it first runs the
+        /// two-factor setup (QR code and key, then a code to confirm); the new profile then gets the key, and opens after
+        /// the recovery code was shown (<see cref="ContinueToNewProfile"/>), so it is not lost.
         /// </summary>
         public async Task CreateAccountAsync()
         {
@@ -369,8 +405,7 @@ namespace Gordian.App.ViewModels
 
             Password = password;
             NewPassword = ConfirmPassword = string.Empty;
-            SetStatus($"Account '{user}' created on {host}. Opening a new profile for it.");
-            _openProfileEditor(new AccountProfile
+            var profile = new AccountProfile
             {
                 ProfileName = user,
                 ServerType = ProfileServerType.LandSandBoat,
@@ -378,7 +413,39 @@ namespace Gordian.App.ViewModels
                 ServerPort = ServerPort,
                 Username = user,
                 Password = password,
-            });
+            };
+            if (!SetUpTwoFactorOnCreate)
+            {
+                SetStatus($"Account '{user}' created on {host}. Opening a new profile for it.");
+                _openProfileEditor(profile);
+                return;
+            }
+
+            SetPendingNewProfile(profile);
+            await BeginTotpSetupAsync();
+            if (PendingSetup != null)
+            {
+                SetStatus($"Account '{user}' created. Scan the QR code (or type the key) into an authenticator app if you want one on " +
+                    "your phone, enter a code (or use Fill code) and confirm. Cancel skips two-factor.");
+            }
+            else
+            {
+                // The setup didn't start: the account exists, so open its profile and say why two-factor is off.
+                string why = StatusMessage;
+                ContinueToNewProfile();
+                SetStatus($"Account '{user}' created, but two-factor was not set up ({why}). Set it up later in Two-factor.", error: true);
+            }
+        }
+
+        /// <summary>Opens the profile editor for the account just created (after its two-factor setup) and ends that flow.</summary>
+        public void ContinueToNewProfile()
+        {
+            var profile = _pendingNewProfile;
+            if (profile == null) return;
+            SetPendingNewProfile(null);
+            RecoveryCode = string.Empty;
+            SetStatus($"Account '{profile.Username}' created on {profile.EffectiveServerHost}. Opening a new profile for it.");
+            _openProfileEditor(profile);
         }
 
         /// <summary>Changes the password and, if chosen, saves it to the account's profiles.</summary>
@@ -415,6 +482,13 @@ namespace Gordian.App.ViewModels
             PendingSetup = null;
             Code = string.Empty;
             OnPropertyChanged(nameof(CanFillCodeFromProfile));
+            if (HasPendingNewProfile)
+            {
+                // The account exists already: go on to its profile without two-factor.
+                ContinueToNewProfile();
+                SetStatus("Two-factor setup cancelled; the new account logs in with its password only. Opening its profile.");
+                return;
+            }
             SetStatus("Two-factor setup cancelled; the account's login is unchanged.");
         }
 
@@ -432,12 +506,20 @@ namespace Gordian.App.ViewModels
             PendingSetup = null;
             Code = string.Empty;
             RecoveryCode = recovery;
+            OnPropertyChanged(nameof(CanFillCodeFromProfile));
+            if (_pendingNewProfile is { } newProfile)
+            {
+                newProfile.OtpSeed = setup.Secret;
+                newProfile.TwoFactor = TwoFactorMode.AuthenticatorKey;
+                SetStatus("Two-factor is on, and the new profile will make the codes itself. Write the recovery code down " +
+                    "(it is not shown again), then continue to the new profile.");
+                return;
+            }
             int updated = UpdateMatchingProfiles(p =>
             {
                 p.OtpSeed = setup.Secret;
                 p.TwoFactor = TwoFactorMode.AuthenticatorKey;
             });
-            OnPropertyChanged(nameof(CanFillCodeFromProfile));
             SetStatus("Two-factor is on." + UpdatedText(updated, "now make the codes themselves") +
                 " Write the recovery code down: it is the only way to remove two-factor without the authenticator, and it is not shown again.");
         }

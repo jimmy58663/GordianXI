@@ -381,7 +381,7 @@
                                     <!-- Auto-Login only: the character select screen picks the character itself. -->
                                     <StackPanel Spacing="10" IsVisible="{Binding FormAutoLogin}">
                                         <TextBlock Text="Character Name:" Foreground="#A0A0A0"/>
-                                        <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Cybin (in-game name)"/>
+                                        <TextBox Text="{Binding FormCharacterName, Mode=TwoWay}" PlaceholderText="e.g. Gordian (in-game name)"/>
 
                                         <TextBlock Text="Character Slot:" Foreground="#A0A0A0"/>
                                         <ComboBox ItemsSource="{Binding CharacterSlotChoices}" SelectedIndex="{Binding FormCharacterSlot, Mode=TwoWay}" HorizontalAlignment="Stretch" ToolTip.Tip="Position in the character list, as the character select screen shows it. Used when no name is set (or the name is not found); keeps working after a rename."/>
@@ -493,9 +493,12 @@
                         </StackPanel>
 
                         <CheckBox Content="Show passwords" IsChecked="{Binding ShowPasswords, Mode=TwoWay}" Foreground="#A0A0A0"/>
+                        <CheckBox Content="Set up two-factor for the new account" IsChecked="{Binding SetUpTwoFactorOnCreate, Mode=TwoWay}" Foreground="#A0A0A0"
+                                  IsVisible="{Binding IsCreateAccount}" IsEnabled="{Binding ShowsCreateButton}"
+                                  ToolTip.Tip="After creating the account, show its two-factor QR code and key; the new profile gets the key, so GordianXI makes the codes"/>
 
-                        <!-- Two-factor code: change password (if the account has it) and the two-factor tasks -->
-                        <StackPanel Spacing="6" IsVisible="{Binding !IsCreateAccount}">
+                        <!-- Two-factor code: change password (if the account has it), the two-factor tasks, and a setup started by Create Account -->
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowsCodeField}">
                             <TextBlock Foreground="#A0A0A0" TextWrapping="Wrap"
                                        Text="Two-factor Code (if the account has two-factor; the recovery code also works for removing it or making a new one):"/>
                             <Grid ColumnDefinitions="200, 8, Auto">
@@ -514,7 +517,7 @@
 
                         <!-- Actions -->
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0" IsEnabled="{Binding IsIdle}">
-                            <Button Content="Create Account" Command="{Binding CreateAccountCommand}" IsVisible="{Binding IsCreateAccount}"
+                            <Button Content="Create Account" Command="{Binding CreateAccountCommand}" IsVisible="{Binding ShowsCreateButton}"
                                     Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
                             <Button Content="Change Password" Command="{Binding ChangePasswordCommand}" IsVisible="{Binding IsChangePassword}"
                                     Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="32" Padding="14,4" CornerRadius="3"/>
@@ -559,7 +562,11 @@
                                 <SelectableTextBlock Text="{Binding RecoveryCode}" FontFamily="Consolas,Menlo,monospace" FontSize="16" Foreground="#FFFFFF"/>
                                 <TextBlock TextWrapping="Wrap" Foreground="#D0C090"
                                            Text="Write this down and keep it safe. It removes two-factor if you lose the authenticator. GordianXI does not save it and will not show it again."/>
-                                <Button Content="Copy recovery code" Command="{Binding CopyRecoveryCodeCommand}" Background="#3E3E42" Foreground="#DCDCDC" Height="28" Padding="10,4" CornerRadius="3"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Copy recovery code" Command="{Binding CopyRecoveryCodeCommand}" Background="#3E3E42" Foreground="#DCDCDC" Height="28" Padding="10,4" CornerRadius="3"/>
+                                    <Button Content="Continue to the new profile" Command="{Binding ContinueToNewProfileCommand}" IsVisible="{Binding HasPendingNewProfile}"
+                                            Background="#512BD4" Foreground="White" FontWeight="SemiBold" Height="28" Padding="12,4" CornerRadius="3"/>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
