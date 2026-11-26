@@ -34,8 +34,9 @@ namespace Gordian.App.Audio
         private static volatile bool _created;
 
         private readonly AudioEngine _engine;
-        private readonly SoundLibrary? _library;
-        private readonly ResourceManager? _resources;
+        // Replaced together when the app switches FFXI installs (#665, UseResources); read once per use.
+        private volatile SoundLibrary? _library;
+        private volatile ResourceManager? _resources;
         private readonly MusicVoicePool _musicPool;
         private readonly MusicDirector _idleMusic;
         private readonly Dictionary<CharacterSession, MusicDirector> _directors = new();
@@ -66,15 +67,7 @@ namespace Gordian.App.Audio
         {
             _resources = AppResourceManager.Instance;
             _engine = new AudioEngine();
-            if (_resources is not null)
-            {
-                VfsSoundResolver resolver = new(_resources);
-                _library = new SoundLibrary(new FfxiSoundLocator(_resources.GameDirectory, resolver.Resolve));
-                if (!_library.Locator.HasRoots)
-                {
-                    GordianLog.Warn(LogCategories.Audio, $"No sound folders under '{_resources.GameDirectory}'.");
-                }
-            }
+            _library = BuildLibrary(_resources);
 
             _musicPool = new MusicVoicePool(_engine.Mixer, id => _library?.OpenMusic(id));
             _idleMusic = new MusicDirector(_engine.Mixer, _musicPool) { Heard = false };
@@ -90,6 +83,38 @@ namespace Gordian.App.Audio
             }
 
             _created = true;
+        }
+
+        private static SoundLibrary? BuildLibrary(ResourceManager? resources)
+        {
+            if (resources is null) return null;
+            VfsSoundResolver resolver = new(resources);
+            var library = new SoundLibrary(new FfxiSoundLocator(resources.GameDirectory, resolver.Resolve));
+            if (!library.Locator.HasRoots)
+            {
+                GordianLog.Warn(LogCategories.Audio, $"No sound folders under '{resources.GameDirectory}'.");
+            }
+            return library;
+        }
+
+        /// <summary>
+        /// The app switched FFXI installs (#665): sounds come from <paramref name="resources"/> from now on. Does nothing
+        /// when the service was never created (it reads the new install when it is). A switch happens only with every
+        /// viewport closed, so nothing is playing: each closed viewport released the sound.
+        /// </summary>
+        public static void UseResourcesIfCreated(ResourceManager? resources)
+        {
+            if (_created) _instance.Value.UseResources(resources);
+        }
+
+        private void UseResources(ResourceManager? resources)
+        {
+            _resources = resources;
+            _library = BuildLibrary(resources);
+            Interlocked.Increment(ref _zoneLoadToken);
+            _zoneSounds = ZoneSoundTable.Empty;
+            _zoneId = 0;
+            GordianLog.Info(LogCategories.Audio, $"Sounds now come from '{resources?.GameDirectory ?? "(no install)"}'.");
         }
 
         /// <summary>The shared service, created on first use.</summary>
@@ -685,12 +710,13 @@ namespace Gordian.App.Audio
         public async Task<int> PlayEffectAsync(int soundId, AudioCategory category, float volume = 1f, AudioEmitter? emitter = null,
             bool? loop = null, float fadeInSeconds = 0f)
         {
-            if (_library is null || soundId <= 0 || !_engine.IsAvailable)
+            SoundLibrary? library = _library;
+            if (library is null || soundId <= 0 || !_engine.IsAvailable)
             {
                 return 0;
             }
 
-            PcmClip? clip = await _library.GetEffectAsync(soundId).ConfigureAwait(false);
+            PcmClip? clip = await library.GetEffectAsync(soundId).ConfigureAwait(false);
             return clip is null ? 0 : _engine.Mixer.Play(clip.Open(loop), category, volume, emitter, fadeInSeconds);
         }
 
@@ -973,7 +999,8 @@ namespace Gordian.App.Audio
         {
             int token = Interlocked.Increment(ref _zoneLoadToken);
             _zoneSounds = ZoneSoundTable.Empty;
-            if (_resources is null || zone == 0)
+            ResourceManager? resources = _resources;
+            if (resources is null || zone == 0)
             {
                 return;
             }
@@ -982,7 +1009,7 @@ namespace Gordian.App.Audio
             {
                 try
                 {
-                    byte[]? dat = _resources.LoadDatBytesByFileId(ZoneDataLoader.GetZoneModelFileId(zone));
+                    byte[]? dat = resources.LoadDatBytesByFileId(ZoneDataLoader.GetZoneModelFileId(zone));
                     if (dat is null || Volatile.Read(ref _zoneLoadToken) != token)
                     {
                         return;

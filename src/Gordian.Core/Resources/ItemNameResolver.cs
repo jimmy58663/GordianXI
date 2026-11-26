@@ -25,8 +25,16 @@ namespace Gordian.Core.Resources
             catch { }
         }
 
+        /// <summary>The install item names are read from, or null before <see cref="Initialize"/>.</summary>
+        public static string? GameDirectory => _gameDirectory;
+
+        /// <summary>
+        /// Reads item names from <paramref name="gameDirectory"/> from now on. Names already resolved from another install
+        /// are forgotten, so a switch of install (#665) never shows the previous install's names.
+        /// </summary>
         public static void Initialize(string? gameDirectory)
         {
+            if (!string.Equals(_gameDirectory, gameDirectory, StringComparison.Ordinal)) _cache.Clear();
             _gameDirectory = gameDirectory;
         }
 

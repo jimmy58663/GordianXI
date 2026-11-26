@@ -1764,13 +1764,18 @@ namespace Gordian.App.ViewModels
             // Separate LandSandBoat profiles (LsbLoginClient) from retail profiles (direct retail login)
             var directLsbProfiles = new List<AccountProfile>();
             var directRetailProfiles = new List<AccountProfile>();
+            var lsbHolds = new List<AppResourceManager.LaunchHold>();
+            var retailHolds = new List<AppResourceManager.LaunchHold>();
             var problems = new List<string>();
 
             foreach (var p in targetsToLaunch)
             {
-                // What the profile itself is missing (a server host, its authenticator code), then its FFXI install:
-                // one install is loaded per GordianXI process (AppResourceManager).
-                string? problem = p.GetLaunchProblem() ?? AppResourceManager.SelectForLaunch(p.GameDirectory);
+                // What the profile itself is missing (a server host, its authenticator code), then its FFXI install: one
+                // install is loaded at a time, switched only while nothing uses it (AppResourceManager, #665). The hold
+                // keeps it loaded until this batch's launches have their lobby window or session (or failed).
+                string? problem = p.GetLaunchProblem();
+                AppResourceManager.LaunchHold? hold = null;
+                if (problem == null) problem = AppResourceManager.SelectForLaunch(p.GameDirectory, out hold);
                 if (problem != null)
                 {
                     problems.Add($"[{p.ProfileName}] Not launched: it {problem}");
@@ -1780,10 +1785,12 @@ namespace Gordian.App.ViewModels
                 if (p.EffectiveServerType == ProfileServerType.LandSandBoat)
                 {
                     directLsbProfiles.Add(p);
+                    if (hold != null) lsbHolds.Add(hold);
                 }
                 else
                 {
                     directRetailProfiles.Add(p);
+                    if (hold != null) retailHolds.Add(hold);
                 }
             }
 
@@ -1810,89 +1817,100 @@ namespace Gordian.App.ViewModels
                             StatusMessage = msg;
                         });
                     };
-                    foreach (var profile in directLsbProfiles)
+                    try
                     {
-                        string? skipReason = GetLaunchSkipReason(profile);
-                        if (skipReason != null)
+                        foreach (var profile in directLsbProfiles)
                         {
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            string? skipReason = GetLaunchSkipReason(profile);
+                            if (skipReason != null)
                             {
-                                StatusMessage = skipReason;
-                            });
-                            continue;
-                        }
-
-                        try
-                        {
-                            string serverHost = profile.EffectiveServerHost;
-                            int connectPort = profile.EffectiveServerPort;
-                            int dataPort = profile.EffectiveDataPort;
-                            int viewPort = profile.EffectiveViewPort;
-                            // The lobby login reports the install's FFXI version, as the legacy client does; LandSandBoat
-                            // refuses one older than its CLIENT_VER by default.
-                            client.ClientVersion = InstalledClientVersion(profile);
-
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                            {
-                                StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}:{connectPort}...";
-                            });
-
-                            string otp = TakeOneTimeCode(profile);
-
-                            // No character on the profile: the character select screen, as the retail client always shows
-                            // (#32). A profile with a character name or slot keeps the direct fast path.
-                            if (UsesCharacterSelect(profile))
-                            {
-                                await OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort, otp).ConfigureAwait(false);
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = skipReason;
+                                });
                                 continue;
                             }
 
-                            string? targetCharName = !string.IsNullOrWhiteSpace(profile.CharacterName)
-                                ? profile.CharacterName
-                                : null;
-
-                            var ticket = await client.LoginAndSelectAsync(
-                                host: serverHost,
-                                username: profile.Username,
-                                password: profile.Password,
-                                otp: otp,
-                                connectPort: connectPort,
-                                dataPort: dataPort,
-                                viewPort: viewPort,
-                                targetCharacterName: targetCharName,
-                                targetCharacterSlot: profile.CharacterSlot,
-                                transport: profile.LobbyTransport,
-                                oneTimeCode: LsbOneTimeCode(profile)
-                            ).ConfigureAwait(false);
-
-                            // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
-                            // though this launch skipped it: LandSandBoat ends the map session on Log Out, so the launcher logs in
-                            // to the lobby servers again (a new xi_data / xi_view session) exactly as after a character select
-                            // launch (round 2 of #368 / #377 testing: before, Log Out on the fast path ended the session).
-                            Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
-                                TakeOneTimeCode(profile), showLicence: false);
-                            await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
-                        }
-                        catch (TwoFactorCodeNotReadyException ex)
-                        {
-                            GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Not launched: {ex.Message}");
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            try
                             {
-                                StatusMessage = $"[{profile.ProfileName}] Not launched: {ex.Message}";
-                                RefreshAllStatuses();
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            GordianLog.Error(LogCategories.Session, $"Connection error for profile '{profile.ProfileName}'", ex);
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                string serverHost = profile.EffectiveServerHost;
+                                int connectPort = profile.EffectiveServerPort;
+                                int dataPort = profile.EffectiveDataPort;
+                                int viewPort = profile.EffectiveViewPort;
+                                // The lobby login reports the install's FFXI version, as the legacy client does; LandSandBoat
+                                // refuses one older than its CLIENT_VER by default.
+                                client.ClientVersion = InstalledClientVersion(profile);
+
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{profile.ProfileName}] Authenticating with LandSandBoat at {serverHost}:{connectPort}...";
+                                });
+
+                                string otp = TakeOneTimeCode(profile);
+
+                                // No character on the profile: the character select screen, as the retail client always shows
+                                // (#32). A profile with a character name or slot keeps the direct fast path.
+                                if (UsesCharacterSelect(profile))
+                                {
+                                    await OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort, otp).ConfigureAwait(false);
+                                    continue;
+                                }
+
+                                string? targetCharName = !string.IsNullOrWhiteSpace(profile.CharacterName)
+                                    ? profile.CharacterName
+                                    : null;
+
+                                var ticket = await client.LoginAndSelectAsync(
+                                    host: serverHost,
+                                    username: profile.Username,
+                                    password: profile.Password,
+                                    otp: otp,
+                                    connectPort: connectPort,
+                                    dataPort: dataPort,
+                                    viewPort: viewPort,
+                                    targetCharacterName: targetCharName,
+                                    targetCharacterSlot: profile.CharacterSlot,
+                                    transport: profile.LobbyTransport,
+                                    oneTimeCode: LsbOneTimeCode(profile)
+                                ).ConfigureAwait(false);
+
+                                // Log Out and a dropped connection go to the character select screen, as retail does (#235), even
+                                // though this launch skipped it: LandSandBoat ends the map session on Log Out, so the launcher logs in
+                                // to the lobby servers again (a new xi_data / xi_view session) exactly as after a character select
+                                // launch (round 2 of #368 / #377 testing: before, Log Out on the fast path ended the session).
+                                Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
+                                    TakeOneTimeCode(profile), showLicence: false);
+                                await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
+                            }
+                            catch (TwoFactorCodeNotReadyException ex)
                             {
-                                StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}";
-                                RefreshAllStatuses();
-                            });
+                                GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Not launched: {ex.Message}");
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{profile.ProfileName}] Not launched: {ex.Message}";
+                                    RefreshAllStatuses();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                GordianLog.Error(LogCategories.Session, $"Connection error for profile '{profile.ProfileName}'", ex);
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{profile.ProfileName}] Connection error: {ex.Message}";
+                                    RefreshAllStatuses();
+                                });
+                            }
                         }
                     }
+                    finally
+                    {
+                        ReleaseLaunchHolds(lsbHolds);
+                    }
                 });
+            }
+            else
+            {
+                ReleaseLaunchHolds(lsbHolds);
             }
 
             // 2. Retail profiles log in directly (docs/network/retail-login.md), one at a time.
@@ -1900,30 +1918,54 @@ namespace Gordian.App.ViewModels
             {
                 _ = Task.Run(async () =>
                 {
-                    foreach (var profile in directRetailProfiles)
+                    try
                     {
-                        string? skipReason = GetLaunchSkipReason(profile);
-                        if (skipReason != null)
+                        foreach (var profile in directRetailProfiles)
                         {
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = skipReason);
-                            continue;
-                        }
-                        try
-                        {
-                            await LaunchRetailAsync(profile).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            GordianLog.Error(LogCategories.Session, $"Retail login failed for profile '{profile.ProfileName}'", ex);
-                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            string? skipReason = GetLaunchSkipReason(profile);
+                            if (skipReason != null)
                             {
-                                StatusMessage = $"[{profile.ProfileName}] {ex.Message}";
-                                RefreshAllStatuses();
-                            });
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = skipReason);
+                                continue;
+                            }
+                            try
+                            {
+                                await LaunchRetailAsync(profile).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                GordianLog.Error(LogCategories.Session, $"Retail login failed for profile '{profile.ProfileName}'", ex);
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    StatusMessage = $"[{profile.ProfileName}] {ex.Message}";
+                                    RefreshAllStatuses();
+                                });
+                            }
                         }
+                    }
+                    finally
+                    {
+                        ReleaseLaunchHolds(retailHolds);
                     }
                 });
             }
+            else
+            {
+                ReleaseLaunchHolds(retailHolds);
+            }
+        }
+
+        /// <summary>
+        /// Lets the install switch again once a batch's launches are done (#665). Posted to the UI thread, after the
+        /// lobby or session window those launches posted there, so the window counts as a user before the hold goes.
+        /// </summary>
+        private static void ReleaseLaunchHolds(List<AppResourceManager.LaunchHold> holds)
+        {
+            if (holds.Count == 0) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var hold in holds) hold.Dispose();
+            });
         }
 
         /// <summary>

@@ -20,6 +20,15 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // The FFXI install switches without a restart only while nothing uses it (#665): no viewport window (the lobby
+        // included) and no logged-in character. The shared graphics device lives exactly as long as a window holds it, and
+        // the GPU caches live on it, so "no device" also means nothing from the old install is left on the GPU.
+        AppResourceManager.UsageProbe = () => AppResourceManager.DescribeUsers(
+            SessionRegistry.Default.ActiveSessions.Count,
+            ViewportWindowManager.Default.HasOpenWindows,
+            Gordian.App.Graphics.SharedGraphicsDevice.Current != null);
+        AppResourceManager.InstallSwitched += Gordian.App.Audio.GameAudioService.UseResourcesIfCreated;
+
         // Every session, displayed or not, follows the collision of its own zone (loaded off the UI thread).
         _zoneCollision = new ZoneCollisionService(SessionRegistry.Default,
             zoneId => AppResourceManager.Instance?.TryLoadZoneCollision(zoneId));
