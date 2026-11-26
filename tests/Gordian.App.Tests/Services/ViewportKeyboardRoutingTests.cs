@@ -64,6 +64,54 @@ public class ViewportKeyboardRoutingTests
         Up(window, Key.X, PhysicalKey.X);
     });
 
+    [Fact]
+    public Task SharedFullChange_DoesNotReinterpretHeldWUntilReleaseAndFreshPress() => Run(() =>
+    {
+        var profile = InputProfile.CreateDefault();
+        profile.KeyboardLayout!.Mode = KeyboardMode.Compact2;
+        var hub = new InputProfileHub(profile);
+        using var session = Session(hub);
+        using var sibling = Session(hub);
+        using var shell = new Shell(session);
+        var window = shell.Window;
+
+        Down(window, Key.W, PhysicalKey.W, "w");
+        Text(window, "w");
+        Pump(session);
+        Assert.True(session.InputState.IsKeyHeld(GordianKey.W));
+        Assert.True(session.InputState.IsActionHeld(InputAction.MoveForward));
+        Assert.False(session.Chat.Input.IsOpen);
+
+        // Exercise the actual shared notification, not a direct call to BlockHeldKeysUntilRelease.
+        sibling.ActionService.Menus.SetSetting(StockUiSettingKey.KeyboardSize, 0);
+        Assert.Equal(KeyboardMode.Full, session.Locomotion.Profile.KeyboardLayout!.Mode);
+        for (int repeat = 0; repeat < 3; repeat++)
+        {
+            Down(window, Key.W, PhysicalKey.W, "w");
+            Text(window, "w");
+            Pump(session);
+            Assert.False(session.Chat.Input.IsOpen);
+            Assert.Equal(string.Empty, session.Chat.Input.Text);
+            Assert.True(session.InputState.IsKeyHeld(GordianKey.W));
+            Assert.False(session.InputState.IsActionHeld(InputAction.MoveForward));
+        }
+
+        Up(window, Key.W, PhysicalKey.W);
+        Pump(session);
+        Assert.False(session.InputState.IsKeyHeld(GordianKey.W));
+        Assert.False(session.Chat.Input.IsOpen);
+        var fresh = Down(window, Key.W, PhysicalKey.W, "w");
+        Assert.False(fresh.Handled); // Windows must be allowed to produce the ensuing TextInput.
+        Assert.True(session.Chat.Input.IsOpen);
+        Assert.Equal(string.Empty, session.Chat.Input.Text);
+        Text(window, "w");
+        Assert.Equal("w", session.Chat.Input.Text);
+        Down(window, Key.W, PhysicalKey.W, "w");
+        Text(window, "w");
+        Assert.Equal("ww", session.Chat.Input.Text); // normal repeat typing in an editor remains valid
+        Up(window, Key.W, PhysicalKey.W);
+    });
+
     private static CharacterSession Session(InputProfileHub hub) => new(
         "Routing_" + Guid.NewGuid().ToString("N"), 1, "fixture",
         new SessionNetworkManager("127.0.0.1", 54230), hub);
