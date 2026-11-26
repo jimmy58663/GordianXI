@@ -231,7 +231,9 @@ namespace Gordian.Engine.Sessions
         /// <summary>The user's input profile changed: take a fresh copy and apply this character's config choices again.</summary>
         private void OnSharedInputProfileChanged(object? source)
         {
-            Locomotion.Profile = _inputProfiles.CreateSessionCopy();
+            InputState.BlockHeldKeysUntilRelease();
+            Locomotion.Profile = Input.KeyboardLayout.Resolve(_inputProfiles.Profile,
+                (Input.KeyboardMode)ActionService.UiSettings.GetValue(Ui.StockUiSettingKey.KeyboardSize));
             ApplyCameraSettings();
         }
 
@@ -264,11 +266,12 @@ namespace Gordian.Engine.Sessions
                 LocalPlayer,
                 ActionService
             );
-            // The config menu's Mouse/Camera page (third-person axes) drives the session's input profile; only
+            // The config menu's Mouse/Camera page drives both devices in the session's input profile; only
             // choices the player has made are applied, so an untouched page leaves the profile's own settings alone.
-            ApplyCameraSettings();
+            OnSharedInputProfileChanged(null);
             ActionService.UiSettings.Changed += (key, _) =>
             {
+                if (key == Ui.StockUiSettingKey.KeyboardSize) OnSharedInputProfileChanged(null);
                 if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY
                     or Ui.StockUiSettingKey.FirstPersonInvertX or Ui.StockUiSettingKey.FirstPersonInvertY) ApplyCameraSettings();
             };

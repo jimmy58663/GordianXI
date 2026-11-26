@@ -104,6 +104,9 @@ namespace Gordian.Engine.Input
         OemQuotes,           // ' or "
         OemComma,            // , or <
         OemPeriod,           // . or >
-        OemSlash             // / or ?
+        OemSlash,            // / or ?
+
+        PrintScreen = 160,
+        Pause
     }
 }

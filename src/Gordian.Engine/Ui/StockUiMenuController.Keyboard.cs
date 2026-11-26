@@ -43,6 +43,9 @@ namespace Gordian.Engine.Ui
         private TimeSpan _keyCaptureLeft;
         private bool _keyCaptureRelease;
         private int _pendingKeyReset;
+        private string? _keyResetSnapshot;
+        private KeyboardMode _keyResetMode;
+        private KeyboardMode CharacterKeyboardMode => (KeyboardMode)(Settings?.GetValue(StockUiSettingKey.KeyboardSize) ?? 0);
 
         /// <summary>
         /// True while a keyboard window waits for a key, and after one was assigned until every key is let go: the keyboard
@@ -96,6 +99,7 @@ namespace Gordian.Engine.Ui
         private void RefreshKeyAssign(StockUiOpenMenu menu)
         {
             var profile = GamepadProfile?.Invoke();
+            if (profile != null) profile = KeyboardLayout.Resolve(profile, CharacterKeyboardMode);
             var functions = KeyFunctionsOf(menu);
             var rows = new List<StockUiListRow>(functions.Count);
             for (int i = 0; i < functions.Count; i++)
@@ -136,6 +140,15 @@ namespace Gordian.Engine.Ui
         /// </summary>
         private async Task ConfirmKeyResetAsync()
         {
+            var profile = GamepadProfile?.Invoke();
+            if (profile?.KeyboardLayout is not { Supported: true })
+            {
+                NoticePosted?.Invoke("Keyboard remains frozen. Use Controls & Input to review explicit legacy conversion; newer catalogs need a compatible build.");
+                return;
+            }
+            _keyResetSnapshot = profile.SaveToJson();
+            _keyResetMode = CharacterKeyboardMode;
+            NoticePosted?.Invoke($"Restore {_keyResetMode}: clears known SHARED keyboard overrides for all characters. Controller, camera, mouse and unknown entries stay unchanged.");
             bool yes = await PromptYesNoAsync(KeyResetPrompt, defaultYes: false).ConfigureAwait(false);
             if (yes) Volatile.Write(ref _pendingKeyReset, 1);
         }
@@ -149,6 +162,11 @@ namespace Gordian.Engine.Ui
         {
             if (Interlocked.Exchange(ref _pendingKeyReset, 0) == 1 && GamepadProfileEdited is { } reset)
             {
+                if (_keyResetSnapshot != GamepadProfile?.Invoke()?.SaveToJson() || _keyResetMode != CharacterKeyboardMode)
+                {
+                    NoticePosted?.Invoke("Keyboard or layout changed. Review reset again.");
+                    return false;
+                }
                 reset(KeyboardAssignments.ResetDefaults);
                 GordianLog.Info(LogCategories.Input, "Keyboard: every key back on its default function.");
                 Changed?.Invoke();
@@ -175,7 +193,18 @@ namespace Gordian.Engine.Ui
                 if (!KeyboardAssignments.IsAssignable(key)) continue;
                 var function = KeyFunctionsOf(list)[_keyCaptureEntry];
                 var chord = new InputChord(key, input.CurrentModifiers & ~InputModifiers.Super);
-                GamepadProfileEdited?.Invoke(profile => KeyboardAssignments.Assign(profile, function, chord));
+                GamepadProfileEdited?.Invoke(profile =>
+                {
+                    if (profile.KeyboardLayout == null) KeyboardAssignments.Assign(profile, function, chord);
+                    else if (profile.KeyboardLayout.Supported)
+                    {
+                        var effective = KeyboardLayout.Resolve(profile, CharacterKeyboardMode);
+                        effective.KeyboardLayout!.Mode = CharacterKeyboardMode;
+                        KeyboardAssignments.Assign(effective, function, chord);
+                        profile.KeyboardLayout.Overrides = effective.KeyboardLayout.Overrides;
+                    }
+                    else NoticePosted?.Invoke("Unsupported keyboard catalog; assignment unchanged.");
+                });
                 GordianLog.Info(LogCategories.Input, $"Keyboard: {KeyboardAssignments.KeyName(chord)} assigned to {function.Label}.");
                 SoundCue?.Invoke(StockUiSoundCue.Select);
                 EndKeyCapture(list, release: true);

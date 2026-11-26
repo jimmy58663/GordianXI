@@ -161,6 +161,14 @@ namespace Gordian.Engine.Input
 
         #region Physical Input Ingestion
 
+        private readonly HashSet<GordianKey> _layoutBlockedKeys = new();
+
+        /// <summary>A changed map cannot reinterpret a held/repeating key as a new action.</summary>
+        public void BlockHeldKeysUntilRelease()
+        {
+            lock (_lock) _layoutBlockedKeys.UnionWith(_heldKeys);
+        }
+
         public void SetKeyDown(GordianKey key)
         {
             if (key == GordianKey.None) return;
@@ -180,6 +188,7 @@ namespace Gordian.Engine.Input
             lock (_lock)
             {
                 _heldKeys.Remove(key);
+                _layoutBlockedKeys.Remove(key);
                 UpdateModifierForKey(key, false);
             }
         }
@@ -254,6 +263,7 @@ namespace Gordian.Engine.Input
             lock (_lock)
             {
                 _heldKeys.Clear();
+                _layoutBlockedKeys.Clear();
                 _previousKeys.Clear();
                 _pressedKeys.Clear();
                 _modifiers = InputModifiers.None;
@@ -318,7 +328,7 @@ namespace Gordian.Engine.Input
                 _pressedKeys.Clear();
                 foreach (var key in _heldKeys)
                 {
-                    if (!_previousKeys.Contains(key)) _pressedKeys.Add(key);
+                    if (!_layoutBlockedKeys.Contains(key) && !_previousKeys.Contains(key)) _pressedKeys.Add(key);
                 }
                 _previousKeys.Clear();
                 foreach (var key in _heldKeys) _previousKeys.Add(key);
@@ -327,6 +337,7 @@ namespace Gordian.Engine.Input
                 foreach (var key in _heldKeys)
                 {
                     if (SuppressKeyboardActions) break;
+                    if (_layoutBlockedKeys.Contains(key)) continue;
                     // Chord with exact modifiers
                     var chord = new InputChord(key, _modifiers);
                     if (profile.TryGetAction(chord, menuContext, out var act))

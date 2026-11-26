@@ -32,6 +32,28 @@ namespace Gordian.App.Services
                 or Key.OemSemicolon or Key.OemQuotes or Key.OemComma or Key.OemPeriod or Key.OemQuestion;
         }
 
+        /// <summary>Preserves gameplay keypad identity regardless of Num Lock.</summary>
+        public static GordianKey ToGordianKey(Key key, PhysicalKey physicalKey) => physicalKey switch
+        {
+            PhysicalKey.NumPad0 => GordianKey.NumPad0,
+            PhysicalKey.NumPad1 => GordianKey.NumPad1,
+            PhysicalKey.NumPad2 => GordianKey.NumPad2,
+            PhysicalKey.NumPad3 => GordianKey.NumPad3,
+            PhysicalKey.NumPad4 => GordianKey.NumPad4,
+            PhysicalKey.NumPad5 => GordianKey.NumPad5,
+            PhysicalKey.NumPad6 => GordianKey.NumPad6,
+            PhysicalKey.NumPad7 => GordianKey.NumPad7,
+            PhysicalKey.NumPad8 => GordianKey.NumPad8,
+            PhysicalKey.NumPad9 => GordianKey.NumPad9,
+            PhysicalKey.NumPadAdd => GordianKey.NumPadAdd,
+            PhysicalKey.NumPadDecimal => GordianKey.NumPadDecimal,
+            PhysicalKey.NumPadDivide => GordianKey.NumPadDivide,
+            PhysicalKey.NumPadEnter => GordianKey.NumPadEnter,
+            PhysicalKey.NumPadMultiply => GordianKey.NumPadMultiply,
+            PhysicalKey.NumPadSubtract => GordianKey.NumPadSubtract,
+            _ => ToGordianKey(key)
+        };
+
         public static GordianKey ToGordianKey(Key key)
         {
             return key switch
@@ -119,6 +141,9 @@ namespace Gordian.App.Services
                 Key.End => GordianKey.End,
                 Key.PageUp => GordianKey.PageUp,
                 Key.PageDown => GordianKey.PageDown,
+                Key.Scroll => GordianKey.ScrollLock,
+                Key.Print or Key.PrintScreen => GordianKey.PrintScreen,
+                Key.Pause => GordianKey.Pause,
 
                 // Arrows
                 Key.Up => GordianKey.Up,

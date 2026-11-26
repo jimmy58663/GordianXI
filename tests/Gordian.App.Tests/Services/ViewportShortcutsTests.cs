@@ -8,6 +8,15 @@ namespace Gordian.App.Tests.Services
     public class ViewportShortcutsTests
     {
         [Theory]
+        [InlineData(Key.F9)] [InlineData(Key.F10)] [InlineData(Key.F11)]
+        public void LayeredFunctionKeys_AreNeverTakenByDiagnosticWindowShortcuts(Key key)
+        {
+            var profile = Gordian.Engine.Input.InputProfile.CreateDefault();
+            Assert.Equal(ViewportShortcut.None, ViewportShortcuts.Classify(key, KeyModifiers.None, profile));
+            Assert.Equal(ViewportShortcut.RestoreStockUi, ViewportShortcuts.Classify(Key.F12, KeyModifiers.Control | KeyModifiers.Shift, profile));
+        }
+
+        [Theory]
         [InlineData(Key.Tab, KeyModifiers.Control, ViewportShortcut.NextCharacter)]
         [InlineData(Key.Tab, KeyModifiers.Control | KeyModifiers.Shift, ViewportShortcut.PreviousCharacter)]
         [InlineData(Key.Tab, KeyModifiers.None, ViewportShortcut.None)] // target cycling, the character's

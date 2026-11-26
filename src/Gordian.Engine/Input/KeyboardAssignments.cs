@@ -116,6 +116,11 @@ namespace Gordian.Engine.Input
             new KeyboardFunction("Cycle Target Left", -1, InputAction.TargetPrevious),
             new KeyboardFunction("Target Self", -1, InputAction.TargetSelf),
             new KeyboardFunction("Open Chat", -1, InputAction.OpenChat),
+            new KeyboardFunction("Chat: Party", -1, InputAction.OpenPartyChat),
+            new KeyboardFunction("Chat: Say", -1, InputAction.OpenSayChat),
+            new KeyboardFunction("Chat: Linkshell", -1, InputAction.OpenLinkshellChat),
+            new KeyboardFunction("Chat: Tell", -1, InputAction.OpenTellChat),
+            new KeyboardFunction("Chat: Reply to tell", -1, InputAction.ReplyToTell),
         };
 
         /// <summary>Both windows' functions: a key is taken from any of them when assigned.</summary>
@@ -153,6 +158,28 @@ namespace Gordian.Engine.Input
         /// </summary>
         public static void Assign(InputProfile profile, KeyboardFunction function, InputChord key)
         {
+            if (profile.KeyboardLayout is { } layout)
+            {
+                if (!layout.Supported) throw new InvalidOperationException("Unsupported keyboard catalog; use a compatible build.");
+                var effective = KeyboardLayout.Resolve(profile, layout.Mode);
+                var before = effective.Bindings.ToDictionary(p => p.Key, p => p.Value.Where(IsKeyboard).ToArray());
+                AssignRaw(effective, function, key);
+                foreach (var action in before.Keys.Union(effective.Bindings.Keys).Union(function.Actions))
+                {
+                    var after = effective.GetChords(action).Where(IsKeyboard).ToArray();
+                    if (!function.Actions.Contains(action) && before.TryGetValue(action, out var old) && old.SequenceEqual(after)) continue;
+                    var names = after.Select(c => c.ToString()).ToList();
+                    if (layout.Overrides.TryGetValue(action.ToString(), out var saved))
+                        names.AddRange(saved.Where(n => !InputChord.TryParse(n, out var c) || !IsKeyboard(c)));
+                    layout.Overrides[action.ToString()] = names;
+                }
+                return;
+            }
+            AssignRaw(profile, function, key);
+        }
+
+        private static void AssignRaw(InputProfile profile, KeyboardFunction function, InputChord key)
+        {
             ArgumentNullException.ThrowIfNull(profile);
             ArgumentNullException.ThrowIfNull(function);
             if (!IsKeyboard(key)) throw new ArgumentException("Assign one keyboard key.", nameof(key));
@@ -189,14 +216,24 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Puts every keyboard key back on its default (the Compact or Full layout the profile is named after, Compact
-        /// otherwise); gamepad and mouse bindings and the other settings stay.
+        /// Releases known layered keyboard overrides to the selected catalog. Unknown entries and all non-keyboard
+        /// settings stay. Legacy callers without provenance use Full; UI conversion is always explicit.
         /// </summary>
         public static void ResetDefaults(InputProfile profile)
         {
             ArgumentNullException.ThrowIfNull(profile);
-            var defaults = profile.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase)
-                ? InputProfile.CreateFullNumpad() : InputProfile.CreateCompact();
+            if (profile.KeyboardLayout is { } layout)
+            {
+                if (!layout.Supported) throw new InvalidOperationException("Unsupported keyboard catalog; use a compatible build.");
+                foreach (var name in layout.Overrides.Keys.ToArray())
+                    if (Enum.TryParse<InputAction>(name, out var action) && Enum.IsDefined(action)
+                        && layout.Overrides[name].All(n => InputChord.TryParse(n, out var c) && IsKeyboard(c)))
+                        layout.Overrides.Remove(name);
+                return;
+            }
+            // This legacy API is retained for callers without a character setting. New UI paths
+            // require explicit conversion and pass a catalog mode; never infer intent from a name.
+            var defaults = KeyboardLayout.Catalog(KeyboardMode.Full);
             foreach (var chords in profile.Bindings.Values) chords.RemoveAll(IsKeyboard);
             foreach (var (action, chords) in defaults.Bindings)
             {
