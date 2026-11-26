@@ -680,16 +680,49 @@ namespace Gordian.App.Graphics
         private object _renderLock => _deviceManager.GpuLock;
         private CancellationTokenSource? _renderLoopCts;
         private Task? _renderTask;
+        private long _pendingSurfaceSize;
+        private long _nextSurfaceReconcileTicks; // worker-owned, reset for each generation
+        // UI-thread ownership: a new native child may attach while the old generation drains,
+        // but must not replace the fields still used by that generation's worker.
+        private bool _retiring;
+        private IPlatformHandle? _activeNativeControl;
+        private IPlatformHandle? _pendingNativeControl;
+        private Action? _pendingInitialization;
 
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+                throw new PlatformNotSupportedException("Native viewport hosting is implemented for Windows and Linux X11 only.");
+            IPlatformHandle child = OperatingSystem.IsWindows()
+                ? new PlatformHandle(Win32ChildWindowHelper.CreateChildWindow(parent.Handle, 1, 1), "HWND")
+                : base.CreateNativeControlCore(parent);
+            if (_retiring)
+            {
+                _pendingNativeControl = child;
+                _pendingInitialization = () => InitializeNativeViewport(parent, child);
+                return child;
+            }
+            try { InitializeNativeViewport(parent, child); }
+            catch (Exception ex)
+            {
+                GordianLog.Error(LogCategories.Graphics, $"Viewport initialization failed ({child.HandleDescriptor}): {ex.Message}");
+                DisposeViewportResources();
+                DestroyNativeChild(child);
+                _activeNativeControl = null;
+                ActiveBackendName = "None";
+                GpuDeviceName = "None";
+                throw;
+            }
+            return child;
+        }
+
+        private void InitializeNativeViewport(IPlatformHandle parent, IPlatformHandle child)
+        {
+            _activeNativeControl = child;
+            SwapchainSource source;
             if (OperatingSystem.IsWindows())
             {
-                double scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-                int pixelW = Math.Max(1, (int)(Bounds.Width * scale));
-                int pixelH = Math.Max(1, (int)(Bounds.Height * scale));
-
-                _childHwnd = Win32ChildWindowHelper.CreateChildWindow(parent.Handle, pixelW, pixelH);
+                _childHwnd = child.Handle;
                 Win32ChildWindowHelper.SetRawMouseHandler(_childHwnd, OnRawMouseEvent);
                 if (_arrowCursor == IntPtr.Zero)
                 {
@@ -697,57 +730,130 @@ namespace Gordian.App.Graphics
                     _arrowCursor = Win32ChildWindowHelper.CreateCursorFromRgba(arrow.RgbaPixels, arrow.Width, arrow.Height,
                         StockUiPointerArt.HotspotX, StockUiPointerArt.HotspotY);
                 }
-                // The stock arrow over the viewport; hidden while the HUD draws the hover pointer over a menu entry.
                 Win32ChildWindowHelper.SetCursorQuery(_childHwnd, () =>
                 {
-                    // Over an interactive ImGui window (#380) the cursor is the shape it asks for.
                     if (ImGuiInput.WantCaptureMouse) return ImGuiSystemCursor(ImGuiInput.MouseCursor);
                     return StockUi.PointerDrawn || _activeSession?.ActionService.UiPointer.Hidden == true ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null;
                 });
-                var swapchainSource = SwapchainSource.CreateWin32(_childHwnd, IntPtr.Zero);
+                source = SwapchainSource.CreateWin32(child.Handle, IntPtr.Zero);
+            }
+            else
+            {
+                _x11Display = new X11DisplayConnection(parent, child);
+                source = NativeViewportSource.CreateXlib(child, _x11Display.Handle);
+            }
+            double scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+            InitializeViewport(source, (uint)Math.Max(1, (int)(Bounds.Width * scale)),
+                (uint)Math.Max(1, (int)(Bounds.Height * scale)));
+        }
 
-                // One swapchain per window on the process's shared device (#300); the first window creates the device.
-                _deviceManager = new VeldridDeviceManager();
-                _deviceManager.InitializeShared(
-                    swapchainSource,
-                    (uint)pixelW,
-                    (uint)pixelH,
-                    BackendPreference,
-                    vsync: ViewportRenderSettings.VsyncEnabled);
-                _swapchainVsync = ViewportRenderSettings.VsyncEnabled;
+        private X11DisplayConnection? _x11Display;
 
-                lock (_renderLock)
+        // Internal deterministic seams for the isolated native lifecycle fixture (never configured by the app).
+        internal Action<string>? InitializationCheckpoint { get; set; }
+        internal Action? BeforeRenderFrame { get; set; }
+
+        private void InitializeViewport(SwapchainSource source, uint pixelW, uint pixelH)
+        {
+            Interlocked.Exchange(ref _pendingSurfaceSize, 0);
+            // One swapchain per window on the process's shared device (#300); the first window creates the device.
+            _deviceManager = new VeldridDeviceManager();
+            _deviceManager.InitializeShared(
+                source,
+                pixelW,
+                pixelH,
+                BackendPreference,
+                vsync: ViewportRenderSettings.VsyncEnabled);
+            InitializationCheckpoint?.Invoke("swapchain");
+            _swapchainVsync = ViewportRenderSettings.VsyncEnabled;
+
+            lock (_renderLock)
+            {
+                if (_deviceManager.Device != null && _deviceManager.SharedDevice is { } sharedDevice && _deviceManager.Framebuffer is { } framebuffer)
                 {
-                    if (_deviceManager.Device != null && _deviceManager.SharedDevice is { } sharedDevice && _deviceManager.Framebuffer is { } framebuffer)
-                    {
-                        ActiveBackendName = _deviceManager.ActiveBackend.ToString();
-                        GpuDeviceName = _deviceManager.DeviceName;
-                        var outputs = framebuffer.OutputDescription;
-                        _renderer = new ZoneTerrainRenderer(sharedDevice.Resources, outputs);
-                        _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, outputs);
+                    ActiveBackendName = _deviceManager.ActiveBackend.ToString();
+                    GpuDeviceName = _deviceManager.DeviceName;
+                    var outputs = framebuffer.OutputDescription;
+                    _renderer = new ZoneTerrainRenderer(sharedDevice.Resources, outputs,
+                        () => InitializationCheckpoint?.Invoke("terrain-pipeline"));
+                    InitializationCheckpoint?.Invoke("terrain");
+                    _stockUiRenderer = new StockUiRenderer(_deviceManager.Device, outputs);
+                    InitializationCheckpoint?.Invoke("stock-ui");
 
-                        ushort initialZone = _activeSession?.World.MapZoneId ?? _worldState?.MapZoneId ?? 0;
-                        if (initialZone != 0)
-                        {
-                            OnWorldZoneChanged(initialZone);
-                        }
+                    ushort initialZone = _activeSession?.World.MapZoneId ?? _worldState?.MapZoneId ?? 0;
+                    if (initialZone != 0)
+                    {
+                        OnWorldZoneChanged(initialZone);
                     }
                 }
-
-                StartRenderLoop();
-                return new PlatformHandle(_childHwnd, "HWND");
             }
 
-            GordianLog.Warn(LogCategories.Graphics, "Non-Windows native viewport creation currently defaults to base host.");
-            return base.CreateNativeControlCore(parent);
+            StartRenderLoop();
         }
 
         protected override void DestroyNativeControlCore(IPlatformHandle control)
         {
-            StopRenderLoop();
+            if (ReferenceEquals(control, _pendingNativeControl))
+            {
+                _pendingNativeControl = null;
+                _pendingInitialization = null;
+                DestroyNativeChild(control);
+                return;
+            }
+            if (_retiring || !ReferenceEquals(control, _activeNativeControl)) return;
+            _retiring = true;
+            _renderLoopCts?.Cancel();
+            // Avalonia disposes the attachment FIRST, reparenting this exact child
+            // to its orphan/offscreen parent. Retaining its destroyable handle is safe.
+            // Both joining and GPU idle/disposal run off the dispatcher, with no timeout free.
+            var retirement = Task.Run(() =>
+            {
+                StopRenderLoop();
+                DisposeViewportResources();
+            });
+            _ = ReportDelayedRetirement(retirement);
+            _ = retirement.ContinueWith(completed => Dispatcher.UIThread.Post(() =>
+            {
+                if (completed.IsFaulted)
+                {
+                    GordianLog.Error(LogCategories.Graphics, $"Viewport cleanup failed; native resources retained, restart required: {completed.Exception}");
+                    return; // Never free a surface after an unproven cleanup.
+                }
+                DestroyNativeChild(control);
+                _activeNativeControl = null;
+                ActiveBackendName = "None";
+                GpuDeviceName = "None";
+                _retiring = false;
+                var initialize = _pendingInitialization;
+                _pendingInitialization = null;
+                _pendingNativeControl = null;
+                if (initialize == null) return;
+                try { initialize(); }
+                catch (Exception ex)
+                {
+                    // The new child belongs to Avalonia until its own destruction callback.
+                    DisposeViewportResources();
+                    ActiveBackendName = "None";
+                    GpuDeviceName = "None";
+                    GordianLog.Error(LogCategories.Graphics, $"Viewport reinitialization failed: {ex.Message}");
+                }
+            }), TaskScheduler.Default);
+        }
 
+        private static async Task ReportDelayedRetirement(Task retirement)
+        {
+            if (await Task.WhenAny(retirement, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false) != retirement)
+                GordianLog.Warn(LogCategories.Graphics,
+                    "Viewport shutdown is still waiting for GPU/worker completion; resources retained and reinitialization deferred. If the driver never returns, restart the process.");
+        }
+
+        private void DisposeViewportResources()
+        {
             lock (_renderLock)
             {
+                // A stopped CPU worker does not imply that submitted uploads/draws completed.
+                // In normal shutdown this wait is on the retirement worker, never the dispatcher.
+                _deviceManager.Device?.WaitForIdle();
                 _loadedZoneId = 0;
                 _currentZoneGeom = null;
                 _lastVanaHour = -1f;
@@ -767,20 +873,24 @@ namespace Gordian.App.Graphics
 
                 // This window's swapchain; the last window to close also disposes the shared device.
                 _deviceManager.Dispose();
+            }
+            _x11Display?.Dispose();
+            _x11Display = null;
+        }
 
-                if (OperatingSystem.IsWindows() && _childHwnd != IntPtr.Zero)
-                {
-                    Win32ChildWindowHelper.DestroyChildWindow(_childHwnd);
-                    _childHwnd = IntPtr.Zero;
-                }
-                if (OperatingSystem.IsWindows() && _arrowCursor != IntPtr.Zero)
+        private void DestroyNativeChild(IPlatformHandle control)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                Win32ChildWindowHelper.DestroyChildWindow(control.Handle);
+                if (_childHwnd == control.Handle) _childHwnd = IntPtr.Zero;
+                if (_arrowCursor != IntPtr.Zero && ReferenceEquals(control, _activeNativeControl))
                 {
                     Win32ChildWindowHelper.DestroyCursor(_arrowCursor);
                     _arrowCursor = IntPtr.Zero;
                 }
             }
-
-            base.DestroyNativeControlCore(control);
+            else base.DestroyNativeControlCore(control);
         }
 
         /// <summary>
@@ -832,7 +942,7 @@ namespace Gordian.App.Graphics
         {
             base.OnSizeChanged(e);
 
-            if (_childHwnd == IntPtr.Zero || _deviceManager.Device == null)
+            if (_retiring || _deviceManager.Device == null)
             {
                 return;
             }
@@ -841,20 +951,17 @@ namespace Gordian.App.Graphics
             uint pixelW = (uint)Math.Max(1, (int)(e.NewSize.Width * scale));
             uint pixelH = (uint)Math.Max(1, (int)(e.NewSize.Height * scale));
 
-            lock (_renderLock)
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    Win32ChildWindowHelper.ResizeChildWindow(_childHwnd, (int)pixelW, (int)pixelH);
-                }
-                _deviceManager.Resize(pixelW, pixelH);
-            }
+            if (OperatingSystem.IsWindows())
+                Win32ChildWindowHelper.ResizeChildWindow(_childHwnd, (int)pixelW, (int)pixelH);
+            // Publish a coalesced request, never wait for a GPU lock on the dispatcher.
+            Interlocked.Exchange(ref _pendingSurfaceSize, (long)(((ulong)pixelW << 32) | pixelH));
         }
 
         private void StartRenderLoop()
         {
-            StopRenderLoop();
+            if (_renderTask != null) throw new InvalidOperationException("Previous viewport worker has not retired.");
 
+            _nextSurfaceReconcileTicks = 0;
             _renderLoopCts = new CancellationTokenSource();
             var token = _renderLoopCts.Token;
 
@@ -868,7 +975,9 @@ namespace Gordian.App.Graphics
                 _renderLoopCts.Cancel();
                 try
                 {
-                    _renderTask?.Wait(200);
+                    // A timeout is not completion: the worker may still use the swapchain and X11 display.
+                    // The worker posts UI notifications; it must never synchronously wait for the UI thread.
+                    _renderTask?.GetAwaiter().GetResult();
                 }
                 catch
                 {
@@ -881,6 +990,22 @@ namespace Gordian.App.Graphics
             }
         }
 
+        private void ApplyPendingSurfaceSize(long elapsedTicks)
+        {
+            ulong size = (ulong)Interlocked.Exchange(ref _pendingSurfaceSize, 0);
+            // Bounds can arrive before native positioning. Keep reconciling the actual
+            // framebuffer without requiring another UI resize or driver out-of-date event.
+            // A still-clamped/hidden surface gets at most ten retries/second; new requests
+            // are immediate. Settled checks allocate nothing and never recreate a swapchain.
+            if (size == 0 && elapsedTicks < _nextSurfaceReconcileTicks) return;
+            lock (_renderLock)
+            {
+                _deviceManager.Resize(size != 0 ? (uint)(size >> 32) : _deviceManager.CurrentWidth,
+                    size != 0 ? (uint)size : _deviceManager.CurrentHeight);
+            }
+            _nextSurfaceReconcileTicks = elapsedTicks + Stopwatch.Frequency / 10;
+        }
+
         private void RenderLoopWorker(CancellationToken cancellationToken)
         {
             var sw = Stopwatch.StartNew();
@@ -890,6 +1015,12 @@ namespace Gordian.App.Graphics
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                if (BeforeRenderFrame is { } beforeFrame)
+                {
+                    lock (_renderLock) beforeFrame();
+                }
+                if (cancellationToken.IsCancellationRequested) break;
+                ApplyPendingSurfaceSize(sw.ElapsedTicks);
                 long currentTicks = sw.ElapsedTicks;
                 float deltaSeconds = (float)(currentTicks - lastTicks) / Stopwatch.Frequency;
                 lastTicks = currentTicks;

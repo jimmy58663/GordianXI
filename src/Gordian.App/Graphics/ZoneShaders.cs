@@ -602,7 +602,11 @@ void main()
 }
 ";
 
-        public const string FragmentShaderCutoutGlsl = @"#version 450
+        public const string FragmentShaderCutoutGlsl = "#version 450\n#define TERRAIN_POINT_LIGHTS\n" + CutoutFragmentBody;
+
+        // Actors take their own environment lighting, not placement point lights (lighting.md).
+        // In particular, set 2 belongs to the joint palette for skinned actors.
+        private const string CutoutFragmentBody = @"
 
 layout(location = 0) in vec3 fsin_WorldPos;
 layout(location = 1) in vec3 fsin_Normal;
@@ -632,7 +636,9 @@ layout(set = 0, binding = 0) uniform ZoneSceneUniforms
 layout(set = 1, binding = 0) uniform texture2D uTexture;
 layout(set = 1, binding = 1) uniform sampler uSampler;
 
+#ifdef TERRAIN_POINT_LIGHTS
 " + PointLightTableLayout.Glsl + @"
+#endif
 
 // TerrainTone (terrain only; actors and effects leave it 0): a soft shoulder on the lit colour after the modulate-2x.
 // Below x the colour is untouched; the excess above it rolls off toward y (x + e / (1 + e / (y - x))) instead of
@@ -668,7 +674,11 @@ void main()
     // Zone point lights shine on the placements that reference them (at most four).
     // WeatherParams.z > 0 caps the summed light (actors: see ActorLighting.MaxLight); terrain leaves it 0 (cap 1).
     float lightCap = WeatherParams.z > 0.0 ? WeatherParams.z : 1.0;
+#ifdef TERRAIN_POINT_LIGHTS
     vec3 lit = clamp(amb + df0 + df1 + PointLighting(fsin_WorldPos, N, fsin_Color.rgb), 0.0, lightCap);
+#else
+    vec3 lit = clamp(amb + df0 + df1, 0.0, lightCap);
+#endif
     // SkyLayerParams.z: the newly selected target's flash (actors only; see TargetFlash), added to the light.
     lit += vec3(SkyLayerParams.z);
 
@@ -881,7 +891,7 @@ void main()
 }
 ";
 
-        public const string FragmentShaderGlsl = FragmentShaderCutoutGlsl;
+        public const string FragmentShaderGlsl = "#version 450\n" + CutoutFragmentBody;
 
         /// <summary>
         /// Vertex shader for celestial sky dome rendering.

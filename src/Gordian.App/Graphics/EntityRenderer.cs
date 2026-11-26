@@ -41,6 +41,7 @@ namespace Gordian.App.Graphics
     public sealed partial class EntityRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
+        private readonly System.Collections.Generic.List<Shader> _ownedShaders = new();
         // Layouts, texture cache and GPU models shared by every window on the device (#300).
         private readonly GpuSharedResources _shared;
         private readonly bool _ownsShared;
@@ -322,6 +323,7 @@ namespace Gordian.App.Graphics
                 "main");
 
             Shader[] shaders = factory.CreateFromSpirv(vsDesc, fsDesc);
+            _ownedShaders.AddRange(shaders);
 
             var vertexLayout = new VertexLayoutDescription(
                 new VertexElementDescription("Position", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
@@ -339,6 +341,7 @@ namespace Gordian.App.Graphics
                 Encoding.UTF8.GetBytes(ZoneShaders.SkinnedVertexShaderGlsl),
                 "main");
             Shader[] skinnedShaders = factory.CreateFromSpirv(skinnedVsDesc, fsDesc);
+            _ownedShaders.AddRange(skinnedShaders);
 
             var skinnedVertexLayout = new VertexLayoutDescription(
                 new VertexElementDescription("Position0", VertexElementSemantic.TextureCoordinate, VertexElementFormat.Float3, 0),
@@ -1382,6 +1385,8 @@ namespace Gordian.App.Graphics
             _entityUniformBuffer?.Dispose();
             _entityResourceSet?.Dispose();
             _pipeline?.Dispose();
+            foreach (var shader in _ownedShaders) shader.Dispose();
+            _ownedShaders.Clear();
             _skinnedPipeline?.Dispose();
             _depthPipeline?.Dispose();
             _skinnedDepthPipeline?.Dispose();

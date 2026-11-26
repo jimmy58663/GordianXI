@@ -35,6 +35,7 @@ namespace Gordian.App.Graphics
     public sealed class SkyDomeRenderer : IDisposable
     {
         private readonly GraphicsDevice _gd;
+        private readonly System.Collections.Generic.List<Shader> _ownedShaders = new();
         private Pipeline _pipeline = null!;
         private DeviceBuffer? _vertexBuffer;
         private uint _vertexCount;
@@ -68,6 +69,7 @@ namespace Gordian.App.Graphics
                 "main");
 
             Shader[] shaders = factory.CreateFromSpirv(vsDesc, fsDesc);
+            _ownedShaders.AddRange(shaders);
 
             // Stride: 28 bytes (Pos 12B + Color 16B)
             var vertexLayout = new VertexLayoutDescription(
@@ -268,6 +270,8 @@ namespace Gordian.App.Graphics
                 _disposed = true;
                 _vertexBuffer?.Dispose();
                 _pipeline?.Dispose();
+                foreach (var shader in _ownedShaders) shader.Dispose();
+                _ownedShaders.Clear();
             }
         }
     }

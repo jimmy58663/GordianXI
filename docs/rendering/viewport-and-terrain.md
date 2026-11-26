@@ -19,6 +19,28 @@
 
 - **Lobby and zoning (#32, #36).** While a character lobby is open (`ViewportViewModel.Lobby`) the viewport draws it instead of the active session (`LobbyFrameRenderer`: the lobby backgrounds, the preview model through the entity renderer alone, the lobby windows) and sends it the keyboard and mouse. While a session connects or zones, `ZoneLoadingScreen` fades the frame to black over the scene and the HUD, and the placeholder models are left out until it is clear again. Between a Log Out and the lobby's return (`ViewportViewModel.IsReturningToLobby`) the viewport draws black (`HoldBlack`), and a lobby fades in from black when it appears. See [character-lobby.md](../design/character-lobby.md).
 
+## Linux X11 viewport (#644)
+
+`VeldridViewportControl` initializes NeoVeldrid from Avalonia's X11 child and a separate
+Xlib display connection; Windows retains its HWND path. Resize requests are coalesced
+on the render worker rather than gated on an HWND or waiting for the GPU on the UI
+thread. A successful resize can still be clamped to a native 1×1 surface: the worker
+reconciles requested and actual framebuffer dimensions at most ten times per second,
+without another managed size event. Settled checks do not recreate the swapchain.
+Native children and their display connection stay alive until worker/GPU retirement.
+
+Actor fragment shaders exclude terrain point-light descriptors (set 2 is the skinned
+joint palette); terrain retains its own lighting bindings. Renderers release their
+shader modules, including the wind and distortion variants on current main.
+
+Build and run the CPU regressions with `dotnet build` and `dotnet test`, using stock
+NeoVeldrid 1.3.1. Linux runtime checks must cover first-show pixels before any resize,
+resize, and recovery from a temporarily clamped 1×1 native child without another size
+notification. Software Vulkan and isolated physical-GPU X11 checks do not establish
+owner compositor or in-game acceptance. Stock-package validation-layer errors and the
+previous NVIDIA close/reopen stress crash remain separate limitations; no dependency
+fork is bundled. Native Wayland and macOS hosting are not implemented.
+
 ## Multi-box: windows, switching and input (#154)
 
 One process can hold several characters (`CharacterSession`, one per character; one per account, see [desktop-shell.md](../app/desktop-shell.md)). `ViewportWindowManager` gives all of them tabs in the main viewport window (`ViewportViewModel.CharacterTabs`; `ActiveTab` is the character drawn and driven there) and opens a pop-out window per torn-off character.
