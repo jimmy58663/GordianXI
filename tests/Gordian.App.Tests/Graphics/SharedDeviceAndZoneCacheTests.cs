@@ -278,6 +278,38 @@ namespace Gordian.App.Tests.Graphics
             }
         }
 
+        /// <summary>
+        /// Round 1 of #665: the last viewport window closed (the lobby, to switch installs) while the title fly-through's
+        /// next zone was uploading in the background, and the next upload chunk called into the disposed Vulkan device.
+        /// Each chunk now checks the shared caches under the device lock and stops once they are disposed.
+        /// </summary>
+        [Fact]
+        public void ZoneUpload_StopsAtTheNextChunk_OnceTheSharedCachesAreDisposed()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            IntPtr hwnd = HiddenWindow();
+            var devices = new VeldridDeviceManager();
+            try
+            {
+                devices.Initialize(NeoVeldrid.SwapchainSource.CreateWin32(hwnd, IntPtr.Zero), 320, 240, GraphicsBackendPreference.Direct3D11, vsync: false);
+                var shared = new GpuSharedResources(devices.Device!);
+                var zone = SyntheticZone(9002);
+                Assert.False(shared.IsDisposed);
+                shared.Dispose();
+                Assert.True(shared.IsDisposed);
+                Assert.True(shared.Zones.IsDisposed);
+
+                Assert.Throws<ObjectDisposedException>(() => ZoneTerrainRenderer.ResidentZone.Build(shared, zone.Zone, zone.Textures, 0));
+                Assert.Throws<ObjectDisposedException>(() => shared.Zones.Acquire(zone.Zone, zone.Textures));
+                shared.Dispose(); // twice is harmless
+            }
+            finally
+            {
+                devices.Dispose();
+                DestroyWindow(hwnd);
+            }
+        }
+
         [Fact]
         public void TextureCache_EvictFreesUploads_ExceptSourcesStillInUse()
         {

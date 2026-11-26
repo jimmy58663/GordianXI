@@ -1248,7 +1248,8 @@ namespace Gordian.App.Graphics
                 }
                 catch
                 {
-                    lock (shared.GpuLock) resident.Dispose();
+                    // With the device disposed meanwhile its buffers went with it: freeing them again would fault.
+                    lock (shared.GpuLock) if (!shared.IsDisposed) resident.Dispose();
                     throw;
                 }
                 resident.BuildMilliseconds = watch.Elapsed.TotalMilliseconds;
@@ -1289,7 +1290,7 @@ namespace Gordian.App.Graphics
                 {
                     if (group.Indices.Length > 0 && group.WindDeltas is { } wind && wind.Length == group.Vertices.Length) windBytes += wind.Length * WindPool.BytesPerVertex;
                 }
-                if (windBytes > 0) lock (shared.GpuLock) _windPool = new WindPool(gd, windBytes);
+                if (windBytes > 0) lock (shared.GpuLock) { shared.ThrowIfDisposed(); _windPool = new WindPool(gd, windBytes); }
                 _batchPool = new BatchVertexPool(gd);
                 _indexPool = new IndexPool(gd);
 
@@ -1307,6 +1308,7 @@ namespace Gordian.App.Graphics
                 {
                     lock (shared.GpuLock)
                     {
+                        shared.ThrowIfDisposed(); // the last window closed meanwhile: the device is gone
                         int end = Math.Min(allGroups.Count, start + GroupsPerChunk);
                         for (int i = start; i < end; i++)
                         {
@@ -1328,7 +1330,7 @@ namespace Gordian.App.Graphics
                 // Stream Section 0x05 / WeatherSky dynamic cloud layers and celestial discs
                 foreach (var layer in zone.WeatherSkyLayers)
                 {
-                    lock (shared.GpuLock) vertCount += UploadGeneratorLayer(shared, layer, WeatherSkySubmeshes);
+                    lock (shared.GpuLock) { shared.ThrowIfDisposed(); vertCount += UploadGeneratorLayer(shared, layer, WeatherSkySubmeshes); }
                 }
                 if (WeatherSkySubmeshes.Count > 0)
                 {
@@ -1342,7 +1344,7 @@ namespace Gordian.App.Graphics
                 // Stream world-space zone effects (sea surfaces, and the meshes of surf / wave-crest particle emitters)
                 foreach (var effectLayer in zone.EffectLayers)
                 {
-                    lock (shared.GpuLock) vertCount += UploadGeneratorLayer(shared, effectLayer, EffectSubmeshes);
+                    lock (shared.GpuLock) { shared.ThrowIfDisposed(); vertCount += UploadGeneratorLayer(shared, effectLayer, EffectSubmeshes); }
                 }
                 foreach (var mesh in WeatherSkySubmeshes.Concat(EffectSubmeshes))
                 {
@@ -1356,6 +1358,7 @@ namespace Gordian.App.Graphics
                     {
                         lock (shared.GpuLock)
                         {
+                            shared.ThrowIfDisposed(); // the last window closed meanwhile: the device is gone
                             for (int i = start; i < Math.Min(all.Count, start + TexturesPerChunk); i++)
                             {
                                 shared.ZoneTextures.GetOrCreateResourceSet(all[i]);

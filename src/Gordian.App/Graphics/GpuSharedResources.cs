@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources;
 using Gordian.Core.Resources.Models;
@@ -203,12 +204,22 @@ namespace Gordian.App.Graphics
             EntityTextures.Clear();
         }
 
+        /// <summary>
+        /// True once disposed. Set under <see cref="GpuLock"/>, and the device is disposed under the same hold, so a thread
+        /// that holds the lock and reads false may use the device until it lets go (background zone uploads check it per
+        /// chunk: the last window can close mid-upload).
+        /// </summary>
+        public bool IsDisposed => Volatile.Read(ref _disposed);
+
+        /// <summary>Throws <see cref="ObjectDisposedException"/> once disposed (call under <see cref="GpuLock"/>).</summary>
+        internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(IsDisposed, this);
+
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
             lock (GpuLock)
             {
+                if (_disposed) return;
+                Volatile.Write(ref _disposed, true);
                 Zones.Dispose();
                 ZoneModels.Dispose();
                 ClearEntityModels();

@@ -167,7 +167,7 @@ namespace Gordian.App.Graphics
             }
             if (duplicate)
             {
-                lock (_shared.GpuLock) built.Dispose();
+                lock (_shared.GpuLock) if (!_shared.IsDisposed) built.Dispose();
             }
             if (release) zone.ReleaseRenderData(result.Textures);
             Trim();
@@ -317,6 +317,10 @@ namespace Gordian.App.Graphics
                     Release(resident);
                     GordianLog.Info(LogCategories.Graphics, $"Preloaded Zone {zoneId} for a character in it: DATs {readMs:F0} ms, GPU upload {watch.Elapsed.TotalMilliseconds - readMs:F0} ms, {resident.Bytes >> 20} MB ({Count} zones, {ResidentBytes >> 20} MB resident).");
                 }
+                catch (ObjectDisposedException) when (IsDisposed)
+                {
+                    // The last viewport window closed mid-upload: the device (and this cache) went with it.
+                }
                 catch (Exception ex)
                 {
                     GordianLog.Warn(LogCategories.Graphics, $"Background preload of Zone {zoneId} failed: {ex.Message}");
@@ -440,6 +444,8 @@ namespace Gordian.App.Graphics
         {
             lock (_shared.GpuLock)
             {
+                // Dropped from the cache just before the last window closed: their buffers went with the device.
+                if (_shared.IsDisposed) return;
                 // Uploads a kept zone or a shared model (#585: a ship, an interior, a furnishing) draws with stay: zones share
                 // uploads by DAT source, and after a VFS reload a stale zone and its reread copy have different uploads for
                 // one source (#374). Picked under the device lock, which every model upload holds throughout.
@@ -465,6 +471,12 @@ namespace Gordian.App.Graphics
                     if (entry.Zone.Textures != null) textures.AddRange(entry.Zone.Textures.Values);
                 }
             }
+        }
+
+        /// <summary>True once the device's caches were disposed (the last viewport window closed).</summary>
+        public bool IsDisposed
+        {
+            get { lock (_gate) return _disposed; }
         }
 
         public void Dispose()
