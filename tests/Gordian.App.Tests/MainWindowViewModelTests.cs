@@ -344,6 +344,39 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void OpenPrefilledProfile_KeepsTheTwoFactorKeyFromAccountCreation()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.OpenPrefilledProfile(new AccountProfile
+            {
+                ProfileName = "newbie",
+                ServerType = ProfileServerType.LandSandBoat,
+                ServerHost = "play.example",
+                Username = "newbie",
+                Password = "secret12",
+                OtpSeed = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+                TwoFactor = TwoFactorMode.AuthenticatorKey,
+            });
+
+            Assert.Equal("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", vm.FormOtpSeed);
+            Assert.Equal(TwoFactorMode.AuthenticatorKey, vm.FormTwoFactorMode);
+            Assert.True(vm.FormTwoFactorKey);
+
+            // Saving it keeps the key and the mode.
+            vm.SaveProfileCommand.Execute(null);
+            var saved = vm.Profiles.Single(p => p.ProfileName == "newbie").Profile;
+            Assert.Equal(("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", TwoFactorMode.AuthenticatorKey), (saved.OtpSeed, saved.EffectiveTwoFactorMode));
+        }
+
+        [Fact]
+        public void OpenPrefilledProfile_WithoutAKeyLeavesTwoFactorOff()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            vm.OpenPrefilledProfile(new AccountProfile { ProfileName = "plain", ServerType = ProfileServerType.LandSandBoat, ServerHost = "h", Username = "plain", Password = "secret12" });
+            Assert.Equal((string.Empty, TwoFactorMode.None), (vm.FormOtpSeed, vm.FormTwoFactorMode));
+        }
+
+        [Fact]
         public void SaveProfile_KeepsTheLobbyEncryptionChoice()
         {
             using var vm = new MainWindowViewModel(_testRegistry);

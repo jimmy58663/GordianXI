@@ -1458,6 +1458,9 @@ namespace Gordian.App.ViewModels
             FormViewPort = template.EffectiveViewPort;
             FormUsername = template.Username;
             FormPassword = template.Password;
+            // A key from two-factor setup during account creation: the profile makes the codes itself.
+            FormOtpSeed = template.OtpSeed ?? string.Empty;
+            FormTwoFactorMode = template.EffectiveTwoFactorMode;
             SelectedTabIndex = ProfilesTabIndex;
             StatusMessage = $"New profile for account '{template.Username}': add a character or two-factor if you like, then Save.";
         }
