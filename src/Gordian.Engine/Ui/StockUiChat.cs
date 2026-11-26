@@ -22,7 +22,7 @@ namespace Gordian.Engine.Ui
     {
         public StockUiChat()
         {
-            Input.Submitted += (line, mode) => _ = SubmitAsync(line, mode);
+            Input.RichSubmitted += (line, mode) => _ = SubmitAsync(line, mode);
             Input.ScrollRequested += (window, amount, pages) => Log.Scroll(window, pages ? amount * Math.Max(1, PageSize(window) - 1) : amount);
             Input.OpenChanged += open =>
             {
@@ -47,6 +47,64 @@ namespace Gordian.Engine.Ui
 
         /// <summary>Runs a typed line: the session's command dispatcher, with the chat mode's channel as the default.</summary>
         public Func<string, ChatSendKind, Task<PlayerActionResult>>? Execute { get; set; }
+
+        public Func<ChatCommandResult, ChatText, Task<PlayerActionResult>>? ExecuteRich { get; set; }
+
+        /// <summary>Resolves a canonical leading command phrase; preserves all chat-body identities.</summary>
+        public async Task SubmitAsync(ChatText line, ChatInputMode mode)
+        {
+            if (line.Phrases.Count == 0) { await SubmitAsync(line.Text, mode).ConfigureAwait(false); return; }
+            string trimmed = line.Text.Trim();
+            int start = line.Text.Length - line.Text.TrimStart().Length;
+            var rich = line.Slice(start, trimmed.Length);
+            // Only a complete leading verb whose identity resolves to this exact local dictionary
+            // label is syntax. Never strip braces/Unicode or flatten body/recipient/action arguments.
+            if (rich.Phrases.Count > 0 && rich.Phrases[0] is { Start: 0 } first
+                && Input.Catalog.Resolve(first.Key) is { } canonical
+                && canonical.Length == first.Length && canonical.StartsWith('/')
+                && !System.Linq.Enumerable.Any(canonical, char.IsWhiteSpace)
+                && rich.Text.StartsWith(canonical, StringComparison.Ordinal)
+                && (rich.Text.Length == first.Length || char.IsWhiteSpace(rich.Text[first.Length])))
+            {
+                await SubmitAsync(new ChatText(rich.Text, System.Linq.Enumerable.Skip(rich.Phrases, 1)), mode).ConfigureAwait(false);
+                return;
+            }
+            bool command = (trimmed.StartsWith('/') || trimmed.StartsWith('!'))
+                && !System.Linq.Enumerable.Any(rich.Phrases, p => p.Start == 0);
+            bool defaultTell = !command && mode == ChatInputMode.Tell;
+            if (defaultTell)
+            {
+                if (string.IsNullOrEmpty(Input.TellTarget)) { Log.Add(ChatLogChannel.Error, "No one to send a tell to."); return; }
+                string prefix = $"/tell {Input.TellTarget} ";
+                rich = new ChatText(prefix + rich.Text, System.Linq.Enumerable.Select(rich.Phrases, p => p with { Start = p.Start + prefix.Length }));
+            }
+            var parsed = command || defaultTell ? ChatCommandRouter.Parse(rich.Text, SendKindOf(mode))
+                : new ChatCommandResult { Kind = ChatCommandResultKind.SendChat, SpeechKind = SendKindOf(mode), Message = rich.Text };
+            if (parsed.Kind is not (ChatCommandResultKind.SendChat or ChatCommandResultKind.SendTell or ChatCommandResultKind.LocalEcho)
+                || !rich.Text.EndsWith(parsed.Message, StringComparison.Ordinal))
+            { Log.Add(ChatLogChannel.Error, "Auto-translate phrases are supported in chat message bodies only."); return; }
+            var body = rich.Slice(rich.Text.Length - parsed.Message.Length, parsed.Message.Length);
+            if (body.Phrases.Count != line.Phrases.Count)
+            { Log.Add(ChatLogChannel.Error, "A phrase cannot be used as a command or recipient."); return; }
+            try
+            {
+                if (ExpandTokens is { } expand) body = body.TransformPlain(expand);
+                // Check after expansion, before any send; no marker or multibyte text is truncated.
+                body.Encode(new byte[128]);
+                if (parsed.Kind == ChatCommandResultKind.LocalEcho) { Log.Add(ChatLogChannel.Echo, body.Display); return; }
+                if (ExecuteRich == null) { Log.Add(ChatLogChannel.Error, "Auto-translate sending is unavailable."); return; }
+                var result = await ExecuteRich(parsed, body).ConfigureAwait(false);
+                if (!result.Success) { Log.Add(ChatLogChannel.Error, result.Message); return; }
+                if (parsed.Kind == ChatCommandResultKind.SendTell)
+                { Input.TellTarget = parsed.Recipient; Log.Add(ChatLogChannel.Tell, $">>{parsed.Recipient} : {body.Display}"); }
+                else Log.Add(ChannelOf(parsed.SpeechKind), FormatOutgoing(parsed.SpeechKind, CharacterName(), body.Display));
+                if (!command && mode == ChatInputMode.Shout) Input.SetMode(ChatInputMode.Say);
+            }
+            catch (Exception ex) when (ex is ArgumentException or System.Text.EncoderFallbackException)
+            { Log.Add(ChatLogChannel.Error, "Chat cannot be encoded within the 127-byte content limit."); }
+            catch (Exception ex)
+            { GordianLog.Error(LogCategories.ChatUi, "Auto-translate send failed.", ex); Log.Add(ChatLogChannel.Error, "Could not send chat."); }
+        }
 
         /// <summary>
         /// Opens the input line for a key pressed in gameplay, returning true when it did (the key is then the

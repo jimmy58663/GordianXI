@@ -254,3 +254,9 @@ Files that are not section containers: zone event scripts, zone dialog tables, z
 | 0x1C ZoneDef | Mode byte above 0x1A: runs of 16-23 bytes XOR 0xFF, chosen and sized by a key from the first table; object names then XOR 0x55; record stride 0x64 (prototype 0x54). Mode 0x1A or below: not encrypted, names included (xi-tools `xi_decrypt.py`); 15 retail ZoneDefs, 13 of them building interiors (Port Jeuno 568-570, 572-577; Lower Jeuno 564-566; 426, 507) and file 100. GordianXI unmasked their names anyway until #68 round 1, which threw parts of Port Jeuno's shop interior out as kilometre-wide brown walls | `ZoneDefDecoder.DecryptZoneObjects`; [collision-and-physics.md](collision-and-physics.md) |
 | Zone key tables | Not a DAT: `ZoneDataLoader.TryExtractKeyTables` finds the two 256-byte tables by signature in `FFXiMain.dll` at run time; without them zone geometry stays encrypted | `ResourceManager.EnsureKeyTables` |
 | 0x20 textures, other sections | Plain | [viewport-and-terrain.md](../rendering/viewport-and-terrain.md#resource-cache-keys) |
+
+## Fixed auto-translate dictionary
+
+| English DAT | Format | Implementation | Status |
+|---|---|---|---|
+| `ROM/168/25.DAT` | 76-byte category header; bounded keyed CP932 entries; `@J/@A/@C/@Y` indirect DMsg names | `AutoTranslateCatalog`, `ResourceManager.AutoTranslate` | Parsed and resolved for English fixed-phrase chat; [schema corrections, references and limits](../input/console-and-input.md#fixed-phrase-data-and-protocol) |

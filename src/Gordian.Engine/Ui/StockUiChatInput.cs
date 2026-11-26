@@ -2,6 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Linq;
+using Gordian.Core.Network;
+using Gordian.Core.Resources;
 using Gordian.Engine.Input;
 
 namespace Gordian.Engine.Ui
@@ -46,7 +49,17 @@ namespace Gordian.Engine.Ui
 
         private readonly object _sync = new();
         private readonly StringBuilder _text = new();
-        private readonly List<string> _history = new();
+        private readonly List<ChatText> _history = new();
+        private readonly List<ChatPhraseSpan> _phrases = new();
+        private AutoTranslateCatalog _catalog = AutoTranslateCatalog.Empty;
+        public AutoTranslateCatalog Catalog { get { lock (_sync) return _catalog; } set { lock (_sync) { _catalog = value; _completion = null; } } }
+        public ChatText RichText { get { lock (_sync) return new(_text.ToString(), _phrases); } }
+        public event Action<ChatText, ChatInputMode>? RichSubmitted;
+        private CompletionView? _completion;
+        private int _completionStart;
+        public CompletionView Completion { get { lock (_sync) return _completion ?? new(false, [], 0); } }
+        public sealed record CompletionRow(string Label, uint Key);
+        public sealed record CompletionView(bool IsOpen, IReadOnlyList<CompletionRow> Rows, int Selected, string? Notice = null);
         private int _caret;
         private int _historyIndex;
         private string _swallowText = string.Empty;
@@ -105,6 +118,8 @@ namespace Gordian.Engine.Ui
                 if (IsOpen) return;
                 IsOpen = true;
                 _text.Clear();
+                _phrases.Clear();
+                _completion = null;
                 _caret = 0;
                 _historyIndex = _history.Count;
                 _swallowText = swallowText ?? string.Empty;
@@ -141,6 +156,8 @@ namespace Gordian.Engine.Ui
                 if (!IsOpen) return;
                 IsOpen = false;
                 _text.Clear();
+                _phrases.Clear();
+                _completion = null;
                 _caret = 0;
                 _swallowText = string.Empty;
             }
@@ -202,6 +219,7 @@ namespace Gordian.Engine.Ui
             {
                 if (c < 0x20 || c > 0x7E || _text.Length >= MaxLength) continue;
                 if (_numberEntered != null && (c < '0' || c > '9' || _text.Length >= _numberMaxDigits)) continue;
+                EditSpans(_caret, 0, 1);
                 _text.Insert(_caret++, c);
             }
         }
@@ -213,6 +231,7 @@ namespace Gordian.Engine.Ui
         public bool HandleKey(GordianKey key, InputModifiers modifiers)
         {
             string? submitted = null;
+            ChatText? richSubmitted = null;
             Action<int>? numberEntered = null;
             int number = 0;
             ChatInputMode submittedMode;
@@ -226,6 +245,22 @@ namespace Gordian.Engine.Ui
                 submittedMode = Mode;
                 bool ctrl = (modifiers & InputModifiers.Control) != 0;
 
+                if (_numberEntered == null && !ctrl)
+                {
+                    if (key == GordianKey.Tab)
+                    {
+                        if (_completion == null) OpenCompletion();
+                        else MoveCompletion((modifiers & InputModifiers.Shift) != 0 ? -1 : 1);
+                        return true;
+                    }
+                    if (_completion != null)
+                    {
+                        if (key == GordianKey.Escape) { _completion = null; return true; }
+                        if (key is GordianKey.Up or GordianKey.Down) { MoveCompletion(key == GordianKey.Up ? -1 : 1); return true; }
+                        if (key is GordianKey.Enter or GordianKey.NumPadEnter) { SelectCompletion(); return true; }
+                        _completion = null;
+                    }
+                }
                 switch (key)
                 {
                     case GordianKey.Enter or GordianKey.NumPadEnter when _numberEntered != null:
@@ -239,9 +274,11 @@ namespace Gordian.Engine.Ui
                         if (line.Length > 0)
                         {
                             submitted = line;
-                            if (_history.Count == 0 || _history[^1] != line)
+                            int trimStart = _text.ToString().Length - _text.ToString().TrimStart().Length;
+                            richSubmitted = new ChatText(_text.ToString(), _phrases).Slice(trimStart, line.Length);
+                            if (_history.Count == 0 || _history[^1].Text != line || !_history[^1].Phrases.SequenceEqual(richSubmitted.Phrases))
                             {
-                                _history.Add(line);
+                                _history.Add(richSubmitted);
                                 if (_history.Count > HistoryCapacity) _history.RemoveAt(0);
                             }
                         }
@@ -251,10 +288,10 @@ namespace Gordian.Engine.Ui
                         cancel = true;
                         break;
                     case GordianKey.Backspace:
-                        if (_caret > 0) _text.Remove(--_caret, 1);
+                        if (_caret > 0) { EditSpans(_caret - 1, 1, 0); _text.Remove(--_caret, 1); }
                         break;
                     case GordianKey.Delete:
-                        if (_caret < _text.Length) _text.Remove(_caret, 1);
+                        if (_caret < _text.Length) { EditSpans(_caret, 1, 0); _text.Remove(_caret, 1); }
                         break;
                     case GordianKey.Left:
                         if (_caret > 0) _caret--;
@@ -288,6 +325,7 @@ namespace Gordian.Engine.Ui
             if (close)
             {
                 Close();
+                if (richSubmitted != null) RichSubmitted?.Invoke(richSubmitted, submittedMode);
                 if (submitted != null) Submitted?.Invoke(submitted, submittedMode);
                 numberEntered?.Invoke(number);
             }
@@ -300,10 +338,75 @@ namespace Gordian.Engine.Ui
             if (_history.Count == 0) return;
             _historyIndex = Math.Clamp(_historyIndex + delta, 0, _history.Count);
             _text.Clear();
-            if (_historyIndex < _history.Count) _text.Append(_history[_historyIndex]);
+            _phrases.Clear();
+            _completion = null;
+            if (_historyIndex < _history.Count) { _text.Append(_history[_historyIndex].Text); _phrases.AddRange(_history[_historyIndex].Phrases); }
             _caret = _text.Length;
         }
 
+
+        // Editing any part of a phrase makes it plain text (official PlayOnline dictionary guide).
+        private void EditSpans(int start, int removed, int added)
+        {
+            _completion = null;
+            for (int i = _phrases.Count - 1; i >= 0; i--)
+            {
+                var p = _phrases[i];
+                bool overlaps = removed > 0 ? start < p.Start + p.Length && start + removed > p.Start
+                    : start > p.Start && start < p.Start + p.Length;
+                if (overlaps) _phrases.RemoveAt(i);
+                else if (p.Start >= start + removed) _phrases[i] = p with { Start = p.Start + added - removed };
+            }
+        }
+        private void OpenCompletion()
+        {
+            string text = _text.ToString();
+            _completionStart = _caret;
+            var usable = _catalog.Phrases.Where(p => p.Label.All(c => c >= 32 && c <= 126)).ToArray();
+            CompletionRow[] rows = [];
+            // Longest word-boundary suffix with matches, including multi-word prefixes.
+            if (_caret > 0 && !char.IsWhiteSpace(text[_caret - 1]))
+            {
+                for (int start = 0; start < _caret; start++)
+                {
+                    if (start > 0 && !char.IsWhiteSpace(text[start - 1]) && text[start - 1] != '"') continue;
+                    if (_phrases.Any(p => start < p.Start + p.Length && _caret > p.Start)) continue;
+                    string prefix = text[start.._caret];
+                    rows = usable.Where(p => p.Label.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        .Select(p => new CompletionRow(p.Label, p.Key)).ToArray();
+                    if (rows.Length > 0) { _completionStart = start; break; }
+                }
+            }
+            else rows = usable.Select(p => p.Category).Distinct().Select(c => new CompletionRow(c, 0)).ToArray();
+            _completion = new(true, Array.AsReadOnly(rows), 0, _catalog.Phrases.Count == 0 ? "Dictionary unavailable (English ROM/168/25)"
+                : _catalog.UnresolvedCount > 0 ? "Some dictionary references unavailable" : null);
+            // Only a unique prefix result is immediate; category browsing still needs confirmation.
+            if (rows.Length == 1 && rows[0].Key != 0) SelectCompletion();
+        }
+        private void MoveCompletion(int delta)
+        {
+            if (_completion is not { Rows.Count: > 0 } view) return;
+            _completion = view with { Selected = (view.Selected + delta + view.Rows.Count) % view.Rows.Count };
+        }
+        private void SelectCompletion()
+        {
+            if (_completion is not { Rows.Count: > 0 } view) return;
+            var row = view.Rows[view.Selected];
+            if (row.Key == 0)
+            {
+                var rows = _catalog.Phrases.Where(p => p.Category == row.Label && p.Label.All(c => c >= 32 && c <= 126))
+                    .Select(p => new CompletionRow(p.Label, p.Key)).ToArray();
+                _completion = new(true, Array.AsReadOnly(rows), 0); return;
+            }
+            int removed = _caret - _completionStart;
+            if (_text.Length - removed + row.Label.Length > MaxLength) return;
+            int at = _completionStart;
+            EditSpans(at, removed, row.Label.Length);
+            _text.Remove(at, removed).Insert(at, row.Label);
+            _phrases.Add(new(at, row.Label.Length, row.Key));
+            _phrases.Sort((a, b) => a.Start.CompareTo(b.Start));
+            _caret = at + row.Label.Length;
+        }
 
         /// <summary>An entry's label text, as its <c>fep</c> sprite reads.</summary>
         public static string Label(ChatInputMode mode) => mode switch

@@ -348,13 +348,21 @@ namespace Gordian.App.Graphics
             float s = placement.Scale;
             renderer.DrawMenu(inline, placement, includeButtons: false, frameWidth, opaqueBody: true);
 
-            string text = input.Text;
+            var rich = input.RichText;
+            string text = rich.Display;
             if (!text.StartsWith('/') && library.TryGetGroup("fep", out var fep) && (int)input.Mode < fep.Images.Count)
             {
                 renderer.DrawImage(fep.Images[(int)input.Mode], placement.X + TabLeft * s, placement.Y + TabTop * s, s);
             }
 
-            int caret = Math.Clamp(input.Caret, 0, text.Length);
+            int plainCaret = input.Caret;
+            int caret = plainCaret;
+            foreach (var phrase in rich.Phrases)
+            {
+                if (phrase.Start <= plainCaret) caret++;
+                if (phrase.Start + phrase.Length <= plainCaret) caret++;
+            }
+            caret = Math.Clamp(caret, 0, text.Length);
             float available = frameWidth - TextLeft - TextRight;
             int start = VisibleStart(logFont, text, caret, available);
             int end = start;
@@ -365,6 +373,33 @@ namespace Gordian.App.Graphics
             float rowY = placement.Y + (inline.Frame.Height - StockUiLogFont.CellHeight) * 0.5f * s;
             logFont.Draw(renderer, text.AsSpan(start, end - start), textX, rowY, s, StockUiFontColors.FixedColor(ChatLogChannel.Say));
 
+            int markers = 0;
+            foreach (var phrase in rich.Phrases)
+            {
+                int from = Math.Max(start, phrase.Start + markers);
+                int to = Math.Min(end, phrase.Start + markers + phrase.Length + 2);
+                if (to > from) logFont.Draw(renderer, text.AsSpan(from, to - from),
+                    textX + logFont.MeasureWidth(text.AsSpan(start, from - start)) * s, rowY, s, new UiColor(100, 255, 150, 255));
+                markers += 2;
+            }
+            var lines = CompletionLines(input.Completion);
+            if (lines.Count > 0)
+            {
+                float height = (lines.Count * StockUiLogFont.CellHeight + 12);
+                float top = Math.Max(0, placement.Y - height * s);
+                renderer.DrawMenu(inline, new StockUiPlacement(placement.X, top, s, false), includeButtons: false,
+                    frameWidth: frameWidth, frameHeight: height, opaqueBody: true);
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    string label = lines[i];
+                    int count = 0; float lineWidth = 0;
+                    while (count < label.Length && lineWidth + logFont.GetAdvance(label[count]) <= available)
+                        lineWidth += logFont.GetAdvance(label[count++]);
+                    logFont.Draw(renderer, label.AsSpan(0, count), textX, top + (6 + i * StockUiLogFont.CellHeight) * s,
+                        s, StockUiFontColors.FixedColor(ChatLogChannel.Say));
+                }
+            }
+
             // Blink at 0.5 s on, 0.5 s off.
             if (Stopwatch.GetElapsedTime(0, timestamp).TotalMilliseconds % 1000 < 500)
             {
@@ -372,6 +407,19 @@ namespace Gordian.App.Graphics
                 float caretY = rowY + (StockUiLogFont.CellHeight - CaretHeight) * 0.5f * s;
                 renderer.DrawTextureRect(CaretTexture, CaretSourceX, CaretSourceY, 1, 1, caretX, caretY, Math.Max(1, s), CaretHeight * s, Neutral);
             }
+        }
+
+        /// <summary>Bounded menu rows; Tab/Shift+Tab and Up/Down cycle, Enter selects, Escape dismisses.</summary>
+        public static IReadOnlyList<string> CompletionLines(StockUiChatInput.CompletionView view)
+        {
+            if (!view.IsOpen) return Array.Empty<string>();
+            var lines = new List<string> { "Auto-translate (EN fixed phrases) - Enter select / Esc close" };
+            if (view.Rows.Count == 0) { lines.Add(view.Notice ?? "No matching phrases"); return lines; }
+            if (view.Notice != null) lines[0] = view.Notice;
+            int first = view.Selected / 8 * 8;
+            for (int i = first; i < Math.Min(first + 8, view.Rows.Count); i++)
+                lines.Add((i == view.Selected ? "> " : "  ") + (view.Rows[i].Key == 0 ? "[" + view.Rows[i].Label + "]" : view.Rows[i].Label));
+            return lines;
         }
 
         /// <summary>First character drawn so the caret fits in <paramref name="available"/> layout pixels.</summary>

@@ -85,6 +85,8 @@ namespace Gordian.Core.Network.Packets
         private readonly Action<PacketDirection, ushort, ushort, ReadOnlySpan<byte>>? _logPacketCallback;
         private ushort _sequenceNumber;
 
+        public Gordian.Core.Resources.AutoTranslateCatalog AutoTranslate { get; set; } = Gordian.Core.Resources.AutoTranslateCatalog.Empty;
+
         public bool LogOutboundOnRoute { get; set; } = true;
 
         /// <summary>
@@ -185,7 +187,7 @@ namespace Gordian.Core.Network.Packets
             var model = new ChatMessage(
                 Type: chat.Kind,
                 Sender: chat.GetSenderName(),
-                Message: chat.GetMessage(),
+                Message: chat.IsFormatted ? chat.GetMessage() : ChatText.Decode(chat.RawMessageSpan, AutoTranslate),
                 ZoneId: chat.ZoneId,
                 IsGm: chat.IsGm,
                 MasteryRank: chat.MasteryRank,
@@ -266,11 +268,15 @@ namespace Gordian.Core.Network.Packets
             LinkshellMessageReceived?.Invoke(model);
         }
 
-        public async Task SendChatAsync(ChatSendKind kind, string message)
+        public Task SendChatAsync(ChatSendKind kind, string message) => SendChatAsync(kind, new ChatText(message));
+
+        public async Task SendChatAsync(ChatSendKind kind, ChatText message)
         {
             ArgumentNullException.ThrowIfNull(message);
             ushort seq = ++_sequenceNumber;
-            byte[] packet = ChatOutboundPackets.BuildChatStd(kind, message, seq);
+            Span<byte> buffer = stackalloc byte[256];
+            int size = ChatOutboundPackets.BuildChatStd(buffer, kind, message, seq);
+            byte[] packet = buffer[..size].ToArray();
 
             if (LogOutboundOnRoute)
             {
@@ -280,12 +286,16 @@ namespace Gordian.Core.Network.Packets
             await _sendChunkCallback(packet, true).ConfigureAwait(false);
         }
 
-        public async Task SendTellAsync(string recipient, string message)
+        public Task SendTellAsync(string recipient, string message) => SendTellAsync(recipient, new ChatText(message));
+
+        public async Task SendTellAsync(string recipient, ChatText message)
         {
             ArgumentNullException.ThrowIfNull(recipient);
             ArgumentNullException.ThrowIfNull(message);
             ushort seq = ++_sequenceNumber;
-            byte[] packet = ChatOutboundPackets.BuildChatTell(recipient, message, seq);
+            Span<byte> buffer = stackalloc byte[256];
+            int size = ChatOutboundPackets.BuildChatTell(buffer, recipient, message, seq);
+            byte[] packet = buffer[..size].ToArray();
 
             if (LogOutboundOnRoute)
             {
