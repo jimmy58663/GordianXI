@@ -13,6 +13,25 @@ namespace Gordian.App.Services
     /// </summary>
     public static class AvaloniaInputMapper
     {
+        /// <summary>
+        /// Whether a key may produce platform text. X11 can omit KeySymbol for shifted
+        /// digits/punctuation even though the following TextInput contains the right character.
+        /// Leave those key presses unhandled; never synthesize text from the key or a US layout.
+        /// Editing keys and Ctrl/Alt shortcuts still belong to the active field.
+        /// </summary>
+        public static bool IsTextInputKey(Key key, string? symbol, KeyModifiers modifiers)
+        {
+            if ((modifiers & (KeyModifiers.Control | KeyModifiers.Alt)) != 0) return false;
+            if (Gordian.Engine.Ui.StockUiChatInput.IsTypedSymbol(symbol)) return true;
+            if (!string.IsNullOrEmpty(symbol)) return false;
+            return key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9
+                or >= Key.NumPad0 and <= Key.NumPad9 or Key.Space
+                or Key.Multiply or Key.Add or Key.Subtract or Key.Decimal or Key.Divide
+                or Key.OemTilde or Key.OemMinus or Key.OemPlus or Key.OemOpenBrackets
+                or Key.OemCloseBrackets or Key.OemPipe or Key.OemBackslash
+                or Key.OemSemicolon or Key.OemQuotes or Key.OemComma or Key.OemPeriod or Key.OemQuestion;
+        }
+
         public static GordianKey ToGordianKey(Key key)
         {
             return key switch

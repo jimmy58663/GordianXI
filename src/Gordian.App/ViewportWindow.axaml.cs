@@ -684,7 +684,7 @@ namespace Gordian.App
             // Avalonia drops the WM_CHAR text input that follows a handled key press on Windows, so character keys
             // are not handled here.
             var chat = session.Chat;
-            bool typed = StockUiChatInput.IsTypedSymbol(e.KeySymbol) && (mods & (InputModifiers.Control | InputModifiers.Alt)) == 0;
+            bool typed = AvaloniaInputMapper.IsTextInputKey(e.Key, e.KeySymbol, e.KeyModifiers);
             // A hidden stock chat (#29, /stockui) takes no keys: they go to the game (or whatever replaces the chat).
             bool chatHidden = session.ActionService.UiVisibility.IsHidden(StockUiElement.Chat);
             if (chatHidden && chat.Input.IsOpen) chat.Input.Cancel();
