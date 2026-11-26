@@ -18,4 +18,19 @@ internal static class NativeViewportSource
             throw new ArgumentException("The X11 display connection is null.", nameof(display));
         return SwapchainSource.CreateXlib(display, child.Handle);
     }
+
+    /// <summary>
+    /// Describes a macOS surface from the <c>NSView</c> child that Avalonia.Native's <c>NativeControlHost</c> creates.
+    /// NeoVeldrid's Vulkan backend puts a <c>CAMetalLayer</c> on the view and creates the surface through MoltenVK.
+    /// </summary>
+    internal static SwapchainSource CreateNSView(IPlatformHandle child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        if (child.HandleDescriptor != "NSView")
+            throw new PlatformNotSupportedException(
+                $"macOS Vulkan viewport requires an NSView; received '{child.HandleDescriptor}'.");
+        if (child.Handle == IntPtr.Zero)
+            throw new ArgumentException("The NSView child is null.", nameof(child));
+        return SwapchainSource.CreateNSView(child.Handle);
+    }
 }

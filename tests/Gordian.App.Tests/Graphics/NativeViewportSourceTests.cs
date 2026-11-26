@@ -27,4 +27,22 @@ public class NativeViewportSourceTests
     [Fact]
     public void CreatesDescriptionWithoutNativeCalls() =>
         Assert.NotNull(NativeViewportSource.CreateXlib(new PlatformHandle(1, "XID"), 2));
+
+    [Theory]
+    [InlineData("HWND")]
+    [InlineData("XID")]
+    [InlineData("unknown")]
+    public void NSViewRejectsForeignHandle(string descriptor) =>
+        Assert.Throws<PlatformNotSupportedException>(() => NativeViewportSource.CreateNSView(new PlatformHandle(1, descriptor)));
+
+    [Fact]
+    public void NSViewRejectsMissingView() =>
+        Assert.Throws<ArgumentException>(() => NativeViewportSource.CreateNSView(new PlatformHandle(0, "NSView")));
+
+    [Fact]
+    public void NSViewRejectsNullHandle() => Assert.Throws<ArgumentNullException>(() => NativeViewportSource.CreateNSView(null!));
+
+    [Fact]
+    public void NSViewCreatesDescriptionWithoutNativeCalls() =>
+        Assert.NotNull(NativeViewportSource.CreateNSView(new PlatformHandle(1, "NSView")));
 }

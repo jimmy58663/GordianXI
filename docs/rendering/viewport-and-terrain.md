@@ -39,7 +39,15 @@ resize, and recovery from a temporarily clamped 1×1 native child without anothe
 notification. Software Vulkan and isolated physical-GPU X11 checks do not establish
 owner compositor or in-game acceptance. Stock-package validation-layer errors and the
 previous NVIDIA close/reopen stress crash remain separate limitations; no dependency
-fork is bundled. Native Wayland and macOS hosting are not implemented.
+fork is bundled. Native Wayland hosting is not implemented.
+
+**macOS (#392).** The viewport hosts in the `NSView` child that Avalonia.Native's
+`NativeControlHost` creates (handle descriptor `NSView`), described with
+`NativeViewportSource.CreateNSView` and handed to NeoVeldrid's Vulkan backend, which
+puts a `CAMetalLayer` on the view and creates the surface through the bundled MoltenVK.
+Before this, the control threw `PlatformNotSupportedException` when the first window
+opened. **Not yet checked on a Mac**: first-show pixels, Retina scaling, live resize
+(presentation runs on the render worker, off the main thread) and pointer input.
 
 ## Multi-box: windows, switching and input (#154)
 

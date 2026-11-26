@@ -691,8 +691,8 @@ namespace Gordian.App.Graphics
 
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
-            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
-                throw new PlatformNotSupportedException("Native viewport hosting is implemented for Windows and Linux X11 only.");
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+                throw new PlatformNotSupportedException($"Native viewport hosting is not implemented for {System.Runtime.InteropServices.RuntimeInformation.OSDescription}.");
             IPlatformHandle child = OperatingSystem.IsWindows()
                 ? new PlatformHandle(Win32ChildWindowHelper.CreateChildWindow(parent.Handle, 1, 1), "HWND")
                 : base.CreateNativeControlCore(parent);
@@ -736,6 +736,11 @@ namespace Gordian.App.Graphics
                     return StockUi.PointerDrawn || _activeSession?.ActionService.UiPointer.Hidden == true ? IntPtr.Zero : _arrowCursor != IntPtr.Zero ? _arrowCursor : null;
                 });
                 source = SwapchainSource.CreateWin32(child.Handle, IntPtr.Zero);
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                // Avalonia.Native's default child is an NSView; no display connection is needed (#392).
+                source = NativeViewportSource.CreateNSView(child);
             }
             else
             {
