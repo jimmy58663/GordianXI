@@ -682,6 +682,16 @@ namespace Gordian.App
             var gKey = AvaloniaInputMapper.ToGordianKey(e.Key);
             var mods = AvaloniaInputMapper.ToInputModifiers(e.KeyModifiers);
 
+            // Assignment owns the press before any chat shortcut or Full type-to-chat interpretation.
+            // IsCapturingKeyboard also covers the assigned key's repeats until every key is released.
+            if (session.ActionService.Menus.IsCapturingKeyboard)
+            {
+                session.InputState.SetModifiers(mods);
+                session.InputState.SetKeyDown(AvaloniaInputMapper.ToGordianKey(e.Key, e.PhysicalKey));
+                e.Handled = true;
+                return;
+            }
+
             // The stock chat input line owns the keyboard while it is open (the character does not move while you
             // type); Enter or the chat key opens it from gameplay. Characters arrive as text input (OnGameTextInput);
             // Avalonia drops the WM_CHAR text input that follows a handled key press on Windows, so character keys
