@@ -22,12 +22,14 @@ namespace Gordian.Core.Resources
     /// Derived from community research in xi-model-viewer (https://github.com/vekien/xi-model-viewer)
     /// and LandSandBoat (https://github.com/LandSandBoat/server).
     /// </summary>
-    public sealed partial class ResourceManager
+    public sealed partial class ResourceManager : IDisposable
     {
         private readonly object _lock = new();
         private readonly string _gameDirectory;
         private Lazy<Tables.RecordsOfEminenceTables?>? _recordsOfEminence;
         private readonly IVirtualFileSystem _vfs;
+        private readonly bool _ownsVfs;
+        private int _disposed;
         // Replaced whole on a reload (built off to the side, then swapped), so readers never see a half-built table.
         private volatile FileTableResolver _fileTable = new();
         private volatile bool _fileTableInitialized;
@@ -64,6 +66,7 @@ namespace Gordian.Core.Resources
         public ResourceManager(string gameDirectory, string? resourcesDirectory, IVirtualFileSystem? vfs = null)
         {
             _gameDirectory = gameDirectory ?? string.Empty;
+            _ownsVfs = vfs == null;
             _vfs = vfs ?? new VirtualFileSystem(_gameDirectory, resourcesDirectory);
             // A VFS reload (hot reload, a pack toggled, the VFS switched off) can change what any DAT resolves to.
             _vfs.OnReloaded += ClearCache;
@@ -939,13 +942,41 @@ namespace Gordian.Core.Resources
             }
         }
 
-        private int _cacheGeneration;
+        // Generations are drawn from one counter for the whole process, so no two resource managers (or two states of one)
+        // ever share a number: a holder keyed by the generation alone (GPU model keys, the stock UI library, item icons,
+        // footwear) rebuilds when the app switches installs (#665) just as it does after a VFS reload.
+        private static int s_lastGeneration;
+        private int _cacheGeneration = Interlocked.Increment(ref s_lastGeneration);
 
         /// <summary>
-        /// Increases each time <see cref="ClearCache"/> runs, after the caches are cleared. Holders of data built from
-        /// cached resources (GPU copies of entity models, the loaded zone, the stock UI library) watch it and rebuild.
+        /// Changes each time <see cref="ClearCache"/> runs, after the caches are cleared, and is unique across every
+        /// resource manager in the process. Holders of data built from cached resources (GPU copies of entity models, the
+        /// loaded zone, the stock UI library) watch it and rebuild, which also covers a switch to another install (#665).
         /// </summary>
         public int CacheGeneration => Volatile.Read(ref _cacheGeneration);
+
+        /// <summary>
+        /// Resets the process-wide caches of DAT data that are not owned by one resource manager: the action motion
+        /// library, the zone entity names and the zone DAT loader's generation (the client message tables follow it).
+        /// <see cref="ClearCache"/> runs it; so does the app when it switches installs (#665).
+        /// </summary>
+        public static void ResetSharedCaches()
+        {
+            Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
+            ZoneEntityNames.Reset();
+            ZoneDatLoader.Invalidate();
+        }
+
+        /// <summary>
+        /// Stops following VFS reloads and disposes the VFS this manager created (its hot reload watchers). Used when the
+        /// app switches installs (#665); nothing may use the manager afterwards.
+        /// </summary>
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            _vfs.OnReloaded -= ClearCache;
+            if (_ownsVfs) _vfs.Dispose();
+        }
 
         /// <summary>
         /// Drops everything read from DATs so the next request reads the files again; runs on every VFS reload. A file
@@ -969,7 +1000,6 @@ namespace Gordian.Core.Resources
             _actorEffectCache.Clear();
             _sceneEffectCache.Clear();
             _gearEffectCache.Clear();
-            Gordian.Core.Animation.ActionMotionLibrary.Shared.Clear();
             lock (_lock)
             {
                 _sharedRoutineEffects = null;
@@ -983,9 +1013,8 @@ namespace Gordian.Core.Resources
                 _sharedEffectsLoaded = false;
                 _sharedEffects = null;
             }
-            ZoneEntityNames.Reset();
-            ZoneDatLoader.Invalidate();
-            Interlocked.Increment(ref _cacheGeneration);
+            ResetSharedCaches();
+            Volatile.Write(ref _cacheGeneration, Interlocked.Increment(ref s_lastGeneration));
             GordianLog.Info(LogCategories.Res, "Resource caches cleared; DATs will be read again.");
         }
     }

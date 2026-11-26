@@ -138,8 +138,8 @@ namespace Gordian.App.ViewModels
         {
             _sessionRegistry = registry ?? SessionRegistry.Default;
 
-            // Initialize clean-room DAT item name resolver from detected game folder
-            Gordian.Core.Resources.ItemNameResolver.Initialize(Services.GameDirectoryDetector.DetectGameDirectory());
+            // Item names come from the loaded install: AppResourceManager points the resolver at it whenever it loads or
+            // switches one (#665). Detecting the default install here would read the wrong one for a profile's own folder.
 
             // Initialize all 18 container summaries
             for (int i = 0; i < (int)ContainerId.Count; i++)

@@ -65,6 +65,9 @@ namespace Gordian.App.Services
 
         public ViewportWindow? PrimaryWindow => _primaryWindow;
 
+        /// <summary>Whether the primary viewport window or any pop-out is open (each reads the DATs, #665).</summary>
+        public bool HasOpenWindows => _primaryWindow != null || !_secondaryWindows.IsEmpty;
+
         /// <summary>
         /// Which viewport window (primary or popped out) has the focus and which character it shows (#150), and whether
         /// any GordianXI window is active: the gamepad and the sound controls both follow it (#304).
@@ -213,6 +216,10 @@ namespace Gordian.App.Services
         {
             if (_primaryWindow == null)
             {
+                // An empty viewport (no lobby, no character) shows the default install; switch to it if nothing uses
+                // another one (#665). A lobby or a character keeps the install its launch selected.
+                if (_primaryViewModel.Lobby == null && _primaryViewModel.CharacterTabs.Count == 0) AppResourceManager.SelectDefaultForViewport();
+
                 _primaryWindow = new ViewportWindow("ViewportWindow")
                 {
                     DataContext = _primaryViewModel

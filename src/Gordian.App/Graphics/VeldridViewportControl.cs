@@ -572,6 +572,11 @@ namespace Gordian.App.Graphics
                         GordianLog.Warn(LogCategories.Graphics, $"ResourceManager could not find or load Zone {zoneToLoad}. Will retry.");
                     }
                 }
+                catch (ObjectDisposedException) when (zones.IsDisposed)
+                {
+                    // The last viewport window closed mid-upload and took the device with it: nothing left to show it in.
+                    GordianLog.Info(LogCategories.Graphics, $"Stopped loading Zone {zoneToLoad}: the graphics device closed.");
+                }
                 catch (Exception ex)
                 {
                     GordianLog.Error(LogCategories.Graphics, $"Failed to load Zone {zoneToLoad}: {ex.Message}");
