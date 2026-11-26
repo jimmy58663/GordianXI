@@ -1689,21 +1689,56 @@ namespace Gordian.App.ViewModels
             LaunchProfiles([profile]);
         }
 
+        /// <summary>A login stopped because every two-factor code the server would take now was just used (#652).</summary>
+        private sealed class TwoFactorCodeNotReadyException(string message) : InvalidOperationException(message);
+
+        /// <summary>The ledger accounts with a "new two-factor code ready" notice pending, so each gets one notice.</summary>
+        private readonly HashSet<string> _pendingCodeNotices = new(StringComparer.Ordinal);
+
         /// <summary>
         /// For an LSB profile with a stored authenticator key, makes each login attempt's code through the shared
         /// <see cref="TotpCodeLedger"/>, so a login soon after another (Log Out, a retry, right after two-factor setup)
         /// never resends a code LandSandBoat already accepted; null for the other modes, which send
-        /// <see cref="TakeOneTimeCode"/>'s code.
+        /// <see cref="TakeOneTimeCode"/>'s code. When every usable code was just sent, the login stops instead of waiting,
+        /// and "New two-factor code ready" goes to the status box and the log once the next one can be used; the player
+        /// launches again then (maintainer, #652).
         /// </summary>
         private Func<CancellationToken, Task<string>>? LsbOneTimeCode(AccountProfile profile)
         {
             if (profile.EffectiveTwoFactorMode != TwoFactorMode.AuthenticatorKey || !TotpEngine.IsValidSecret(profile.OtpSeed)) return null;
             string account = TotpCodeLedger.AccountKey(profile.EffectiveServerHost, profile.EffectiveServerPort, profile.Username);
             string secret = profile.OtpSeed;
-            return ct => TotpCodeLedger.Shared.TakeAsync(account, secret,
-                wait => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                    StatusMessage = $"[{profile.ProfileName}] Waiting {Math.Ceiling(wait.TotalSeconds):0} s for a new two-factor code (the last ones were just used)."),
-                ct: ct);
+            return _ =>
+            {
+                string? code = TotpCodeLedger.Shared.TryTake(account, secret, DateTimeOffset.UtcNow, out var wait);
+                if (code != null) return Task.FromResult(code);
+                NoticeWhenCodeReady(profile.ProfileName, account, wait);
+                throw new TwoFactorCodeNotReadyException(
+                    $"the last two-factor codes for this account were just used. A new code is ready in {Math.Ceiling(wait.TotalSeconds):0} s; launch again then.");
+            };
+        }
+
+        /// <summary>Writes "New two-factor code ready" to the status box and the log after <paramref name="wait"/>, once per account.</summary>
+        private void NoticeWhenCodeReady(string profileName, string account, TimeSpan wait)
+        {
+            lock (_pendingCodeNotices)
+            {
+                if (!_pendingCodeNotices.Add(account)) return;
+            }
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(wait).ConfigureAwait(false);
+                    string message = $"[{profileName}] New two-factor code ready.";
+                    GordianLog.Info(LogCategories.LsbLogin, message);
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => StatusMessage = message);
+                }
+                finally
+                {
+                    lock (_pendingCodeNotices) _pendingCodeNotices.Remove(account);
+                }
+            });
         }
 
         /// <summary>
@@ -1837,6 +1872,15 @@ namespace Gordian.App.ViewModels
                             Func<Task> toLobby = () => OpenLobbyAsync(client, profile, serverHost, connectPort, dataPort, viewPort,
                                 TakeOneTimeCode(profile), showLicence: false);
                             await StartLsbSessionAsync(profile, ticket, afterLogout: toLobby).ConfigureAwait(false);
+                        }
+                        catch (TwoFactorCodeNotReadyException ex)
+                        {
+                            GordianLog.Warn(LogCategories.LsbLogin, $"[{profile.ProfileName}] Not launched: {ex.Message}");
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                StatusMessage = $"[{profile.ProfileName}] Not launched: {ex.Message}";
+                                RefreshAllStatuses();
+                            });
                         }
                         catch (Exception ex)
                         {

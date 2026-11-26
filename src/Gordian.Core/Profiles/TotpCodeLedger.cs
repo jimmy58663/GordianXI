@@ -1,8 +1,6 @@
 // src/Gordian.Core/Profiles/TotpCodeLedger.cs
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Gordian.Core.Profiles
 {
@@ -12,7 +10,7 @@ namespace Gordian.Core.Profiles
     /// a77b16aa96 (2026-09-22, "Prevent TOTP code reuse"), refuses any step at or before the last one it accepted for the
     /// account, with login result 2. A second login within the same 30 seconds (Log Out and back, a lobby retry, a login
     /// right after the two-factor setup's verify) therefore sends the next step's code, which the server's window
-    /// already accepts; only a third one in the same window has to wait for the next step. Older LandSandBoat builds
+    /// already accepts; for a third one in the same window <see cref="TryTake"/> says how long until the next step. Older LandSandBoat builds
     /// accept the same window without the reuse check. Behaviour referenced from LandSandBoat
     /// (https://github.com/LandSandBoat/server, src/login/otp_helpers.h <c>validateTOTP</c>).
     /// </summary>
@@ -49,23 +47,6 @@ namespace Gordian.Core.Profiles
                 }
                 _lastSent[account] = step;
                 return TotpEngine.GenerateCode(secret, step);
-            }
-        }
-
-        /// <summary>
-        /// <see cref="TryTake"/>, waiting for the next step when every usable one was sent; <paramref name="onWait"/> is
-        /// told how long before each wait.
-        /// </summary>
-        public async Task<string> TakeAsync(string account, string secret, Action<TimeSpan>? onWait = null, TimeProvider? time = null,
-            CancellationToken ct = default)
-        {
-            time ??= TimeProvider.System;
-            while (true)
-            {
-                string? code = TryTake(account, secret, time.GetUtcNow(), out var retryAfter);
-                if (code != null) return code;
-                onWait?.Invoke(retryAfter);
-                await Task.Delay(retryAfter, time, ct).ConfigureAwait(false);
             }
         }
 

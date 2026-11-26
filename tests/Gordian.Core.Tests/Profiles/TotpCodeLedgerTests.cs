@@ -1,6 +1,5 @@
 // tests/Gordian.Core.Tests/Profiles/TotpCodeLedgerTests.cs
 using System;
-using System.Threading.Tasks;
 using Gordian.Core.Profiles;
 using Xunit;
 
@@ -75,16 +74,6 @@ namespace Gordian.Core.Tests.Profiles
             ledger.NoteSent(Account, Secret, "000000" == TotpEngine.GenerateCode(Secret, step) ? "111111" : "000000", Now);
             ledger.NoteSent(Account, Secret, TotpEngine.GenerateCode(Secret, step - 5), Now);
             Assert.Equal(TotpEngine.GenerateCode(Secret, step), ledger.TryTake(Account, Secret, Now, out _));
-        }
-
-        [Fact]
-        public async Task TakeAsync_ReturnsAtOnceWhileACodeIsFree()
-        {
-            var ledger = new TotpCodeLedger();
-            bool waited = false;
-            string code = await ledger.TakeAsync(Account, Secret, _ => waited = true, ct: TestContext.Current.CancellationToken);
-            Assert.Equal(6, code.Length);
-            Assert.False(waited);
         }
 
         [Fact]
