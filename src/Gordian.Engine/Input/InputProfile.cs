@@ -366,8 +366,8 @@ namespace Gordian.Engine.Input
         /// <summary>The d-pad's default functions, per context: menu cursor in menus, targeting otherwise.</summary>
         private static readonly (GamepadButton Button, InputAction Menu, InputAction Game)[] DPadDefaults =
         {
-            (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetParty1),
-            (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetParty2),
+            (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetPartyUp),
+            (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetPartyDown),
             (GamepadButton.DPadLeft, InputAction.MenuLeft, InputAction.TargetCursorLeft),
             (GamepadButton.DPadRight, InputAction.MenuRight, InputAction.TargetCursorRight),
         };
@@ -382,10 +382,30 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Gives back a d-pad direction its default function in a context where that direction drives nothing (a
-        /// profile reset with the round-1 / round-2 gamepad reset lost the menu ones). A direction the user gave
-        /// another function in that context keeps it.
+        /// Corrects the old default vertical d-pad pair once. Explicit custom/fixed-slot chords stay intact;
+        /// presence of either cycling action (including an empty entry) marks a corrected profile.
         /// </summary>
+        public void EnsurePartyCycleBindings()
+        {
+            if (Bindings.ContainsKey(InputAction.TargetPartyUp) || Bindings.ContainsKey(InputAction.TargetPartyDown)) return;
+            // Correct only the old paired defaults, not arbitrary fixed-slot/custom bindings.
+            foreach (var (button, menu, old, cycle) in new[]
+            {
+                (GamepadButton.DPadUp, InputAction.MenuUp, InputAction.TargetParty1, InputAction.TargetPartyUp),
+                (GamepadButton.DPadDown, InputAction.MenuDown, InputAction.TargetParty2, InputAction.TargetPartyDown),
+            })
+            {
+                var chord = new InputChord(button);
+                if (!GetChords(menu).Contains(chord) || !GetChords(old).Contains(chord)) continue;
+                if (Bindings.Any(pair => pair.Key != old && !IsMenuNavigationAction(pair.Key) && pair.Value.Contains(chord))) continue;
+                Unbind(old, chord);
+                Bind(cycle, chord);
+            }
+            if (!Bindings.ContainsKey(InputAction.TargetPartyUp)) Bindings[InputAction.TargetPartyUp] = new List<InputChord>();
+            if (!Bindings.ContainsKey(InputAction.TargetPartyDown)) Bindings[InputAction.TargetPartyDown] = new List<InputChord>();
+        }
+
+        /// <summary>Restores missing menu/game contexts without replacing a custom binding.</summary>
         public void EnsureDPadBindings()
         {
             foreach (var (button, menu, game) in DPadDefaults)
@@ -813,6 +833,7 @@ namespace Gordian.Engine.Input
             profile.EnsureGamepadShortcutBindings();
             profile.EnsureGamepadRetailBindings();
             profile.EnsureGamepadStickBindings();
+            profile.EnsurePartyCycleBindings();
             profile.EnsureDPadBindings();
             profile.EnsureNoHiddenGamepadBindings();
             profile.EnsureRetailCompactKeys();
