@@ -429,7 +429,7 @@ namespace Gordian.Core.Network.Crypto
             // Key schedule referenced from LandSandBoat (https://github.com/LandSandBoat/server, MapSession::incrementBlowfish).
             uint word4 = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(_rawKey.AsSpan(16, 4));
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(_rawKey.AsSpan(16, 4), word4 + 2);
-            GordianLog.Info(LogCategories.Crypto, $"Advancing session Blowfish key for zone transition. New key word[4]=0x{word4 + 2:X8} (full: {Convert.ToHexString(_rawKey)})");
+            GordianLog.Info(LogCategories.Crypto, $"Advancing session Blowfish key for zone transition ({SessionKeyLog.Describe(_rawKey)}).");
             InitializeKeyCore(_rawKey);
             return true;
         }
@@ -450,17 +450,19 @@ namespace Gordian.Core.Network.Crypto
             Span<byte> hashedKey = stackalloc byte[16];
             if (key.Length == 20)
             {
-                GordianLog.Debug(LogCategories.Crypto, $"InitializeKey: raw 20-byte key: {Convert.ToHexString(key)}");
                 MD5.HashData(key, hashedKey);
+                int effectiveLength = 16;
                 for (int i = 0; i < 16; ++i)
                 {
                     if (hashedKey[i] == 0)
                     {
                         hashedKey.Slice(i).Clear();
+                        effectiveLength = i;
                         break;
                     }
                 }
-                GordianLog.Debug(LogCategories.Crypto, $"InitializeKey: MD5-derived effective key (after null truncation): {Convert.ToHexString(hashedKey)}");
+                // #640: the fingerprint and the truncated length, never the key or its MD5.
+                GordianLog.Debug(LogCategories.Crypto, $"InitializeKey: 20-byte session key ({SessionKeyLog.Describe(key)}); MD5-derived Blowfish key is {effectiveLength} bytes after null truncation.");
                 effectiveKey = hashedKey;
             }
             else

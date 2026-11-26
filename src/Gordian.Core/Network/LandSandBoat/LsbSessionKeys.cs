@@ -152,16 +152,7 @@ namespace Gordian.Core.Network.LandSandBoat
         }
 
         /// <summary>FNV-1a (32-bit) of key bytes 0-15: the fingerprint LandSandBoat's connect server logs as "key value".</summary>
-        public static uint Fingerprint(ReadOnlySpan<byte> key)
-        {
-            uint hash = 2166136261u;
-            int n = Math.Min(16, key.Length);
-            for (int i = 0; i < n; i++)
-            {
-                hash = unchecked((hash ^ key[i]) * 16777619u);
-            }
-            return hash;
-        }
+        public static uint Fingerprint(ReadOnlySpan<byte> key) => SessionKeyLog.Fingerprint(key);
 
         /// <summary>
         /// Every key the map server may use, newest scheme first and without duplicates: the counter key, the hashed
