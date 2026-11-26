@@ -11,11 +11,15 @@ using Gordian.Engine.Ui;
 
 namespace Gordian.App.Tests.Services;
 
+[CollectionDefinition("Viewport keyboard routing", DisableParallelization = true)]
+public sealed class ViewportKeyboardRoutingCollection;
+
 /// <summary>
 /// Headless integration through the real window's registered tunnelling handlers and session.
 /// Routed key/text events exercise production ordering without a native renderer, game or server.
 /// These tests do not claim native platform event generation or compositor coverage.
 /// </summary>
+[Collection("Viewport keyboard routing")]
 public class ViewportKeyboardRoutingTests
 {
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(16);
@@ -53,6 +57,14 @@ public class ViewportKeyboardRoutingTests
         Pump(session);
         Assert.False(menus.IsCapturingKeyboard);
         Assert.False(session.InputState.IsKeyHeld(gordianKey));
+
+        Down(window, key, physical, text, modifiers);
+        Text(window, text);
+        Pump(session);
+        Assert.False(session.Chat.Input.IsOpen);
+        Assert.True(session.InputState.IsActionHeld(InputAction.MoveForward));
+        Up(window, key, physical);
+        Pump(session);
 
         // A different, fresh Full typing key must still open a draft and insert only TextInput.
         var fresh = Down(window, Key.X, PhysicalKey.X, "x");

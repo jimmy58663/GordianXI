@@ -732,6 +732,13 @@ namespace Gordian.App
                 return;
             }
             gKey = AvaloniaInputMapper.ToGordianKey(e.Key, e.PhysicalKey);
+            // Shared layout edits block held gameplay keys until KeyUp. Native repeat must not
+            // reinterpret them as either a chat shortcut or Full typing before InputState sees them.
+            if (session.InputState.IsKeyBlockedUntilRelease(gKey))
+            {
+                e.Handled = true;
+                return;
+            }
             // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
             // The sub-target cursor (#240) takes Enter as Confirm too.
             bool confirmTaken = session.ActionService.CurrentTarget != null || session.ActionService.SubTargeting != null || session.Events.IsActive || chat.IsSelecting;

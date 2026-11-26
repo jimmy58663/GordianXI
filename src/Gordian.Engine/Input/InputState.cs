@@ -169,6 +169,15 @@ namespace Gordian.Engine.Input
             lock (_lock) _layoutBlockedKeys.UnionWith(_heldKeys);
         }
 
+        /// <summary>
+        /// True when a shared profile change has blocked this held key until its release. Early UI
+        /// routes (such as opening chat) must obey the same eligibility as mapped gameplay actions.
+        /// </summary>
+        public bool IsKeyBlockedUntilRelease(GordianKey key)
+        {
+            lock (_lock) return _layoutBlockedKeys.Contains(key);
+        }
+
         public void SetKeyDown(GordianKey key)
         {
             if (key == GordianKey.None) return;

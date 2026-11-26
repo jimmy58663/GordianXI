@@ -70,6 +70,11 @@ downgrading. The retained bindings map is not a flattened modern keyboard export
 Sessions resolve deep copies, then apply their own camera choices. Shared changes
 refresh both assignment displays and open config rows, and block held keys until
 release (including native repeats), preventing new actions under a changed map.
+The viewport checks this block before either chat-opening path, so a repeated
+Compact movement key cannot start Full typing until released and pressed again.
+Keyboard assignment capture owns keys before chat opening and keeps ownership
+through the assigned key's release; ordinary letters and modified chat shortcuts
+reach the assignment list rather than opening a draft.
 Draft text survives. Explicit keys suppress inherited collisions only in the same
 menu/game context; explicit collisions retain both definitions and use enum order.
 The in-game assignment UI records both sides of a swap as overrides.
@@ -140,7 +145,11 @@ modern retail starts Full. The official 2012 new-character default is Compact 2.
 Regression coverage lives in the solution: `SharedKeyboardMigrationTests`,
 `KeyboardLayoutTests`, `KeyboardPresetUiTests`, `KeyboardShortcutTests`,
 `StockUiKeyAssignTests`, `StockUiKeyboardChatTests`, `KeypadIdentityTests` and
-`ViewportShortcutsTests`. They cover migration, exact archive/idempotence, unknown
+`ViewportShortcutsTests`. `ViewportKeyboardRoutingTests` constructs the real window
+on Avalonia's headless backend and raises KeyDown, TextInput and KeyUp through its
+registered tunnelling handlers; it covers Full assignment capture, held-repeat
+layout changes, release and fresh presses. These are routed-event tests, not native
+keyboard injection. They cover migration, exact archive/idempotence, unknown
 schemas/entries, all layout transitions, customization/unbinding, fresh-hub disk
 restart, two-character sharing, stale character settings, drafts, held keys,
 assignment swaps and non-keyboard preservation. Run `dotnet build GordianXI.slnx`
