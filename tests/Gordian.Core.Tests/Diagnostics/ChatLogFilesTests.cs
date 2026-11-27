@@ -23,6 +23,7 @@ namespace Gordian.Core.Tests.Diagnostics
         {
             Assert.Equal("Retail", new AccountProfile { ServerType = ProfileServerType.Retail, ServerHost = "ignored" }.ServerFolderName);
             Assert.Equal("127.0.0.1", new AccountProfile { ServerType = ProfileServerType.LandSandBoat, ServerHost = " 127.0.0.1 " }.ServerFolderName);
+            Assert.Equal("play.example.com", new AccountProfile { ServerType = ProfileServerType.LandSandBoat, ServerHost = "Play.Example.COM" }.ServerFolderName);
         }
     }
 }

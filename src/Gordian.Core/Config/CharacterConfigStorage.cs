@@ -54,8 +54,8 @@ namespace Gordian.Core.Config
         /// <summary>
         /// The path of <paramref name="file"/> for <paramref name="character"/> on <paramref name="server"/> under
         /// <paramref name="dataRoot"/>. When it does not exist yet and an older build's file for the character's name does,
-        /// that file is moved here first. If the move fails, the old path is returned so the character keeps its data this
-        /// session; the move is tried again at the next load. A character with no name has no older file to take.
+        /// that file is moved here first. If the move fails, the old path is returned so the character keeps its data; the
+        /// stores keep that path until the app restarts, and the move is tried again at the next launch. A character with no name has no older file to take.
         /// </summary>
         public static string Resolve(string dataRoot, CharacterConfigFile file, string? server, string? character)
         {

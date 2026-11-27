@@ -149,11 +149,12 @@ namespace Gordian.Core.Profiles
         /// The server folder this profile's characters keep their files under: their chat logs
         /// (<c>logs/chat/&lt;server&gt;/</c>, #565) and their config (<c>CharConfig/&lt;server&gt;/</c>, #639).
         /// <c>Retail</c>, or a LandSandBoat profile's server host, so the same character name on two servers never shares
-        /// a file.
+        /// a file. The host is lower-cased: host names ignore case, and a case-sensitive file system would otherwise give
+        /// <c>Play.Example.com</c> and <c>play.example.com</c> separate folders.
         /// </summary>
         [JsonIgnore]
         public string ServerFolderName =>
-            EffectiveServerType == ProfileServerType.Retail ? "Retail" : EffectiveServerHost;
+            EffectiveServerType == ProfileServerType.Retail ? "Retail" : EffectiveServerHost.ToLowerInvariant();
 
         /// <summary>The auth port in effect: <see cref="ServerPort"/>, or 54231.</summary>
         [JsonIgnore]
