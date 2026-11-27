@@ -1,6 +1,7 @@
 // src/Gordian.Core/Config/GordianStorage.cs
 using System;
 using System.IO;
+using System.Text;
 
 namespace Gordian.Core.Config
 {
@@ -206,6 +207,24 @@ namespace Gordian.Core.Config
                 }
                 return path;
             }
+        }
+
+        /// <summary>
+        /// A server or character name made safe as one folder name on every platform, for the chat logs (#565) and
+        /// <see cref="CharacterConfigStorage"/> (#639): characters a file system rejects become <c>_</c>, casing is kept
+        /// exactly, and an empty or dot-only name becomes <c>Unknown</c>.
+        /// </summary>
+        public static string SafeFolderName(string? name)
+        {
+            string trimmed = (name ?? string.Empty).Trim();
+            var builder = new StringBuilder(trimmed.Length);
+            foreach (char c in trimmed)
+            {
+                bool invalid = c < 0x20 || c is '<' or '>' or ':' or '"' or '/' or '\\' or '|' or '?' or '*';
+                builder.Append(invalid ? '_' : c);
+            }
+            string result = builder.ToString().TrimEnd('.', ' ');
+            return result.Length == 0 || result.Trim('.', '_').Length == 0 ? "Unknown" : result;
         }
 
         /// <summary>

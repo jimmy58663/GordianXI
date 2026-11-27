@@ -94,8 +94,6 @@ namespace Gordian.Engine.Ui
     /// </summary>
     public sealed class StockUiLayout
     {
-        public const string FileExtension = ".json";
-
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true,
@@ -371,16 +369,8 @@ namespace Gordian.Engine.Ui
             if (Windows.TryGetValue(windowId, out var o) && o.IsEmpty) Windows.Remove(windowId);
         }
 
-        /// <summary>Directory holding one layout file per character.</summary>
-        public static string LayoutDirectory => Path.Combine(GordianStorage.RootDataDirectory, "ui_layouts");
-
-        /// <summary>Layout file for a character ("default" when the name is empty).</summary>
-        public static string GetLayoutPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(LayoutDirectory, name + FileExtension);
-        }
+        /// <summary>The layout file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("ui_layout.json", "ui_layouts");
 
         public void SaveToFile(string path)
         {

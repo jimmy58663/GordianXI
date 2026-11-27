@@ -146,11 +146,13 @@ namespace Gordian.Core.Profiles
         public string EffectiveServerHost => (ServerHost ?? string.Empty).Trim();
 
         /// <summary>
-        /// The server folder this profile's chat logs go under (<c>logs/chat/&lt;server&gt;/</c>, #565): <c>Retail</c>, or
-        /// a LandSandBoat profile's server host, so the same character name on two servers never shares a file.
+        /// The server folder this profile's characters keep their files under: their chat logs
+        /// (<c>logs/chat/&lt;server&gt;/</c>, #565) and their config (<c>CharConfig/&lt;server&gt;/</c>, #639).
+        /// <c>Retail</c>, or a LandSandBoat profile's server host, so the same character name on two servers never shares
+        /// a file.
         /// </summary>
         [JsonIgnore]
-        public string ChatLogServerName =>
+        public string ServerFolderName =>
             EffectiveServerType == ProfileServerType.Retail ? "Retail" : EffectiveServerHost;
 
         /// <summary>The auth port in effect: <see cref="ServerPort"/>, or 54231.</summary>

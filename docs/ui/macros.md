@@ -12,7 +12,7 @@ Sources: the maintainer's retail captures of 2026-10-13 (book list, book options
 
 ## Storage: client-side per character
 
-Retail keeps macros on the client, per character: `mcr*.dat`, `mcr.ttl`, `mcr_2.ttl` and `mcr.sys` in `USER/<character id>/` (the server-side copy is only an optional backup made at the character select screen). GordianXI does the same with its own file, `macros/<character name>.json` under `GordianStorage.RootDataDirectory` (`MacroStore`), next to `ui_settings/` and `ui_layouts/`, written on every change (through a temporary file), listing only the books, sets and macros that hold something:
+Retail keeps macros on the client, per character: `mcr*.dat`, `mcr.ttl`, `mcr_2.ttl` and `mcr.sys` in `USER/<character id>/` (the server-side copy is only an optional backup made at the character select screen). GordianXI does the same with its own file, `macros.json` in the character's config folder `CharConfig/<server>/<character>/` (`MacroStore`, [desktop-shell.md](../app/desktop-shell.md#character-config-folders-charconfig)), next to `ui_settings.json` and `ui_layout.json`, written on every change (through a temporary file), listing only the books, sets and macros that hold something:
 
 ```json
 { "Book": 23, "Set": 3, "Books": [ { "Number": 1, "Title": "WAR", "Sets": [ { "Number": 1, "Macros": [

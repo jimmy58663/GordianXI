@@ -272,14 +272,8 @@ namespace Gordian.Core.World
             return new EquipmentSetBook();
         }
 
-        public static string DataDirectory => Path.Combine(GordianStorage.RootDataDirectory, "equipment_sets");
-
-        public static string GetPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(DataDirectory, name + ".json");
-        }
+        /// <summary>The sets file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("equipment_sets.json", "equipment_sets");
 
         #endregion
     }
@@ -289,12 +283,12 @@ namespace Gordian.Core.World
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, EquipmentSetBook> Books = new(StringComparer.OrdinalIgnoreCase);
 
-        public static EquipmentSetBook GetForCharacter(string? characterName)
+        /// <summary>The sets of <paramref name="characterName"/> on <paramref name="server"/>.</summary>
+        public static EquipmentSetBook GetForCharacter(string? server, string? characterName)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Books.GetOrAdd(key, name =>
+            return Books.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
             {
-                string path = EquipmentSetBook.GetPath(name);
+                string path = CharacterConfigStorage.Resolve(EquipmentSetBook.ConfigFile, server, characterName);
                 var book = EquipmentSetBook.LoadOrEmpty(path);
                 book.Changed += _ =>
                 {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using Gordian.Core.Config;
 
 namespace Gordian.Core.Diagnostics
 {
@@ -23,29 +24,12 @@ namespace Gordian.Core.Diagnostics
 
         /// <summary>The file a line for <paramref name="server"/> / <paramref name="character"/> written at <paramref name="timestamp"/> goes to.</summary>
         public static string PathFor(string logsDirectory, string server, string character, DateTime timestamp) =>
-            Path.Combine(logsDirectory, GordianLog.ChatFolder, FolderName(server), FolderName(character),
+            Path.Combine(logsDirectory, GordianLog.ChatFolder, GordianStorage.SafeFolderName(server), GordianStorage.SafeFolderName(character),
                 timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".log");
-
-        /// <summary>
-        /// A server or character name made safe as one folder name on every platform: characters a file system rejects
-        /// become <c>_</c>, casing is kept exactly, and an empty or dot-only name becomes <c>Unknown</c>.
-        /// </summary>
-        public static string FolderName(string? name)
-        {
-            string trimmed = (name ?? string.Empty).Trim();
-            var builder = new StringBuilder(trimmed.Length);
-            foreach (char c in trimmed)
-            {
-                bool invalid = c < 0x20 || c is '<' or '>' or ':' or '"' or '/' or '\\' or '|' or '?' or '*';
-                builder.Append(invalid ? '_' : c);
-            }
-            string result = builder.ToString().TrimEnd('.', ' ');
-            return result.Length == 0 || result.Trim('.', '_').Length == 0 ? "Unknown" : result;
-        }
 
         public void WriteLine(string server, string character, DateTime timestamp, string line)
         {
-            string key = FolderName(server) + "\u0001" + FolderName(character);
+            string key = GordianStorage.SafeFolderName(server) + "\u0001" + GordianStorage.SafeFolderName(character);
             if (!_open.TryGetValue(key, out var entry) || entry.Date != timestamp.Date)
             {
                 entry.Writer?.Dispose();

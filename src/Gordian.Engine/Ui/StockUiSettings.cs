@@ -166,7 +166,6 @@ namespace Gordian.Engine.Ui
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        private const string FileExtension = ".json";
         private readonly object _sync = new();
         private readonly Dictionary<StockUiSettingKey, int> _values = new();
 
@@ -405,16 +404,8 @@ namespace Gordian.Engine.Ui
             public Dictionary<string, string>? FontColors { get; set; }
         }
 
-        /// <summary>Directory holding one settings file per character.</summary>
-        public static string SettingsDirectory => Path.Combine(GordianStorage.RootDataDirectory, "ui_settings");
-
-        /// <summary>Settings file for a character ("default" when the name is empty).</summary>
-        public static string GetSettingsPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(SettingsDirectory, name + FileExtension);
-        }
+        /// <summary>The settings file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("ui_settings.json", "ui_settings");
 
         public void SaveToFile(string path)
         {
@@ -484,12 +475,12 @@ namespace Gordian.Engine.Ui
     {
         private static readonly ConcurrentDictionary<string, StockUiSettings> Settings = new(StringComparer.OrdinalIgnoreCase);
 
-        public static StockUiSettings GetForCharacter(string? characterName)
+        /// <summary>The settings of <paramref name="characterName"/> on <paramref name="server"/>.</summary>
+        public static StockUiSettings GetForCharacter(string? server, string? characterName)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Settings.GetOrAdd(key, name =>
+            return Settings.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
             {
-                string path = StockUiSettings.GetSettingsPath(name);
+                string path = CharacterConfigStorage.Resolve(StockUiSettings.ConfigFile, server, characterName);
                 var settings = StockUiSettings.LoadOrDefault(path);
                 void Save()
                 {

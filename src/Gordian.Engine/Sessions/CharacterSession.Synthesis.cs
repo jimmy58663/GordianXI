@@ -15,7 +15,7 @@ namespace Gordian.Engine.Sessions
         private void AttachSynthesisAndGuildShop()
         {
             var menus = ActionService.Menus;
-            var history = SynthesisHistoryStore.GetForCharacter(CharacterName);
+            var history = SynthesisHistoryStore.GetForCharacter(ServerName, CharacterName);
             menus.SynthesisHistory = () => history;
             menus.IsSynthesizing = () => Crafting.IsSynthesizing;
             menus.SynthesisRequested = (crystal, slot, ingredients) => CraftingModule.SynthesizeAsync(crystal, slot, ingredients);

@@ -29,10 +29,11 @@ namespace Gordian.Engine.Sessions
         public string ProfileName { get; set; } = string.Empty;
 
         /// <summary>
-        /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
-        /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
+        /// The server folder the character's files go under, its chat log (<c>logs/chat/&lt;server&gt;/</c>, #565) and its
+        /// config (<c>CharConfig/&lt;server&gt;/</c>, #639): the launching profile's <c>ServerFolderName</c>; <c>Unknown</c>
+        /// when empty.
         /// </summary>
-        public string ServerName { get; set; } = string.Empty;
+        public string ServerName { get; }
 
         private readonly Ui.ChatLogFileWriter _chatLogFile;
 
@@ -240,12 +241,14 @@ namespace Gordian.Engine.Sessions
             uint characterId,
             string accountUsername,
             SessionNetworkManager networkManager,
-            Input.InputProfileHub? inputProfiles = null)
+            Input.InputProfileHub? inputProfiles = null,
+            string? serverName = null)
         {
             _inputProfiles = inputProfiles ?? Input.InputProfileHub.Default;
             CharacterName = characterName ?? throw new ArgumentNullException(nameof(characterName));
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
+            ServerName = serverName ?? string.Empty;
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             // The engine side of the session, built before anything else subscribes so its handlers run first, as they
             // did when the parser built them (#433).
@@ -253,9 +256,9 @@ namespace Gordian.Engine.Sessions
             SchedulerPlayback = new Animation.SchedulerPlayback(Scheduler, World, ActionMotionLibrary.Shared);
             ActionService = Actions.PlayerActionService.ForParser(NetworkManager.Parser);
             ActionService.LocalPlayerMoved += (pos, dir) => NetworkManager.SetLocalPosition(pos, dir);
-            ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
-            ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
-            Macros = new Gordian.Engine.Macros.MacroController(Gordian.Engine.Macros.MacroStore.GetForCharacter(characterName));
+            ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(ServerName, characterName);
+            ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(ServerName, characterName);
+            Macros = new Gordian.Engine.Macros.MacroController(Gordian.Engine.Macros.MacroStore.GetForCharacter(ServerName, characterName));
             // Every character runs on its own copy of the user's input profile (#314); see InputProfileHub.
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,

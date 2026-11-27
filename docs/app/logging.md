@@ -30,7 +30,7 @@ Every line a character's in-game log shows (say, shout, yell, tell, party, links
 [21:05:12] [Combat] Gemini hits the Wild Rabbit for 12 points of damage.
 ```
 
-- **`<server>`** is `Retail` for a retail profile and the server host for a LandSandBoat profile (`AccountProfile.ChatLogServerName`, set on `CharacterSession.ServerName`), so the same character name on two servers never shares a file. Server and character names keep their casing; characters a file system rejects become `_`, and an empty name becomes `Unknown` (`ChatLogFiles.FolderName`).
+- **`<server>`** is `Retail` for a retail profile and the server host for a LandSandBoat profile (`AccountProfile.ServerFolderName`, set on `CharacterSession.ServerName`), so the same character name on two servers never shares a file. Server and character names keep their casing; characters a file system rejects become `_`, and an empty name becomes `Unknown` (`GordianStorage.SafeFolderName`, shared with the per-character config folders, [desktop-shell.md](desktop-shell.md#character-config-folders-charconfig)).
 - **The date** is the local date the line was logged, so play past midnight moves to the next day's file. Chat files never roll by size and are never deleted.
 - **The text** is the log line as plain text (`ChatLogFileWriter.PlainText`): element icons become their element words, line breaks become spaces, and the stock UI's drawing codes are dropped. Auto-translate phrases are written as the in-game log shows them; resolving them to words is #388.
 - **How:** `ChatLogFileWriter` (`src/Gordian.Engine/Ui`), built by `CharacterSession`, listens to `StockUiChatLog.LineAdded` and hands each formatted line to `GordianLog.Chat`; the logger's writer thread opens and appends the files, so the network thread never waits on disk, and `Shutdown` flushes them.
@@ -60,7 +60,7 @@ The default minimum is `Debug` in Debug builds or with `GORDIAN_DEBUG=1`, otherw
 
 The bounded wire trace (the first 20 map datagrams each way after login and each zone line, headers and sub-packets) uses its own `WIRE` category. It is a network category, so it goes to `network/` with the other packet detail; turn the network file on to capture it.
 
-Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages).
+Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages), `STORAGE` (the per-character config folders, and moving older builds' files into them, #639).
 
 ## Settings
 
