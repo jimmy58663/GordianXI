@@ -63,6 +63,8 @@ The editor's **Server** toggle (`AccountProfile.ServerType`) decides which field
 
 The retail field limits come from [retail-login-spec.md](../network/retail-login-spec.md) section 6.1. **Show passwords** reveals the password fields and the authenticator key.
 
+- **Profile names are unique**, ignoring case. Profiles are found by name, so saving a name another profile has would overwrite that profile; Save refuses it instead ("A profile named '<name>' already exists. Choose another name.", #638). Copy picks a free name (`<name> - Copy`, then `- Copy 2`), and a new profile from the LSB Accounts tab adds a number.
+
 - **Two-factor modes** (`TwoFactorMode`):
   - **None**: no code is sent.
   - **Authenticator key (automatic)**: the Base32 key from the authenticator setup is stored, and the code is computed at every login (`TotpEngine`). The key must be at least 16 Base32 characters; spaces, dashes and `=` padding are ignored. The card shows the current code.
