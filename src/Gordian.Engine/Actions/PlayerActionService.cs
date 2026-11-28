@@ -638,6 +638,26 @@ namespace Gordian.Engine.Actions
         }
 
         /// <summary>
+        /// Steps through your own party in window order, including self and only members present in this zone.
+        /// With no party member selected, starts on self. Unlike F2-F6 this is relative, not a fixed slot.
+        /// </summary>
+        public void CyclePartyTarget(int step)
+        {
+            var order = new List<uint>();
+            foreach (var member in OwnPartyMembers())
+            {
+                if (member.ServerId != 0 && _world.TryGetByServerId(member.ServerId, out var entity)
+                    && entity != null && entity.IsSpawned && !order.Contains(member.ServerId)) order.Add(member.ServerId);
+            }
+            // A solo character need not have received a party-list packet.
+            if (!order.Contains(_localPlayer.ServerId)) order.Insert(0, _localPlayer.ServerId);
+            int index = order.IndexOf(CurrentTarget?.ServerId ?? 0);
+            uint pick = index < 0 ? _localPlayer.ServerId
+                : order[(index + (step < 0 ? -1 : 1) + order.Count) % order.Count];
+            SetTargetByServerId(pick);
+        }
+
+        /// <summary>
         /// Clears the current target.
         /// </summary>
         public void ClearTarget()

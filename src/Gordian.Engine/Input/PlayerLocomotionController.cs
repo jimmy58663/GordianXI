@@ -852,10 +852,18 @@ namespace Gordian.Engine.Input
                 {
                     var stick = padSettings.Camera(firstPerson);
                     float padYaw = filteredRightStick.X * 180.0f * stick.SensitivityX * dt;
+                    // Owner's retail comparison (#648): Normal orbits opposite horizontal stick
+                    // input in third person, but looks with it in first person. The common yaw
+                    // negation below remains shared with mouse/keyboard; correct only the pad here.
+                    if (firstPerson) padYaw = -padYaw;
                     if (stick.InvertX) padYaw = -padYaw;
                     yawDelta += padYaw;
 
                     float padPitch = -filteredRightStick.Y * 120.0f * stick.SensitivityY * dt;
+                    // Normal up looks down in orbit and up in first person. Their rendered
+                    // pitch signs differ; both need positive pitch for normalized stick-up.
+                    // Free camera retains its existing baseline.
+                    if (firstPerson || _camera.Mode == CameraMode.ThirdPersonOrbital) padPitch = -padPitch;
                     if (stick.InvertY) padPitch = -padPitch;
                     pitchDelta += padPitch;
                 }
@@ -2096,6 +2104,9 @@ namespace Gordian.Engine.Input
                 && _actionService.ResolveTargetToken("a10", out _) is { IsSpawned: true } first) _actionService.SetTarget(first);
             if (_inputState.WasActionTriggered(InputAction.TargetAllianceSecond)
                 && _actionService.ResolveTargetToken("a20", out _) is { IsSpawned: true } second) _actionService.SetTarget(second);
+
+            if (_inputState.WasActionTriggered(InputAction.TargetPartyUp)) _actionService.CyclePartyTarget(-1);
+            if (_inputState.WasActionTriggered(InputAction.TargetPartyDown)) _actionService.CyclePartyTarget(1);
 
             // Target Self (F1) and the other members of your party (F2-F6, in party window order)
             if (_inputState.WasActionTriggered(InputAction.TargetSelf))

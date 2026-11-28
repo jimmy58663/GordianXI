@@ -130,6 +130,12 @@ namespace Gordian.Engine.Input
         /// <summary>The right-hand counterpart of <see cref="CameraPanLeft"/> (retail's compact E, "Turn Right").</summary>
         CameraPanRight = 117,
 
+        /// <summary>Cycles up through your own party, including yourself; starts on yourself without a party target.</summary>
+        TargetPartyUp = 118,
+
+        /// <summary>The downward counterpart of <see cref="TargetPartyUp"/>; distinct from fixed F2-F6 slots.</summary>
+        TargetPartyDown = 119,
+
         OpenPartyChat = 120,
         OpenSayChat = 121,
         OpenLinkshellChat = 122,

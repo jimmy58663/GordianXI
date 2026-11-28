@@ -686,7 +686,7 @@ namespace Gordian.Engine.Tests.Ui
             input.MenuContext = false;
             input.Update(profile, TimeSpan.FromMilliseconds(16));
             Assert.False(input.IsActionHeld(InputAction.MenuDown));
-            Assert.True(input.IsActionHeld(InputAction.TargetParty2));
+            Assert.True(input.IsActionHeld(InputAction.TargetPartyDown));
         }
 
         [Fact]

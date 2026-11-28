@@ -50,8 +50,8 @@ namespace Gordian.Engine.Input
             new GamepadFunction("Select Window", 139, InputAction.CycleLogWindow),
             new GamepadFunction("Open Chat", -1, InputAction.OpenChat),
             // Two-purpose functions name both purposes, menu first, as retail's own "Menu/Target Cursor Left" does.
-            new GamepadFunction("Menu Up / Target Party Up", -1, InputAction.MenuUp, InputAction.TargetParty1),
-            new GamepadFunction("Menu Down / Target Party Down", -1, InputAction.MenuDown, InputAction.TargetParty2),
+            new GamepadFunction("Menu Up / Target Party Up", -1, InputAction.MenuUp, InputAction.TargetPartyUp),
+            new GamepadFunction("Menu Down / Target Party Down", -1, InputAction.MenuDown, InputAction.TargetPartyDown),
             new GamepadFunction("Menu/Target Cursor Left", 100, InputAction.MenuLeft, InputAction.TargetCursorLeft),
             new GamepadFunction("Menu/Target Cursor Right", 99, InputAction.MenuRight, InputAction.TargetCursorRight),
             // Cycle Target Left / Right (Tab / Shift+Tab) and plain Lock On (T, keypad *) stay keyboard-only: the
@@ -68,6 +68,9 @@ namespace Gordian.Engine.Input
             new GamepadFunction("Macro Palette (Alt)", -1, InputAction.MacroPaletteAlt),
             new GamepadFunction("Log Out", -1, InputAction.Logout),
             new GamepadFunction("Next Character", -1, InputAction.CycleCharacter),
+            // Keep existing custom fixed-slot bindings visible and unchanged during the cycling correction.
+            new GamepadFunction("Target Party Slot 1 (F2)", -1, InputAction.TargetParty1),
+            new GamepadFunction("Target Party Slot 2 (F3)", -1, InputAction.TargetParty2),
         };
 
         /// <summary>Whether some function of the list drives <paramref name="action"/>.</summary>

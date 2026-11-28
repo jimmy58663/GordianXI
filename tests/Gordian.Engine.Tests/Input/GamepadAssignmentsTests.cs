@@ -173,16 +173,16 @@ namespace Gordian.Engine.Tests.Input
                 p.Bindings[a].RemoveAll(c => c.IsGamepadChord);
             }
             // The user put Lock On on d-pad up; d-pad down is free in game.
-            p.Unbind(InputAction.TargetParty1, new InputChord(GamepadButton.DPadUp));
+            p.Unbind(InputAction.TargetPartyUp, new InputChord(GamepadButton.DPadUp));
             p.Bind(InputAction.ToggleLockOn, new InputChord(GamepadButton.DPadUp));
-            p.Unbind(InputAction.TargetParty2, new InputChord(GamepadButton.DPadDown));
+            p.Unbind(InputAction.TargetPartyDown, new InputChord(GamepadButton.DPadDown));
 
             p.EnsureDPadBindings();
             Assert.True(p.TryGetAction(new InputChord(GamepadButton.DPadUp), menuContext: true, out var up));
             Assert.Equal(InputAction.MenuUp, up);
             Assert.True(p.TryGetAction(new InputChord(GamepadButton.DPadUp), menuContext: false, out var upGame));
             Assert.Equal(InputAction.ToggleLockOn, upGame);           // the user's choice stays
-            Assert.Contains(new InputChord(GamepadButton.DPadDown), p.GetChords(InputAction.TargetParty2));
+            Assert.Contains(new InputChord(GamepadButton.DPadDown), p.GetChords(InputAction.TargetPartyDown));
             Assert.Contains(new InputChord(GamepadButton.DPadRight), p.GetChords(InputAction.MenuRight));
         }
 
