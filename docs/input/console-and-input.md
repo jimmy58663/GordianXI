@@ -16,6 +16,85 @@
 
 - **Macro commands and chat placeholders ([#362](https://github.com/jimmy58663/GordianXI/issues/362), awaiting the in-game test):** `/macro book|set n`, `/wait`, `/recast "name"`, `/targetnpc`, `/targetbnpc`, `/lastsynth`, `/acmd`, `/pcmd leader`; chat text fills `<hp>`, `<mp>`, `<hpp>`, `<mpp>`, `<tp>`, `<job>`, `<mjob>`, `<sjob>`, `<pethpp>`, `<petmpp>`, `<pettp>`, `<recast=X>` and the target placeholders with their values before it is sent (`StockUiChat.ExpandTokens` -> `PlayerActionService.ExpandChatTokens`). Details and the provisional formats: [macros.md](../ui/macros.md#commands-362).
 
+## Chat auto-translate
+
+The App's `AutoTranslateKeyRoutingTests` exercise the real viewport's registered
+key handlers on an isolated Avalonia headless dispatcher. Tab and Shift+Tab complete
+a synthetic phrase without entering gameplay target input; routed Escape cancels
+completion before the draft, and target bindings work again after chat closes.
+This is routed-event integration coverage, not native OS input, rendering or in-game
+acceptance. Run with `dotnet test tests/Gordian.App.Tests --filter FullyQualifiedName~AutoTranslateKeyRoutingTests`.
+
+### Fixed-phrase data and protocol
+
+`AutoTranslateCatalog` reads installed English `ROM/168/25.DAT` through the normal
+ResourceManager/VFS. No phrase assets are bundled. **Differs from xi-tools:** the
+observed category header is 76 bytes: four-byte key, two 32-byte CP932 names,
+little-endian count at 68 and payload size at 72. Entries have a four-byte key,
+one-byte length and CP932 text including a trailing NUL. Bounds, count/size,
+identity, uniqueness and terminators are validated; invalid data fails closed.
+
+References (schemas only; independently authored C#, no source copied):
+- [xi-tools format notes](https://github.com/vekien/xi-tools/blob/main/docs/dats/ROM_168_25.md)
+- [Windower ResourceExtractor linked-name schema](https://github.com/Windower/ResourceExtractor/blob/master/Program.cs)
+- [Independent dictionary format description](https://github.com/ejouanchicot/ffxi-macro-editor/blob/main/docs/FORMAT.md)
+- [#388 six-byte wire requirement](https://github.com/jimmy58663/GordianXI/issues/388)
+- LandSandBoat C2S `0x0b5_chat_std.h`, `0x0b6_chat_name.h` (existing packet builders)
+
+`@J`, `@A`, `@C`, `@Y` plus a hexadecimal index resolve respectively through the
+existing Jobs, ZoneNames, Spells and Abilities DMsg tables. Blank and unresolved rows are excluded, never
+shown as fake names. Missing dictionaries/references produce menu notices. Installed
+content is not evidence of a private server's gameplay availability.
+
+`ChatText` keeps plain display text separate from immutable phrase spans. Only
+explicit spans become `FD type language group id FD`; CP932 text cannot inject
+an FD via a private-use Unicode character. Encoding validates before writing and
+never splits/truncates a marker or multibyte character. Span packet builders retain
+the allocation-free plain-text path. ChatPacketModule sends the same reliable
+0x0B5/0x0B6 packets as before; synthetic loopback covers its outbound builder and
+incoming dispatcher. Incoming fixed phrases resolve into the local English label;
+unknown and malformed markers remain visible placeholders, not dropped bytes.
+
+Chat routing supports default channels, channel slash aliases, tells (including
+last partner) and local `/echo`. The router's message-body suffix is projected back
+onto the identity spans; phrase identities in the recipient are rejected.
+A complete leading slash-command phrase is consumed as syntax **only** when its
+identity resolves in the installed catalog to the exact displayed local English
+label, and the entire verb ends at whitespace or end-of-line. On explicit submission
+it uses the ordinary command dispatcher and its existing policy; Tab never executes
+it. No Unicode/braces stripping, guessed aliases, `!` phrase commands, partial verbs
+or arbitrary recipient/action-argument conversion is performed. A command phrase
+inside `/party`, `/tell`, `/say`, `/echo` or ordinary text remains a binary body token.
+Use `/say ` explicitly to send a leading command phrase as conversation. Unknown or
+mismatched identities do not gain execution authority.
+
+Placeholder expansion transforms only plain rich-body segments, not phrase labels,
+and cannot reparse an expanded rich body as a command. Other commands with remaining
+rich arguments are refused explicitly, rather than silently flattened or executed
+with altered syntax. This does **not** implement `/ma` or `/ja` phrase arguments.
+The official guide documents selected phrases and macro
+usage, but does not specify every command-position rule; this narrow routing policy
+is a Gordian choice, not a claim of complete retail parity.
+
+### Scope and verification
+
+This implements the installed English fixed dictionary, not all of #388: dynamic
+item/key-item catalogs, macro editing/import, rich `/ma` and `/ja` arguments,
+non-English UI/IME and mouse/controller completion remain unsupported. The ASCII
+editor/font limit remains. The catalog is a resource snapshot attached when a
+viewport session is added, not a live dictionary reload feature.
+
+Core `AutoTranslateTests` independently check synthetic dictionary boundaries,
+identity and packet bytes, incoming decoding, CP932 injection rejection and the
+127-byte content budget. Engine `AutoTranslateInputTests` and `PhraseCommandTests`
+check completion, editing/history, body slicing, expansion and command safety;
+App `AutoTranslateMenuTests` check completion menu layout. Run `dotnet build
+GordianXI.slnx` and `dotnet test GordianXI.slnx --no-build` with a private absolute
+TMPDIR. Fixtures use no server login or public messages. CPU tests do not establish
+native-window, GPU, Windows or live-server acceptance; maintainer in-game testing
+remains required. A safe manual first check is `/shut`, Tab, inspect the marked
+still-open draft, then Escape, not Enter.
+
 ## Input subsystem
 
 - **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad) with smart text-input isolation
@@ -25,7 +104,7 @@
   - Several GordianXI processes (#150, 2026-10-07): on Windows `SdlGamepadDriver` turns off SDL's Raw Input, GameInput and Windows.Gaming.Input joystick drivers (`SDL_HINT_JOYSTICK_RAWINPUT` / `_GAMEINPUT` / `_WGI` = 0), which can hand the pad to one process (fits "only the last launched window"); XInput pads are then read through XInput and others through DirectInput / HIDAPI, which any process can poll, and each process acts on the pad only while one of its windows has the focus. Checked in game with two processes (2026-10-07).
   - `SdlGamepadDriver` runs on SDL3 through [ppy.SDL3-CS](https://github.com/ppy/SDL3-CS) (#261, 2026-10-05; SDL2 through Silk.NET.SDL before). It polls each frame: `SDL_PumpEvents`, then slot N opens the Nth gamepad in `SDL_GetGamepads()` by instance id, and a slot whose gamepad reports disconnected is closed and refilled on a later poll (hot-plug). Face buttons map by position (South/East/West/North = A/B/X/Y), sticks are normalized to -1..1 with Y inverted (+Y up), triggers to 0..1 with a 0.15 press threshold, and rumble refreshes a 1000 ms `SDL_RumbleGamepad`. Background joystick events are allowed so a pad works while the window is unfocused.
   - Native library: `SDL3.dll` / `libSDL3.so` / `libSDL3.dylib` from the package's `runtimes/<rid>/native` (win x86/x64/arm64, linux x86/x64/arm/arm64, osx x64/arm64). A `DllImport` resolver falls back to that folder when the host's dependency manifest doesn't list it (the CI test host).
-- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets left and right on screen (see [Target cycling](#target-cycling))
+- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets left and right on screen outside chat (see [Target cycling](#target-cycling)); inside chat they open/cycle [auto-translate](../ui/stock-ui.md#auto-translate-interaction)
 - Rebindable control mapping engine with JSON persistence and modifier key support (`keybinds.json`)
 - Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
 - Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher

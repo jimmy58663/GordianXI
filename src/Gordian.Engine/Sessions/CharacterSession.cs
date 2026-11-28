@@ -311,6 +311,13 @@ namespace Gordian.Engine.Sessions
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
+            Chat.ExecuteRich = async (parsed, text) =>
+            {
+                if (parsed.Kind == ChatCommandResultKind.SendTell) await ChatModule.SendTellAsync(parsed.Recipient, text).ConfigureAwait(false);
+                else if (parsed.Kind == ChatCommandResultKind.SendChat) await ChatModule.SendChatAsync(parsed.SpeechKind, text).ConfigureAwait(false);
+                else return Actions.PlayerActionResult.Warn("Unsupported phrase command.");
+                return Actions.PlayerActionResult.Ok("", parsed.Kind);
+            };
             // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...". Named monsters (NamedFlag, #334) take none.
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
                 id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },

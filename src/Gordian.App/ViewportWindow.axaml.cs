@@ -714,14 +714,7 @@ namespace Gordian.App
             }
             if (chat.Input.IsOpen)
             {
-                // Tab / Shift+Tab still cycle targets while typing.
-                if (gKey == GordianKey.Tab)
-                {
-                    session.InputState.SetModifiers(mods);
-                    session.InputState.SetKeyDown(gKey);
-                    e.Handled = true;
-                    return;
-                }
+                // Chat owns Tab for auto-translate; gameplay target bindings apply only outside chat.
                 // A character key is left unhandled so the platform's text input for it follows (OnGameTextInput):
                 // that text carries Shift, Caps Lock and the keyboard layout, which the key symbol does not (it
                 // reports letters in upper case). Handling the key press would make Avalonia drop that text.
