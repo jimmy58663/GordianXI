@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.Resources.Ui;
 using Gordian.Core.World;
@@ -15,6 +16,20 @@ namespace Gordian.Engine.Tests.Input;
 
 public class CameraConfigSessionTests
 {
+    /// <summary>
+    /// The settings file of a synthetic character built with no server or world, so under
+    /// <c>CharConfig/Unknown/Unknown/&lt;name&gt;/</c> (#639).
+    /// </summary>
+    private static string SettingsPath(string name) =>
+        Path.Combine(CharacterConfigStorage.GetDirectory(new CharacterFolderKey(null, null, name)), StockUiSettings.ConfigFile.FileName);
+
+    /// <summary>Removes a synthetic character's whole config folder, which may never have been created.</summary>
+    private static void DeleteSettings(string path)
+    {
+        string? folder = Path.GetDirectoryName(path);
+        if (folder != null && Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+    }
+
     [Theory]
     [InlineData(false, false, "pad")]
     [InlineData(false, true, "pad")]
@@ -30,7 +45,7 @@ public class CameraConfigSessionTests
     {
         // Unique synthetic characters, disconnected network manager, no DATs or live profiles.
         string name = "CameraConfig_" + Guid.NewGuid().ToString("N");
-        string path = StockUiSettings.GetSettingsPath(name);
+        string path = SettingsPath(name);
         var hub = new InputProfileHub(InputProfile.CreateCompact());
         using var session = new CharacterSession(name, 1001, "fixture", new SessionNetworkManager("127.0.0.1", 54230), hub);
         session.World.UpsertEntity(new PlayerEntity(1001, 0) { IsSpawned = true });
@@ -103,7 +118,7 @@ public class CameraConfigSessionTests
             Assert.True(StockUiSettings.LoadOrDefault(path).HasValue(key));
             Assert.Equal(0, StockUiSettings.LoadOrDefault(path).GetValue(key));
         }
-        finally { File.Delete(path); }
+        finally { DeleteSettings(path); }
     }
 
     [Theory]
@@ -114,7 +129,7 @@ public class CameraConfigSessionTests
     public void SessionConstruction_LoadsPersistedNormalOverInvertedUserProfile(bool first, bool x)
     {
         string name = "CameraReload_" + Guid.NewGuid().ToString("N");
-        string path = StockUiSettings.GetSettingsPath(name);
+        string path = SettingsPath(name);
         var user = InputProfile.CreateCompact();
         user.GamepadSettings.InvertCameraX = user.GamepadSettings.InvertCameraY = true;
         user.InvertMouseX = user.InvertMouseY = true;
@@ -141,7 +156,7 @@ public class CameraConfigSessionTests
             Assert.True(user.GamepadSettings.InvertCameraY);
             Assert.NotSame(settings, session.ActionService.UiSettings);
         }
-        finally { File.Delete(path); }
+        finally { DeleteSettings(path); }
     }
 
     [Theory]
@@ -195,9 +210,9 @@ public class CameraConfigSessionTests
         string name = "CombinedControls_" + Guid.NewGuid().ToString("N");
         string otherName = "CombinedOther_" + Guid.NewGuid().ToString("N");
         string reloadName = "CombinedReload_" + Guid.NewGuid().ToString("N");
-        string path = StockUiSettings.GetSettingsPath(name);
-        string otherPath = StockUiSettings.GetSettingsPath(otherName);
-        string reloadPath = StockUiSettings.GetSettingsPath(reloadName);
+        string path = SettingsPath(name);
+        string otherPath = SettingsPath(otherName);
+        string reloadPath = SettingsPath(reloadName);
         var hub = new InputProfileHub(InputProfile.CreateCompact());
         CharacterSession Create(string character)
         {
@@ -238,6 +253,7 @@ public class CameraConfigSessionTests
                 Assert.False(hub.Profile.GamepadSettings.Camera(first).InvertY);
 
                 // Bypass the settings store cache: fresh character, actual persisted bytes, fresh session.
+                Directory.CreateDirectory(Path.GetDirectoryName(reloadPath)!);
                 File.Copy(path, reloadPath, overwrite: true);
                 using var reload = Create(reloadName);
                 Check(reload, size, expected);
@@ -245,8 +261,8 @@ public class CameraConfigSessionTests
                 Assert.Equal(1, StockUiSettings.LoadOrDefault(path).GetValue(axis));
                 // Each iteration must have a new cache key as well as new bytes.
                 reloadName = "CombinedReload_" + Guid.NewGuid().ToString("N");
-                File.Delete(reloadPath);
-                reloadPath = StockUiSettings.GetSettingsPath(reloadName);
+                DeleteSettings(reloadPath);
+                reloadPath = SettingsPath(reloadName);
             }
             void Check(CharacterSession candidate, int size, Vector2 motion)
             {
@@ -261,9 +277,9 @@ public class CameraConfigSessionTests
         }
         finally
         {
-            File.Delete(path);
-            File.Delete(otherPath);
-            File.Delete(reloadPath);
+            DeleteSettings(path);
+            DeleteSettings(otherPath);
+            DeleteSettings(reloadPath);
         }
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Text;
+using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Resources.Tables;
 
@@ -8,7 +9,7 @@ namespace Gordian.Engine.Ui
 {
     /// <summary>
     /// Writes every line a character's in-game log shows to its chat log file,
-    /// <c>logs/chat/&lt;server&gt;/&lt;character&gt;/yyyy-MM-dd.log</c> (#565), through <see cref="GordianLog.Chat"/>, which
+    /// <c>logs/chat/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/yyyy-MM-dd.log</c> (#565, #639), through <see cref="GordianLog.Chat"/>, which
     /// does the file work on the logger's writer thread. Lines are <c>[HH:mm:ss] [Channel] text</c> as plain text. Built
     /// by <c>CharacterSession</c>; it only listens to <see cref="StockUiChatLog.LineAdded"/>, so it changes nothing the
     /// log shows. The <c>ChatLog</c> logging setting turns it off.
@@ -16,15 +17,13 @@ namespace Gordian.Engine.Ui
     public sealed class ChatLogFileWriter : IDisposable
     {
         private readonly StockUiChatLog _log;
-        private readonly Func<string> _server;
-        private readonly Func<string> _character;
+        private readonly CharacterFolderKey _folder;
 
-        /// <summary>Starts writing <paramref name="log"/>'s new lines under the given server and character names (read per line).</summary>
-        public ChatLogFileWriter(StockUiChatLog log, Func<string> server, Func<string> character)
+        /// <summary>Starts writing <paramref name="log"/>'s new lines to the chat log of the character <paramref name="folder"/> names.</summary>
+        public ChatLogFileWriter(StockUiChatLog log, CharacterFolderKey folder)
         {
             _log = log ?? throw new ArgumentNullException(nameof(log));
-            _server = server ?? throw new ArgumentNullException(nameof(server));
-            _character = character ?? throw new ArgumentNullException(nameof(character));
+            _folder = folder;
             _log.LineAdded += OnLineAdded;
         }
 
@@ -34,7 +33,7 @@ namespace Gordian.Engine.Ui
         private void OnLineAdded(ChatLogLine line)
         {
             if (!GordianLog.ChatLogEnabled) return;
-            GordianLog.Chat(_server(), _character(), line.Timestamp, Format(line));
+            GordianLog.Chat(_folder, line.Timestamp, Format(line));
         }
 
         /// <summary>The file line for <paramref name="line"/>: <c>[HH:mm:ss] [Channel] text</c>.</summary>

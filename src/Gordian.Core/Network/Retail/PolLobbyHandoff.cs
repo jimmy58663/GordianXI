@@ -100,6 +100,7 @@ namespace Gordian.Core.Network.Retail
             {
                 CharacterId = character.ServerId,
                 CharacterName = next.Name.Length > 0 ? next.Name : character.Name,
+                WorldName = character.WorldName,
                 ZoneIp = new IPAddress(next.ServerAddress).ToString(),
                 ZonePort = (int)next.ServerPort,
                 BlowfishKey = RetailMapPackets.MapRawKey(lobbyKey, selectModifier),

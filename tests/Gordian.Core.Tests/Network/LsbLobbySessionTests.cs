@@ -67,6 +67,7 @@ namespace Gordian.Core.Tests.Network
             var ticket = await lobby.SelectCharacterAsync(lobby.Characters[1], TestContext.Current.CancellationToken);
 
             Assert.Equal((21900u, "Blm", "127.0.0.1", 54230), (ticket.CharacterId, ticket.CharacterName, ticket.ZoneIp, ticket.ZonePort));
+            Assert.Equal("Gordian", ticket.WorldName);
             Assert.Equal(XiloaderLobbyHandoff.CreateBaseKey(), ticket.BlowfishKey);
             Assert.Equal(server.StoredKey, ticket.BlowfishKey);
             Assert.False(lobby.IsConnected); // the server ends the lobby after 0x0B

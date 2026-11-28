@@ -119,8 +119,8 @@ namespace Gordian.Core.World
     /// <summary>
     /// The character's equipment sets (#92): <see cref="SetCount"/> sets in pages of <see cref="SetsPerPage"/>, as the
     /// retail client keeps them client-side (the server stores none: C2S 0x051 and 0x053 carry the items). Edited by the
-    /// Equipment Sets windows and used by <c>/equipset</c> and <c>/lockstyleset</c>; saved to
-    /// <c>equipment_sets/&lt;character&gt;.json</c> under the GordianXI data folder whenever it changes.
+    /// Equipment Sets windows and used by <c>/equipset</c> and <c>/lockstyleset</c>; saved to <c>equipment_sets.json</c> in
+    /// the character's <see cref="CharacterConfigStorage"/> folder (#639) whenever it changes.
     /// </summary>
     public sealed class EquipmentSetBook
     {
@@ -272,14 +272,8 @@ namespace Gordian.Core.World
             return new EquipmentSetBook();
         }
 
-        public static string DataDirectory => Path.Combine(GordianStorage.RootDataDirectory, "equipment_sets");
-
-        public static string GetPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(DataDirectory, name + ".json");
-        }
+        /// <summary>The sets file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("equipment_sets.json", "equipment_sets");
 
         #endregion
     }
@@ -289,12 +283,12 @@ namespace Gordian.Core.World
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, EquipmentSetBook> Books = new(StringComparer.OrdinalIgnoreCase);
 
-        public static EquipmentSetBook GetForCharacter(string? characterName)
+        /// <summary>The sets of the character <paramref name="key"/> names.</summary>
+        public static EquipmentSetBook GetForCharacter(CharacterFolderKey key)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Books.GetOrAdd(key, name =>
+            return Books.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = EquipmentSetBook.GetPath(name);
+                string path = CharacterConfigStorage.Resolve(EquipmentSetBook.ConfigFile, key);
                 var book = EquipmentSetBook.LoadOrEmpty(path);
                 book.Changed += _ =>
                 {

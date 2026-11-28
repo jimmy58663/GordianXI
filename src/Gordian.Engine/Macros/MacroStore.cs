@@ -12,14 +12,14 @@ namespace Gordian.Engine.Macros
 {
     /// <summary>
     /// GordianXI's own copy of a character's macros, kept client-side per character as retail keeps its <c>mcr*.dat</c> in
-    /// the character's <c>USER</c> folder: <c>macros/&lt;character&gt;.json</c> under <see cref="GordianStorage.RootDataDirectory"/>,
-    /// saved on every change. Only books, sets and macros that hold something are written. The retail files are never
+    /// the character's <c>USER</c> folder: <c>macros.json</c> in the character's <see cref="CharacterConfigStorage"/> folder
+    /// (#639), saved on every change. Only books, sets and macros that hold something are written. The retail files are never
     /// written; <c>/importretail &lt;folder&gt; macros</c> copies them in (<see cref="RetailMacroFiles"/>).
     /// </summary>
     public static class MacroStore
     {
-        private const string FolderName = "macros";
-        private const string FileExtension = ".json";
+        /// <summary>The macros file in the character's folder, and the flat <c>macros</c> folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("macros.json", "macros");
 
         private static readonly ConcurrentDictionary<string, MacroLibrary> Libraries = new(StringComparer.OrdinalIgnoreCase);
 
@@ -29,22 +29,12 @@ namespace Gordian.Engine.Macros
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        public static string Directory => Path.Combine(GordianStorage.RootDataDirectory, FolderName);
-
-        public static string GetPath(string? characterName)
+        /// <summary>The library of the character <paramref name="key"/> names (loaded once, saved on change).</summary>
+        public static MacroLibrary GetForCharacter(CharacterFolderKey key)
         {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(Directory, name + FileExtension);
-        }
-
-        /// <summary>The character's library (loaded once, saved on change).</summary>
-        public static MacroLibrary GetForCharacter(string? characterName)
-        {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Libraries.GetOrAdd(key, name =>
+            return Libraries.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = GetPath(name);
+                string path = CharacterConfigStorage.Resolve(ConfigFile, key);
                 var library = LoadOrEmpty(path);
                 library.Changed += () =>
                 {
@@ -81,7 +71,7 @@ namespace Gordian.Engine.Macros
         {
             ArgumentNullException.ThrowIfNull(library);
             string? dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             string json = JsonSerializer.Serialize(ToDocument(library), JsonOptions);
             string temp = path + ".tmp";
             File.WriteAllText(temp, json);

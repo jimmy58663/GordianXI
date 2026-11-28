@@ -1,0 +1,97 @@
+// src/Gordian.Core/Config/CharacterConfigStorage.cs
+using System;
+using System.IO;
+using Gordian.Core.Diagnostics;
+
+namespace Gordian.Core.Config
+{
+    /// <summary>
+    /// One kind of per-character file kept under <see cref="CharacterConfigStorage"/>: its name in the character's folder
+    /// and the flat folder older builds kept it in (<c>&lt;LegacyFolder&gt;/&lt;character&gt;.json</c> under
+    /// <see cref="GordianStorage.RootDataDirectory"/>), which <see cref="CharacterConfigStorage.Resolve"/> moves it out of.
+    /// </summary>
+    /// <param name="FileName">The file's name in the character's folder, e.g. <c>macros.json</c>.</param>
+    /// <param name="LegacyFolder">The folder an older build kept one file per character name in, e.g. <c>macros</c>.</param>
+    public readonly record struct CharacterConfigFile(string FileName, string LegacyFolder);
+
+    /// <summary>
+    /// The per-character config folders (#639): <c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/</c> under
+    /// <see cref="GordianStorage.RootDataDirectory"/> (<see cref="CharacterFolderKey"/>), holding every file GordianXI keeps
+    /// for one character (macros, equipment sets, UI layout and settings, synthesis history). The chat logs use the same
+    /// <c>&lt;server&gt;/&lt;world&gt;/&lt;character&gt;</c> folders under <c>logs/chat/</c>, so the same character name on
+    /// two servers or two worlds never shares a file.
+    /// <para>
+    /// Older builds kept each kind of file in its own flat folder named by character only. Those files carry no server or
+    /// world, so the first character of that name to load one, on any server, takes it: <see cref="Resolve"/> moves it into
+    /// that character's folder and logs the move. A character of the same name elsewhere then starts empty.
+    /// </para>
+    /// </summary>
+    public static class CharacterConfigStorage
+    {
+        /// <summary>The top-level folder under <see cref="GordianStorage.RootDataDirectory"/>.</summary>
+        public const string FolderName = "CharConfig";
+
+        /// <summary>
+        /// The folder for <paramref name="key"/> under <see cref="GordianStorage.RootDataDirectory"/>. Not created here: a
+        /// store creates it when it first saves.
+        /// </summary>
+        public static string GetDirectory(CharacterFolderKey key) => GetDirectory(GordianStorage.RootDataDirectory, key);
+
+        /// <summary>The folder for <paramref name="key"/> under <paramref name="dataRoot"/>.</summary>
+        public static string GetDirectory(string dataRoot, CharacterFolderKey key) => Path.Combine(dataRoot, FolderName, key.RelativePath);
+
+        /// <summary>
+        /// The path of <paramref name="file"/> for <paramref name="key"/> under <see cref="GordianStorage.RootDataDirectory"/>,
+        /// moving an older build's file there first (see the other overload).
+        /// </summary>
+        public static string Resolve(CharacterConfigFile file, CharacterFolderKey key) => Resolve(GordianStorage.RootDataDirectory, file, key);
+
+        /// <summary>
+        /// The path of <paramref name="file"/> for <paramref name="key"/> under <paramref name="dataRoot"/>. When it does not
+        /// exist yet and an older build's file for the character's name does, that file is moved here first. If the move
+        /// fails, the old path is returned so the character keeps its data; the stores keep that path until the app
+        /// restarts, and the move is tried again at the next launch. A character with no name has no older file to take.
+        /// </summary>
+        public static string Resolve(string dataRoot, CharacterConfigFile file, CharacterFolderKey key)
+        {
+            string path = Path.Combine(GetDirectory(dataRoot, key), file.FileName);
+            string? character = key.Character;
+            if (File.Exists(path) || string.IsNullOrWhiteSpace(character)) return path;
+
+            string legacyFolder = Path.Combine(dataRoot, file.LegacyFolder);
+            string legacyPath = Path.Combine(legacyFolder, LegacyFileName(character) + ".json");
+            if (!File.Exists(legacyPath)) return path;
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.Move(legacyPath, path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (!File.Exists(legacyPath))
+                {
+                    // Another session of the same name took it first (two servers or worlds at once).
+                    GordianLog.Debug(LogCategories.Storage, $"'{legacyPath}' was already moved by another character of the same name: {ex.Message}.");
+                    return path;
+                }
+                GordianLog.Warn(LogCategories.Storage, $"Could not move '{legacyPath}' to '{path}': {ex.Message}. Using the old file.");
+                return legacyPath;
+            }
+            GordianLog.Info(LogCategories.Storage, $"Moved '{legacyPath}' to '{path}'.");
+            GordianStorage.DeleteIfEmpty(legacyFolder);
+            return path;
+        }
+
+        /// <summary>
+        /// The file name an older build gave <paramref name="character"/>: trimmed, with the characters this platform rejects
+        /// in a file name replaced by <c>_</c>.
+        /// </summary>
+        private static string LegacyFileName(string character)
+        {
+            string name = character.Trim();
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name;
+        }
+    }
+}

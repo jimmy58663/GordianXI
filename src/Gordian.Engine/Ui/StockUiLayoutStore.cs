@@ -1,6 +1,7 @@
 // src/Gordian.Engine/Ui/StockUiLayoutStore.cs
 using System;
 using System.Collections.Concurrent;
+using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 
 namespace Gordian.Engine.Ui
@@ -13,15 +14,12 @@ namespace Gordian.Engine.Ui
     {
         private static readonly ConcurrentDictionary<string, StockUiLayout> Layouts = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>
-        /// Returns the character's layout ("default" when no name is known).
-        /// </summary>
-        public static StockUiLayout GetForCharacter(string? characterName)
+        /// <summary>Returns the layout of the character <paramref name="key"/> names.</summary>
+        public static StockUiLayout GetForCharacter(CharacterFolderKey key)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Layouts.GetOrAdd(key, name =>
+            return Layouts.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = StockUiLayout.GetLayoutPath(name);
+                string path = CharacterConfigStorage.Resolve(StockUiLayout.ConfigFile, key);
                 var layout = StockUiLayout.LoadOrDefault(path);
                 layout.Changed += () => Save(layout, path);
                 return layout;

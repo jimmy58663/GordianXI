@@ -33,6 +33,32 @@ The **Logs** tab is the second tab (`MainWindowViewModel.LogsTabIndex`):
 - **Right: a terminal-style viewer.** 13 px monospace on near-black, virtualized. A file loads off the UI thread (`LogFileReader`); one larger than 32 MB loads only its last 32 MB, which the header line says. While the file grows (this launch's status file, today's system or chat file) the view's half-second timer calls `LogsViewModel.Poll`, which reads only the appended lines; **Follow** keeps the newest in view. Search filters lines as you type and highlights the matching text (`LogLineSegments`, drawn by `LogLineTextBlock`); the level filter (system and network files) keeps a stack trace with the error above it. Each line is coloured per token: timestamp sage green, level by severity, category purple, character or channel teal, message by level. A newly shown file or filter starts at the top, then follows to the newest line, so a short file always sits at the top. **Copy** copies the selected lines, or all shown lines when none is selected.
 - **Logging settings** (expander): the default level, per-category levels (each shows its built-in default), the network packet log and chat logs. **Save and apply** writes `logging.json` with only what differs from the defaults and applies it to the running logger at once (`LoggingSettingsViewModel`); retention and file size keep the file's values and apply at the next launch. Details: [logging.md](logging.md).
 
+## Character config folders (CharConfig)
+
+Everything GordianXI keeps for one character is in one folder under `GordianStorage.RootDataDirectory` (#639): server, then world, then character:
+
+```
+CharConfig/
+  127.0.0.1/            (a LandSandBoat profile's server host)
+    Gordian/            (the world the server names)
+      Akaden/
+        macros.json             MacroStore
+        equipment_sets.json     EquipmentSetStore
+        ui_layout.json          StockUiLayoutStore
+        ui_settings.json        StockUiSettingsStore
+        synthesis_history.json  SynthesisHistoryStore
+  Retail/
+    Asura/
+      Akaden/
+        ...
+```
+
+- **The folder key** is `CharacterFolderKey(Server, World, Character)`. `CharacterSession.Folder` builds it, and the stores and the chat logs (`logs/chat/<server>/<world>/<character>/`, [logging.md](logging.md)) both use it, so a character's config and chat logs sit under matching folders. The same character name on two servers or two worlds never shares macros, sets or layouts.
+- **The server** is the launching profile's `AccountProfile.ServerFolderName`: `Retail`, or a LandSandBoat profile's server host in lower case (host names ignore case, so `Play.Example.com` and `play.example.com` share a folder on Linux too). The port is not part of it, so two servers on one host still share a folder.
+- **The world** is the one the lobby's character list gives the character (`LobbyCharacter.WorldName`): a retail world such as Asura, or the name a LandSandBoat server gives its own. Both ticket builders (`XiloaderLobbyHandoff.CreateTicket`, `PolLobbyHandoff.CreateTicket`) copy it to `MapSessionTicket.WorldName`, and the launcher passes it to `CharacterSession` as `worldName`. Every server type gets the world folder, retail and LandSandBoat alike.
+- **Names** go through `GordianStorage.SafeFolderName`: casing is kept, characters a file system rejects become `_`, an empty name becomes `Unknown`, and a Windows device name gets a trailing `_` on every platform (a character named Con keeps its files in `Con_/`, since Windows can't make a `Con` folder). `CharacterConfigStorage` builds every path with `Path.Combine`.
+- **Older builds** kept each kind of file in its own flat folder named by character only (`macros/<name>.json`, `equipment_sets/`, `ui_layouts/`, `ui_settings/`, `synthesis_history/`). Those files carry no server or world, so the first character of that name to log in, anywhere, takes them: `CharacterConfigStorage.Resolve` moves the file into that character's folder when the character has none there yet, logs `STORAGE: Moved '<old>' to '<new>'.`, and removes the old folder once it is empty. A same-named character elsewhere then starts empty. If the move fails, the character keeps using the old file until the app closes (logged as a warning), and the move is tried again at the next launch. Tested in `CharacterConfigStorageTests` (the paths and the move), `CharacterConfigMigrationTests` (each store taking an old file) and `CharacterConfigStoresTests` (the separate folders per server and world). Each login logs `STORAGE: '<character>' keeps its config and chat logs under '<server>/<world>/<character>'.`, or warns instead when the server or world name is missing.
+
 ## Screenshots
 
 `/screenshot [hide] [name]` saves the viewport's next frame as a PNG in the `screenshots` folder under `GordianStorage.RootDataDirectory`, and the chat log prints the saved path.

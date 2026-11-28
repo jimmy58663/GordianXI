@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using Gordian.Core.Animation;
+using Gordian.Core.Config;
 using Gordian.Core.Diagnostics;
 using Gordian.Core.Network.Packets;
 using Gordian.Core.Network.Search;
@@ -36,10 +37,11 @@ namespace Gordian.Engine.Sessions
         public string ProfileId { get; set; } = string.Empty;
 
         /// <summary>
-        /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
-        /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
+        /// The character's server, world and name (#565, #639): its config folder
+        /// (<c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/</c>) and chat log folder. The server is the
+        /// launching profile's <c>ServerFolderName</c>; an empty part becomes <c>Unknown</c>.
         /// </summary>
-        public string ServerName { get; set; } = string.Empty;
+        public CharacterFolderKey Folder { get; }
 
         private readonly Ui.ChatLogFileWriter _chatLogFile;
 
@@ -261,12 +263,19 @@ namespace Gordian.Engine.Sessions
             uint characterId,
             string accountUsername,
             SessionNetworkManager networkManager,
-            Input.InputProfileHub? inputProfiles = null)
+            Input.InputProfileHub? inputProfiles = null,
+            string? serverName = null,
+            string? worldName = null)
         {
             _inputProfiles = inputProfiles ?? Input.InputProfileHub.Default;
             CharacterName = characterName ?? throw new ArgumentNullException(nameof(characterName));
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
+            Folder = new CharacterFolderKey(serverName, worldName, CharacterName);
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(worldName))
+                GordianLog.Warn(LogCategories.Storage, $"'{CharacterName}' has no server or world name: its config and chat logs go under '{Folder.RelativePath}'.");
+            else
+                GordianLog.Info(LogCategories.Storage, $"'{CharacterName}' keeps its config and chat logs under '{Folder.RelativePath}'.");
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             // The engine side of the session, built before anything else subscribes so its handlers run first, as they
             // did when the parser built them (#433).
@@ -274,9 +283,9 @@ namespace Gordian.Engine.Sessions
             SchedulerPlayback = new Animation.SchedulerPlayback(Scheduler, World, ActionMotionLibrary.Shared);
             ActionService = Actions.PlayerActionService.ForParser(NetworkManager.Parser);
             ActionService.LocalPlayerMoved += (pos, dir) => NetworkManager.SetLocalPosition(pos, dir);
-            ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(characterName);
-            ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(characterName);
-            Macros = new Gordian.Engine.Macros.MacroController(Gordian.Engine.Macros.MacroStore.GetForCharacter(characterName));
+            ActionService.UiLayout = Ui.StockUiLayoutStore.GetForCharacter(Folder);
+            ActionService.UiSettings = Ui.StockUiSettingsStore.GetForCharacter(Folder);
+            Macros = new Gordian.Engine.Macros.MacroController(Gordian.Engine.Macros.MacroStore.GetForCharacter(Folder));
             // Every character runs on its own copy of the user's input profile (#314); see InputProfileHub.
             Locomotion = new Input.PlayerLocomotionController(
                 InputState,
@@ -329,8 +338,10 @@ namespace Gordian.Engine.Sessions
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
                 id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },
                 id => World.TryGetByServerId(id, out var e) ? Gordian.Engine.Events.MessageEntity.SexOf(e) : null);
-            // Every log line also goes to the character's chat log file (#565).
-            _chatLogFile = new Ui.ChatLogFileWriter(Chat.Log, () => ServerName, () => CharacterName);
+            // Every log line also goes to the character's chat log file (#565), after older builds' files for the
+            // character are moved into its world folder (#639).
+            GordianLog.MoveLegacyChatLogs(Folder);
+            _chatLogFile = new Ui.ChatLogFileWriter(Chat.Log, Folder);
             // The server message (S2C 0x04D, #117): asked for once, when the first zone-in after login completes; /servmes
             // asks again.
             NetworkManager.Parser.HandshakeCompleted += () =>

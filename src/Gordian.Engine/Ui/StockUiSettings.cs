@@ -153,7 +153,7 @@ namespace Gordian.Engine.Ui
     /// <summary>
     /// The character's stock config-menu settings: one integer per <see cref="StockUiSettingKey"/> (defaults are
     /// the retail defaults where known) plus the two chat-filter words mirrored from the server. Client settings are
-    /// saved per character (<c>ui_settings/&lt;name&gt;.json</c>); server settings are mirrored from S2C 0x0B4 and
+    /// saved per character (<c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/ui_settings.json</c>, #639); server settings are mirrored from S2C 0x0B4 and
     /// sent back through the config packets when changed; layout settings live on <see cref="StockUiLayout"/>.
     /// Consumers (the HUD, the input profile, the renderer) read the values they understand; the rest are kept so
     /// the menu shows and remembers them.
@@ -166,7 +166,6 @@ namespace Gordian.Engine.Ui
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        private const string FileExtension = ".json";
         private readonly object _sync = new();
         private readonly Dictionary<StockUiSettingKey, int> _values = new();
 
@@ -405,16 +404,8 @@ namespace Gordian.Engine.Ui
             public Dictionary<string, string>? FontColors { get; set; }
         }
 
-        /// <summary>Directory holding one settings file per character.</summary>
-        public static string SettingsDirectory => Path.Combine(GordianStorage.RootDataDirectory, "ui_settings");
-
-        /// <summary>Settings file for a character ("default" when the name is empty).</summary>
-        public static string GetSettingsPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(SettingsDirectory, name + FileExtension);
-        }
+        /// <summary>The settings file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("ui_settings.json", "ui_settings");
 
         public void SaveToFile(string path)
         {
@@ -484,12 +475,12 @@ namespace Gordian.Engine.Ui
     {
         private static readonly ConcurrentDictionary<string, StockUiSettings> Settings = new(StringComparer.OrdinalIgnoreCase);
 
-        public static StockUiSettings GetForCharacter(string? characterName)
+        /// <summary>The settings of the character <paramref name="key"/> names.</summary>
+        public static StockUiSettings GetForCharacter(CharacterFolderKey key)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Settings.GetOrAdd(key, name =>
+            return Settings.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = StockUiSettings.GetSettingsPath(name);
+                string path = CharacterConfigStorage.Resolve(StockUiSettings.ConfigFile, key);
                 var settings = StockUiSettings.LoadOrDefault(path);
                 void Save()
                 {

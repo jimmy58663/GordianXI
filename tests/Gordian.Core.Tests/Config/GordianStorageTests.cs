@@ -25,6 +25,25 @@ namespace Gordian.Core.Tests.Config
             }
         }
 
+        [Theory]
+        [InlineData("Gemini", "Gemini")]
+        [InlineData("myserver.example.com", "myserver.example.com")]
+        [InlineData("  Spaced  ", "Spaced")]
+        [InlineData("a/b\\c:d*e?f\"g<h>i|j", "a_b_c_d_e_f_g_h_i_j")]
+        [InlineData("", "Unknown")]
+        [InlineData(null, "Unknown")]
+        [InlineData("..", "Unknown")]
+        [InlineData("name.", "name")]
+        [InlineData("Con", "Con_")]
+        [InlineData("aux", "aux_")]
+        [InlineData("NUL.txt", "NUL.txt_")]
+        [InlineData("COM1", "COM1_")]
+        [InlineData("lpt9", "lpt9_")]
+        [InlineData("COM0", "COM0")]
+        [InlineData("Conrad", "Conrad")]
+        public void SafeFolderName_IsSafeAndKeepsCasing(string? name, string expected) =>
+            Assert.Equal(expected, GordianStorage.SafeFolderName(name));
+
         [Fact]
         public void RootDataDirectory_PointsToValidLocation()
         {

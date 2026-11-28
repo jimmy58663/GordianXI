@@ -15,6 +15,13 @@ namespace Gordian.Core.Network.Lobby
         public uint AccountId { get; init; }
         public uint CharacterId { get; init; }
         public string CharacterName { get; init; } = string.Empty;
+
+        /// <summary>
+        /// The character's world, as the lobby's character list names it (<see cref="LobbyCharacter.WorldName"/>): a retail
+        /// world such as Asura, or the name a LandSandBoat server gives its own. The character's config and chat log
+        /// folders go under it (<c>CharacterFolderKey</c>, #639).
+        /// </summary>
+        public string WorldName { get; init; } = string.Empty;
         public string ZoneIp { get; init; } = "127.0.0.1";
         public int ZonePort { get; init; } = 54230;
         public byte[] SessionHash { get; init; } = Array.Empty<byte>();

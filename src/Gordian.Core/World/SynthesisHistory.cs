@@ -50,7 +50,8 @@ namespace Gordian.Core.World
     /// a break must show up too), newest first, with favourites (Synthesis Options:
     /// Favorite / Unfavorite) listed before the rest. LandSandBoat has no packet for it, so the client keeps it, as retail
     /// appears to. PROVISIONAL: how many recipes retail keeps (<see cref="MaxEntries"/>) and where favourites sort are not
-    /// captured; the history is saved per character to <c>synthesis_history/&lt;character&gt;.json</c>.
+    /// captured; the history is saved to <c>synthesis_history.json</c> in the character's <see cref="CharacterConfigStorage"/>
+    /// folder (#639).
     /// </summary>
     public sealed class SynthesisHistory
     {
@@ -203,14 +204,8 @@ namespace Gordian.Core.World
             return new SynthesisHistory();
         }
 
-        public static string DataDirectory => Path.Combine(GordianStorage.RootDataDirectory, "synthesis_history");
-
-        public static string GetPath(string? characterName)
-        {
-            string name = string.IsNullOrWhiteSpace(characterName) ? "default" : characterName.Trim();
-            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(DataDirectory, name + ".json");
-        }
+        /// <summary>The history file in the character's <see cref="CharacterConfigStorage"/> folder (#639), and the flat folder older builds used.</summary>
+        public static readonly CharacterConfigFile ConfigFile = new("synthesis_history.json", "synthesis_history");
 
         #endregion
     }
@@ -220,12 +215,12 @@ namespace Gordian.Core.World
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SynthesisHistory> Histories = new(StringComparer.OrdinalIgnoreCase);
 
-        public static SynthesisHistory GetForCharacter(string? characterName)
+        /// <summary>The history of the character <paramref name="key"/> names.</summary>
+        public static SynthesisHistory GetForCharacter(CharacterFolderKey key)
         {
-            string key = string.IsNullOrWhiteSpace(characterName) ? string.Empty : characterName.Trim();
-            return Histories.GetOrAdd(key, name =>
+            return Histories.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = SynthesisHistory.GetPath(name);
+                string path = CharacterConfigStorage.Resolve(SynthesisHistory.ConfigFile, key);
                 var history = SynthesisHistory.LoadOrEmpty(path);
                 history.Changed += () =>
                 {
