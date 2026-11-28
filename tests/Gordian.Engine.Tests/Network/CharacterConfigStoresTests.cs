@@ -23,12 +23,21 @@ namespace Gordian.Engine.Tests.Network
             new(name, 1001, "account", new SessionNetworkManager("127.0.0.1", 54230), serverName: server, worldName: world);
 
         [Fact]
-        public void Session_KeepsItsServerAndWorld()
+        public void Session_FolderIsServerWorldAndCharacter()
         {
             string name = UniqueName();
             using var session = Session(name, "127.0.0.1", "Gordian");
 
-            Assert.Equal(new CharacterFolderKey("127.0.0.1", "Gordian", name), session.Folder);
+            Assert.Equal(System.IO.Path.Combine("127.0.0.1", "Gordian", name), session.Folder.RelativePath);
+        }
+
+        [Fact]
+        public void Session_WithNoWorld_UsesUnknown()
+        {
+            string name = UniqueName();
+            using var session = Session(name, "127.0.0.1", "");
+
+            Assert.Equal(System.IO.Path.Combine("127.0.0.1", "Unknown", name), session.Folder.RelativePath);
         }
 
         [Fact]

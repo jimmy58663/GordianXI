@@ -158,6 +158,16 @@ namespace Gordian.Core.Tests.Diagnostics
         }
 
         [Fact]
+        public void MoveLegacy_WithNoCharacterName_MovesNothing()
+        {
+            string unknown = Write("x", "10.0.0.5", "Unknown", "2026-11-14.log");
+
+            Assert.Equal(0, ChatLogFiles.MoveLegacy(_logs, new CharacterFolderKey("10.0.0.5", "Gordian", "")));
+
+            Assert.True(File.Exists(unknown));
+        }
+
+        [Fact]
         public void MoveLegacy_WithNothingToMove_DoesNothing()
         {
             Assert.Equal(0, ChatLogFiles.MoveLegacy(_logs, Akaden));

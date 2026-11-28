@@ -12,7 +12,7 @@ namespace Gordian.Engine.Tests.Ui
     [CollectionDefinition("ChatLogFileTests", DisableParallelization = true)]
     public class ChatLogFileTestsCollection { }
 
-    /// <summary>Per-character, per-day chat log files (#565).</summary>
+    /// <summary>Per-character, per-day chat log files (#565), and the session moving older builds' logs into them (#639).</summary>
     [Collection("ChatLogFileTests")]
     public sealed class ChatLogFileWriterTests : IDisposable
     {
