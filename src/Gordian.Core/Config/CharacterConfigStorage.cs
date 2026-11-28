@@ -69,11 +69,17 @@ namespace Gordian.Core.Config
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                if (!File.Exists(legacyPath))
+                {
+                    // Another session of the same name took it first (two servers or worlds at once).
+                    GordianLog.Debug(LogCategories.Storage, $"'{legacyPath}' was already moved by another character of the same name: {ex.Message}.");
+                    return path;
+                }
                 GordianLog.Warn(LogCategories.Storage, $"Could not move '{legacyPath}' to '{path}': {ex.Message}. Using the old file.");
-                return File.Exists(legacyPath) ? legacyPath : path;
+                return legacyPath;
             }
             GordianLog.Info(LogCategories.Storage, $"Moved '{legacyPath}' to '{path}'.");
-            DeleteIfEmpty(legacyFolder);
+            GordianStorage.DeleteIfEmpty(legacyFolder);
             return path;
         }
 
@@ -86,19 +92,6 @@ namespace Gordian.Core.Config
             string name = character.Trim();
             foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
             return name;
-        }
-
-        /// <summary>Removes an older build's folder (flat config or chat log) once its last file has moved out.</summary>
-        internal static void DeleteIfEmpty(string folder)
-        {
-            try
-            {
-                if (Directory.Exists(folder) && Directory.GetFileSystemEntries(folder).Length == 0) Directory.Delete(folder);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                GordianLog.Debug(LogCategories.Storage, $"Could not remove the empty folder '{folder}': {ex.Message}.");
-            }
         }
     }
 }

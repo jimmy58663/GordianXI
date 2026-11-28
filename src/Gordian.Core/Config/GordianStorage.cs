@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Text;
+using Gordian.Core.Diagnostics;
 
 namespace Gordian.Core.Config
 {
@@ -210,7 +211,7 @@ namespace Gordian.Core.Config
         }
 
         /// <summary>
-        /// A server or character name made safe as one folder name on every platform, for the chat logs (#565) and
+        /// A server, world or character name made safe as one folder name on every platform, for the chat logs (#565) and
         /// <see cref="CharacterConfigStorage"/> (#639): characters a file system rejects become <c>_</c>, casing is kept
         /// exactly, an empty or dot-only name becomes <c>Unknown</c>, and a Windows device name (<c>Con</c>, <c>Aux</c>,
         /// <c>Nul</c>, <c>Prn</c>, <c>COM1</c>-<c>COM9</c>, <c>LPT1</c>-<c>LPT9</c>, also with an extension) gets a
@@ -242,6 +243,19 @@ namespace Gordian.Core.Config
             if (stem is "CON" or "PRN" or "AUX" or "NUL") return true;
             return stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal))
                 && stem[3] is >= '1' and <= '9';
+        }
+
+        /// <summary>Removes <paramref name="folder"/> if it is empty: an older build's config or chat log folder once its last file has moved out (#639).</summary>
+        internal static void DeleteIfEmpty(string folder)
+        {
+            try
+            {
+                if (Directory.Exists(folder) && Directory.GetFileSystemEntries(folder).Length == 0) Directory.Delete(folder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                GordianLog.Debug(LogCategories.Storage, $"Could not remove the empty folder '{folder}': {ex.Message}.");
+            }
         }
 
         /// <summary>

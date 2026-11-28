@@ -46,8 +46,8 @@ namespace Gordian.Core.Diagnostics
         /// Moves the chat logs an older build wrote for this character, <c>chat/&lt;server&gt;/&lt;character&gt;/*.log</c>
         /// with no world folder, into the character's folder (#639). The old server folder is matched ignoring case, since
         /// older builds kept a LandSandBoat host's casing and <see cref="Profiles.AccountProfile.ServerFolderName"/>
-        /// lower-cases it. A file for a day the new folder already has is merged into it (see <see cref="MoveOne"/>). Empty
-        /// old folders are removed. A file or folder that can't be read or moved stays where it is (logged) and is tried again at
+        /// lower-cases it. A day the new folder already has keeps its file and the old one moves in beside it (see
+        /// <see cref="MoveOne"/>). Empty old folders are removed. A file or folder that can't be read or moved stays where it is (logged) and is tried again at
         /// the next login; the move never fails the login. Returns the number of files moved. Runs on the caller's thread,
         /// before the character's first chat line.
         /// </summary>
@@ -76,13 +76,13 @@ namespace Gordian.Core.Diagnostics
                         int movedHere = 0;
                         foreach (string file in files)
                         {
-                            if (MoveOne(file, Path.Combine(target, Path.GetFileName(file)))) movedHere++;
+                            if (MoveOne(file, target)) movedHere++;
                         }
                         moved += movedHere;
                         if (movedHere > 0) GordianLog.Info(LogCategories.Storage, $"Moved {movedHere} chat log file(s) from '{characterDir}' to '{target}'.");
-                        CharacterConfigStorage.DeleteIfEmpty(characterDir);
+                        GordianStorage.DeleteIfEmpty(characterDir);
                     }
-                    CharacterConfigStorage.DeleteIfEmpty(serverDir);
+                    GordianStorage.DeleteIfEmpty(serverDir);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -93,31 +93,20 @@ namespace Gordian.Core.Diagnostics
         }
 
         /// <summary>
-        /// Moves one day file, or merges it into the new folder's file for that day: the old text is appended, unless the new
-        /// file already holds it, and then the old file is deleted. Appending before deleting means no line is lost, and the
-        /// check means a delete that failed can't append the same lines again at the next login. Both files are opened with
-        /// the sharing the writer thread uses, in case it has the new file open.
+        /// Moves one day file into <paramref name="folder"/>. A day the folder already has keeps its file, and the old one
+        /// moves in beside it as <c>yyyy-MM-dd_2.log</c> (then <c>_3</c>...), the numbering <see cref="RollingLogFile"/>
+        /// uses. Files are never merged, so a day file the writer thread has open is never written to here, and no line is
+        /// lost or repeated.
         /// </summary>
-        private static bool MoveOne(string from, string to)
+        private static bool MoveOne(string from, string folder)
         {
+            string day = Path.GetFileNameWithoutExtension(from);
+            string to = Path.Combine(folder, day + ".log");
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
-                if (File.Exists(to))
-                {
-                    string text = ReadShared(from);
-                    if (!ReadShared(to).Contains(text, StringComparison.Ordinal))
-                    {
-                        using var stream = new FileStream(to, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-                        using var writer = new StreamWriter(stream, Utf8NoBom);
-                        writer.Write(text);
-                    }
-                    File.Delete(from);
-                }
-                else
-                {
-                    File.Move(from, to);
-                }
+                Directory.CreateDirectory(folder);
+                for (int index = 2; File.Exists(to); index++) to = Path.Combine(folder, $"{day}_{index.ToString(CultureInfo.InvariantCulture)}.log");
+                File.Move(from, to);
                 return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -125,14 +114,6 @@ namespace Gordian.Core.Diagnostics
                 GordianLog.Warn(LogCategories.Storage, $"Could not move the chat log '{from}' to '{to}': {ex.Message}. It stays where it is.");
                 return false;
             }
-        }
-
-        /// <summary>Reads a whole chat log file while the writer thread may have it open.</summary>
-        private static string ReadShared(string path)
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream, Utf8NoBom);
-            return reader.ReadToEnd();
         }
 
         public void Flush()

@@ -145,6 +145,19 @@ namespace Gordian.Core.Tests.Config
         }
 
         [Fact]
+        public void Resolve_TakesAnOldFileNamedAsTyped()
+        {
+            // Older builds named a character Con's file "Con.json"; its folder is "Con_" (a Windows device name).
+            string old = Legacy("macros", "Con", "con");
+
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Con"));
+
+            Assert.Equal(Expected("Retail", "Asura", "Con_", "macros.json"), path);
+            Assert.Equal("con", File.ReadAllText(path));
+            Assert.False(File.Exists(old));
+        }
+
+        [Fact]
         public void Resolve_WhenTheMoveFails_KeepsUsingTheOldFile()
         {
             string old = Legacy("macros", "Akaden", "kept");
