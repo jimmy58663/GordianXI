@@ -31,6 +31,10 @@ namespace Gordian.Engine.Tests.Input
             old.Bind(InputAction.ToggleWalkRun, new InputChord(GordianKey.Y)); // the player's own key stays theirs
 
             var profile = InputProfile.FromJson(old.SaveToJson());
+            // Automatic migration preserves keys. These historical helpers are explicit-only compatibility APIs.
+            Assert.Equal(InputAction.StrafeLeft, profile.TryGetAction(new InputChord(GordianKey.Q), out var preserved) ? preserved : InputAction.None);
+            profile.EnsureRetailCompactKeys();
+            profile.EnsureCompactStickKeys();
 
             InputAction Action(GordianKey key) => profile.TryGetAction(new InputChord(key), out var a) ? a : InputAction.None;
             Assert.Equal(InputAction.TurnLeft, Action(GordianKey.A));
@@ -69,6 +73,8 @@ namespace Gordian.Engine.Tests.Input
             saved.Bind(InputAction.TurnRight, new InputChord(GordianKey.E));
 
             var profile = InputProfile.FromJson(saved.SaveToJson());
+            Assert.Contains(new InputChord(GordianKey.A), profile.GetChords(InputAction.StrafeLeft));
+            profile.EnsureCompactStickKeys();
 
             InputAction Action(GordianKey key) => profile.TryGetAction(new InputChord(key), out var a) ? a : InputAction.None;
             Assert.Equal(InputAction.TurnLeft, Action(GordianKey.A));
