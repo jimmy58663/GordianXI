@@ -228,6 +228,7 @@ namespace Gordian.Core.Network.LandSandBoat
                 AccountId = _accountId,
                 CharacterId = character.ContentId,
                 CharacterName = name,
+                WorldName = character.WorldName,
                 ZoneIp = zoneIp,
                 ZonePort = zonePort,
                 SessionHash = _sessionHash,

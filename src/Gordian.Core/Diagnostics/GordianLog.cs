@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Gordian.Core.Config;
 
 namespace Gordian.Core.Diagnostics
 {
@@ -224,16 +225,27 @@ namespace Gordian.Core.Diagnostics
         public static bool ChatLogEnabled => s_filter?.ChatLog == true;
 
         /// <summary>
-        /// Appends one formatted chat line to <c>chat/&lt;server&gt;/&lt;character&gt;/yyyy-MM-dd.log</c> (#565), the date
-        /// taken from <paramref name="timestamp"/>. Does nothing while chat logging is off or before <see cref="Initialize"/>.
+        /// Appends one formatted chat line to <c>chat/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/yyyy-MM-dd.log</c>
+        /// (#565, #639), the date taken from <paramref name="timestamp"/>. Does nothing while chat logging is off or before
+        /// <see cref="Initialize"/>.
         /// </summary>
-        public static void Chat(string server, string character, DateTime timestamp, string line)
+        public static void Chat(CharacterFolderKey folder, DateTime timestamp, string line)
         {
             if (!ChatLogEnabled) return;
             Channel<LogRecord>? channel = s_channel;
             if (channel is null) return;
-            var record = new LogRecord(timestamp, LogLevel.Info, character ?? string.Empty, null, line ?? string.Empty) { ChatServer = server ?? string.Empty };
+            var record = new LogRecord(timestamp, LogLevel.Info, string.Empty, null, line ?? string.Empty) { ChatFolder = folder };
             if (!channel.Writer.TryWrite(record)) Interlocked.Increment(ref s_dropped);
+        }
+
+        /// <summary>
+        /// Moves the chat logs an older build wrote for this character without a world folder into its folder (#639; see
+        /// <c>ChatLogFiles.MoveLegacy</c>). Call it before the character's first chat line. Does nothing before
+        /// <see cref="Initialize"/>.
+        /// </summary>
+        public static void MoveLegacyChatLogs(CharacterFolderKey folder)
+        {
+            if (LogsDirectory is { } logs) ChatLogFiles.MoveLegacy(logs, folder);
         }
 
         private static void Write(LogLevel level, string category, string message)

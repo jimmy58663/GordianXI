@@ -14,12 +14,12 @@ namespace Gordian.Engine.Ui
     {
         private static readonly ConcurrentDictionary<string, StockUiLayout> Layouts = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Returns the layout of <paramref name="characterName"/> on <paramref name="server"/>.</summary>
-        public static StockUiLayout GetForCharacter(string? server, string? characterName)
+        /// <summary>Returns the layout of the character <paramref name="key"/> names.</summary>
+        public static StockUiLayout GetForCharacter(CharacterFolderKey key)
         {
-            return Layouts.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
+            return Layouts.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = CharacterConfigStorage.Resolve(StockUiLayout.ConfigFile, server, characterName);
+                string path = CharacterConfigStorage.Resolve(StockUiLayout.ConfigFile, key);
                 var layout = StockUiLayout.LoadOrDefault(path);
                 layout.Changed += () => Save(layout, path);
                 return layout;

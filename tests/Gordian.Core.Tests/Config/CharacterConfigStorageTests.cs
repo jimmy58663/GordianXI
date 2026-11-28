@@ -20,6 +20,8 @@ namespace Gordian.Core.Tests.Config
             if (Directory.Exists(_root)) Directory.Delete(_root, true);
         }
 
+        private static CharacterFolderKey Key(string? server, string? world, string? character) => new(server, world, character);
+
         private string Legacy(string folder, string name, string text = "{}")
         {
             string path = Path.Combine(_root, folder, name + ".json");
@@ -28,27 +30,34 @@ namespace Gordian.Core.Tests.Config
             return path;
         }
 
-        private string Expected(string server, string character, string file) =>
-            Path.Combine(_root, CharacterConfigStorage.FolderName, server, character, file);
+        private string Expected(string server, string world, string character, string file) =>
+            Path.Combine(_root, CharacterConfigStorage.FolderName, server, world, character, file);
 
         [Fact]
-        public void GetDirectory_IsCharConfigThenServerThenCharacter() =>
-            Assert.Equal(Path.Combine(_root, "CharConfig", "127.0.0.1", "Akaden"), CharacterConfigStorage.GetDirectory(_root, "127.0.0.1", "Akaden"));
+        public void GetDirectory_IsCharConfigThenServerWorldAndCharacter() =>
+            Assert.Equal(Path.Combine(_root, "CharConfig", "127.0.0.1", "Gordian", "Akaden"),
+                CharacterConfigStorage.GetDirectory(_root, Key("127.0.0.1", "Gordian", "Akaden")));
 
         [Fact]
         public void GetDirectory_EmptyNamesBecomeUnknown() =>
-            Assert.Equal(Path.Combine(_root, "CharConfig", "Unknown", "Unknown"), CharacterConfigStorage.GetDirectory(_root, "", null));
+            Assert.Equal(Path.Combine(_root, "CharConfig", "Unknown", "Unknown", "Unknown"), CharacterConfigStorage.GetDirectory(_root, Key("", null, " ")));
 
         [Fact]
         public void GetDirectory_CleansUnsafeNames() =>
-            Assert.Equal(Path.Combine(_root, "CharConfig", "host_1", "Akaden"), CharacterConfigStorage.GetDirectory(_root, " host:1 ", "Akaden"));
+            Assert.Equal(Path.Combine(_root, "CharConfig", "host_1", "Asura", "Akaden"),
+                CharacterConfigStorage.GetDirectory(_root, Key(" host:1 ", "Asura", "Akaden")));
+
+        [Fact]
+        public void GetDirectory_TheSameNameOnTwoWorlds_IsTwoFolders() =>
+            Assert.NotEqual(CharacterConfigStorage.GetDirectory(_root, Key("Retail", "Asura", "Akaden")),
+                CharacterConfigStorage.GetDirectory(_root, Key("Retail", "Shiva", "Akaden")));
 
         [Fact]
         public void Resolve_WithNothingSaved_ReturnsTheNewPathAndCreatesNothing()
         {
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
 
-            Assert.Equal(Expected("Retail", "Akaden", "macros.json"), path);
+            Assert.Equal(Expected("Retail", "Asura", "Akaden", "macros.json"), path);
             Assert.False(Directory.Exists(Path.Combine(_root, "CharConfig")));
         }
 
@@ -57,9 +66,9 @@ namespace Gordian.Core.Tests.Config
         {
             string old = Legacy("macros", "Akaden", "{\"books\":1}");
 
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "127.0.0.1", "Akaden");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("127.0.0.1", "Gordian", "Akaden"));
 
-            Assert.Equal(Expected("127.0.0.1", "Akaden", "macros.json"), path);
+            Assert.Equal(Expected("127.0.0.1", "Gordian", "Akaden", "macros.json"), path);
             Assert.Equal("{\"books\":1}", File.ReadAllText(path));
             Assert.False(File.Exists(old));
         }
@@ -69,7 +78,7 @@ namespace Gordian.Core.Tests.Config
         {
             Legacy("macros", "Akaden");
 
-            CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
+            CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
 
             Assert.False(Directory.Exists(Path.Combine(_root, "macros")));
         }
@@ -80,7 +89,7 @@ namespace Gordian.Core.Tests.Config
             string other = Legacy("macros", "Other");
             Legacy("macros", "Akaden");
 
-            CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
+            CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
 
             Assert.True(File.Exists(other));
         }
@@ -89,11 +98,11 @@ namespace Gordian.Core.Tests.Config
         public void Resolve_LeavesTheOldFileWhenTheCharacterAlreadyHasOne()
         {
             string old = Legacy("macros", "Akaden", "old");
-            string current = Expected("Retail", "Akaden", "macros.json");
+            string current = Expected("Retail", "Asura", "Akaden", "macros.json");
             Directory.CreateDirectory(Path.GetDirectoryName(current)!);
             File.WriteAllText(current, "current");
 
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
 
             Assert.Equal(current, path);
             Assert.Equal("current", File.ReadAllText(path));
@@ -101,16 +110,17 @@ namespace Gordian.Core.Tests.Config
         }
 
         [Fact]
-        public void Resolve_TheSameNameOnASecondServerStartsEmpty()
+        public void Resolve_TheSameNameElsewhereStartsEmpty()
         {
             Legacy("macros", "Akaden", "first");
 
-            string first = CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
-            string second = CharacterConfigStorage.Resolve(_root, Macros, "127.0.0.1", "Akaden");
+            string first = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
+            string otherWorld = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Shiva", "Akaden"));
+            string otherServer = CharacterConfigStorage.Resolve(_root, Macros, Key("127.0.0.1", "Gordian", "Akaden"));
 
             Assert.Equal("first", File.ReadAllText(first));
-            Assert.Equal(Expected("127.0.0.1", "Akaden", "macros.json"), second);
-            Assert.False(File.Exists(second));
+            Assert.False(File.Exists(otherWorld));
+            Assert.False(File.Exists(otherServer));
         }
 
         [Fact]
@@ -118,9 +128,9 @@ namespace Gordian.Core.Tests.Config
         {
             string old = Legacy("macros", "default");
 
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "Retail", "");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", ""));
 
-            Assert.Equal(Expected("Retail", "Unknown", "macros.json"), path);
+            Assert.Equal(Expected("Retail", "Asura", "Unknown", "macros.json"), path);
             Assert.True(File.Exists(old));
         }
 
@@ -129,7 +139,7 @@ namespace Gordian.Core.Tests.Config
         {
             Legacy("macros", "Akaden", "trimmed");
 
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "Retail", " Akaden ");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", " Akaden "));
 
             Assert.Equal("trimmed", File.ReadAllText(path));
         }
@@ -142,7 +152,7 @@ namespace Gordian.Core.Tests.Config
             Directory.CreateDirectory(Path.Combine(_root, "CharConfig"));
             File.WriteAllText(Path.Combine(_root, "CharConfig", "Retail"), "not a folder");
 
-            string path = CharacterConfigStorage.Resolve(_root, Macros, "Retail", "Akaden");
+            string path = CharacterConfigStorage.Resolve(_root, Macros, Key("Retail", "Asura", "Akaden"));
 
             Assert.Equal(old, path);
             Assert.Equal("kept", File.ReadAllText(old));

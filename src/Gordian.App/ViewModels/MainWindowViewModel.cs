@@ -2275,7 +2275,8 @@ namespace Gordian.App.ViewModels
                 ticket.CharacterId,
                 profile.Username,
                 netManager,
-                serverName: profile.ServerFolderName
+                serverName: profile.ServerFolderName,
+                worldName: ticket.WorldName
             )
             {
                 ProfileName = profile.ProfileName,

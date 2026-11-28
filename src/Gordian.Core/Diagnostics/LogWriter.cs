@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Gordian.Core.Config;
 
 namespace Gordian.Core.Diagnostics
 {
@@ -12,8 +13,8 @@ namespace Gordian.Core.Diagnostics
         /// <summary>Completed by the writer once every record queued before it is on disk.</summary>
         public TaskCompletionSource? FlushSignal { get; init; }
 
-        /// <summary>For a chat line: the server it goes under (<see cref="Category"/> holds the character, <see cref="Message"/> the formatted line).</summary>
-        public string? ChatServer { get; init; }
+        /// <summary>For a chat line: the character whose chat log it goes to (<see cref="Message"/> holds the formatted line).</summary>
+        public CharacterFolderKey? ChatFolder { get; init; }
 
         public static LogRecord Barrier(TaskCompletionSource signal) =>
             new(default, LogLevel.Off, string.Empty, null, string.Empty) { FlushSignal = signal };
@@ -57,9 +58,9 @@ namespace Gordian.Core.Diagnostics
 
         public void Write(in LogRecord record)
         {
-            if (record.ChatServer is { } server)
+            if (record.ChatFolder is { } folder)
             {
-                _chat.WriteLine(server, record.Category, record.Timestamp, record.Message);
+                _chat.WriteLine(folder, record.Timestamp, record.Message);
                 return;
             }
 

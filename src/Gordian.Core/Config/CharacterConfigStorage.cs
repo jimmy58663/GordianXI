@@ -15,16 +15,15 @@ namespace Gordian.Core.Config
     public readonly record struct CharacterConfigFile(string FileName, string LegacyFolder);
 
     /// <summary>
-    /// The per-character config folders (#639): <c>CharConfig/&lt;server&gt;/&lt;character&gt;/</c> under
-    /// <see cref="GordianStorage.RootDataDirectory"/>, holding every file GordianXI keeps for one character (macros,
-    /// equipment sets, UI layout and settings, synthesis history). The server is the launching profile's
-    /// <see cref="Profiles.AccountProfile.ServerFolderName"/> (<c>Retail</c>, or a LandSandBoat profile's host), the same folder the chat logs use, so the
-    /// same character name on two servers never shares a file. Both names go through
-    /// <see cref="GordianStorage.SafeFolderName"/>, which keeps their casing.
+    /// The per-character config folders (#639): <c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/</c> under
+    /// <see cref="GordianStorage.RootDataDirectory"/> (<see cref="CharacterFolderKey"/>), holding every file GordianXI keeps
+    /// for one character (macros, equipment sets, UI layout and settings, synthesis history). The chat logs use the same
+    /// <c>&lt;server&gt;/&lt;world&gt;/&lt;character&gt;</c> folders under <c>logs/chat/</c>, so the same character name on
+    /// two servers or two worlds never shares a file.
     /// <para>
-    /// Older builds kept each kind of file in its own flat folder named by character only. Those files carry no server, so
-    /// the first character of that name to load one, on any server, takes it: <see cref="Resolve"/> moves it into that
-    /// character's folder and logs the move. A character on another server with the same name then starts empty.
+    /// Older builds kept each kind of file in its own flat folder named by character only. Those files carry no server or
+    /// world, so the first character of that name to load one, on any server, takes it: <see cref="Resolve"/> moves it into
+    /// that character's folder and logs the move. A character of the same name elsewhere then starts empty.
     /// </para>
     /// </summary>
     public static class CharacterConfigStorage
@@ -33,33 +32,30 @@ namespace Gordian.Core.Config
         public const string FolderName = "CharConfig";
 
         /// <summary>
-        /// The folder for <paramref name="character"/> on <paramref name="server"/> under
-        /// <see cref="GordianStorage.RootDataDirectory"/>; an empty name of either becomes <c>Unknown</c>. Not created here:
-        /// a store creates it when it first saves.
+        /// The folder for <paramref name="key"/> under <see cref="GordianStorage.RootDataDirectory"/>. Not created here: a
+        /// store creates it when it first saves.
         /// </summary>
-        public static string GetDirectory(string? server, string? character) =>
-            GetDirectory(GordianStorage.RootDataDirectory, server, character);
+        public static string GetDirectory(CharacterFolderKey key) => GetDirectory(GordianStorage.RootDataDirectory, key);
 
-        /// <summary>The folder for <paramref name="character"/> on <paramref name="server"/> under <paramref name="dataRoot"/>.</summary>
-        public static string GetDirectory(string dataRoot, string? server, string? character) =>
-            Path.Combine(dataRoot, FolderName, GordianStorage.SafeFolderName(server), GordianStorage.SafeFolderName(character));
+        /// <summary>The folder for <paramref name="key"/> under <paramref name="dataRoot"/>.</summary>
+        public static string GetDirectory(string dataRoot, CharacterFolderKey key) => Path.Combine(dataRoot, FolderName, key.RelativePath);
 
         /// <summary>
-        /// The path of <paramref name="file"/> for <paramref name="character"/> on <paramref name="server"/> under
-        /// <see cref="GordianStorage.RootDataDirectory"/>, moving an older build's file there first (see the other overload).
+        /// The path of <paramref name="file"/> for <paramref name="key"/> under <see cref="GordianStorage.RootDataDirectory"/>,
+        /// moving an older build's file there first (see the other overload).
         /// </summary>
-        public static string Resolve(CharacterConfigFile file, string? server, string? character) =>
-            Resolve(GordianStorage.RootDataDirectory, file, server, character);
+        public static string Resolve(CharacterConfigFile file, CharacterFolderKey key) => Resolve(GordianStorage.RootDataDirectory, file, key);
 
         /// <summary>
-        /// The path of <paramref name="file"/> for <paramref name="character"/> on <paramref name="server"/> under
-        /// <paramref name="dataRoot"/>. When it does not exist yet and an older build's file for the character's name does,
-        /// that file is moved here first. If the move fails, the old path is returned so the character keeps its data; the
-        /// stores keep that path until the app restarts, and the move is tried again at the next launch. A character with no name has no older file to take.
+        /// The path of <paramref name="file"/> for <paramref name="key"/> under <paramref name="dataRoot"/>. When it does not
+        /// exist yet and an older build's file for the character's name does, that file is moved here first. If the move
+        /// fails, the old path is returned so the character keeps its data; the stores keep that path until the app
+        /// restarts, and the move is tried again at the next launch. A character with no name has no older file to take.
         /// </summary>
-        public static string Resolve(string dataRoot, CharacterConfigFile file, string? server, string? character)
+        public static string Resolve(string dataRoot, CharacterConfigFile file, CharacterFolderKey key)
         {
-            string path = Path.Combine(GetDirectory(dataRoot, server, character), file.FileName);
+            string path = Path.Combine(GetDirectory(dataRoot, key), file.FileName);
+            string? character = key.Character;
             if (File.Exists(path) || string.IsNullOrWhiteSpace(character)) return path;
 
             string legacyFolder = Path.Combine(dataRoot, file.LegacyFolder);

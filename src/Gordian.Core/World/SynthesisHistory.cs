@@ -214,12 +214,12 @@ namespace Gordian.Core.World
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SynthesisHistory> Histories = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>The history of <paramref name="characterName"/> on <paramref name="server"/>.</summary>
-        public static SynthesisHistory GetForCharacter(string? server, string? characterName)
+        /// <summary>The history of the character <paramref name="key"/> names.</summary>
+        public static SynthesisHistory GetForCharacter(CharacterFolderKey key)
         {
-            return Histories.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
+            return Histories.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = CharacterConfigStorage.Resolve(SynthesisHistory.ConfigFile, server, characterName);
+                string path = CharacterConfigStorage.Resolve(SynthesisHistory.ConfigFile, key);
                 var history = SynthesisHistory.LoadOrEmpty(path);
                 history.Changed += () =>
                 {

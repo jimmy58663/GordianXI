@@ -6,7 +6,7 @@ namespace Gordian.App.Audio
 {
     /// <summary>
     /// Maps the config page's two volume sliders (<c>StockUiSettingKey.MusicVolume</c> and <c>SoundEffectsVolume</c>,
-    /// 0-100, stored per character in <c>CharConfig/&lt;server&gt;/&lt;character&gt;/ui_settings.json</c>) to the mixer buses.
+    /// 0-100, stored per character in <c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/ui_settings.json</c>) to the mixer buses.
     /// </summary>
     public static class VolumeMix
     {

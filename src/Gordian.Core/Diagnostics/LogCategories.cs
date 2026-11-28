@@ -202,7 +202,7 @@ namespace Gordian.Core.Diagnostics
         /// <summary><c>STATUS</c>.</summary>
         public const string Status = "STATUS";
 
-        /// <summary><c>STORAGE</c>: the per-character config folders (<c>CharConfig</c>, #639).</summary>
+        /// <summary><c>STORAGE</c>: the per-character config and chat log folders, and moving older builds' files into them (#639).</summary>
         public const string Storage = "STORAGE";
 
         /// <summary><c>SUB_AREA</c>.</summary>

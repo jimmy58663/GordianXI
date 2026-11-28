@@ -29,12 +29,12 @@ namespace Gordian.Engine.Macros
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        /// <summary>The library of <paramref name="characterName"/> on <paramref name="server"/> (loaded once, saved on change).</summary>
-        public static MacroLibrary GetForCharacter(string? server, string? characterName)
+        /// <summary>The library of the character <paramref name="key"/> names (loaded once, saved on change).</summary>
+        public static MacroLibrary GetForCharacter(CharacterFolderKey key)
         {
-            return Libraries.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
+            return Libraries.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = CharacterConfigStorage.Resolve(ConfigFile, server, characterName);
+                string path = CharacterConfigStorage.Resolve(ConfigFile, key);
                 var library = LoadOrEmpty(path);
                 library.Changed += () =>
                 {

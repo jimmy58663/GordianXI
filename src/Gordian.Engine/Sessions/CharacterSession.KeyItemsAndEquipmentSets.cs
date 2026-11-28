@@ -23,7 +23,7 @@ namespace Gordian.Engine.Sessions
             Progression.KeyItemsUpdated += menus.RefreshKeyItems;
 
             // Equipment sets.
-            var book = EquipmentSetStore.GetForCharacter(ServerName, CharacterName);
+            var book = EquipmentSetStore.GetForCharacter(Folder);
             ActionService.EquipmentSets = book;
             menus.EquipSets = () => ActionService.EquipmentSets;
             menus.EquipSetEquip = number => ActionService.EquipsetAsync(number);

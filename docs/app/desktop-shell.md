@@ -35,25 +35,29 @@ The **Logs** tab is the second tab (`MainWindowViewModel.LogsTabIndex`):
 
 ## Character config folders (CharConfig)
 
-Everything GordianXI keeps for one character is in one folder under `GordianStorage.RootDataDirectory` (#639), server first:
+Everything GordianXI keeps for one character is in one folder under `GordianStorage.RootDataDirectory` (#639): server, then world, then character:
 
 ```
 CharConfig/
   127.0.0.1/            (a LandSandBoat profile's server host)
-    Akaden/
-      macros.json             MacroStore
-      equipment_sets.json     EquipmentSetStore
-      ui_layout.json          StockUiLayoutStore
-      ui_settings.json        StockUiSettingsStore
-      synthesis_history.json  SynthesisHistoryStore
+    Gordian/            (the world the server names)
+      Akaden/
+        macros.json             MacroStore
+        equipment_sets.json     EquipmentSetStore
+        ui_layout.json          StockUiLayoutStore
+        ui_settings.json        StockUiSettingsStore
+        synthesis_history.json  SynthesisHistoryStore
   Retail/
-    Akaden/
-      ...
+    Asura/
+      Akaden/
+        ...
 ```
 
-- **The server folder** is the launching profile's `AccountProfile.ServerFolderName`: `Retail`, or a LandSandBoat profile's server host in lower case (host names ignore case, so `Play.Example.com` and `play.example.com` share a folder on Linux too). The chat logs use the same name (`logs/chat/<server>/`, [logging.md](logging.md)), so a character's config and chat logs sit under matching folders. `CharacterSession` takes it as `serverName` and passes it to each store, so the same character name on two servers no longer shares macros, sets or layouts. The port is not part of it, so two servers on one host still share a folder.
+- **The folder key** is `CharacterFolderKey(Server, World, Character)`. `CharacterSession.Folder` builds it, and the stores and the chat logs (`logs/chat/<server>/<world>/<character>/`, [logging.md](logging.md)) both use it, so a character's config and chat logs sit under matching folders. The same character name on two servers or two worlds never shares macros, sets or layouts.
+- **The server** is the launching profile's `AccountProfile.ServerFolderName`: `Retail`, or a LandSandBoat profile's server host in lower case (host names ignore case, so `Play.Example.com` and `play.example.com` share a folder on Linux too). The port is not part of it, so two servers on one host still share a folder.
+- **The world** is the one the lobby's character list gives the character (`LobbyCharacter.WorldName`): a retail world such as Asura, or the name a LandSandBoat server gives its own. Both ticket builders (`XiloaderLobbyHandoff.CreateTicket`, `PolLobbyHandoff.CreateTicket`) copy it to `MapSessionTicket.WorldName`, and the launcher passes it to `CharacterSession` as `worldName`. Every server type gets the world folder, retail and LandSandBoat alike.
 - **Names** go through `GordianStorage.SafeFolderName`: casing is kept, characters a file system rejects become `_`, an empty name becomes `Unknown`, and a Windows device name gets a trailing `_` on every platform (a character named Con keeps its files in `Con_/`, since Windows can't make a `Con` folder). `CharacterConfigStorage` builds every path with `Path.Combine`.
-- **Older builds** kept each kind of file in its own flat folder named by character only (`macros/<name>.json`, `equipment_sets/`, `ui_layouts/`, `ui_settings/`, `synthesis_history/`). Those files carry no server, so the first character of that name to log in, on any server, takes them: `CharacterConfigStorage.Resolve` moves the file into that character's folder when the character has none there yet, logs `STORAGE: Moved '<old>' to '<new>'`, and removes the old folder once it is empty. A same-named character on another server then starts empty. If the move fails, the character keeps using the old file until the app closes (logged as a warning), and the move is tried again at the next launch. Tested in `CharacterConfigStorageTests` and `CharacterConfigStoresTests`.
+- **Older builds** kept each kind of file in its own flat folder named by character only (`macros/<name>.json`, `equipment_sets/`, `ui_layouts/`, `ui_settings/`, `synthesis_history/`). Those files carry no server or world, so the first character of that name to log in, anywhere, takes them: `CharacterConfigStorage.Resolve` moves the file into that character's folder when the character has none there yet, logs `STORAGE: Moved '<old>' to '<new>'`, and removes the old folder once it is empty. A same-named character elsewhere then starts empty. If the move fails, the character keeps using the old file until the app closes (logged as a warning), and the move is tried again at the next launch. Tested in `CharacterConfigStorageTests` and `CharacterConfigStoresTests`.
 
 ## Screenshots
 

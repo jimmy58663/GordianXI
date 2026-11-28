@@ -1,5 +1,6 @@
 // tests/Gordian.Engine.Tests/Network/CharacterConfigStoresTests.cs
 using System;
+using Gordian.Core.Config;
 using Gordian.Core.Network;
 using Gordian.Core.World;
 using Gordian.Engine.Macros;
@@ -10,23 +11,36 @@ using Xunit;
 namespace Gordian.Engine.Tests.Network
 {
     /// <summary>
-    /// The per-character stores key on the server as well as the name (#639), so the same character name on two servers
-    /// gets its own macros, sets, layout, settings and history, and two sessions of one character share them.
+    /// The per-character stores key on the server and world as well as the name (#639), so the same character name on two
+    /// servers or worlds gets its own macros, sets, layout, settings and history, and two sessions of one character share them.
     /// </summary>
     public sealed class CharacterConfigStoresTests
     {
         /// <summary>A name no other test uses, so the stores' process-wide caches start empty for it.</summary>
         private static string UniqueName() => "Char" + Guid.NewGuid().ToString("N")[..8];
 
-        private static CharacterSession Session(string name, string server) =>
-            new(name, 1001, "account", new SessionNetworkManager("127.0.0.1", 54230), serverName: server);
+        private static CharacterSession Session(string name, string server, string world = "Asura") =>
+            new(name, 1001, "account", new SessionNetworkManager("127.0.0.1", 54230), serverName: server, worldName: world);
 
         [Fact]
-        public void Session_KeepsItsServerName()
+        public void Session_KeepsItsServerAndWorld()
         {
-            using var session = Session(UniqueName(), "127.0.0.1");
+            string name = UniqueName();
+            using var session = Session(name, "127.0.0.1", "Gordian");
 
-            Assert.Equal("127.0.0.1", session.ServerName);
+            Assert.Equal(new CharacterFolderKey("127.0.0.1", "Gordian", name), session.Folder);
+        }
+
+        [Fact]
+        public void Session_TheSameNameOnTwoWorlds_GetsSeparateLayoutsSettingsAndSets()
+        {
+            string name = UniqueName();
+            using var asura = Session(name, "Retail", "Asura");
+            using var shiva = Session(name, "Retail", "Shiva");
+
+            Assert.NotSame(asura.ActionService.UiLayout, shiva.ActionService.UiLayout);
+            Assert.NotSame(asura.ActionService.UiSettings, shiva.ActionService.UiSettings);
+            Assert.NotSame(asura.ActionService.EquipmentSets, shiva.ActionService.EquipmentSets);
         }
 
         [Fact]
@@ -58,8 +72,8 @@ namespace Gordian.Engine.Tests.Network
         {
             string name = UniqueName();
 
-            Assert.NotSame(MacroStore.GetForCharacter("Retail", name), MacroStore.GetForCharacter("127.0.0.1", name));
-            Assert.Same(MacroStore.GetForCharacter("Retail", name), MacroStore.GetForCharacter("Retail", name));
+            Assert.NotSame(MacroStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name)), MacroStore.GetForCharacter(new CharacterFolderKey("127.0.0.1", "Asura", name)));
+            Assert.Same(MacroStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name)), MacroStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name)));
         }
 
         [Fact]
@@ -67,7 +81,7 @@ namespace Gordian.Engine.Tests.Network
         {
             string name = UniqueName();
 
-            Assert.NotSame(SynthesisHistoryStore.GetForCharacter("Retail", name), SynthesisHistoryStore.GetForCharacter("127.0.0.1", name));
+            Assert.NotSame(SynthesisHistoryStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name)), SynthesisHistoryStore.GetForCharacter(new CharacterFolderKey("127.0.0.1", "Asura", name)));
         }
 
         [Fact]
@@ -75,7 +89,7 @@ namespace Gordian.Engine.Tests.Network
         {
             string name = UniqueName();
 
-            Assert.Same(StockUiLayoutStore.GetForCharacter("Retail", name), StockUiLayoutStore.GetForCharacter("Retail", name.ToUpperInvariant()));
+            Assert.Same(StockUiLayoutStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name)), StockUiLayoutStore.GetForCharacter(new CharacterFolderKey("Retail", "Asura", name.ToUpperInvariant())));
         }
     }
 }

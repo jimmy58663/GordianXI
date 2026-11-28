@@ -79,6 +79,7 @@ namespace Gordian.Core.Tests.Network.Retail
             Assert.Equal("127.0.0.2", ticket.SearchIp);
             Assert.Equal(54002, ticket.SearchPort);
             Assert.Equal(CharacterId, ticket.CharacterId);
+            Assert.Equal("Shiva", ticket.WorldName);
             Assert.Equal(RetailMapPackets.MapRawKey(LobbyKey, Seed + 7), ticket.BlowfishKey);
             Assert.Equal(RetailMapPackets.BuildFirstDatagram(CharacterId, RetailMapPackets.MapKey(LobbyKey, Seed + 7)), ticket.LoginDatagramBuilder!(0));
             // A zone change adds 2 to the map key's counter, and the next first datagram's ticket follows it.

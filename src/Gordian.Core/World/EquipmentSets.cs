@@ -283,12 +283,12 @@ namespace Gordian.Core.World
     {
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, EquipmentSetBook> Books = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>The sets of <paramref name="characterName"/> on <paramref name="server"/>.</summary>
-        public static EquipmentSetBook GetForCharacter(string? server, string? characterName)
+        /// <summary>The sets of the character <paramref name="key"/> names.</summary>
+        public static EquipmentSetBook GetForCharacter(CharacterFolderKey key)
         {
-            return Books.GetOrAdd(CharacterConfigStorage.GetDirectory(server, characterName), _ =>
+            return Books.GetOrAdd(CharacterConfigStorage.GetDirectory(key), _ =>
             {
-                string path = CharacterConfigStorage.Resolve(EquipmentSetBook.ConfigFile, server, characterName);
+                string path = CharacterConfigStorage.Resolve(EquipmentSetBook.ConfigFile, key);
                 var book = EquipmentSetBook.LoadOrEmpty(path);
                 book.Changed += _ =>
                 {

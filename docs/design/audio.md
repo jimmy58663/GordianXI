@@ -104,7 +104,7 @@ A slot holding 0 falls back to the zone's day / night track (night 0 falls back 
 
 ## Volume (#44)
 
-The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `CharConfig/<server>/<character>/ui_settings.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x control gain (#265) x master. The control gain is 1 unless a GordianXI sound control is switched on.
+The retail config page has two sliders, music and sound effects (`StockUiSettingKey.MusicVolume` / `SoundEffectsVolume`, 0-100 in steps of 5, saved per character in `CharConfig/<server>/<world>/<character>/ui_settings.json`). `VolumeMix` maps them to the buses: music → Music; sound effects → Effects, System and Zone. Gain is `value / 100`, linear (provisional: retail's curve is not measured). `GameAudioService` re-reads them every frame, so a slider move is heard at once. Per-bus gain order: voice x voice fade x slider x script fade (0x060, event opcodes 0x69 / 0x6A) x control gain (#265) x master. The control gain is 1 unless a GordianXI sound control is switched on.
 
 ## Sound controls (#265)
 

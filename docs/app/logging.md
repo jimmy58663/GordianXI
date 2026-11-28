@@ -11,7 +11,7 @@ logs/
 ├── status/    status_2026-11-14_08-39-12.log …   one file per launch, kept 7 days
 ├── system/    gordian_2026-11-14.log, _2, _3 …   diagnostics, kept 7 days, rolls at 20 MB
 ├── network/   network_2026-11-14.log …           packet detail, opt-in, kept 7 days, rolls at 20 MB
-└── chat/<server>/<character>/2026-11-14.log      chat logs (#565), never deleted
+└── chat/<server>/<world>/<character>/2026-11-14.log   chat logs (#565), never deleted
 ```
 
 - **`system/`**: every category except status messages and packet detail. The file is named by the date a line is written, so a session that runs past midnight moves to the next day's file. When a file reaches the size cap the next lines go to `_2`, `_3`, and so on; a second launch on the same day continues the newest file.
@@ -23,17 +23,18 @@ At startup the writer thread deletes `system/`, `network/` and `status/` files l
 
 ## Chat logs
 
-Every line a character's in-game log shows (say, shout, yell, tell, party, linkshell, unity, assist, emotes, NPC dialog, system, combat and battle messages, client notices and errors) is also written to `chat/<server>/<character>/<yyyy-MM-dd>.log` (#565):
+Every line a character's in-game log shows (say, shout, yell, tell, party, linkshell, unity, assist, emotes, NPC dialog, system, combat and battle messages, client notices and errors) is also written to `chat/<server>/<world>/<character>/<yyyy-MM-dd>.log` (#565, #639):
 
 ```
 [21:05:09] [Tell] Gemini>> meet at the Home Point
 [21:05:12] [Combat] Gemini hits the Wild Rabbit for 12 points of damage.
 ```
 
-- **`<server>`** is `Retail` for a retail profile and the server host in lower case for a LandSandBoat profile (`AccountProfile.ServerFolderName`, set on `CharacterSession.ServerName`), so the same character name on two servers never shares a file. Server and character names keep their casing; characters a file system rejects become `_`, an empty name becomes `Unknown`, and a Windows device name such as `Con` gets a trailing `_` (`GordianStorage.SafeFolderName`, shared with the per-character config folders, [desktop-shell.md](desktop-shell.md#character-config-folders-charconfig)).
+- **`<server>/<world>/<character>`** is the character's `CharacterFolderKey`, the same folders as its config ([desktop-shell.md](desktop-shell.md#character-config-folders-charconfig)): `<server>` is `Retail` for a retail profile and the server host in lower case for a LandSandBoat profile (`AccountProfile.ServerFolderName`), and `<world>` is the character's world from the lobby (`LobbyCharacter.WorldName`). The same character name on two servers or two worlds never shares a file. Names keep their casing; characters a file system rejects become `_`, an empty name becomes `Unknown`, and a Windows device name such as `Con` gets a trailing `_` (`GordianStorage.SafeFolderName`, shared with the per-character config folders, [desktop-shell.md](desktop-shell.md#character-config-folders-charconfig)).
 - **The date** is the local date the line was logged, so play past midnight moves to the next day's file. Chat files never roll by size and are never deleted.
 - **The text** is the log line as plain text (`ChatLogFileWriter.PlainText`): element icons become their element words, line breaks become spaces, and the stock UI's drawing codes are dropped. Auto-translate phrases are written as the in-game log shows them; resolving them to words is #388.
 - **How:** `ChatLogFileWriter` (`src/Gordian.Engine/Ui`), built by `CharacterSession`, listens to `StockUiChatLog.LineAdded` and hands each formatted line to `GordianLog.Chat`; the logger's writer thread opens and appends the files, so the network thread never waits on disk, and `Shutdown` flushes them.
+- **Older builds' logs** (`chat/<server>/<character>/`, no world folder, and a LandSandBoat host with the casing it was typed in) move into the character's folder the first time it logs in (`ChatLogFiles.MoveLegacy`, called from `CharacterSession` before the first line). The old server folder is matched ignoring case, a day the new folder already has gets the old file appended to it, empty old folders are removed, and each move is logged under `STORAGE`. A file that can't be moved stays where it is and is tried again at the next login. Tested in `ChatLogFilesTests`.
 - **Setting:** `"ChatLog": false` in `logging.json` turns it off (on by default).
 
 ## Line format
@@ -60,7 +61,7 @@ The default minimum is `Debug` in Debug builds or with `GORDIAN_DEBUG=1`, otherw
 
 The bounded wire trace (the first 20 map datagrams each way after login and each zone line, headers and sub-packets) uses its own `WIRE` category. It is a network category, so it goes to `network/` with the other packet detail; turn the network file on to capture it.
 
-Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages), `STORAGE` (the per-character config folders, and moving older builds' files into them, #639).
+Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages), `STORAGE` (the per-character config and chat log folders, and moving older builds' files into them, #639).
 
 ## Settings
 
