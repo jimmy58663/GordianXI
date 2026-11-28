@@ -42,7 +42,7 @@ Spatial entity store, dead reckoning, state caches, DAT decoders, XIPivot-compat
 ### ⏳ Phase 5: Viewport Rendering, CLI Console & Input Subsystem (MVP Completion)
 | Sub-phase | Status | Doc |
 |---|---|---|
-| Console, action service & input | ✅ | [input/console-and-input.md](docs/input/console-and-input.md) |
+| Console, action service & input | ✅ Shared keyboard layouts and automatic migration; in-game validation pending | [input/console-and-input.md](docs/input/console-and-input.md) |
 | 5A Graphics context & multi-box viewports | ✅ | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5B Camera & zone terrain | ✅ (the zoom saved per account profile and a smooth engaged / locked-on follow (#550 #547), building interiors, the Mog House room with its exit to the city's areas, ship zones with their vessels, sea and routes (retail's ship runs from S2C 0x00A, the timetable when the server sends none), and zone visibility (culling tables, draw distances, LOD, fog scaled with the draw distance, #70) done; open: vessel speed vs retail #457 (post-MVP)) | [rendering/viewport-and-terrain.md](docs/rendering/viewport-and-terrain.md) |
 | 5C Entity models & equipment | ✅ (model-embedded idle effects done, e.g. Home Point crystal; routine playback from the network (0x038 / 0x03A), generators riding actors, door effects, time-of-day weather effects, and mounted players (chocobos and mounts, seated per race from the data, mount menu, dismount, chocobo digging), state-driven props such as campfires, crafters' work schedules (`@scd`), and the REMA / Prime weapon Afterglow from the weapon DATs (#8) done; open: actor status visuals) | [world/entities-and-animation.md](docs/world/entities-and-animation.md) |

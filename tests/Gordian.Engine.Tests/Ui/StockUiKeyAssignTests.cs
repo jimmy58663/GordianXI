@@ -72,6 +72,39 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void OpenAssignmentWindow_RefreshesWhenAnotherCharacterChangesSharedLayout()
+        {
+            var hub = new InputProfileHub(InputProfile.CreateDefault());
+            using var a = new Gordian.Engine.Sessions.CharacterSession("MenuRefresh_" + Guid.NewGuid().ToString("N"), 1, "fixture",
+                new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+            using var b = new Gordian.Engine.Sessions.CharacterSession("MenuRefresh_" + Guid.NewGuid().ToString("N"), 2, "fixture",
+                new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
+            a.ActionService.Menus.Library = Controller().Menus.Library;
+            var list = OpenMovement(a.ActionService.Menus);
+            Assert.Equal("Num 8", list.Rows[0].Value);
+            b.ActionService.Menus.SetSetting(StockUiSettingKey.KeyboardSize, 2);
+            Assert.Equal("W", list.Rows[0].Value);
+        }
+
+        [Fact]
+        public void LayeredAssignmentUi_ShowsAndEditsSharedMode()
+        {
+            var (menus, hub) = Controller();
+            hub.SetProfile(InputProfile.CreateDefault());
+            hub.Profile.KeyboardLayout!.Mode = KeyboardMode.Compact2;
+            var list = OpenMovement(menus);
+            Assert.Equal("W", list.Rows[0].Value);
+            var input = new InputState();
+            Keys(input, KeyboardLayout.Resolve(hub.Profile, KeyboardMode.Compact2), menus, GordianKey.Enter);
+            Keys(input, KeyboardLayout.Resolve(hub.Profile, KeyboardMode.Compact2), menus);
+            Keys(input, KeyboardLayout.Resolve(hub.Profile, KeyboardMode.Compact2), menus, GordianKey.S);
+            Assert.Equal(new[] { "S" }, hub.Profile.KeyboardLayout.Overrides["MoveForward"]);
+            Assert.Equal(new[] { "W" }, hub.Profile.KeyboardLayout.Overrides["MoveBackward"]);
+            Assert.Equal(KeyboardMode.Compact2, hub.Profile.KeyboardLayout.Mode);
+            Assert.Equal("S", list.Rows[0].Value);
+        }
+
+        [Fact]
         public void Movement_ListsRetailFunctionsAndTheirKeys()
         {
             var (menus, _) = Controller();
@@ -167,13 +200,14 @@ namespace Gordian.Engine.Tests.Ui
         [Fact]
         public void ResetDefaults_PutsTheKeysBackAndKeepsThePad()
         {
-            var profile = InputProfile.CreateCompact();
+            var profile = InputProfile.CreateDefault();
             KeyboardAssignments.Assign(profile, KeyboardAssignments.Movement[0], new InputChord(GordianKey.U));
             var padBefore = profile.GetChords(InputAction.Confirm).Where(c => c.IsGamepadChord).ToList();
 
             KeyboardAssignments.ResetDefaults(profile);
+            profile = KeyboardLayout.Resolve(profile, KeyboardMode.Full);
 
-            Assert.Equal(new[] { new InputChord(GordianKey.W) }, profile.GetChords(InputAction.MoveForward).Where(c => !c.IsGamepadChord));
+            Assert.Equal(new[] { new InputChord(GordianKey.NumPad8) }, profile.GetChords(InputAction.MoveForward).Where(c => !c.IsGamepadChord));
             Assert.Equal(padBefore, profile.GetChords(InputAction.Confirm).Where(c => c.IsGamepadChord).ToList());
         }
 
@@ -181,6 +215,7 @@ namespace Gordian.Engine.Tests.Ui
         public void Default_AsksThenResets()
         {
             var (menus, hub) = Controller();
+            hub.SetProfile(InputProfile.CreateDefault());
             var input = new InputState();
             hub.Edit(p => KeyboardAssignments.Assign(p, KeyboardAssignments.Movement[0], new InputChord(GordianKey.U)));
             Assert.True(menus.Open(StockUiConfigPages.Misc2Page));
@@ -190,12 +225,12 @@ namespace Gordian.Engine.Tests.Ui
             Assert.Equal(StockUiMenuEntries.MessageYesNoMenu, menus.Top!.Name);
             menus.Top.SelectedButtonId = 1; // Yes
             menus.Activate();
-            for (int i = 0; i < 200 && !hub.Profile.GetChords(InputAction.MoveForward).Contains(new InputChord(GordianKey.W)); i++)
+            for (int i = 0; i < 200 && hub.Profile.KeyboardLayout!.Overrides.ContainsKey("MoveForward"); i++)
             {
                 Keys(input, hub.Profile, menus);
                 System.Threading.Thread.Sleep(5);
             }
-            Assert.Contains(new InputChord(GordianKey.W), hub.Profile.GetChords(InputAction.MoveForward));
+            Assert.Contains(new InputChord(GordianKey.NumPad8), KeyboardLayout.Resolve(hub.Profile, KeyboardMode.Full).GetChords(InputAction.MoveForward));
         }
     }
 }

@@ -26,6 +26,12 @@ namespace Gordian.Engine.Input
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
 
+        [JsonPropertyName("keyboardLayout")]
+        public KeyboardLayout? KeyboardLayout { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
         [JsonPropertyName("name")]
         public string Name { get; set; } = "Custom";
 
@@ -79,6 +85,7 @@ namespace Gordian.Engine.Input
                 {
                     bool known = Enum.TryParse<InputAction>(name, ignoreCase: true, out var action) && Enum.IsDefined(action);
                     var chords = known ? new List<InputChord>() : null;
+                    if (!known) _unreadBindings[name] = new List<string>();
                     foreach (string chordName in chordNames ?? new List<string>())
                     {
                         if (chords != null && InputChord.TryParse(chordName, out var chord))
@@ -230,19 +237,26 @@ namespace Gordian.Engine.Input
         public bool TryGetAction(InputChord chord, bool menuContext, out InputAction action)
         {
             InputAction fallback = InputAction.None;
+            InputAction best = InputAction.None;
+            bool orderedKeyboard = KeyboardLayout is { Supported: true } && global::Gordian.Engine.Input.KeyboardLayout.IsKeyboard(chord);
             foreach (var kvp in Bindings)
             {
                 if (!kvp.Value.Contains(chord)) continue;
                 bool isMenu = IsMenuNavigationAction(kvp.Key);
                 if (isMenu == menuContext)
                 {
+                    if (orderedKeyboard)
+                    {
+                        if (best == InputAction.None || kvp.Key < best) best = kvp.Key;
+                        continue;
+                    }
                     action = kvp.Key;
                     return true;
                 }
-                if (!isMenu && fallback == InputAction.None) fallback = kvp.Key;
+                if (!isMenu && (fallback == InputAction.None || (orderedKeyboard && kvp.Key < fallback))) fallback = kvp.Key;
             }
-            action = fallback;
-            return fallback != InputAction.None;
+            action = best != InputAction.None ? best : fallback;
+            return action != InputAction.None;
         }
 
         /// <summary>True for the actions that move the cursor of an open stock menu.</summary>
@@ -540,6 +554,15 @@ namespace Gordian.Engine.Input
 
         #region Standard FFXI Factory Presets
 
+        /// <summary>New storage uses Full with inherited keys; legacy files migrate with explicit overrides on load.</summary>
+        public static InputProfile CreateDefault()
+        {
+            var p = new InputProfile("Full (layered)", "Keyboard catalog v1; shared layout and overrides.");
+            p.KeyboardLayout = new KeyboardLayout { Mode = KeyboardMode.Full };
+            BindDefaultGamepadButtons(p);
+            return p;
+        }
+
         /// <summary>
         /// Creates the standard FFXI Compact keyboard profile (WASD locomotion, Q/E strafe, IJKL camera).
         /// </summary>
@@ -825,6 +848,12 @@ namespace Gordian.Engine.Input
             ArgumentNullException.ThrowIfNull(json);
             var profile = JsonSerializer.Deserialize<InputProfile>(json, JsonOptions)
                    ?? throw new InvalidOperationException("Failed to deserialize InputProfile from JSON.");
+            if (profile.Version != 1 || profile.KeyboardLayout is { Supported: false }) return profile;
+            if (profile.KeyboardLayout == null)
+                global::Gordian.Engine.Input.KeyboardLayout.MigrateLegacy(profile,
+                    profile.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) ? KeyboardMode.Full : KeyboardMode.Compact2, json);
+            // Preserve keyboard entries exactly while applying existing controller compatibility upgrades.
+            var keyboard = profile.Bindings.ToDictionary(p => p.Key, p => p.Value.Where(c => c.Key != GordianKey.None && !c.IsMouseChord && !c.IsGamepadChord).ToList());
             profile.EnsureMenuNavigationBindings();
             profile.EnsureLogWindowBindings();
             profile.EnsureKeypadMinusMenuBinding();
@@ -836,8 +865,10 @@ namespace Gordian.Engine.Input
             profile.EnsurePartyCycleBindings();
             profile.EnsureDPadBindings();
             profile.EnsureNoHiddenGamepadBindings();
-            profile.EnsureRetailCompactKeys();
-            profile.EnsureCompactStickKeys();
+            foreach (var chords in profile.Bindings.Values)
+                chords.RemoveAll(c => c.Key != GordianKey.None && !c.IsMouseChord && !c.IsGamepadChord);
+            foreach (var (action, chords) in keyboard)
+                foreach (var chord in chords) profile.Bind(action, chord);
             return profile;
         }
 
@@ -874,7 +905,18 @@ namespace Gordian.Engine.Input
                 try
                 {
                     string json = File.ReadAllText(filePath);
-                    return FromJson(json);
+                    var profile = FromJson(json);
+                    // Only the migration that archived these exact input bytes needs persisting.
+                    // A failed write is not a parse failure: retain the original and the migrated in-memory map.
+                    if (profile.KeyboardLayout?.LegacySnapshot == json)
+                    {
+                        try { profile.SaveToFile(filePath); }
+                        catch (Exception saveEx)
+                        {
+                            GordianLog.Warn(LogCategories.Input, $"Could not persist keyboard migration to '{filePath}': {saveEx.Message}");
+                        }
+                    }
+                    return profile;
                 }
                 catch (Exception ex)
                 {
@@ -893,7 +935,7 @@ namespace Gordian.Engine.Input
                 }
             }
 
-            var defaultProfile = CreateCompact();
+            var defaultProfile = CreateDefault();
             try
             {
                 defaultProfile.SaveToFile(filePath);

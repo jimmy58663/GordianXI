@@ -690,7 +690,7 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void ProfilesSavedBeforeMenus_GetTheNavigationBindings()
+        public void ProfilesSavedBeforeMenus_KeepKeyboardUnboundAndControllerCompatibility()
         {
             var profile = InputProfile.CreateCompact();
             foreach (var action in new[] { InputAction.MenuUp, InputAction.MenuDown, InputAction.MenuLeft, InputAction.MenuRight })
@@ -698,7 +698,7 @@ namespace Gordian.Engine.Tests.Ui
                 profile.ClearAction(action);
             }
             var reloaded = InputProfile.FromJson(profile.SaveToJson());
-            Assert.Contains(new InputChord(GordianKey.Down), reloaded.GetChords(InputAction.MenuDown));
+            Assert.DoesNotContain(new InputChord(GordianKey.Down), reloaded.GetChords(InputAction.MenuDown));
             Assert.Contains(new InputChord(GamepadButton.DPadLeft), reloaded.GetChords(InputAction.MenuLeft));
         }
 

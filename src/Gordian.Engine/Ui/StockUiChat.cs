@@ -33,6 +33,9 @@ namespace Gordian.Engine.Ui
         public StockUiChatLog Log { get; } = new();
         public StockUiChatInput Input { get; } = new();
 
+        // Separate from TellTarget: outgoing tells and chatmode must not redirect Reply.
+        private string _lastReceivedTell = string.Empty;
+
         /// <summary>Your character's name, for the echo of your own lines.</summary>
         public Func<string> CharacterName { get; set; } = () => string.Empty;
 
@@ -60,7 +63,28 @@ namespace Gordian.Engine.Ui
             bool confirmTaken = false)
         {
             if (Input.IsOpen) return false;
-            bool open = !menuOpen && !confirmTaken && modifiers == InputModifiers.None && key is GordianKey.Enter or GordianKey.NumPadEnter;
+            if (profile != null && profile.TryGetAction(new InputChord(key, modifiers), out var shortcut)
+                && shortcut is InputAction.OpenPartyChat or InputAction.OpenSayChat or InputAction.OpenLinkshellChat or InputAction.OpenTellChat or InputAction.ReplyToTell)
+            {
+                Input.SetMode(shortcut switch
+                {
+                    InputAction.OpenPartyChat => ChatInputMode.Party,
+                    InputAction.OpenLinkshellChat => ChatInputMode.Linkshell,
+                    InputAction.OpenTellChat or InputAction.ReplyToTell => ChatInputMode.Tell,
+                    _ => ChatInputMode.Say,
+                });
+                Input.Open();
+                if (shortcut == InputAction.OpenTellChat) Input.InsertText("/tell ");
+                if (shortcut == InputAction.ReplyToTell)
+                    Input.InsertText(_lastReceivedTell.Length == 0 ? "/tell " : $"/tell {_lastReceivedTell} ");
+                return true;
+            }
+            bool explicitChat = profile?.KeyboardLayout is { Supported: true } keyboard
+                && (keyboard.Overrides.ContainsKey(nameof(InputAction.OpenChat))
+                    || (profile.TryGetAction(new InputChord(key, modifiers), out var custom)
+                        && keyboard.Overrides.ContainsKey(custom.ToString())));
+            bool open = !explicitChat && !menuOpen && !confirmTaken && modifiers == InputModifiers.None
+                && key is GordianKey.Enter or GordianKey.NumPadEnter or GordianKey.Space;
             if (!open && profile != null)
             {
                 var chord = new InputChord(key, modifiers);
@@ -80,6 +104,29 @@ namespace Gordian.Engine.Ui
             {
                 Input.InsertKeySymbol(keySymbol!);
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Opens Full-size chat for an ordinary typing key, without synthesizing its character. The caller must
+        /// leave the press unhandled for platform TextInput (layout, Shift and Caps Lock) and keep it out of gameplay.
+        /// Uses the shared profile's layout, never the obsolete per-character Keyboard Size value.
+        /// A legacy factory profile without provenance retains its named layout for direct callers.
+        /// </summary>
+        public bool TryOpenForTyping(GordianKey key, InputModifiers modifiers, InputProfile? profile)
+        {
+            if (Input.IsOpen || (modifiers & ~InputModifiers.Shift) != 0) return false;
+            // Full-size reserves the numeric keypad, navigation, function keys and modifier shortcuts for gameplay.
+            if (key is not (>= GordianKey.A and <= GordianKey.Z or >= GordianKey.D0 and <= GordianKey.D9
+                or >= GordianKey.OemTilde and <= GordianKey.OemSlash)) return false;
+            bool full = profile?.KeyboardLayout is { Supported: true } keyboard
+                ? keyboard.Mode == KeyboardMode.Full
+                : profile?.KeyboardLayout == null && profile?.Name.StartsWith("Full", StringComparison.OrdinalIgnoreCase) == true;
+            if (!full) return false;
+            if (profile?.KeyboardLayout is { Supported: true } layout
+                && profile.TryGetAction(new InputChord(key, modifiers), out var action)
+                && layout.Overrides.ContainsKey(action.ToString())) return false;
+            Input.Open();
             return true;
         }
 
@@ -343,7 +390,8 @@ namespace Gordian.Engine.Ui
         {
             var channel = ChannelOf(msg.Type);
             if (IsClientFiltered(channel, ClientChatFilters())) return;
-            if (channel == ChatLogChannel.Tell && !string.IsNullOrEmpty(msg.Sender)) Input.TellTarget = msg.Sender;
+            if (channel == ChatLogChannel.Tell && !string.IsNullOrEmpty(msg.Sender))
+                Input.TellTarget = _lastReceivedTell = msg.Sender;
 
             IReadOnlyList<string>? lines = null;
             if (msg.Formatted is { } reference)

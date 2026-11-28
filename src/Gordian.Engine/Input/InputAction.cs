@@ -134,6 +134,26 @@ namespace Gordian.Engine.Input
         TargetPartyUp = 118,
 
         /// <summary>The downward counterpart of <see cref="TargetPartyUp"/>; distinct from fixed F2-F6 slots.</summary>
-        TargetPartyDown = 119
+        TargetPartyDown = 119,
+
+        OpenPartyChat = 120,
+        OpenSayChat = 121,
+        OpenLinkshellChat = 122,
+        OpenTellChat = 123,
+        ReplyToTell = 124,
+        TargetNearestNpc = 125,
+        TargetNearestPc = 126,
+        OpenPetCommands = 127,
+        OpenEquipment = 128,
+        OpenItems = 129,
+        OpenJobAbilities = 130,
+        OpenMagic = 131,
+        OpenWeaponSkills = 132,
+        TargetAllianceFirst = 133,
+        TargetAllianceSecond = 134,
+        ToggleAttack = 135,
+        CheckTarget = 136,
+        ToggleWindows = 137,
+        Screenshot = 138
     }
 }

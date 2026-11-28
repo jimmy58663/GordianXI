@@ -1031,6 +1031,7 @@ namespace Gordian.Engine.Ui
         /// <summary>The value a config page shows for a setting (layout-backed keys come from the delegates).</summary>
         public int GetSetting(StockUiSettingKey key) => key switch
         {
+            StockUiSettingKey.KeyboardSize => (int)(GamepadProfile?.Invoke()?.KeyboardLayout?.Mode ?? KeyboardMode.Full),
             StockUiSettingKey.WindowType => Math.Clamp(CurrentWindowSkin?.Invoke() ?? 1, 1, UiResourceLibrary.WindowSkinCount),
             StockUiSettingKey.PartyIconDisplay => CurrentPartyIcons?.Invoke() == true ? 1 : 0,
             _ => _settings.GetValue(key),
@@ -1041,6 +1042,11 @@ namespace Gordian.Engine.Ui
         {
             switch (key)
             {
+                case StockUiSettingKey.KeyboardSize:
+                    if (Enum.IsDefined((KeyboardMode)value) && GamepadProfile?.Invoke() is { Version: 1, KeyboardLayout.Supported: true })
+                        GamepadProfileEdited?.Invoke(profile => profile.KeyboardLayout!.Mode = (KeyboardMode)value);
+                    RefreshAll();
+                    break;
                 case StockUiSettingKey.WindowType:
                     WindowSkinSelected?.Invoke(value);
                     break;
@@ -1209,6 +1215,9 @@ namespace Gordian.Engine.Ui
             }
             if (IsOpen) Changed?.Invoke();
         }
+
+        /// <summary>Refreshes open config and assignment windows after a shared profile edit.</summary>
+        internal void OnInputProfileChanged() => RefreshAll();
 
         private void OnSettingsSynchronized() => RefreshAll();
 

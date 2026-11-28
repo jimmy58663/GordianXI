@@ -9,6 +9,7 @@ This document contains licensing notices and terms for third-party software, lib
 The following software packages are compiled, linked, or distributed with GordianXI under their respective open-source licenses:
 
 ### Avalonia UI
+* **Test tooling:** `Avalonia.Headless` (same MIT license), pinned to the App's Avalonia version, supplies an in-memory backend for viewport routing regression tests.
 * **Project:** [Avalonia](https://github.com/AvaloniaUI/Avalonia)
 * **License:** MIT License
 * **Copyright:** Copyright (c) 2014-2026 AvaloniaUI OÜ
