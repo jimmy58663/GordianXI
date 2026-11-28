@@ -34,6 +34,13 @@ namespace Gordian.Core.Tests.Config
         [InlineData(null, "Unknown")]
         [InlineData("..", "Unknown")]
         [InlineData("name.", "name")]
+        [InlineData("Con", "Con_")]
+        [InlineData("aux", "aux_")]
+        [InlineData("NUL.txt", "NUL.txt_")]
+        [InlineData("COM1", "COM1_")]
+        [InlineData("lpt9", "lpt9_")]
+        [InlineData("COM0", "COM0")]
+        [InlineData("Conrad", "Conrad")]
         public void SafeFolderName_IsSafeAndKeepsCasing(string? name, string expected) =>
             Assert.Equal(expected, GordianStorage.SafeFolderName(name));
 

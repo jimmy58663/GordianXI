@@ -153,7 +153,7 @@ namespace Gordian.Engine.Ui
     /// <summary>
     /// The character's stock config-menu settings: one integer per <see cref="StockUiSettingKey"/> (defaults are
     /// the retail defaults where known) plus the two chat-filter words mirrored from the server. Client settings are
-    /// saved per character (<c>ui_settings/&lt;name&gt;.json</c>); server settings are mirrored from S2C 0x0B4 and
+    /// saved per character (<c>CharConfig/&lt;server&gt;/&lt;character&gt;/ui_settings.json</c>, #639); server settings are mirrored from S2C 0x0B4 and
     /// sent back through the config packets when changed; layout settings live on <see cref="StockUiLayout"/>.
     /// Consumers (the HUD, the input profile, the renderer) read the values they understand; the rest are kept so
     /// the menu shows and remembers them.
