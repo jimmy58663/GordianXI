@@ -119,8 +119,8 @@ namespace Gordian.Core.World
     /// <summary>
     /// The character's equipment sets (#92): <see cref="SetCount"/> sets in pages of <see cref="SetsPerPage"/>, as the
     /// retail client keeps them client-side (the server stores none: C2S 0x051 and 0x053 carry the items). Edited by the
-    /// Equipment Sets windows and used by <c>/equipset</c> and <c>/lockstyleset</c>; saved to
-    /// <c>equipment_sets/&lt;character&gt;.json</c> under the GordianXI data folder whenever it changes.
+    /// Equipment Sets windows and used by <c>/equipset</c> and <c>/lockstyleset</c>; saved to <c>equipment_sets.json</c> in
+    /// the character's <see cref="CharacterConfigStorage"/> folder (#639) whenever it changes.
     /// </summary>
     public sealed class EquipmentSetBook
     {

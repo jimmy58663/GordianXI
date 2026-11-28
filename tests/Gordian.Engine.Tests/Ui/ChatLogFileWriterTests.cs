@@ -124,6 +124,22 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
+        public void Session_MovesOlderBuildsChatLogsIntoItsWorldFolder()
+        {
+            Start();
+            string name = "Char" + Guid.NewGuid().ToString("N")[..8];
+            string old = Path.Combine(_logs, GordianLog.ChatFolder, "127.0.0.1", name, "2026-11-14.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(old)!);
+            File.WriteAllText(old, "[20:00:00] [Say] before the update\n");
+
+            using var session = new Gordian.Engine.Sessions.CharacterSession(name, 1001, "account",
+                new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), serverName: "127.0.0.1", worldName: "Gordian");
+
+            Assert.False(File.Exists(old));
+            Assert.Contains("before the update", ChatFile("127.0.0.1", "Gordian", name, new DateTime(2026, 11, 14)));
+        }
+
+        [Fact]
         public void Dispose_StopsWriting()
         {
             Start();

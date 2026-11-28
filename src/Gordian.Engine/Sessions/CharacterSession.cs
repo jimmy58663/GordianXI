@@ -29,17 +29,13 @@ namespace Gordian.Engine.Sessions
         /// </summary>
         public string ProfileName { get; set; } = string.Empty;
 
-        /// <summary>The launching profile's <c>ServerFolderName</c>: <c>Retail</c>, or a LandSandBoat profile's host.</summary>
-        public string ServerName { get; }
-
-        /// <summary>The character's world from the lobby's character list (<c>MapSessionTicket.WorldName</c>).</summary>
-        public string WorldName { get; }
-
         /// <summary>
         /// The folder the character's files go under, <c>&lt;server&gt;/&lt;world&gt;/&lt;character&gt;</c>: its config
-        /// (<c>CharConfig/</c>) and its chat log (<c>logs/chat/</c>) (#565, #639). An empty name becomes <c>Unknown</c>.
+        /// (<c>CharConfig/</c>) and its chat log (<c>logs/chat/</c>) (#565, #639). The server is the launching profile's
+        /// <c>ServerFolderName</c> and the world the lobby's (<c>MapSessionTicket.WorldName</c>); an empty name becomes
+        /// <c>Unknown</c>.
         /// </summary>
-        public CharacterFolderKey Folder => new(ServerName, WorldName, CharacterName);
+        public CharacterFolderKey Folder { get; }
 
         private readonly Ui.ChatLogFileWriter _chatLogFile;
 
@@ -255,8 +251,7 @@ namespace Gordian.Engine.Sessions
             CharacterName = characterName ?? throw new ArgumentNullException(nameof(characterName));
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
-            ServerName = serverName ?? string.Empty;
-            WorldName = worldName ?? string.Empty;
+            Folder = new CharacterFolderKey(serverName ?? string.Empty, worldName ?? string.Empty, CharacterName);
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             // The engine side of the session, built before anything else subscribes so its handlers run first, as they
             // did when the parser built them (#433).

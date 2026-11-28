@@ -61,7 +61,7 @@ The default minimum is `Debug` in Debug builds or with `GORDIAN_DEBUG=1`, otherw
 
 The bounded wire trace (the first 20 map datagrams each way after login and each zone line, headers and sub-packets) uses its own `WIRE` category. It is a network category, so it goes to `network/` with the other packet detail; turn the network file on to capture it.
 
-Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages), `STORAGE` (the per-character config and chat log folders, and moving older builds' files into them, #639).
+Category names are `UPPER_SNAKE` constants in `LogCategories` (`src/Gordian.Core/Diagnostics/LogCategories.cs`). Add a constant there instead of passing a new string literal. Categories that only the logger and shell use: `APP` (startup, shutdown, unhandled exceptions), `AVALONIA` (Avalonia's own warnings and errors, such as binding errors, forwarded by `AvaloniaLogSink`), `LOGGING` (retention, dropped records), `PROFILE` (profile storage), `STATUS` (status messages). `STORAGE` is written by Core's storage code: the per-character config and chat log folders, and moving older builds' files into them (#639).
 
 ## Settings
 

@@ -50,7 +50,8 @@ namespace Gordian.Core.World
     /// a break must show up too), newest first, with favourites (Synthesis Options:
     /// Favorite / Unfavorite) listed before the rest. LandSandBoat has no packet for it, so the client keeps it, as retail
     /// appears to. PROVISIONAL: how many recipes retail keeps (<see cref="MaxEntries"/>) and where favourites sort are not
-    /// captured; the history is saved per character to <c>synthesis_history/&lt;character&gt;.json</c>.
+    /// captured; the history is saved to <c>synthesis_history.json</c> in the character's <see cref="CharacterConfigStorage"/>
+    /// folder (#639).
     /// </summary>
     public sealed class SynthesisHistory
     {

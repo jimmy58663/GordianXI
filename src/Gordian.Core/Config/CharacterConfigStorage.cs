@@ -72,7 +72,7 @@ namespace Gordian.Core.Config
                 GordianLog.Warn(LogCategories.Storage, $"Could not move '{legacyPath}' to '{path}': {ex.Message}. Using the old file.");
                 return File.Exists(legacyPath) ? legacyPath : path;
             }
-            GordianLog.Info(LogCategories.Storage, $"Moved '{legacyPath}' to '{path}'");
+            GordianLog.Info(LogCategories.Storage, $"Moved '{legacyPath}' to '{path}'.");
             DeleteIfEmpty(legacyFolder);
             return path;
         }
@@ -88,8 +88,8 @@ namespace Gordian.Core.Config
             return name;
         }
 
-        /// <summary>Removes an older build's flat folder once its last file has moved out.</summary>
-        private static void DeleteIfEmpty(string folder)
+        /// <summary>Removes an older build's folder (flat config or chat log) once its last file has moved out.</summary>
+        internal static void DeleteIfEmpty(string folder)
         {
             try
             {
@@ -97,7 +97,7 @@ namespace Gordian.Core.Config
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                GordianLog.Debug(LogCategories.Storage, $"Could not remove the empty folder '{folder}': {ex.Message}");
+                GordianLog.Debug(LogCategories.Storage, $"Could not remove the empty folder '{folder}': {ex.Message}.");
             }
         }
     }

@@ -65,16 +65,48 @@ namespace Gordian.Core.Tests.Diagnostics
         }
 
         [Fact]
-        public void MoveLegacy_FindsAMixedCaseHostFolder_AndRemovesIt()
+        public void MoveLegacy_FindsAMixedCaseHostFolder()
         {
-            var key = new CharacterFolderKey("play.example.com", "Gordian", "Akaden");
             Write("a", "Play.Example.com", "Akaden", "2026-11-14.log");
 
-            Assert.Equal(1, ChatLogFiles.MoveLegacy(_logs, key));
+            Assert.Equal(1, ChatLogFiles.MoveLegacy(_logs, new CharacterFolderKey("play.example.com", "Gordian", "Akaden")));
 
-            Assert.True(File.Exists(Path.Combine(_logs, "chat", "play.example.com", "Gordian", "Akaden", "2026-11-14.log")));
-            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
-                Assert.False(Directory.Exists(Path.Combine(_logs, "chat", "Play.Example.com")));
+            Assert.Equal("a", File.ReadAllText(Path.Combine(_logs, "chat", "play.example.com", "Gordian", "Akaden", "2026-11-14.log")));
+        }
+
+        [Fact]
+        public void MoveLegacy_LeavesOneServerFolderForAMixedCaseHost()
+        {
+            // A case-sensitive file system ends with the lower-case folder only; a case-insensitive one keeps the old
+            // folder, which is the same folder. Either way one server folder is left.
+            Write("a", "Play.Example.com", "Akaden", "2026-11-14.log");
+
+            ChatLogFiles.MoveLegacy(_logs, new CharacterFolderKey("play.example.com", "Gordian", "Akaden"));
+
+            Assert.Single(Directory.GetDirectories(Path.Combine(_logs, "chat")));
+        }
+
+        [Fact]
+        public void MoveLegacy_TakesAnOldFolderNamedAsTyped()
+        {
+            // Older builds named a character Con's folder "Con"; SafeFolderName now gives "Con_".
+            Write("a", "Retail", "Con", "2026-11-14.log");
+
+            Assert.Equal(1, ChatLogFiles.MoveLegacy(_logs, new CharacterFolderKey("Retail", "Asura", "Con")));
+
+            Assert.Equal("a", File.ReadAllText(Path.Combine(_logs, "chat", "Retail", "Asura", "Con_", "2026-11-14.log")));
+        }
+
+        [Fact]
+        public void MoveLegacy_WhenTheMoveFails_LeavesTheOldFile()
+        {
+            string old = Write("kept", "10.0.0.5", "Akaden", "2026-11-14.log");
+            // A file where the world folder should be makes creating the character folder fail.
+            File.WriteAllText(Path.Combine(_logs, "chat", "10.0.0.5", "Gordian"), "not a folder");
+
+            Assert.Equal(0, ChatLogFiles.MoveLegacy(_logs, Akaden));
+
+            Assert.Equal("kept", File.ReadAllText(old));
         }
 
         [Fact]

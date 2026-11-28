@@ -47,8 +47,9 @@ namespace Gordian.Core.Diagnostics
         /// with no world folder, into the character's folder (#639). The old server folder is matched ignoring case, since
         /// older builds kept a LandSandBoat host's casing and <see cref="Profiles.AccountProfile.ServerFolderName"/> now
         /// lower-cases it. A file for a day the new folder already has is appended to it, so no line is lost. Empty old
-        /// folders are removed. A file that can't be moved stays where it is (logged) and is tried again at the next login.
-        /// Returns the number of files moved. Runs on the caller's thread, before the character's first chat line.
+        /// folders are removed. A file or folder that can't be read or moved stays where it is (logged) and is tried again at
+        /// the next login; the move never fails the login. Returns the number of files moved. Runs on the caller's thread,
+        /// before the character's first chat line.
         /// </summary>
         public static int MoveLegacy(string logsDirectory, CharacterFolderKey folder)
         {
@@ -60,31 +61,42 @@ namespace Gordian.Core.Diagnostics
             string typedName = folder.Character.Trim();
             string target = Path.Combine(chatRoot, folder.RelativePath);
             int moved = 0;
-            foreach (string serverDir in Directory.GetDirectories(chatRoot))
+            try
             {
-                if (!Path.GetFileName(serverDir).Equals(server, StringComparison.OrdinalIgnoreCase)) continue;
-                foreach (string characterDir in Directory.GetDirectories(serverDir))
+                foreach (string serverDir in Directory.GetDirectories(chatRoot))
                 {
-                    string name = Path.GetFileName(characterDir);
-                    if (!name.Equals(character, StringComparison.OrdinalIgnoreCase) && !name.Equals(typedName, StringComparison.OrdinalIgnoreCase)) continue;
-                    // Only the day files directly inside: a world folder of the same name holds character folders, not logs.
-                    string[] files = Directory.GetFiles(characterDir, "*.log");
-                    if (files.Length == 0) continue;
-                    int movedHere = 0;
-                    foreach (string file in files)
+                    if (!Path.GetFileName(serverDir).Equals(server, StringComparison.OrdinalIgnoreCase)) continue;
+                    foreach (string characterDir in Directory.GetDirectories(serverDir))
                     {
-                        if (MoveOne(file, Path.Combine(target, Path.GetFileName(file)))) movedHere++;
+                        string name = Path.GetFileName(characterDir);
+                        if (!name.Equals(character, StringComparison.OrdinalIgnoreCase) && !name.Equals(typedName, StringComparison.OrdinalIgnoreCase)) continue;
+                        // Only the day files directly inside: a world folder of the same name holds character folders, not logs.
+                        string[] files = Directory.GetFiles(characterDir, "*.log");
+                        if (files.Length == 0) continue;
+                        int movedHere = 0;
+                        foreach (string file in files)
+                        {
+                            if (MoveOne(file, Path.Combine(target, Path.GetFileName(file)))) movedHere++;
+                        }
+                        moved += movedHere;
+                        if (movedHere > 0) GordianLog.Info(LogCategories.Storage, $"Moved {movedHere} chat log file(s) from '{characterDir}' to '{target}'.");
+                        CharacterConfigStorage.DeleteIfEmpty(characterDir);
                     }
-                    moved += movedHere;
-                    if (movedHere > 0) GordianLog.Info(LogCategories.Storage, $"Moved {movedHere} chat log file(s) from '{characterDir}' to '{target}'");
-                    DeleteIfEmpty(characterDir);
+                    CharacterConfigStorage.DeleteIfEmpty(serverDir);
                 }
-                DeleteIfEmpty(serverDir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                GordianLog.Warn(LogCategories.Storage, $"Could not look through the old chat logs in '{chatRoot}': {ex.Message}. The rest stay where they are.");
             }
             return moved;
         }
 
-        /// <summary>Moves one day file, or appends it to the new folder's file for that day.</summary>
+        /// <summary>
+        /// Moves one day file, or appends it to the new folder's file for that day. When appending, the old file is deleted
+        /// before its text is added, so a delete that fails adds nothing and the retry at the next login can't repeat lines;
+        /// if the append then fails, the text is written back to the old file.
+        /// </summary>
         private static bool MoveOne(string from, string to)
         {
             try
@@ -92,8 +104,17 @@ namespace Gordian.Core.Diagnostics
                 Directory.CreateDirectory(Path.GetDirectoryName(to)!);
                 if (File.Exists(to))
                 {
-                    File.AppendAllText(to, File.ReadAllText(from, Utf8NoBom), Utf8NoBom);
+                    string text = File.ReadAllText(from, Utf8NoBom);
                     File.Delete(from);
+                    try
+                    {
+                        File.AppendAllText(to, text, Utf8NoBom);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        File.WriteAllText(from, text, Utf8NoBom);
+                        throw;
+                    }
                 }
                 else
                 {
@@ -105,19 +126,6 @@ namespace Gordian.Core.Diagnostics
             {
                 GordianLog.Warn(LogCategories.Storage, $"Could not move the chat log '{from}' to '{to}': {ex.Message}. It stays where it is.");
                 return false;
-            }
-        }
-
-        /// <summary>Removes an old chat log folder once nothing is left in it.</summary>
-        private static void DeleteIfEmpty(string folder)
-        {
-            try
-            {
-                if (Directory.GetFileSystemEntries(folder).Length == 0) Directory.Delete(folder);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                GordianLog.Debug(LogCategories.Storage, $"Could not remove the empty folder '{folder}': {ex.Message}");
             }
         }
 
