@@ -51,6 +51,22 @@ namespace Gordian.Core.Profiles
         /// <summary>LandSandBoat's default view (xi_view) port.</summary>
         public const int DefaultLsbViewPort = Network.LandSandBoat.LsbLoginClient.DefaultViewPort;
 
+        /// <summary>
+        /// The profile's hidden, stable id (#638): a GUID made when the profile is created, or by
+        /// <see cref="ProfileStorageService.Load"/> for a profile saved before ids existed. The launcher, the editor and
+        /// online status track a profile by it, so two profiles may share a name in different launch-list folders and a
+        /// rename or move keeps everything pointed at the same profile. Never shown, never typed (the <c>--profile</c>
+        /// option takes a name or a folder path, <see cref="ProfilePath"/>), and never used as a file or folder name.
+        /// </summary>
+        public string Id { get; set; } = string.Empty;
+
+        /// <summary>A new profile id.</summary>
+        public static string NewId() => Guid.NewGuid().ToString("N");
+
+        /// <summary>
+        /// The name shown in the launch list. Unique within its <see cref="Folder"/> (ignoring case), not across folders
+        /// (#638); it never contains <c>/</c> or <c>\</c>, which separate folders in a <see cref="ProfilePath"/>.
+        /// </summary>
         public string ProfileName { get; set; } = "Default Profile";
         public string CharacterName { get; set; } = string.Empty;
 
@@ -255,12 +271,14 @@ namespace Gordian.Core.Profiles
         }
 
         /// <summary>
-        /// Creates a deep copy of this account profile with an optional new name.
+        /// Creates a deep copy of this account profile with an optional new name. The copy is a new profile, so it gets a
+        /// new <see cref="Id"/>.
         /// </summary>
         public AccountProfile Clone(string? newProfileName = null)
         {
             return new AccountProfile
             {
+                Id = NewId(),
                 ProfileName = newProfileName ?? ProfileName,
                 CharacterName = CharacterName,
                 CharacterSlot = CharacterSlot,
@@ -275,6 +293,7 @@ namespace Gordian.Core.Profiles
                 ServerPort = ServerPort,
                 DataPort = DataPort,
                 ViewPort = ViewPort,
+                LobbyTransport = LobbyTransport,
                 Password = Password,
                 OtpSeed = OtpSeed,
                 TwoFactor = TwoFactor,
