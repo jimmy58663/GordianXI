@@ -37,8 +37,9 @@ namespace Gordian.Engine.Sessions
         public string ProfileId { get; set; } = string.Empty;
 
         /// <summary>
-        /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
-        /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
+        /// The character's server, world and name (#565, #639): its config folder
+        /// (<c>CharConfig/&lt;server&gt;/&lt;world&gt;/&lt;character&gt;/</c>) and chat log folder. The server is the
+        /// launching profile's <c>ServerFolderName</c>; an empty part becomes <c>Unknown</c>.
         /// </summary>
         public CharacterFolderKey Folder { get; }
 
