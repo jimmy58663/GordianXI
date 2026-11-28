@@ -16,6 +16,85 @@
 
 - **Macro commands and chat placeholders ([#362](https://github.com/jimmy58663/GordianXI/issues/362), awaiting the in-game test):** `/macro book|set n`, `/wait`, `/recast "name"`, `/targetnpc`, `/targetbnpc`, `/lastsynth`, `/acmd`, `/pcmd leader`; chat text fills `<hp>`, `<mp>`, `<hpp>`, `<mpp>`, `<tp>`, `<job>`, `<mjob>`, `<sjob>`, `<pethpp>`, `<petmpp>`, `<pettp>`, `<recast=X>` and the target placeholders with their values before it is sent (`StockUiChat.ExpandTokens` -> `PlayerActionService.ExpandChatTokens`). Details and the provisional formats: [macros.md](../ui/macros.md#commands-362).
 
+## Chat auto-translate
+
+The App's `AutoTranslateKeyRoutingTests` exercise the real viewport's registered
+key handlers on an isolated Avalonia headless dispatcher. Tab and Shift+Tab complete
+a synthetic phrase without entering gameplay target input; routed Escape cancels
+completion before the draft, and target bindings work again after chat closes.
+This is routed-event integration coverage, not native OS input, rendering or in-game
+acceptance. Run with `dotnet test tests/Gordian.App.Tests --filter FullyQualifiedName~AutoTranslateKeyRoutingTests`.
+
+### Fixed-phrase data and protocol
+
+`AutoTranslateCatalog` reads installed English `ROM/168/25.DAT` through the normal
+ResourceManager/VFS. No phrase assets are bundled. **Differs from xi-tools:** the
+observed category header is 76 bytes: four-byte key, two 32-byte CP932 names,
+little-endian count at 68 and payload size at 72. Entries have a four-byte key,
+one-byte length and CP932 text including a trailing NUL. Bounds, count/size,
+identity, uniqueness and terminators are validated; invalid data fails closed.
+
+References (schemas only; independently authored C#, no source copied):
+- [xi-tools format notes](https://github.com/vekien/xi-tools/blob/main/docs/dats/ROM_168_25.md)
+- [Windower ResourceExtractor linked-name schema](https://github.com/Windower/ResourceExtractor/blob/master/Program.cs)
+- [Independent dictionary format description](https://github.com/ejouanchicot/ffxi-macro-editor/blob/main/docs/FORMAT.md)
+- [#388 six-byte wire requirement](https://github.com/jimmy58663/GordianXI/issues/388)
+- LandSandBoat C2S `0x0b5_chat_std.h`, `0x0b6_chat_name.h` (existing packet builders)
+
+`@J`, `@A`, `@C`, `@Y` plus a hexadecimal index resolve respectively through the
+existing Jobs, ZoneNames, Spells and Abilities DMsg tables. Blank and unresolved rows are excluded, never
+shown as fake names. Missing dictionaries/references produce menu notices. Installed
+content is not evidence of a private server's gameplay availability.
+
+`ChatText` keeps plain display text separate from immutable phrase spans. Only
+explicit spans become `FD type language group id FD`; CP932 text cannot inject
+an FD via a private-use Unicode character. Encoding validates before writing and
+never splits/truncates a marker or multibyte character. Span packet builders retain
+the allocation-free plain-text path. ChatPacketModule sends the same reliable
+0x0B5/0x0B6 packets as before; synthetic loopback covers its outbound builder and
+incoming dispatcher. Incoming fixed phrases resolve into the local English label;
+unknown and malformed markers remain visible placeholders, not dropped bytes.
+
+Chat routing supports default channels, channel slash aliases, tells (including
+last partner) and local `/echo`. The router's message-body suffix is projected back
+onto the identity spans; phrase identities in the recipient are rejected.
+A complete leading slash-command phrase is consumed as syntax **only** when its
+identity resolves in the installed catalog to the exact displayed local English
+label, and the entire verb ends at whitespace or end-of-line. On explicit submission
+it uses the ordinary command dispatcher and its existing policy; Tab never executes
+it. No Unicode/braces stripping, guessed aliases, `!` phrase commands, partial verbs
+or arbitrary recipient/action-argument conversion is performed. A command phrase
+inside `/party`, `/tell`, `/say`, `/echo` or ordinary text remains a binary body token.
+Use `/say ` explicitly to send a leading command phrase as conversation. Unknown or
+mismatched identities do not gain execution authority.
+
+Placeholder expansion transforms only plain rich-body segments, not phrase labels,
+and cannot reparse an expanded rich body as a command. Other commands with remaining
+rich arguments are refused explicitly, rather than silently flattened or executed
+with altered syntax. This does **not** implement `/ma` or `/ja` phrase arguments.
+The official guide documents selected phrases and macro
+usage, but does not specify every command-position rule; this narrow routing policy
+is a Gordian choice, not a claim of complete retail parity.
+
+### Scope and verification
+
+This implements the installed English fixed dictionary, not all of #388: dynamic
+item/key-item catalogs, macro editing/import, rich `/ma` and `/ja` arguments,
+non-English UI/IME and mouse/controller completion remain unsupported. The ASCII
+editor/font limit remains. The catalog is a resource snapshot attached when a
+viewport session is added, not a live dictionary reload feature.
+
+Core `AutoTranslateTests` independently check synthetic dictionary boundaries,
+identity and packet bytes, incoming decoding, CP932 injection rejection and the
+127-byte content budget. Engine `AutoTranslateInputTests` and `PhraseCommandTests`
+check completion, editing/history, body slicing, expansion and command safety;
+App `AutoTranslateMenuTests` check completion menu layout. Run `dotnet build
+GordianXI.slnx` and `dotnet test GordianXI.slnx --no-build` with a private absolute
+TMPDIR. Fixtures use no server login or public messages. CPU tests do not establish
+native-window, GPU, Windows or live-server acceptance; maintainer in-game testing
+remains required. A safe manual first check is `/shut`, Tab, inspect the marked
+still-open draft, then Escape, not Enter.
+
 ## Input subsystem
 
 - **Keyboard & Mouse:** Default layouts for FFXI Compact (WASD + IJKL camera) and FFXI Full (Numpad) with smart text-input isolation
@@ -25,7 +104,7 @@
   - Several GordianXI processes (#150, 2026-10-07): on Windows `SdlGamepadDriver` turns off SDL's Raw Input, GameInput and Windows.Gaming.Input joystick drivers (`SDL_HINT_JOYSTICK_RAWINPUT` / `_GAMEINPUT` / `_WGI` = 0), which can hand the pad to one process (fits "only the last launched window"); XInput pads are then read through XInput and others through DirectInput / HIDAPI, which any process can poll, and each process acts on the pad only while one of its windows has the focus. Checked in game with two processes (2026-10-07).
   - `SdlGamepadDriver` runs on SDL3 through [ppy.SDL3-CS](https://github.com/ppy/SDL3-CS) (#261, 2026-10-05; SDL2 through Silk.NET.SDL before). It polls each frame: `SDL_PumpEvents`, then slot N opens the Nth gamepad in `SDL_GetGamepads()` by instance id, and a slot whose gamepad reports disconnected is closed and refilled on a later poll (hot-plug). Face buttons map by position (South/East/West/North = A/B/X/Y), sticks are normalized to -1..1 with Y inverted (+Y up), triggers to 0..1 with a 0.15 press threshold, and rumble refreshes a 1000 ms `SDL_RumbleGamepad`. Background joystick events are allowed so a pad works while the window is unfocused.
   - Native library: `SDL3.dll` / `libSDL3.so` / `libSDL3.dylib` from the package's `runtimes/<rid>/native` (win x86/x64/arm64, linux x86/x64/arm/arm64, osx x64/arm64). A `DllImport` resolver falls back to that folder when the host's dependency manifest doesn't list it (the CI test host).
-- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets left and right on screen (see [Target cycling](#target-cycling))
+- In-game chat line: Enter (outside menus) or the `OpenChat` key (slash; Space in the Full layout; Back on a gamepad, B closes it) opens the stock chat input, which then owns the keyboard and runs lines through the same dispatcher as the console (see [ui/stock-ui.md](../ui/stock-ui.md#chat-and-log-windows-chunk-5)); walk/run toggle is on keypad `/`; keypad + / gamepad Y select a log window to scroll; Tab / Shift+Tab cycle targets left and right on screen outside chat (see [Target cycling](#target-cycling)); inside chat they open/cycle [auto-translate](../ui/stock-ui.md#auto-translate-interaction)
 - Rebindable control mapping engine with JSON persistence and modifier key support (`keybinds.json`)
 - Real-time 60Hz locomotion and camera controller updating `WorldEntity` coordinates and dispatching to server Pos loop
 - Dedicated "Controls & Input" dashboard tab with live input monitor and preset switcher
@@ -33,10 +112,128 @@
 ### Input profiles and multi-boxing (#314)
 
 - The user's input profile (`input_profile.json` under LocalAppData/GordianXI: key bindings, mouse and gamepad sensitivity, deadzones, the gamepad button map, axis inversion) is the same for every multi-boxed character. `ControlsInputViewModel` loads it and publishes it to `InputProfileHub.Default` (Engine `Input/`); each `CharacterSession` runs on its own deep copy (`InputProfile.Clone`, a JSON round trip so no setting is left out) and takes a fresh copy whenever the hub reports a change (Controls & Input, or the in-game gamepad key-assignment list).
-- Copies, not one shared object: a session applies its server-stored config choices (the Mouse/Cam. page's axis rows, `CharacterSession.ApplyCameraSettings`) to its own copy, so one character's config page never changes another's. Those choices are applied again after every fresh copy.
+- Copies, not one shared object: a session applies its locally persisted config choices (the Mouse/Cam. page's axis rows, `CharacterSession.ApplyCameraSettings`) to its own copy, so one character's config page never changes another's. Those choices are applied again after every fresh copy.
 - Saving and loading (#358): every edit on Controls & Input saves at once (`ControlsInputViewModel.Commit`). The save writes a temporary file and moves it over the old one, so a crash or another process never sees half a file. The bindings are read name by name: an action or chord this build does not know (one a newer branch added) is kept aside and written back unchanged, instead of failing the whole file. Before #358 such a file failed to load and `InputProfile.LoadOrCreate` saved the defaults over it, so switching between builds (a lane branch, then main) lost every setting, the gamepad camera inversion included. A file that still cannot be read is copied to `input_profile.json.bad` before the defaults are used. Checked by `InputProfileTests.LoadOrCreate_*` and `ControlsInputViewModelTests.GamepadAndCameraSettings_SurviveARestart_IntoTheSession`.
 - Tests never touch the player's settings (#383): the shell's per-user files (`input_profile.json`, `viewport_settings.json`, `sound_settings.json`, `window_placements.json`) live under `GordianStorage.UserSettingsDirectory` (LocalAppData/GordianXI by default); the App test assembly points it at a scratch folder from a module initializer (`TestSettingsIsolation`) before any test runs, so `MainWindowViewModel` and the view models it owns read and write nothing real. Gamepad d-pad right in the paged main menu turns the page, and the menu hints follow the device in use and this profile: see [stock-ui.md](../ui/stock-ui.md#target-command-menu).
 - Before #314 only the Command Console's selected character got the saved profile (`ControlsInputViewModel.SetSession` handed it the object); the others ran on `InputProfile.CreateCompact()` defaults. `SetSession` now only picks whose telemetry the page shows.
+
+### Shared keyboard layouts and automatic migration
+
+`keyboardLayout` lives beside the bindings in the shared `input_profile.json`, with
+`revision: 1`, numeric `mode` (0 Full, 1 Compact 1, 2 Compact 2), and `overrides`
+keyed by action name. Missing overrides inherit defaults; `[]` explicitly unbinds;
+a nonempty list replaces that action's keyboard chords. New storage uses Full.
+Both Controls & Input and Config → Misc. 2 → Keyboard Size edit this **same shared
+mode for every character**. Old character-local KeyboardSize values are ignored;
+other character settings, including camera inversion, stay per character.
+
+`FromJson` automatically migrates a legacy version-1 map without keyboardLayout:
+a Full-named profile stays Full; Compact and other custom legacy names use Compact 2
+(the old default). Names only choose the base, never classify keys as customized.
+Every known action, including missing/unbound actions and keys identical to old
+defaults, becomes an explicit override. Unknown actions, empty entries, unreadable
+future chords and JSON extension fields are retained. The exact input JSON string
+is archived once as `legacySnapshot`. `LoadOrCreate` atomically saves this migration;
+if saving fails it retains the original file and the migrated in-memory map, logs
+the failure and can retry on the next load. Clone never migrates again. Unsupported
+profile versions, catalog revisions and modes are not migrated or reinterpreted.
+
+Switching layouts never resets explicit overrides. A separately confirmed **Restore
+selected defaults** releases known keyboard overrides to inheritance, preserving
+unknown entries/chords, the archive, mouse/gamepad bindings and all camera settings.
+There is no Convert button or frozen-legacy mode. Cancellation changes nothing;
+a profile/layout change while confirmation is pending invalidates that confirmation.
+Older builds cannot promise lossless editing of this schema: keep the archive when
+downgrading. The retained bindings map is not a flattened modern keyboard export.
+
+Sessions resolve deep copies, then apply their own camera choices. Shared changes
+refresh both assignment displays and open config rows, and block held keys until
+release (including native repeats), preventing new actions under a changed map.
+The viewport checks this block before either chat-opening path, so a repeated
+Compact movement key cannot start Full typing until released and pressed again.
+Keyboard assignment capture owns keys before chat opening and keeps ownership
+through the assigned key's release; ordinary letters and modified chat shortcuts
+reach the assignment list rather than opening a draft.
+Draft text survives. Explicit keys suppress inherited collisions only in the same
+menu/game context; explicit collisions retain both definitions and use enum order.
+The in-game assignment UI records both sides of a swap as overrides.
+
+#### Catalog sources and limits
+
+The clean-room Full/Compact 2 catalog references the [Square Enix PC manual,
+printed pp. 2–3](https://support.na.square-enix.com/document/manual/20/FFXI_manual_vc09_AE5.pdf)
+and [March 27, 2012 controls table, post 298313](https://forum.square-enix.com/ffxi/threads/22099?p=298313#post298313).
+Compact 1 is a **partial community fallback**, not certified retail parity:
+[FFXIclopedia's Starter Guide](https://ffxiclopedia.fandom.com/wiki/Starters_Guide#List_of_controls)
+labels its table only “Compact”, omits keys and conflicts with the official Compact 2
+R/zoom rows. [Horizon Controls](https://horizonffxi.wiki/Controls) has similar conflicts
+and apparently reversed movement headings; it does not establish retail defaults.
+Existing maintainer key-assignment observations corroborate Compact 2's Y/N,
+V/H/F/Z, period/comma, A/D left-stick and Q/E right-stick behavior.
+
+All rows below describe inherited keys, not migrated overrides. Num means the physical
+numeric keypad, independent of Num Lock. “Fallback” is not a retail assertion.
+
+| Function | Full | Compact 1 | Compact 2 |
+|---|---|---|---|
+| Movement | Num8/2/4/6 | W/S/A/D | W/S/A/D |
+| Turn in place / camera pan | no Q/E default | Q/E unbound | Q/E virtual-right-stick pan |
+| Strafe | Shift+Num4/6 | Shift+A/D fallback | Shift+A/D |
+| Camera | arrows | I/J/K/L plus arrows fallback | arrows, no inherited IJKL |
+| Autorun | Num7 | unbound: source blank | R |
+| Walk/run | Num/ | R | Z plus Num/ fallback |
+| Heal / lock | Num* contextual LockOnOrHeal | H contextual; T/Num* lock-only fallback | H heal; T/Num* lock-only fallback |
+| View | Num5 | V | V |
+| Confirm / cancel | Enter/NumEnter; Esc | Y/Enter/Space; N/Esc | Enter plus Y/Space fallback; Esc plus N fallback |
+| Chat | Space/Enter, ordinary typing | explicit Space/Enter | explicit Space/Enter |
+| Select window | Num+ | F plus Num+ fallback | F plus Num+ fallback |
+| Main menu | Num- | main minus | minus/M/Num- fallback |
+| Target cycle | Tab/Num0, Shift+Tab previous | Tab/Shift+Tab fallback | Tab/Shift+Tab fallback |
+| Zoom in/out | PageUp/Num9, PageDown/Num3 | PageUp/Down; conflicting punctuation left unbound | period/comma plus PageUp/Down fallback |
+| Center view | Home uses existing ResetCamera, not fixed-view parity | End fallback differs from community Home | End fallback |
+| Hide/show / screenshot | ScrollLock / PrintScreen | ScrollLock / PrintScreen | ] / [ |
+| Logout | Pause | unbound | unbound |
+| Party slots | F1–F6 | F1–F6 | F1–F6 |
+| F7/F8/F9 | self / nearest non-player / nearest other player | same | same |
+| F10/F11/F12 | self / first member of other alliance parties | same | same |
+| Ctrl/Alt + 1–0 | macros | macros | macros |
+| Ctrl/Alt + P/S/L/T/R | Party/Say/Linkshell/Tell/Reply drafts | shared fallback | same |
+| Ctrl/Alt + A/B/C/E | attack toggle / pet commands / check / equipment | shared fallback | same |
+| Ctrl/Alt + H/I/J/M/W | heal / items / abilities / spells / weapon skills | shared fallback | same |
+| Ctrl/Alt + minus/V | main menu / view | shared fallback | same |
+| Ctrl/Alt + D/F/G/N/Y/Z/brackets | unbound | community-only rows not implemented | unbound |
+
+Full Num3 zoom follows both official sources, not the community Num6 typo (movement).
+F11/F12 select first displayed members, **not leader flags**. F8 includes monsters
+and pets, using existing targetability and 50-yalm range guards; exact retail frustum
+eligibility is unverified. Plain F7–F12 are gameplay keys for layered profiles, even
+when unbound; modified diagnostic/emergency shortcuts and window fullscreen controls
+remain. German AltGr bracket symbols apply only to bound display shortcuts after
+editor/chat routing, with physical release tracking. No global keyboard hooks.
+Hide/show uses a separate transient stock-UI visibility owner and preserves other
+hide requests; screenshots use the existing handler. Actions use existing service
+and menu constructors. Attack/check remain available in the engaged command menu;
+other menu shortcuts are gated while a menu is open. Mouse schemes and controller
+camera direction are unchanged by this feature.
+
+Exact Compact 1 assignments (autorun, R/Z, punctuation, Q/E, target cycle, Home/End),
+Compact 2 simultaneous Q/E/arrow priority, rates, view cycling and moving-only autorun
+still need retail validation. Full is Gordian's new-install policy, not a claim that
+modern retail starts Full. The official 2012 new-character default is Compact 2.
+
+Regression coverage lives in the solution: `SharedKeyboardMigrationTests`,
+`KeyboardLayoutTests`, `KeyboardPresetUiTests`, `KeyboardShortcutTests`,
+`StockUiKeyAssignTests`, `StockUiKeyboardChatTests`, `KeypadIdentityTests` and
+`ViewportShortcutsTests`. `ViewportKeyboardRoutingTests` constructs the real window
+on Avalonia's headless backend and raises KeyDown, TextInput and KeyUp through its
+registered tunnelling handlers; it covers Full assignment capture, held-repeat
+layout changes, release and fresh presses. These are routed-event tests, not native
+keyboard injection. They cover migration, exact archive/idempotence, unknown
+schemas/entries, all layout transitions, customization/unbinding, fresh-hub disk
+restart, two-character sharing, stale character settings, drafts, held keys,
+assignment swaps and non-keyboard preservation. Run `dotnet build GordianXI.slnx`
+and `dotnet test GordianXI.slnx --no-build`. These isolated unit tests are not
+Windows, physical-controller, native-compositor or in-game acceptance.
 
 ### Gamepad layout and key assignment (#21, #326)
 
@@ -49,7 +246,7 @@
   | Y | select window | select window |
   | Back | | chat line |
   | Start | | /logout (`Logout`, a toggle: again cancels) |
-  | D-pad up / down | menu cursor | target party up / down (`TargetParty1` / `TargetParty2`: the second and third party slots) |
+  | D-pad up / down | menu cursor | cycle own party up / down including self (`TargetPartyUp` / `TargetPartyDown`; no target starts at self) |
   | D-pad left / right | menu cursor | cycle targets left / right through yourself (`TargetCursorLeft/Right`), repeating while held |
   | LT / RT | | hold for the Ctrl / Alt macro palette (`MacroPaletteCtrl/Alt`, [#339](https://github.com/jimmy58663/GordianXI/issues/339)) |
   | L3 | | lock-on with a target, /heal without one (`LockOnOrHeal`) |
@@ -67,6 +264,14 @@
 - The Controls & Input page lists Toggle Lock-On, Change View and Next Character with their chords.
 - **Keyboard key assignment ([#337](https://github.com/jimmy58663/GordianXI/issues/337), awaiting the in-game test):** Config -> Misc. 2 -> Key Assignment's Movement and Commands open retail's `k1assign` / `k2assign` windows, Default resets the keys ([stock-ui.md](../ui/stock-ui.md#keyboard-key-assignment-337)). `KeyboardAssignments` (Engine `Input/`) is the keyboard twin of `GamepadAssignments`: functions named after config rows 89-142, a key per function with a swap on conflict, keyboard chords only (gamepad and mouse untouched). While a row waits for its key `InputState.SuppressKeyboardActions` keeps every key from acting (set from `StockUiMenuController.IsCapturingKeyboard` each tick), and `InputState.KeysPressed` gives the key to assign.
 
+### Party cycling and controller assignment compatibility
+
+Outside menus, `TargetPartyUp` / `TargetPartyDown` start at self when no own-party member is selected, then step through own-party window order in opposite directions and wrap, including self. Members absent/unspawned in the current world and other alliance parties are excluded. Solo self does not require a party packet. Menu and sub-target cursors retain their menu context; F1–F6 remain fixed shortcuts. The initial Down-to-self expectation is owner-reported; exact cycling/wrapping still needs physical-controller and Windows in-game acceptance.
+
+`InputProfile.EnsurePartyCycleBindings` migrates only old-default-shaped vertical D-pad pairs: Up with MenuUp/TargetParty1, Down with MenuDown/TargetParty2, without competing gameplay chords. Either cycling action's presence, including an empty entry, marks migration complete. Arbitrary custom buttons, modifiers, keyboard chords, shoulders and camera settings are not reset. Custom fixed-slot buttons remain visible as explicit F2/F3 assignment rows. A deliberate configuration identical to the old defaults is indistinguishable and migrates; a remapped fixed-slot row stays fixed-slot.
+
+`ControllerFollowupTests` checks disconnected sessions, solo/party/wrapping/other-party targeting, absent-zone members, menu/sub-target contexts, macro suppression, fixed keyboard slots, migration, custom shoulders, disk reload and hub refresh. The owner's report that physical LB activates an RB-labelled Autorun is **unresolved**: logical SDL shoulder mapping and profile labels must not be globally swapped on that report alone. Use the existing Controls & Input live monitor to record device name, Buttons for LB then RB, and the Autorun row in the same session. This is an app-scoped observation, not a global input grab.
+
 ### Moving stands you up from /heal or /sit
 
 - Any movement input (movement keys, turn keys, the left stick past its deadzone, auto-run) while the server reports the Healing status (S2C 0x037 status 33, LandSandBoat `xi.animation.HEALING`) sends /heal off (C2S 0x0E8, `RestMode.Off`) once, and while it reports Sit (47, `xi.animation.SIT`) sends /sit off (C2S 0x0EA) once (`PlayerLocomotionController.UpdateHealCancel`); it can be sent again only after the status has changed. LandSandBoat does not end a sit on movement itself (`c2s/0x015_pos.cpp` leaves the animation alone), so without the /sit off other players would keep seeing the character sit. The maintainer's request (round 3; /sit in #343 round 1).
@@ -79,7 +284,14 @@
 ### First- and third-person camera settings (#306)
 
 - Mouse (`InputProfile`) and gamepad right stick (`GamepadSettings`) each have a separate first-person set: `SeparateFirstPersonMouse` / `SeparateFirstPersonCamera` plus first-person inversion per axis and sensitivity. Off by default: first person uses the shared (third-person) settings, as before. `PlayerLocomotionController.UpdateCamera` picks the set by camera mode (`InputProfile.MouseCamera(firstPerson)`, `GamepadSettings.Camera(firstPerson)`).
-- Legacy parity: retail's Mouse/Cam. config page (`conf7`) already has separate Third-Person and First-Person Camera Y / X Axis rows. The third-person rows set the session's mouse inversion as before; choosing a first-person row now turns the separate first-person mouse set on for that session (its other values start from the shared ones) and sets its inversion. Retail's page has no sensitivity rows; first-person sensitivity is a GordianXI setting on Controls & Input.
+- Retail's Mouse/Cam. page (`conf7`) has separate Third-Person and First-Person Camera Y / X Axis rows. These now set both mouse and gamepad inversion on the session copy. Explicit Normal (0) overrides profile inversion just as Inverted (1) does; unchosen rows leave profile values alone. Choosing a first-person row enables each device's separate set, copying its shared sensitivity and other axis only if it was not already separate. Choices persist locally per character and are reapplied after shared-profile replacement. Retail has no sensitivity rows; those remain on Controls & Input.
+- **Normal direction oracle:** the owner's explicit retail comparison defines third-person Left → view Right, Right → Left, Up → Down, Down → Up; first person follows the stick on both axes. Inverted reverses only the chosen axis. This is owner-provided evidence, not an independent implementer retail capture.
+- SDL Y is negated on entry to `GamepadState` (up-positive, like XInput). `ViewportCamera` positive pitch looks down in orbit but up in first person. `UpdateCamera` corrects first-person pad yaw before the common yaw negation and reverses pad pitch in first-person/orbit only. Third-person X, free-camera, mouse look, normalization and settings defaults remain unchanged. Compact Q/E use the virtual right-stick X and inherit its inversion; literal directional camera actions remain unchanged, with no virtual keyboard stick Y.
+- `CameraConfigMotionTests` checks all four config paths and cardinal directions in both Normal/Inverted through real locomotion into `ViewportCamera.Forward/Right`. `CameraConfigSessionTests` activates real option rows with synthetic geometry, checks live motion, persistence, fresh session loads, hub replacement, separate characters, mouse/Q/E parity and sensitivity/unselected axes. These disconnected engine fixtures do not establish physical-controller, owner-compositor or Windows in-game acceptance.
+
+  ```sh
+  dotnet test tests/Gordian.Engine.Tests --filter 'FullyQualifiedName~CameraConfig|FullyQualifiedName~ControllerFollowup'
+  ```
 - Controls & Input: "Separate First-Person Mouse Settings" and "Separate First-Person Camera Settings" (gamepad) reveal the first-person controls; turning one on copies the shared values in, so it changes nothing until edited.
 
 ### Target cycling

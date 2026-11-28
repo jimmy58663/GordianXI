@@ -150,6 +150,21 @@ namespace Gordian.Engine.Actions
             return PlayerActionResult.Ok(string.Empty, kind);
         }
 
+        /// <summary>F8/F9: closest non-player/player character (Square Enix March 27 2012 controls).
+        /// Unlike /targetnpc, F8 includes monsters and pets; unlike Tab this never cycles.
+        /// Uses the existing targetability and range guards. Does not select self for F9.</summary>
+        public bool TargetClosestCharacter(bool player)
+        {
+            var self = LocalEntity();
+            if (self == null) return false;
+            var best = _world.GetEntitiesInRadius(self.Position, TargetCycling.Range)
+                .Where(e => e.ServerId != self.ServerId && TargetCycling.IsTargetable(e)
+                    && (player ? e.Type == EntityType.Player : e.Type != EntityType.Player))
+                .OrderBy(e => System.Numerics.Vector3.DistanceSquared(e.Position, self.Position))
+                .ThenBy(e => e.ServerId).FirstOrDefault();
+            return best != null && SetTargetByServerId(best.ServerId);
+        }
+
         /// <summary>
         /// <c>/lastsynth</c>: the last synthesis again with the same items (BG-Wiki), found anew in the inventory: the crystal
         /// and each ingredient from the first slots that hold enough.

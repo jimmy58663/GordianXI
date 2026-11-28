@@ -29,6 +29,8 @@ namespace Gordian.App.ViewModels
         private readonly SessionRegistry _sessionRegistry;
         private string? _editingOriginalProfileName;
         private string? _editingOriginalFolder;
+        /// <summary>The <see cref="AccountProfile.Id"/> of the profile open in the editor, or null for a new profile (#638).</summary>
+        private string? _editingProfileId;
         private string _formProfileName = string.Empty;
         private string _formCharacterName = string.Empty;
         private int _formCharacterSlot;
@@ -765,6 +767,7 @@ namespace Gordian.App.ViewModels
             // Check if already in target location
             if (profile.Parent == targetFolder) return;
             if (targetFolder == null && profile.Parent == null) return;
+            if (RefuseNameClashOnMove(profile, targetFolder?.FolderPath)) return;
 
             string oldFilePath = Path.Combine(GordianStorage.ProfilesDirectory, profile.Profile.GetRelativeFilePath());
 
@@ -815,6 +818,7 @@ namespace Gordian.App.ViewModels
         public void MoveProfileRelative(ProfileItemViewModel dragged, ProfileItemViewModel target, bool insertAfter)
         {
             if (dragged == null || target == null || dragged == target) return;
+            if (RefuseNameClashOnMove(dragged, target.Parent?.FolderPath)) return;
 
             string oldFilePath = Path.Combine(GordianStorage.ProfilesDirectory, dragged.Profile.GetRelativeFilePath());
 
@@ -877,6 +881,20 @@ namespace Gordian.App.ViewModels
             StatusMessage = $"Reordered '{dragged.ProfileName}' next to '{target.ProfileName}'.";
         }
 
+        /// <summary>
+        /// Refuses (with a status message) moving <paramref name="profile"/> into the folder <paramref name="folderPath"/>
+        /// (null or empty for the root) when another profile there has its name: names are unique within a folder (#638).
+        /// A move within the profile's own folder (a reorder) is never refused.
+        /// </summary>
+        private bool RefuseNameClashOnMove(ProfileItemViewModel profile, string? folderPath)
+        {
+            if (ProfilePath.SameFolder(profile.Profile.Folder, folderPath)) return false;
+            if (ProfilePath.FindNameInFolder(Profiles.Select(p => p.Profile), folderPath, profile.ProfileName, profile.Profile.Id) == null) return false;
+            string where = string.IsNullOrEmpty(ProfilePath.NormalizeFolder(folderPath)) ? "the top level" : $"'{ProfilePath.NormalizeFolder(folderPath)}'";
+            StatusMessage = $"Not moved: {where} already has a profile named '{profile.ProfileName}'. Rename one of them first.";
+            return true;
+        }
+
         public void MoveProfileUp(ProfileItemViewModel profile)
         {
             if (profile == null) return;
@@ -937,13 +955,10 @@ namespace Gordian.App.ViewModels
         {
             if (sourceVm == null) return;
 
+            // The copy stays in the source's folder, so its name only has to be free there (#638).
             string baseName = sourceVm.ProfileName;
-            string candidateName = $"{baseName} - Copy";
-            int counter = 2;
-            while (Profiles.Any(p => string.Equals(p.ProfileName, candidateName, StringComparison.OrdinalIgnoreCase)))
-            {
-                candidateName = $"{baseName} - Copy {counter++}";
-            }
+            string candidateName = ProfilePath.FreeNameInFolder(Profiles.Select(p => p.Profile), sourceVm.Profile.Folder,
+                $"{baseName} - Copy", n => $"{baseName} - Copy {n}");
 
             var clonedProfile = sourceVm.Profile.Clone(candidateName);
             clonedProfile.SaveToFile(GordianStorage.ProfilesDirectory);
@@ -1006,7 +1021,8 @@ namespace Gordian.App.ViewModels
 
         public void RenameFolder(LaunchFolderViewModel folder, string newName)
         {
-            string cleanName = string.Concat(newName.Split(Path.GetInvalidFileNameChars())).Trim();
+            // '/' and '\' separate folders in a path; Linux allows '\' in a file name, so it is removed explicitly.
+            string cleanName = string.Concat(newName.Split([.. Path.GetInvalidFileNameChars(), '/', '\\'])).Trim();
             if (string.IsNullOrWhiteSpace(cleanName))
             {
                 folder.CancelRename();
@@ -1020,6 +1036,27 @@ namespace Gordian.App.ViewModels
             if (string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
             {
                 folder.Name = cleanName;
+                return;
+            }
+
+            // Renaming onto a folder that already exists merges the two (#638): refused when a profile name would then
+            // be in the same folder twice, otherwise the renamed folder's contents move into the existing one.
+            var siblings = folder.Parent != null ? folder.Parent.Children : LaunchTree;
+            var mergeTarget = siblings.OfType<LaunchFolderViewModel>()
+                .FirstOrDefault(f => f != folder && string.Equals(f.Name, cleanName, StringComparison.OrdinalIgnoreCase));
+            if (mergeTarget != null)
+            {
+                string? clash = FindMergeClash(folder, mergeTarget);
+                if (clash != null)
+                {
+                    folder.CancelRename();
+                    StatusMessage = $"Not renamed: '{mergeTarget.FolderPath}' already has a profile named '{clash}'. Rename one of them first.";
+                    return;
+                }
+                MergeFolderInto(folder, mergeTarget);
+                SyncProfilesCollectionWithTree();
+                SaveProfilesToStore();
+                StatusMessage = $"Merged folder '{oldPath}' into '{mergeTarget.FolderPath}'.";
                 return;
             }
 
@@ -1050,6 +1087,82 @@ namespace Gordian.App.ViewModels
             SaveProfilesToStore();
 
             StatusMessage = $"Renamed folder to '{cleanName}'.";
+        }
+
+        /// <summary>
+        /// The first profile name that would be in one folder twice if <paramref name="source"/>'s contents moved into
+        /// <paramref name="target"/> (subfolders of the same name merge too), or null when none would.
+        /// </summary>
+        private static string? FindMergeClash(LaunchFolderViewModel source, LaunchFolderViewModel target)
+        {
+            foreach (var profile in source.Children.OfType<ProfileItemViewModel>())
+            {
+                if (target.Children.OfType<ProfileItemViewModel>().Any(p =>
+                        string.Equals(p.ProfileName.Trim(), profile.ProfileName.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    return profile.ProfileName;
+            }
+            foreach (var sub in source.Children.OfType<LaunchFolderViewModel>())
+            {
+                var match = target.Children.OfType<LaunchFolderViewModel>()
+                    .FirstOrDefault(f => string.Equals(f.Name, sub.Name, StringComparison.OrdinalIgnoreCase));
+                if (match != null && FindMergeClash(sub, match) is { } clash) return clash;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Moves every child of <paramref name="source"/> into <paramref name="target"/> (merging subfolders of the same
+        /// name), rewrites the moved profiles' folder and files, and removes <paramref name="source"/>. Callers check
+        /// <see cref="FindMergeClash"/> first.
+        /// </summary>
+        private void MergeFolderInto(LaunchFolderViewModel source, LaunchFolderViewModel target)
+        {
+            foreach (var child in source.Children.ToList())
+            {
+                if (child is LaunchFolderViewModel sub)
+                {
+                    var match = target.Children.OfType<LaunchFolderViewModel>()
+                        .FirstOrDefault(f => string.Equals(f.Name, sub.Name, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        MergeFolderInto(sub, match);
+                    }
+                    else
+                    {
+                        foreach (var moved in sub.GetDescendantProfiles()) moved.Profile.DeleteFile(GordianStorage.ProfilesDirectory);
+                        source.RemoveChild(sub);
+                        target.AddChild(sub);
+                        sub.FolderPath = $"{target.FolderPath}/{sub.Name}";
+                        UpdateDescendantPaths(sub);
+                    }
+                }
+                else if (child is ProfileItemViewModel profile)
+                {
+                    source.RemoveChild(profile);
+                    profile.Profile.DeleteFile(GordianStorage.ProfilesDirectory);
+                    profile.Profile.Folder = target.FolderPath;
+                    profile.Profile.SaveToFile(GordianStorage.ProfilesDirectory);
+                    target.AddChild(profile);
+                }
+            }
+            target.UpdateCheckStateFromChildren();
+
+            source.DeleteRequested -= OnFolderDeleteRequested;
+            source.RenameCommitted -= OnFolderRenameCommitted;
+            source.MoveUpRequested -= OnFolderMoveUpRequested;
+            source.MoveDownRequested -= OnFolderMoveDownRequested;
+            RemoveNodeFromTree(source);
+
+            string oldDiskDir = Path.Combine(GordianStorage.ProfilesDirectory, source.FolderPath.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                if (Directory.Exists(oldDiskDir) && Directory.GetFileSystemEntries(oldDiskDir, "*", SearchOption.AllDirectories).All(Directory.Exists))
+                    Directory.Delete(oldDiskDir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort: only empty folders are removed.
+            }
         }
 
         private void UpdateDescendantPaths(LaunchFolderViewModel folder)
@@ -1311,13 +1424,13 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
-        /// Saves a session's settled camera zoom on its account profile (#550): on the profile now in the launch list under
-        /// that name (an edit while logged in replaces the instance), or the one the session launched with. Writes only
+        /// Saves a session's settled camera zoom on its account profile (#550): on the profile now in the launch list with
+        /// that id (an edit while logged in replaces the instance, #638), or the one the session launched with. Writes only
         /// when the zoom changed.
         /// </summary>
         private void SaveCameraZoom(AccountProfile launched, CameraZoom zoom)
         {
-            var target = Profiles.FirstOrDefault(p => string.Equals(p.ProfileName, launched.ProfileName, StringComparison.OrdinalIgnoreCase))?.Profile ?? launched;
+            var target = Profiles.FirstOrDefault(p => string.Equals(p.Profile.Id, launched.Id, StringComparison.Ordinal))?.Profile ?? launched;
             bool changed = target.CameraZoom != zoom;
             launched.CameraZoom = target.CameraZoom = zoom;
             if (!changed) return;
@@ -1371,6 +1484,7 @@ namespace Gordian.App.ViewModels
         {
             _editingOriginalProfileName = item.Profile.ProfileName;
             _editingOriginalFolder = item.Profile.Folder;
+            _editingProfileId = item.Profile.Id;
             FormProfileName = item.Profile.ProfileName;
             FormCharacterName = item.Profile.CharacterName;
             FormCharacterSlot = item.Profile.CharacterSlot;
@@ -1432,7 +1546,7 @@ namespace Gordian.App.ViewModels
             SaveProfilesToStore();
 
             // If we were editing this profile, clear the form
-            if (string.Equals(_editingOriginalProfileName, item.Profile.ProfileName, StringComparison.OrdinalIgnoreCase))
+            if (_editingProfileId != null && string.Equals(_editingProfileId, item.Profile.Id, StringComparison.Ordinal))
             {
                 ClearForm();
             }
@@ -1448,9 +1562,8 @@ namespace Gordian.App.ViewModels
         {
             NewProfile();
             string name = string.IsNullOrWhiteSpace(template.ProfileName) ? template.Username : template.ProfileName.Trim();
-            string unique = name;
-            for (int n = 2; Profiles.Any(p => string.Equals(p.ProfileName, unique, StringComparison.OrdinalIgnoreCase)); n++) unique = $"{name} {n}";
-            FormProfileName = unique;
+            // Free within the folder the new profile goes in (#638).
+            FormProfileName = ProfilePath.FreeNameInFolder(Profiles.Select(p => p.Profile), FormFolder, name, n => $"{name} {n}");
             FormServerType = template.EffectiveServerType;
             FormServerHost = template.EffectiveServerHost;
             FormServerPort = template.EffectiveServerPort;
@@ -1477,6 +1590,7 @@ namespace Gordian.App.ViewModels
         {
             _editingOriginalProfileName = null;
             _editingOriginalFolder = null;
+            _editingProfileId = null;
             FormProfileName = string.Empty;
             FormCharacterName = string.Empty;
             FormCharacterSlot = 0;
@@ -1507,6 +1621,17 @@ namespace Gordian.App.ViewModels
         private string? ValidateForm()
         {
             if (string.IsNullOrWhiteSpace(FormProfileName)) return "Profile name cannot be empty.";
+
+            // A name is unique within its launch-list folder (#638): Horizon/Gordian and Retail/Gordian may both exist.
+            // '/' separates folders in a profile path (--profile Horizon/Gordian), so a name cannot hold one.
+            string name = FormProfileName.Trim();
+            if (ProfilePath.HasSeparator(name)) return "A profile name cannot contain '/' or '\\'.";
+            string folder = ProfilePath.NormalizeFolder(FormFolder);
+            if (ProfilePath.FindNameInFolder(Profiles.Select(p => p.Profile), folder, name, _editingProfileId) != null)
+                return folder.Length == 0
+                    ? $"A profile named '{name}' already exists. Choose another name."
+                    : $"A profile named '{name}' already exists in '{folder}'. Choose another name.";
+
             if (FormAutoLogin && string.IsNullOrWhiteSpace(FormCharacterName) && FormCharacterSlot is < 1 or > 16)
                 return "Auto-Login needs a Character Name or a Character Slot (1-16).";
 
@@ -1543,13 +1668,14 @@ namespace Gordian.App.ViewModels
             }
 
             string targetName = FormProfileName.Trim();
-            string targetFolder = (FormFolder ?? string.Empty).Trim().Replace('\\', '/');
+            string targetFolder = ProfilePath.NormalizeFolder(FormFolder);
 
-            // If renaming an existing profile or moving folder, clean up the old file
+            // If renaming an existing profile or moving folder, clean up the old file. Compared exactly: a rename that
+            // only changes capitals is a different file name on a case-sensitive file system (#638).
             if (!string.IsNullOrEmpty(_editingOriginalProfileName))
             {
-                if (!string.Equals(_editingOriginalProfileName, targetName, StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(_editingOriginalFolder ?? string.Empty, targetFolder, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(_editingOriginalProfileName, targetName, StringComparison.Ordinal) ||
+                    !string.Equals(ProfilePath.NormalizeFolder(_editingOriginalFolder), targetFolder, StringComparison.Ordinal))
                 {
                     var oldProfile = new AccountProfile
                     {
@@ -1560,9 +1686,10 @@ namespace Gordian.App.ViewModels
                 }
             }
 
-            string lookupName = _editingOriginalProfileName ?? targetName;
-            var existing = Profiles.FirstOrDefault(p =>
-                string.Equals(p.ProfileName, lookupName, StringComparison.OrdinalIgnoreCase));
+            // The profile being edited, found by its id: names repeat across folders (#638).
+            var existing = _editingProfileId == null
+                ? null
+                : Profiles.FirstOrDefault(p => string.Equals(p.Profile.Id, _editingProfileId, StringComparison.Ordinal));
 
             bool isSelected = existing?.IsSelectedForLaunch == true;
 
@@ -1571,6 +1698,7 @@ namespace Gordian.App.ViewModels
             bool lsb = FormIsLsb;
             var profile = new AccountProfile
             {
+                Id = existing?.Profile.Id ?? AccountProfile.NewId(),
                 ProfileName = targetName,
                 CharacterName = FormCharacterName.Trim(),
                 CharacterSlot = FormCharacterSlot is >= 1 and <= 16 ? FormCharacterSlot : 0,
@@ -1601,8 +1729,7 @@ namespace Gordian.App.ViewModels
             {
                 int index = Profiles.IndexOf(existing);
                 // Remember where the profile sits in the tree: a save that keeps its folder must keep its position.
-                bool sameFolder = string.Equals(
-                    (existing.Profile.Folder ?? string.Empty).Trim().Replace('\\', '/'), targetFolder, StringComparison.OrdinalIgnoreCase);
+                bool sameFolder = ProfilePath.SameFolder(existing.Profile.Folder, targetFolder);
                 int treeIndex = existing.Parent != null ? existing.Parent.Children.IndexOf(existing) : LaunchTree.IndexOf(existing);
                 UnwireProfileEvents(existing);
                 RemoveNodeFromTree(existing);
@@ -1649,9 +1776,9 @@ namespace Gordian.App.ViewModels
         /// </summary>
         public string? GetLaunchSkipReason(AccountProfile profile)
         {
-            if (_sessionRegistry.IsProfileOnline(profile.ProfileName, profile.CharacterName))
+            if (_sessionRegistry.IsProfileOnline(profile.Id, profile.ProfileName, profile.CharacterName))
             {
-                return $"Profile '{profile.ProfileName}' ({profile.Username}) is already active in memory. Skipped.";
+                return $"Profile '{ProfilePath.Format(profile)}' ({profile.Username}) is already active in memory. Skipped.";
             }
             if (_sessionRegistry.TryGetActiveAccountSession(profile.Username, out var live) && live != null)
             {
@@ -1674,19 +1801,27 @@ namespace Gordian.App.ViewModels
         }
 
         /// <summary>
-        /// Logs in one saved profile by name, retail or private server, for the <c>--profile</c> launch option. It goes
-        /// through the same checks as the Launch button.
+        /// Logs in one saved profile for the <c>--profile</c> launch option, retail or private server, through the same
+        /// checks as the Launch button. <paramref name="spec"/> is a profile name, or a folder path and name such as
+        /// <c>Horizon/Gordian</c> (<see cref="ProfilePath.Find"/>), never the hidden id. A bare name that profiles in
+        /// several folders share launches nothing and lists their paths instead (#638).
         /// </summary>
-        public void LaunchProfileByName(string profileName)
+        public void LaunchProfileByName(string spec)
         {
-            var profile = Profiles.Select(vm => vm.Profile)
-                .FirstOrDefault(p => string.Equals(p.ProfileName, profileName, StringComparison.OrdinalIgnoreCase));
-            if (profile == null)
+            var matches = ProfilePath.Find(Profiles.Select(vm => vm.Profile), spec);
+            if (matches.Count == 0)
             {
-                StatusMessage = $"Launch option: no profile named {profileName}.";
+                StatusMessage = $"Launch option: no profile named {spec}.";
+                GordianLog.Warn(LogCategories.Profile, StatusMessage);
                 return;
             }
-            LaunchProfiles([profile]);
+            if (matches.Count > 1)
+            {
+                StatusMessage = $"Launch option: {matches.Count} profiles are named {spec}; use one of: {string.Join(", ", matches.Select(ProfilePath.Format))}.";
+                GordianLog.Warn(LogCategories.Profile, StatusMessage);
+                return;
+            }
+            LaunchProfiles([matches[0]]);
         }
 
         /// <summary>A login stopped because every two-factor code the server would take now was just used (#652).</summary>
@@ -2280,6 +2415,8 @@ namespace Gordian.App.ViewModels
             )
             {
                 ProfileName = profile.ProfileName,
+                ProfileId = profile.Id,
+                ServerName = profile.ChatLogServerName,
             };
 
             // The profile's saved camera zoom comes back before the first frame; a settled zoom is saved on it (#550).

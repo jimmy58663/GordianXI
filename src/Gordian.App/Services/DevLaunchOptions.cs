@@ -6,7 +6,9 @@ namespace Gordian.App.Services
     /// <summary>
     /// Developer command-line options, so a test script can start any build of the client on a known profile:
     /// <c>--profiles-dir &lt;path&gt;</c> reads profiles from a shared folder instead of the one beside the build, and
-    /// <c>--profile &lt;name&gt;</c> logs that profile in once the main window opens. Worktree builds have no profiles of
+    /// <c>--profile &lt;name&gt;</c> (or <c>--profile &lt;folder&gt;/&lt;name&gt;</c>, such as <c>Horizon/Gordian</c>, when
+    /// profiles in several launch-list folders share the name, #638) logs that profile in once the main window opens.
+    /// Worktree builds have no profiles of
     /// their own, which is why the folder can be chosen. See <c>docs/app/desktop-shell.md</c>.
     /// </summary>
     public sealed record DevLaunchOptions(string? ProfilesDirectory, string? ProfileName)

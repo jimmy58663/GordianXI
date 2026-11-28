@@ -657,6 +657,8 @@ namespace Gordian.Engine.Input
 
             // 5. Evaluate Action Triggers (Targeting, Selection); a menu takes Confirm/Cancel and targeting keys.
             if (!_menuOpen) UpdateActionTriggers();
+            else if (!subTargeting && !inEvent && menus is { OpenMenus.Count: 1 }
+                && menus.Top is { IsCommandMenu: true }) UpdateCombatShortcuts();
         }
 
         /// <summary>
@@ -850,10 +852,18 @@ namespace Gordian.Engine.Input
                 {
                     var stick = padSettings.Camera(firstPerson);
                     float padYaw = filteredRightStick.X * 180.0f * stick.SensitivityX * dt;
+                    // Owner's retail comparison (#648): Normal orbits opposite horizontal stick
+                    // input in third person, but looks with it in first person. The common yaw
+                    // negation below remains shared with mouse/keyboard; correct only the pad here.
+                    if (firstPerson) padYaw = -padYaw;
                     if (stick.InvertX) padYaw = -padYaw;
                     yawDelta += padYaw;
 
                     float padPitch = -filteredRightStick.Y * 120.0f * stick.SensitivityY * dt;
+                    // Normal up looks down in orbit and up in first person. Their rendered
+                    // pitch signs differ; both need positive pitch for normalized stick-up.
+                    // Free camera retains its existing baseline.
+                    if (firstPerson || _camera.Mode == CameraMode.ThirdPersonOrbital) padPitch = -padPitch;
                     if (stick.InvertY) padPitch = -padPitch;
                     pitchDelta += padPitch;
                 }
@@ -2042,6 +2052,14 @@ namespace Gordian.Engine.Input
             Gordian.Core.Diagnostics.GordianLog.Info(Gordian.Core.Diagnostics.LogCategories.LockOn, $"Lock-on toggled by key: locked={_actionService.IsLockedOn}, target={_actionService.CurrentTarget?.Name ?? "none"}");
         }
 
+        private void UpdateCombatShortcuts()
+        {
+            if (_actionService == null) return;
+            if (_inputState.WasActionTriggered(InputAction.ToggleAttack))
+                _ = _actionService.Combat is { IsEngaged: true } ? _actionService.DisengageAsync() : _actionService.AttackAsync();
+            if (_inputState.WasActionTriggered(InputAction.CheckTarget)) _ = _actionService.CheckAsync();
+        }
+
         private void UpdateActionTriggers()
         {
             if (_actionService == null) return;
@@ -2057,7 +2075,38 @@ namespace Gordian.Engine.Input
                 });
             }
 
+            if (_inputState.WasActionTriggered(InputAction.ToggleWindows))
+            {
+                // An independent transient owner: restore never clears user/addon/per-window hides.
+                const string owner = "keyboard-windows";
+                var visibility = _actionService.UiVisibility;
+                if (visibility.HiddenBy(owner) == Ui.StockUiElement.None) visibility.Hide(owner, Ui.StockUiElement.All);
+                else visibility.Release(owner);
+            }
+            if (_inputState.WasActionTriggered(InputAction.Screenshot))
+                _actionService.ScreenshotHandler?.Invoke(new ScreenshotRequest(false, null));
+            UpdateCombatShortcuts();
+
+            // Explicit keyboard requests use the same menu constructors as their main-menu entries.
+            var menus = _actionService.Menus;
+            if (_inputState.WasActionTriggered(InputAction.OpenEquipment)) menus.OpenEquipment(null);
+            if (_inputState.WasActionTriggered(InputAction.OpenItems)) menus.OpenItems(null);
+            if (_inputState.WasActionTriggered(InputAction.OpenPetCommands)) menus.OpenActionList(Ui.StockUiActionList.PetCommands, 0, null);
+            if (_inputState.WasActionTriggered(InputAction.OpenJobAbilities)) menus.OpenActionList(Ui.StockUiActionList.JobAbilities, 0, null);
+            if (_inputState.WasActionTriggered(InputAction.OpenWeaponSkills)) menus.OpenActionList(Ui.StockUiActionList.WeaponSkills, 0, null);
+            if (_inputState.WasActionTriggered(InputAction.OpenMagic)) menus.OpenActionList(Ui.StockUiActionList.Spells, 0, null);
+
             UpdateTargetCycling();
+            if (_inputState.WasActionTriggered(InputAction.TargetNearestNpc)) _actionService.TargetClosestCharacter(false);
+            if (_inputState.WasActionTriggered(InputAction.TargetNearestPc)) _actionService.TargetClosestCharacter(true);
+
+            if (_inputState.WasActionTriggered(InputAction.TargetAllianceFirst)
+                && _actionService.ResolveTargetToken("a10", out _) is { IsSpawned: true } first) _actionService.SetTarget(first);
+            if (_inputState.WasActionTriggered(InputAction.TargetAllianceSecond)
+                && _actionService.ResolveTargetToken("a20", out _) is { IsSpawned: true } second) _actionService.SetTarget(second);
+
+            if (_inputState.WasActionTriggered(InputAction.TargetPartyUp)) _actionService.CyclePartyTarget(-1);
+            if (_inputState.WasActionTriggered(InputAction.TargetPartyDown)) _actionService.CyclePartyTarget(1);
 
             // Target Self (F1) and the other members of your party (F2-F6, in party window order)
             if (_inputState.WasActionTriggered(InputAction.TargetSelf))

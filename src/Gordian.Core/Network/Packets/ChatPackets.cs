@@ -690,19 +690,21 @@ namespace Gordian.Core.Network.Packets
         public static int BuildChatStd(Span<byte> destination, ChatSendKind kind, ReadOnlySpan<char> message, ushort sequenceId = 0)
         {
             Span<byte> msgBytes = stackalloc byte[128];
-            int written = 0;
-            if (!message.IsEmpty)
-            {
-                try
-                {
-                    written = Encoding.GetEncoding("shift_jis").GetBytes(message, msgBytes);
-                }
-                catch
-                {
-                    written = Encoding.UTF8.GetBytes(message, msgBytes);
-                }
-            }
+            int size = ChatText.EncodePlain(message, msgBytes);
+            return BuildChatStdEncoded(destination, kind, msgBytes[..size], sequenceId);
+        }
 
+        /// <summary>Phrase-aware chat builder; same protocol as the plain-text overload.</summary>
+        public static int BuildChatStd(Span<byte> destination, ChatSendKind kind, ChatText message, ushort sequenceId = 0)
+        {
+            Span<byte> msgBytes = stackalloc byte[128];
+            int size = message.Encode(msgBytes);
+            return BuildChatStdEncoded(destination, kind, msgBytes[..size], sequenceId);
+        }
+
+        private static int BuildChatStdEncoded(Span<byte> destination, ChatSendKind kind, ReadOnlySpan<byte> msgBytes, ushort sequenceId)
+        {
+            int written = msgBytes.Length;
             int unalignedSize = 4 + 2 + written + 1; // Header (4) + Kind (1) + Dammy (1) + message + null
             int totalSize = Math.Max(8, (unalignedSize + 3) & ~3);
 
@@ -743,19 +745,21 @@ namespace Gordian.Core.Network.Packets
         public static int BuildChatTell(Span<byte> destination, ReadOnlySpan<char> recipient, ReadOnlySpan<char> message, ushort sequenceId = 0)
         {
             Span<byte> msgBytes = stackalloc byte[128];
-            int msgLen = 0;
-            if (!message.IsEmpty)
-            {
-                try
-                {
-                    msgLen = Encoding.GetEncoding("shift_jis").GetBytes(message, msgBytes);
-                }
-                catch
-                {
-                    msgLen = Encoding.UTF8.GetBytes(message, msgBytes);
-                }
-            }
+            int size = ChatText.EncodePlain(message, msgBytes);
+            return BuildChatTellEncoded(destination, recipient, msgBytes[..size], sequenceId);
+        }
 
+        /// <summary>Phrase-aware chat builder; same protocol as the plain-text overload.</summary>
+        public static int BuildChatTell(Span<byte> destination, ReadOnlySpan<char> recipient, ChatText message, ushort sequenceId = 0)
+        {
+            Span<byte> msgBytes = stackalloc byte[128];
+            int size = message.Encode(msgBytes);
+            return BuildChatTellEncoded(destination, recipient, msgBytes[..size], sequenceId);
+        }
+
+        private static int BuildChatTellEncoded(Span<byte> destination, ReadOnlySpan<char> recipient, ReadOnlySpan<byte> msgBytes, ushort sequenceId)
+        {
+            int msgLen = msgBytes.Length;
             int unalignedSize = 4 + 2 + 15 + msgLen + 1; // Header (4) + 2 dummy + 15 name + message + null
             int totalSize = Math.Max(24, (unalignedSize + 3) & ~3);
 

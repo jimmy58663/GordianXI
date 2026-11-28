@@ -18,15 +18,15 @@ namespace Gordian.App.Tests.ViewModels
         }
 
         [Fact]
-        public void InitialState_LoadsCompactPresetByDefault()
+        public void InitialState_LoadsLayeredFullToMatchCharacterDefault()
         {
             var (vm, tempFile) = CreateIsolatedViewModel();
             try
             {
-                Assert.Equal("Compact (WASD)", vm.ActivePresetName);
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
                 Assert.NotEmpty(vm.Bindings);
-                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("W"));
-                Assert.Contains(vm.Bindings, b => b.Action == InputAction.CameraPitchUp && b.BoundChords.Contains("I"));
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("NumPad8"));
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.CameraPitchUp && b.BoundChords.Contains("Up"));
             }
             finally
             {
@@ -42,7 +42,7 @@ namespace Gordian.App.Tests.ViewModels
             {
                 vm.LoadFullNumpadPresetCommand.Execute(null);
 
-                Assert.Equal("Full (Numpad)", vm.ActivePresetName);
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("NumPad8"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("NumPadEnter"));
             }
@@ -82,14 +82,14 @@ namespace Gordian.App.Tests.ViewModels
             var (vm, tempFile) = CreateIsolatedViewModel();
             try
             {
-                // Starts on the default Compact keyboard layout.
-                Assert.Equal("Compact (WASD)", vm.ActivePresetName);
+                // Starts on the layered Full default matching the character page.
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
 
                 vm.LoadGamepadPresetCommand.Execute(null);
 
                 // Resetting gamepad bindings must never change (or discard) the keyboard layout.
-                Assert.Equal("Compact (WASD)", vm.ActivePresetName);
-                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("W"));
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
+                Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("NumPad8"));
 
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Cancel && b.BoundChords.Contains("Pad:B"));
@@ -114,7 +114,7 @@ namespace Gordian.App.Tests.ViewModels
 
                 vm.LoadFullNumpadPresetCommand.Execute(null);
 
-                Assert.Equal("Full (Numpad)", vm.ActivePresetName);
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.MoveForward && b.BoundChords.Contains("NumPad8"));
                 // Switching keyboard layout must not have discarded the gamepad binding.
                 Assert.Contains(vm.Bindings, b => b.Action == InputAction.Confirm && b.BoundChords.Contains("Pad:A"));
@@ -163,7 +163,8 @@ namespace Gordian.App.Tests.ViewModels
             string tempFile = Path.Combine(Path.GetTempPath(), $"gordian_input_test_{Guid.NewGuid():N}.json");
             try
             {
-                var vm1 = new ControlsInputViewModel(tempFile);
+                // A restart owns a new hub; the application-wide default is shared with parallel tests.
+                var vm1 = new ControlsInputViewModel(tempFile, new InputProfileHub());
                 vm1.InvertMouseY = true;
                 vm1.InvertGamepadCameraY = true;
                 vm1.MouseSensitivityX = 3.5f;
@@ -172,7 +173,7 @@ namespace Gordian.App.Tests.ViewModels
                 Assert.True(File.Exists(tempFile));
 
                 // Reinstantiate to simulate application restart
-                var vm2 = new ControlsInputViewModel(tempFile);
+                var vm2 = new ControlsInputViewModel(tempFile, new InputProfileHub());
                 Assert.True(vm2.InvertMouseY);
                 Assert.True(vm2.InvertGamepadCameraY);
                 Assert.Equal(3.5f, vm2.MouseSensitivityX);
@@ -306,7 +307,7 @@ namespace Gordian.App.Tests.ViewModels
             try
             {
                 var vm = new ControlsInputViewModel(tempFile, hub);
-                Assert.Equal(hub.Profile.Name, vm.ActivePresetName);
+                Assert.Equal("Full (catalog 1)", vm.ActivePresetName);
                 using var selected = new Gordian.Engine.Sessions.CharacterSession("VmTestA", 1, "user1", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
                 using var other = new Gordian.Engine.Sessions.CharacterSession("VmTestB", 2, "user2", new Gordian.Core.Network.SessionNetworkManager("127.0.0.1", 54230), hub);
                 vm.SetSession(selected);

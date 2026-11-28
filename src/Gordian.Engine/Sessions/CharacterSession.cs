@@ -30,10 +30,15 @@ namespace Gordian.Engine.Sessions
         public string ProfileName { get; set; } = string.Empty;
 
         /// <summary>
-        /// The folder the character's files go under, <c>&lt;server&gt;/&lt;world&gt;/&lt;character&gt;</c>: its config
-        /// (<c>CharConfig/</c>) and its chat log (<c>logs/chat/</c>) (#565, #639). The server is the launching profile's
-        /// <c>ServerFolderName</c> and the world the lobby's (<c>MapSessionTicket.WorldName</c>); an empty name becomes
-        /// <c>Unknown</c>.
+        /// The hidden id (<c>AccountProfile.Id</c>, #638) of the launch profile that started this session, or empty for a
+        /// session that did not come from a profile. Online status matches on it, since two profiles in different
+        /// launch-list folders may share <see cref="ProfileName"/>.
+        /// </summary>
+        public string ProfileId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
+        /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
         /// </summary>
         public CharacterFolderKey Folder { get; }
 
@@ -199,10 +204,9 @@ namespace Gordian.Engine.Sessions
         private int _serverMessageRequested;
 
         /// <summary>
-        /// Applies the server-stored config menu's Mouse/Cam. axis rows (only the choices the player has made) to this
-        /// session's own copy of the input profile: the third-person rows set the mouse inversion, the first-person rows
-        /// the separate first-person inversion (#306). Choosing a first-person row turns the separate first-person set
-        /// on; its other values start from the third-person ones, so nothing else changes.
+        /// Applies the locally persisted Mouse/Cam. axis choices to this session's own input profile.
+        /// Both mouse look and the right stick (including keyboard pan) use these choices. Choosing a first-person
+        /// row enables that device's separate first-person set, preserving its existing sensitivity and other axis.
         /// </summary>
         private void ApplyCameraSettings() => ApplyCameraSettings(Locomotion.Profile, ActionService.UiSettings);
 
@@ -211,8 +215,11 @@ namespace Gordian.Engine.Sessions
         {
             ArgumentNullException.ThrowIfNull(profile);
             ArgumentNullException.ThrowIfNull(settings);
-            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX)) profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
-            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY)) profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
+            var pad = profile.GamepadSettings;
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX))
+                pad.InvertCameraX = profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY))
+                pad.InvertCameraY = profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
 
             bool firstX = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertX), firstY = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertY);
             if (!firstX && !firstY) return;
@@ -224,8 +231,18 @@ namespace Gordian.Engine.Sessions
                 profile.FirstPersonInvertMouseX = profile.InvertMouseX;
                 profile.FirstPersonInvertMouseY = profile.InvertMouseY;
             }
-            if (firstX) profile.FirstPersonInvertMouseX = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertX);
-            if (firstY) profile.FirstPersonInvertMouseY = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertY);
+            if (!pad.SeparateFirstPersonCamera)
+            {
+                pad.SeparateFirstPersonCamera = true;
+                pad.FirstPersonCameraSensitivityX = pad.CameraSensitivityX;
+                pad.FirstPersonCameraSensitivityY = pad.CameraSensitivityY;
+                pad.FirstPersonInvertCameraX = pad.InvertCameraX;
+                pad.FirstPersonInvertCameraY = pad.InvertCameraY;
+            }
+            if (firstX)
+                pad.FirstPersonInvertCameraX = profile.FirstPersonInvertMouseX = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertX);
+            if (firstY)
+                pad.FirstPersonInvertCameraY = profile.FirstPersonInvertMouseY = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertY);
         }
 
         /// <summary>The shared input profile this session copies (#314).</summary>
@@ -234,8 +251,10 @@ namespace Gordian.Engine.Sessions
         /// <summary>The user's input profile changed: take a fresh copy and apply this character's config choices again.</summary>
         private void OnSharedInputProfileChanged(object? source)
         {
+            InputState.BlockHeldKeysUntilRelease();
             Locomotion.Profile = _inputProfiles.CreateSessionCopy();
             ApplyCameraSettings();
+            ActionService.Menus.OnInputProfileChanged();
         }
 
         public CharacterSession(
@@ -274,9 +293,9 @@ namespace Gordian.Engine.Sessions
                 LocalPlayer,
                 ActionService
             );
-            // The config menu's Mouse/Camera page (third-person axes) drives the session's input profile; only
+            // The config menu's Mouse/Camera page drives both devices in the session's input profile; only
             // choices the player has made are applied, so an untouched page leaves the profile's own settings alone.
-            ApplyCameraSettings();
+            OnSharedInputProfileChanged(null);
             ActionService.UiSettings.Changed += (key, _) =>
             {
                 if (key is Ui.StockUiSettingKey.ThirdPersonInvertX or Ui.StockUiSettingKey.ThirdPersonInvertY
@@ -307,6 +326,13 @@ namespace Gordian.Engine.Sessions
             Chat.PageSize = window => ActionService.UiSettings.GetValue(
                 window == 2 ? Ui.StockUiSettingKey.Window2MaxLines : Ui.StockUiSettingKey.Window1MaxLines);
             Chat.Execute = (line, kind) => ActionService.ExecuteCommandAsync(line, kind);
+            Chat.ExecuteRich = async (parsed, text) =>
+            {
+                if (parsed.Kind == ChatCommandResultKind.SendTell) await ChatModule.SendTellAsync(parsed.Recipient, text).ConfigureAwait(false);
+                else if (parsed.Kind == ChatCommandResultKind.SendChat) await ChatModule.SendChatAsync(parsed.SpeechKind, text).ConfigureAwait(false);
+                else return Actions.PlayerActionResult.Warn("Unsupported phrase command.");
+                return Actions.PlayerActionResult.Ok("", parsed.Kind);
+            };
             // Battle messages (file 7027) put "the" before a monster's name: "The Wild Rabbit hits Gemini ...". Named monsters (NamedFlag, #334) take none.
             Chat.Attach(ChatModule, Party, Combat, ActionService.Menus, ResolveEntityName,
                 id => World.TryGetByServerId(id, out var e) && e is { TakesArticle: true },

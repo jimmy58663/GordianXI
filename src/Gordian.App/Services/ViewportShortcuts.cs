@@ -39,8 +39,12 @@ namespace Gordian.App.Services
     /// </summary>
     public static class ViewportShortcuts
     {
-        public static ViewportShortcut Classify(Key key, KeyModifiers modifiers)
+        public static ViewportShortcut Classify(Key key, KeyModifiers modifiers, Gordian.Engine.Input.InputProfile? profile = null)
         {
+            // Layered keyboard profiles reserve plain function keys for gameplay, including explicit unbinding.
+            // Keep legacy/no-session diagnostic shortcuts and modified emergency controls unchanged.
+            if (profile?.KeyboardLayout is { Supported: true } && modifiers == KeyModifiers.None
+                && key is >= Key.F7 and <= Key.F12) return ViewportShortcut.None;
             bool ctrl = (modifiers & KeyModifiers.Control) != 0;
             bool shift = (modifiers & KeyModifiers.Shift) != 0;
             return key switch
