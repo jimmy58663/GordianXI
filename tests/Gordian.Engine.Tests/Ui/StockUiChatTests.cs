@@ -250,18 +250,22 @@ namespace Gordian.Engine.Tests.Ui
         }
 
         [Fact]
-        public void Chat_OpensOnEnterAndTheChatKey()
+        public void Chat_OpensOnSpaceAndTheChatKeyButNeverOnEnter()
         {
             var chat = new StockUiChat();
             var profile = InputProfile.CreateCompact();
 
-            Assert.False(chat.TryOpen(GordianKey.Enter, InputModifiers.None, profile, menuOpen: true));
+            Assert.False(chat.TryOpen(GordianKey.Space, InputModifiers.None, profile, menuOpen: true));
             Assert.False(chat.TryOpen(GordianKey.W, InputModifiers.None, profile, menuOpen: false));
             Assert.True(chat.TryOpen(GordianKey.OemSlash, InputModifiers.None, profile, menuOpen: false));
             Assert.True(chat.Input.IsOpen);
             chat.Input.Close();
 
-            Assert.True(chat.TryOpen(GordianKey.Enter, InputModifiers.None, profile, menuOpen: false));
+            // Enter is Confirm in every layout (#673): it targets the closest thing, it does not open the line.
+            Assert.False(chat.TryOpen(GordianKey.Enter, InputModifiers.None, profile, menuOpen: false));
+            Assert.False(chat.TryOpen(GordianKey.NumPadEnter, InputModifiers.None, profile, menuOpen: false));
+            Assert.False(chat.Input.IsOpen);
+            Assert.True(chat.TryOpen(GordianKey.Space, InputModifiers.None, profile, menuOpen: false));
             chat.Input.Close();
 
             // Full layout: Space opens the line and is not typed into it.

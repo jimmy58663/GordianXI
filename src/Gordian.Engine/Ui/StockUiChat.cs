@@ -111,11 +111,14 @@ namespace Gordian.Engine.Ui
 
         /// <summary>
         /// Opens the input line for a key pressed in gameplay, returning true when it did (the key is then the
-        /// line's, not the character's): Enter outside a menu (retail), or a key the profile binds to
+        /// line's, not the character's): Space outside a menu in every layout, or a key the profile binds to
         /// <see cref="InputAction.OpenChat"/> (the slash key, and Space in the Full layout). The character the chat
         /// key types (<paramref name="keySymbol"/>, the slash) starts the new line; Space's is not typed.
-        /// With <paramref name="confirmTaken"/> (a target is selected, or an event dialog runs) Enter is the Confirm
-        /// action instead, as in retail, where Enter talks to the targeted NPC and only opens the line otherwise.
+        /// With <paramref name="confirmTaken"/> (a target is selected, or an event dialog runs) the built-in Space is
+        /// left to the Compact layouts' Confirm. Enter never opens the line: in every layout it is Confirm, which
+        /// targets the closest thing when nothing is targeted (retail, #673).
+        /// A layout that overrides <see cref="InputAction.OpenChat"/>, or the action the pressed key carries, turns the
+        /// built-in Space off (a migrated legacy profile keeps exactly its own chat keys, #669).
         /// </summary>
         public bool TryOpen(GordianKey key, InputModifiers modifiers, InputProfile? profile, bool menuOpen, string? keySymbol = null,
             bool confirmTaken = false)
@@ -142,7 +145,7 @@ namespace Gordian.Engine.Ui
                     || (profile.TryGetAction(new InputChord(key, modifiers), out var custom)
                         && keyboard.Overrides.ContainsKey(custom.ToString())));
             bool open = !explicitChat && !menuOpen && !confirmTaken && modifiers == InputModifiers.None
-                && key is GordianKey.Enter or GordianKey.NumPadEnter or GordianKey.Space;
+                && key == GordianKey.Space;
             if (!open && profile != null)
             {
                 var chord = new InputChord(key, modifiers);
@@ -158,7 +161,7 @@ namespace Gordian.Engine.Ui
                 return true;
             }
             Input.Open();
-            if (key is not (GordianKey.Enter or GordianKey.NumPadEnter) && StockUiChatInput.IsTypedSymbol(keySymbol))
+            if (StockUiChatInput.IsTypedSymbol(keySymbol))
             {
                 Input.InsertKeySymbol(keySymbol!);
             }

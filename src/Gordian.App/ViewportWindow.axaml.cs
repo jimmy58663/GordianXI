@@ -693,9 +693,9 @@ namespace Gordian.App
             }
 
             // The stock chat input line owns the keyboard while it is open (the character does not move while you
-            // type); Enter or the chat key opens it from gameplay. Characters arrive as text input (OnGameTextInput);
-            // Avalonia drops the WM_CHAR text input that follows a handled key press on Windows, so character keys
-            // are not handled here.
+            // type); Space or the chat key opens it from gameplay (Enter is Confirm, #673). Characters arrive as text
+            // input (OnGameTextInput); Avalonia drops the WM_CHAR text input that follows a handled key press on
+            // Windows, so character keys are not handled here.
             var chat = session.Chat;
             bool typed = AvaloniaInputMapper.IsTextInputKey(e.Key, e.KeySymbol, e.KeyModifiers);
             // A hidden stock chat (#29, /stockui) takes no keys: they go to the game (or whatever replaces the chat).
@@ -732,8 +732,8 @@ namespace Gordian.App
                 e.Handled = true;
                 return;
             }
-            // With the log selected (keypad +) Enter is Confirm: it opens the full-screen log, not the input line.
-            // The sub-target cursor (#240) takes Enter as Confirm too.
+            // A target, the sub-target cursor (#240), an event or a selected log (keypad +) leave Space to the
+            // Compact layouts' Confirm instead of opening the input line. Enter is never a chat key (#673).
             bool confirmTaken = session.ActionService.CurrentTarget != null || session.ActionService.SubTargeting != null || session.Events.IsActive || chat.IsSelecting;
             bool menusShown = !session.ActionService.UiVisibility.IsHidden(StockUiElement.Menus);
             if (gKey != GordianKey.None && !chatHidden

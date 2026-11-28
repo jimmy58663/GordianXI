@@ -167,6 +167,47 @@ public class KeyboardLayoutTests
         Assert.False(chat.TryOpen(GordianKey.Enter, InputModifiers.None, KeyboardLayout.Resolve(p, KeyboardMode.Full), false));
     }
 
+    [Theory]
+    [InlineData(KeyboardMode.Full)]
+    [InlineData(KeyboardMode.Compact1)]
+    [InlineData(KeyboardMode.Compact2)]
+    public void FreshProfile_EnterAndKeypadEnterAreConfirm_SpaceOpensChat(KeyboardMode mode)
+    {
+        var shared = InputProfile.FromJson("""{"keyboardLayout":{"revision":1,"mode":0,"overrides":{}},"bindings":{}}""");
+        var profile = KeyboardLayout.Resolve(shared, mode);
+        foreach (var key in new[] { GordianKey.Enter, GordianKey.NumPadEnter })
+        {
+            Assert.True(profile.TryGetAction(new InputChord(key), out var action));
+            Assert.Equal(InputAction.Confirm, action);
+            var chat = new Gordian.Engine.Ui.StockUiChat();
+            Assert.False(chat.TryOpen(key, InputModifiers.None, profile, false));
+            Assert.False(chat.TryOpen(key, InputModifiers.None, profile, false, confirmTaken: true));
+            Assert.False(chat.Input.IsOpen);
+        }
+        var spaceChat = new Gordian.Engine.Ui.StockUiChat();
+        Assert.True(spaceChat.TryOpen(GordianKey.Space, InputModifiers.None, profile, false, " "));
+        Assert.Empty(spaceChat.Input.Text);
+    }
+
+    [Theory]
+    [InlineData(false, KeyboardMode.Full)]
+    [InlineData(true, KeyboardMode.Compact1)]
+    [InlineData(true, KeyboardMode.Compact2)]
+    public void MigratedLegacyProfile_EnterStaysConfirmAndNeverOpensChat(bool compact, KeyboardMode mode)
+    {
+        var legacy = compact ? InputProfile.CreateCompact() : InputProfile.CreateFullNumpad();
+        var migrated = InputProfile.FromJson(legacy.SaveToJson());
+        var profile = KeyboardLayout.Resolve(migrated, mode);
+        Assert.True(profile.TryGetAction(new InputChord(GordianKey.Enter), out var action));
+        Assert.Equal(InputAction.Confirm, action);
+        var chat = new Gordian.Engine.Ui.StockUiChat();
+        Assert.False(chat.TryOpen(GordianKey.Enter, InputModifiers.None, profile, false));
+        Assert.False(chat.TryOpen(GordianKey.NumPadEnter, InputModifiers.None, profile, false));
+        Assert.False(chat.Input.IsOpen);
+        // The legacy chat key still opens the line.
+        Assert.True(chat.TryOpen(GordianKey.OemSlash, InputModifiers.None, profile, false, "/"));
+    }
+
     [Fact]
     public void KeyboardResolution_DoesNotReorderExistingControllerCollisions()
     {
