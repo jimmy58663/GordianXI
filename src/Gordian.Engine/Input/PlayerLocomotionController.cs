@@ -2119,14 +2119,11 @@ namespace Gordian.Engine.Input
             }
 
             // Confirm on a targeted NPC or door talks to it; on yourself, another player, a monster, a pet or a trust
-            // it opens the target command menu (retail). With nothing targeted, the gamepad's Confirm (A) targets the
-            // closest thing; the keyboard's does not (Tab does).
+            // it opens the target command menu (retail). With nothing targeted, Confirm targets the closest thing, from
+            // the gamepad (A) and the keyboard (Enter, keypad Enter) alike (retail, #673).
             if (_inputState.WasActionTriggered(InputAction.Confirm))
             {
-                if (_actionService.CurrentTarget == null)
-                {
-                    if (_inputState.WasActionTriggeredByGamepad(InputAction.Confirm)) CycleTarget(TargetCycleMode.Closest);
-                }
+                if (_actionService.CurrentTarget == null) CycleTarget(TargetCycleMode.Closest);
                 else if (_actionService.CanTalkToTarget) _ = _actionService.TalkToTargetAsync();
                 else _actionService.OpenTargetCommandMenu();
             }

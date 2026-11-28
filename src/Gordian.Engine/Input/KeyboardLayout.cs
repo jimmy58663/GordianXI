@@ -119,6 +119,8 @@ public sealed class KeyboardLayout
         {
             Set(InputAction.StrafeLeft, new InputChord(GordianKey.A, InputModifiers.Shift));
             Set(InputAction.StrafeRight, new InputChord(GordianKey.D, InputModifiers.Shift));
+            // Enter and keypad Enter are Confirm in every layout (#673); the compact factory gives only Enter.
+            p.Bind(InputAction.Confirm, K(GordianKey.NumPadEnter));
             if (mode == KeyboardMode.Compact1)
             {
                 Set(InputAction.CameraPanLeft);

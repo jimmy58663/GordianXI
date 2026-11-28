@@ -771,16 +771,30 @@ namespace Gordian.Engine.Tests.Input
         }
 
         [Fact]
-        public void Update_KeyboardConfirmWithNoTarget_DoesNotTarget()
+        public void Update_EnterWithNoTarget_TargetsClosest()
         {
             var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
             controller.Update(TimeSpan.FromMilliseconds(16));
             PlaceTwoMobs(controller, world);
 
-            input.SetKeyDown(GordianKey.Space);
+            input.SetKeyDown(GordianKey.Enter);
             controller.Update(TimeSpan.FromMilliseconds(16));
 
-            Assert.Null(actionService.CurrentTarget);
+            Assert.Equal(0x30u, actionService.CurrentTarget?.ServerId);
+        }
+
+        [Fact]
+        public void Update_EnterWithATarget_ConfirmsWithoutRetargeting()
+        {
+            var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
+            controller.Update(TimeSpan.FromMilliseconds(16));
+            var (leftMob, _) = PlaceTwoMobs(controller, world);
+            actionService.SetTarget(leftMob);
+
+            input.SetKeyDown(GordianKey.Enter);
+            controller.Update(TimeSpan.FromMilliseconds(16));
+
+            Assert.Equal(leftMob.ServerId, actionService.CurrentTarget?.ServerId);
         }
 
         [Fact]
