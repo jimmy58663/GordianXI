@@ -274,6 +274,47 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
+        public void SaveProfile_RefusesANewProfileWithAnExistingName_InAnyCase()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            int count = vm.Profiles.Count;
+            vm.NewProfileCommand.Execute(null);
+            vm.FormProfileName = " craftmule ";
+            vm.FormServerHost = "10.0.0.5";
+            vm.FormUsername = "other_account";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.Equal("A profile named 'craftmule' already exists. Choose another name.", vm.StatusMessage);
+            Assert.True(vm.IsEditorOpen);
+            Assert.Equal(count, vm.Profiles.Count);
+            Assert.Equal("craftmule_user", vm.Profiles.Single(p => p.ProfileName == "CraftMule").Profile.Username);
+        }
+
+        [Fact]
+        public void SaveProfile_RefusesRenamingToAnotherProfilesName_ButKeepsItsOwnName()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            int count = vm.Profiles.Count;
+            vm.Profiles.Single(p => p.ProfileName == "AF00").EditCommand.Execute(null);
+            vm.FormProfileName = "CraftMule";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.Equal("A profile named 'CraftMule' already exists. Choose another name.", vm.StatusMessage);
+            Assert.True(vm.IsEditorOpen);
+            Assert.Equal(count, vm.Profiles.Count);
+            Assert.Single(vm.Profiles, p => p.ProfileName == "AF00");
+            Assert.Single(vm.Profiles, p => p.ProfileName == "CraftMule");
+
+            // The profile's own name, in another case, is not a clash.
+            vm.FormProfileName = "af00";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.False(vm.IsEditorOpen);
+            Assert.Equal(count, vm.Profiles.Count);
+            Assert.Single(vm.Profiles, p => p.ProfileName == "af00");
+        }
+
+        [Fact]
         public void SaveProfile_KeepsOnlyTheChosenServerTypesFields()
         {
             using var vm = new MainWindowViewModel(_testRegistry);

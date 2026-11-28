@@ -1507,6 +1507,13 @@ namespace Gordian.App.ViewModels
         private string? ValidateForm()
         {
             if (string.IsNullOrWhiteSpace(FormProfileName)) return "Profile name cannot be empty.";
+
+            // Save finds the profile it replaces by name, so a name another profile has would overwrite that one (#638).
+            string name = FormProfileName.Trim();
+            if (!string.Equals(name, _editingOriginalProfileName, StringComparison.OrdinalIgnoreCase) &&
+                Profiles.Any(p => string.Equals(p.ProfileName, name, StringComparison.OrdinalIgnoreCase)))
+                return $"A profile named '{name}' already exists. Choose another name.";
+
             if (FormAutoLogin && string.IsNullOrWhiteSpace(FormCharacterName) && FormCharacterSlot is < 1 or > 16)
                 return "Auto-Login needs a Character Name or a Character Slot (1-16).";
 
