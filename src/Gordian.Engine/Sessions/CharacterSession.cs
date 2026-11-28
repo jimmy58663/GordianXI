@@ -196,10 +196,9 @@ namespace Gordian.Engine.Sessions
         private int _serverMessageRequested;
 
         /// <summary>
-        /// Applies the server-stored config menu's Mouse/Cam. axis rows (only the choices the player has made) to this
-        /// session's own copy of the input profile: the third-person rows set the mouse inversion, the first-person rows
-        /// the separate first-person inversion (#306). Choosing a first-person row turns the separate first-person set
-        /// on; its other values start from the third-person ones, so nothing else changes.
+        /// Applies the locally persisted Mouse/Cam. axis choices to this session's own input profile.
+        /// Both mouse look and the right stick (including keyboard pan) use these choices. Choosing a first-person
+        /// row enables that device's separate first-person set, preserving its existing sensitivity and other axis.
         /// </summary>
         private void ApplyCameraSettings() => ApplyCameraSettings(Locomotion.Profile, ActionService.UiSettings);
 
@@ -208,8 +207,11 @@ namespace Gordian.Engine.Sessions
         {
             ArgumentNullException.ThrowIfNull(profile);
             ArgumentNullException.ThrowIfNull(settings);
-            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX)) profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
-            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY)) profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
+            var pad = profile.GamepadSettings;
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertX))
+                pad.InvertCameraX = profile.InvertMouseX = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertX);
+            if (settings.HasValue(Ui.StockUiSettingKey.ThirdPersonInvertY))
+                pad.InvertCameraY = profile.InvertMouseY = settings.IsOn(Ui.StockUiSettingKey.ThirdPersonInvertY);
 
             bool firstX = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertX), firstY = settings.HasValue(Ui.StockUiSettingKey.FirstPersonInvertY);
             if (!firstX && !firstY) return;
@@ -221,8 +223,18 @@ namespace Gordian.Engine.Sessions
                 profile.FirstPersonInvertMouseX = profile.InvertMouseX;
                 profile.FirstPersonInvertMouseY = profile.InvertMouseY;
             }
-            if (firstX) profile.FirstPersonInvertMouseX = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertX);
-            if (firstY) profile.FirstPersonInvertMouseY = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertY);
+            if (!pad.SeparateFirstPersonCamera)
+            {
+                pad.SeparateFirstPersonCamera = true;
+                pad.FirstPersonCameraSensitivityX = pad.CameraSensitivityX;
+                pad.FirstPersonCameraSensitivityY = pad.CameraSensitivityY;
+                pad.FirstPersonInvertCameraX = pad.InvertCameraX;
+                pad.FirstPersonInvertCameraY = pad.InvertCameraY;
+            }
+            if (firstX)
+                pad.FirstPersonInvertCameraX = profile.FirstPersonInvertMouseX = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertX);
+            if (firstY)
+                pad.FirstPersonInvertCameraY = profile.FirstPersonInvertMouseY = settings.IsOn(Ui.StockUiSettingKey.FirstPersonInvertY);
         }
 
         /// <summary>The shared input profile this session copies (#314).</summary>
@@ -264,7 +276,7 @@ namespace Gordian.Engine.Sessions
                 LocalPlayer,
                 ActionService
             );
-            // The config menu's Mouse/Camera page (third-person axes) drives the session's input profile; only
+            // The config menu's Mouse/Camera page drives both devices in the session's input profile; only
             // choices the player has made are applied, so an untouched page leaves the profile's own settings alone.
             ApplyCameraSettings();
             ActionService.UiSettings.Changed += (key, _) =>
