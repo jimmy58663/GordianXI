@@ -693,7 +693,7 @@ namespace Gordian.App
             }
 
             // The stock chat input line owns the keyboard while it is open (the character does not move while you
-            // type); Enter or the chat key opens it from gameplay. Characters arrive as text input (OnGameTextInput);
+            // type); Space or the chat key opens it from gameplay (Enter is Confirm, #673). Characters arrive as text input (OnGameTextInput);
             // Avalonia drops the WM_CHAR text input that follows a handled key press on Windows, so character keys
             // are not handled here.
             var chat = session.Chat;

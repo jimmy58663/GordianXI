@@ -534,8 +534,8 @@ namespace Gordian.Engine.Input
         }
 
         /// <summary>
-        /// Whether <paramref name="action"/> was triggered this frame and a gamepad button holds it (retail gives some
-        /// actions an extra meaning on the pad, such as Confirm targeting the closest thing when nothing is targeted).
+        /// Whether <paramref name="action"/> was triggered this frame and a gamepad button holds it, for actions whose
+        /// keyboard and pad presses differ (Cancel in the stock menus, <c>StockUiMenuController.Gamepad</c>).
         /// </summary>
         public bool WasActionTriggeredByGamepad(InputAction action)
         {

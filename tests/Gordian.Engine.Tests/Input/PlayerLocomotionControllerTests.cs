@@ -789,12 +789,14 @@ namespace Gordian.Engine.Tests.Input
             var (controller, input, world, _, _, actionService) = CreateTestHarnessWithActionService();
             controller.Update(TimeSpan.FromMilliseconds(16));
             var (leftMob, _) = PlaceTwoMobs(controller, world);
+            actionService.Menus.Library = Gordian.Engine.Tests.Ui.StockUiMenuControllerTests.SyntheticLibrary();
             actionService.SetTarget(leftMob);
 
             input.SetKeyDown(GordianKey.Enter);
             controller.Update(TimeSpan.FromMilliseconds(16));
 
             Assert.Equal(leftMob.ServerId, actionService.CurrentTarget?.ServerId);
+            Assert.True(actionService.Menus.IsOpen); // Confirm on a monster opens the target command menu
         }
 
         [Fact]
