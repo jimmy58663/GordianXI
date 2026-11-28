@@ -138,10 +138,10 @@ namespace Gordian.Engine.Tests.Network
             Assert.Empty(_registry.ActiveSessions);
         }
 
-        private CharacterSession Register(string character, uint id, string account, string profile = "")
+        private CharacterSession Register(string character, uint id, string account, string profile = "", string profileId = "")
         {
             var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
-            var session = new CharacterSession(character, id, account, net) { ProfileName = profile };
+            var session = new CharacterSession(character, id, account, net) { ProfileName = profile, ProfileId = profileId };
             _registry.RegisterSession(session);
             return session;
         }
@@ -149,33 +149,43 @@ namespace Gordian.Engine.Tests.Network
         [Fact]
         public void IsProfileOnline_OnlyTheProfileOfTheLoggedInCharacter_NotTheWholeAccount()
         {
-            Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+            Register("BLM", 21900, "acct1000", profile: "BLM Profile", profileId: "blm-id");
 
-            Assert.True(_registry.IsProfileOnline("BLM Profile", ""));        // by slot: no character name on the profile
-            Assert.False(_registry.IsProfileOnline("Knot Profile", "Knot"));  // same account, other character
-            Assert.False(_registry.IsProfileOnline("Knot Profile", ""));
+            Assert.True(_registry.IsProfileOnline("blm-id", "BLM Profile", ""));         // by slot: no character name on the profile
+            Assert.False(_registry.IsProfileOnline("knot-id", "Knot Profile", "Knot"));  // same account, other character
+            Assert.False(_registry.IsProfileOnline("knot-id", "Knot Profile", ""));
         }
 
         [Fact]
         public void IsProfileOnline_UntaggedSessionsMatchByCharacterName_AndTwoCharactersCoexist()
         {
             Register("Knot", 21828, "acct1000");                              // retail handoff: no profile tag
-            Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+            Register("BLM", 21900, "acct1000", profile: "BLM Profile", profileId: "blm-id");
 
-            Assert.True(_registry.IsProfileOnline("Knot Profile", "knot"));
-            Assert.True(_registry.IsProfileOnline("BLM Profile", "BLM"));
-            Assert.False(_registry.IsProfileOnline("Other", "Nobody"));
+            Assert.True(_registry.IsProfileOnline("knot-id", "Knot Profile", "knot"));
+            Assert.True(_registry.IsProfileOnline("blm-id", "BLM Profile", "BLM"));
+            Assert.False(_registry.IsProfileOnline("other-id", "Other", "Nobody"));
             Assert.True(_registry.IsCharacterIdActive(21900));
             Assert.False(_registry.IsCharacterIdActive(5));
             Assert.False(_registry.IsCharacterIdActive(0));
         }
 
         [Fact]
+        public void IsProfileOnline_TwoProfilesWithOneNameInDifferentFolders_OnlyTheLaunchedOneIsOnline()
+        {
+            // Horizon/Gordian and Retail/Gordian (#638): the session carries the launched profile's id.
+            Register("Gordian", 21900, "acct1000", profile: "Gordian", profileId: "horizon-id");
+
+            Assert.True(_registry.IsProfileOnline("horizon-id", "Gordian", "Gordian"));
+            Assert.False(_registry.IsProfileOnline("retail-id", "Gordian", "Gordian"));
+        }
+
+        [Fact]
         public void IsProfileOnline_GoesOfflineWhenTheSessionDisconnects()
         {
-            var session = Register("BLM", 21900, "acct1000", profile: "BLM Profile");
+            var session = Register("BLM", 21900, "acct1000", profile: "BLM Profile", profileId: "blm-id");
             session.Disconnect();
-            Assert.False(_registry.IsProfileOnline("BLM Profile", "BLM"));
+            Assert.False(_registry.IsProfileOnline("blm-id", "BLM Profile", "BLM"));
         }
     }
 }

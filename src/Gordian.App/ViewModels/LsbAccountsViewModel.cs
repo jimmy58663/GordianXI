@@ -183,11 +183,12 @@ namespace Gordian.App.ViewModels
                 ? Array.Empty<AccountProfile>()
                 : _profiles().Where(IsThisAccount).ToList();
 
+        /// <summary>The matching profiles by path (<c>Horizon/Gordian</c>): names repeat across launch-list folders (#638).</summary>
         public string MatchingProfilesText => MatchingProfiles.Count switch
         {
             0 => "No saved profile uses this account.",
-            1 => $"1 saved profile uses this account: {MatchingProfiles[0].ProfileName}.",
-            int n => $"{n} saved profiles use this account: {string.Join(", ", MatchingProfiles.Select(p => p.ProfileName))}.",
+            1 => $"1 saved profile uses this account: {ProfilePath.Format(MatchingProfiles[0])}.",
+            int n => $"{n} saved profiles use this account: {string.Join(", ", MatchingProfiles.Select(ProfilePath.Format))}.",
         };
 
         private bool IsThisAccount(AccountProfile p) =>

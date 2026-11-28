@@ -137,11 +137,11 @@ namespace Gordian.App.Tests
         [Fact]
         public void ProfileItemViewModel_OnlyTheProfileOfTheLoggedInCharacterIsOnline()
         {
-            var knot = new ProfileItemViewModel(new AccountProfile { ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" }, _testRegistry);
-            var blm = new ProfileItemViewModel(new AccountProfile { ProfileName = "BLM", Username = "acct1000", CharacterSlot = 2 }, _testRegistry);
+            var knot = new ProfileItemViewModel(new AccountProfile { Id = "knot-id", ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" }, _testRegistry);
+            var blm = new ProfileItemViewModel(new AccountProfile { Id = "blm-id", ProfileName = "BLM", Username = "acct1000", CharacterSlot = 2 }, _testRegistry);
 
             var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
-            _testRegistry.RegisterSession(new CharacterSession("BLM", 21900, "acct1000", net) { ProfileName = "BLM" });
+            _testRegistry.RegisterSession(new CharacterSession("BLM", 21900, "acct1000", net) { ProfileName = "BLM", ProfileId = "blm-id" });
 
             knot.RefreshOnlineStatus();
             blm.RefreshOnlineStatus();
@@ -152,7 +152,7 @@ namespace Gordian.App.Tests
 
             // Terminating one profile leaves the account's other characters alone.
             var net2 = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
-            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net2) { ProfileName = "Knot" });
+            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net2) { ProfileName = "Knot", ProfileId = "knot-id" });
             knot.RefreshOnlineStatus();
             Assert.True(knot.IsOnline);
             blm.Terminate();
@@ -197,14 +197,14 @@ namespace Gordian.App.Tests
         public void GetLaunchSkipReason_BlocksASecondCharacterOfALiveAccount_ButOnlyThatAccount()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
-            var knot = new AccountProfile { ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" };
+            var knot = new AccountProfile { Id = "knot-id", ProfileName = "Knot", Username = "acct1000", CharacterName = "Knot" };
             var blm = new AccountProfile { ProfileName = "BLM", Username = "acct1000", CharacterSlot = 2 };
             var other = new AccountProfile { ProfileName = "Other", Username = "acct2000" };
 
             Assert.Null(vm.GetLaunchSkipReason(blm));
 
             var net = new SessionNetworkManager("127.0.0.1", 54231) { CurrentState = SessionState.ActiveInWorld };
-            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net) { ProfileName = "Knot" });
+            _testRegistry.RegisterSession(new CharacterSession("Knot", 21828, "acct1000", net) { ProfileName = "Knot", ProfileId = "knot-id" });
 
             Assert.Contains("already active", vm.GetLaunchSkipReason(knot));
             Assert.Equal("Account 'acct1000' already has a character in game (Knot). Skipped.", vm.GetLaunchSkipReason(blm));
@@ -274,17 +274,18 @@ namespace Gordian.App.Tests
         }
 
         [Fact]
-        public void SaveProfile_RefusesANewProfileWithAnExistingName_InAnyCase()
+        public void SaveProfile_RefusesANewProfileWithAnExistingNameInTheSameFolder_InAnyCase()
         {
             using var vm = new MainWindowViewModel(_testRegistry);
             int count = vm.Profiles.Count;
             vm.NewProfileCommand.Execute(null);
             vm.FormProfileName = " craftmule ";
+            vm.FormFolder = "test1";
             vm.FormServerHost = "10.0.0.5";
             vm.FormUsername = "other_account";
             vm.SaveProfileCommand.Execute(null);
 
-            Assert.Equal("A profile named 'craftmule' already exists. Choose another name.", vm.StatusMessage);
+            Assert.Equal("A profile named 'craftmule' already exists in 'test1'. Choose another name.", vm.StatusMessage);
             Assert.True(vm.IsEditorOpen);
             Assert.Equal(count, vm.Profiles.Count);
             Assert.Equal("craftmule_user", vm.Profiles.Single(p => p.ProfileName == "CraftMule").Profile.Username);
@@ -299,7 +300,7 @@ namespace Gordian.App.Tests
             vm.FormProfileName = "CraftMule";
             vm.SaveProfileCommand.Execute(null);
 
-            Assert.Equal("A profile named 'CraftMule' already exists. Choose another name.", vm.StatusMessage);
+            Assert.Equal("A profile named 'CraftMule' already exists in 'Test1'. Choose another name.", vm.StatusMessage);
             Assert.True(vm.IsEditorOpen);
             Assert.Equal(count, vm.Profiles.Count);
             Assert.Single(vm.Profiles, p => p.ProfileName == "AF00");
@@ -312,6 +313,159 @@ namespace Gordian.App.Tests
             Assert.False(vm.IsEditorOpen);
             Assert.Equal(count, vm.Profiles.Count);
             Assert.Single(vm.Profiles, p => p.ProfileName == "af00");
+        }
+
+        /// <summary>Saves a new LandSandBoat profile named <paramref name="name"/> in <paramref name="folder"/> through the editor.</summary>
+        private static void SaveNewProfile(MainWindowViewModel vm, string name, string folder, string username)
+        {
+            vm.NewProfileCommand.Execute(null);
+            vm.FormProfileName = name;
+            vm.FormFolder = folder;
+            vm.FormServerHost = "10.0.0.5";
+            vm.FormUsername = username;
+            vm.SaveProfileCommand.Execute(null);
+        }
+
+        [Fact]
+        public void SaveProfile_AllowsTheSameNameInAnotherFolder_AndEditsOnlyTheEditedOne()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            int count = vm.Profiles.Count;
+
+            SaveNewProfile(vm, "CraftMule", "Horizon", "horizon_user");
+
+            Assert.False(vm.IsEditorOpen);
+            Assert.Equal(count + 1, vm.Profiles.Count);
+            var horizon = vm.Profiles.Single(p => p.ProfileName == "CraftMule" && p.Profile.Folder == "Horizon");
+            var test1 = vm.Profiles.Single(p => p.ProfileName == "CraftMule" && p.Profile.Folder == "Test1");
+            Assert.NotEqual(horizon.Profile.Id, test1.Profile.Id);
+
+            // Editing the second one (found by id, not name) leaves the first alone (#671's leftover).
+            horizon.EditCommand.Execute(null);
+            vm.FormUsername = "changed_account";
+            vm.SaveProfileCommand.Execute(null);
+
+            Assert.Equal(count + 1, vm.Profiles.Count);
+            Assert.Equal("changed_account", vm.Profiles.Single(p => p.Profile.Id == horizon.Profile.Id).Profile.Username);
+            Assert.Equal("craftmule_user", vm.Profiles.Single(p => p.Profile.Id == test1.Profile.Id).Profile.Username);
+
+            // Both survive a reload with their ids.
+            using var reloaded = new MainWindowViewModel(_testRegistry);
+            Assert.Equal(2, reloaded.Profiles.Count(p => p.ProfileName == "CraftMule"));
+            Assert.Contains(reloaded.Profiles, p => p.Profile.Id == horizon.Profile.Id);
+        }
+
+        [Fact]
+        public void SaveProfile_RefusesAFolderSeparatorInTheName()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            int count = vm.Profiles.Count;
+
+            SaveNewProfile(vm, "Horizon/Gordian", string.Empty, "someone");
+
+            Assert.Equal("A profile name cannot contain '/' or '\\'.", vm.StatusMessage);
+            Assert.Equal(count, vm.Profiles.Count);
+        }
+
+        [Fact]
+        public void LoadProfiles_GivesEveryProfileAUniqueIdAndKeepsIt()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            var ids = vm.Profiles.Select(p => p.Profile.Id).ToList();
+
+            Assert.All(ids, id => Assert.False(string.IsNullOrWhiteSpace(id)));
+            Assert.Equal(ids.Count, ids.Distinct().Count());
+
+            using var reloaded = new MainWindowViewModel(_testRegistry);
+            Assert.Equal(ids, reloaded.Profiles.Select(p => p.Profile.Id).ToList());
+        }
+
+        [Fact]
+        public void MoveProfileToFolder_RefusesAFolderThatHasTheName_AndAllowsAnother()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            SaveNewProfile(vm, "CraftMule", "Horizon", "horizon_user");
+            var horizonCraft = vm.Profiles.Single(p => p.ProfileName == "CraftMule" && p.Profile.Folder == "Horizon");
+            var test1 = vm.LaunchTree.OfType<LaunchFolderViewModel>().Single(f => f.FolderPath == "Test1");
+
+            vm.MoveProfileToFolder(horizonCraft, test1);
+
+            Assert.Equal("Not moved: 'Test1' already has a profile named 'CraftMule'. Rename one of them first.", vm.StatusMessage);
+            Assert.Equal("Horizon", horizonCraft.Profile.Folder);
+            Assert.Single(test1.Children.OfType<ProfileItemViewModel>(), p => p.ProfileName == "CraftMule");
+
+            // The top level has no CraftMule: allowed.
+            vm.MoveProfileToFolder(horizonCraft, null);
+            Assert.Equal(string.Empty, horizonCraft.Profile.Folder);
+            Assert.Contains(horizonCraft, vm.LaunchTree);
+        }
+
+        [Fact]
+        public void MoveProfileRelative_RefusesDroppingNextToAProfileInAFolderThatHasTheName()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            SaveNewProfile(vm, "AF00", string.Empty, "root_af00");
+            var rootAf00 = vm.LaunchTree.OfType<ProfileItemViewModel>().Single(p => p.ProfileName == "AF00");
+            var craftMule = vm.Profiles.Single(p => p.ProfileName == "CraftMule");
+
+            vm.MoveProfileRelative(rootAf00, craftMule, insertAfter: true);
+
+            Assert.StartsWith("Not moved: 'Test1' already has a profile named 'AF00'", vm.StatusMessage);
+            Assert.Equal(string.Empty, rootAf00.Profile.Folder);
+        }
+
+        [Fact]
+        public void RenameFolder_OntoAnExistingFolder_RefusesAClash_AndMergesOtherwise()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            SaveNewProfile(vm, "CraftMule", "Horizon", "horizon_user");
+            var horizon = vm.LaunchTree.OfType<LaunchFolderViewModel>().Single(f => f.FolderPath == "Horizon");
+
+            vm.RenameFolder(horizon, "Test1");
+
+            Assert.Equal("Not renamed: 'Test1' already has a profile named 'CraftMule'. Rename one of them first.", vm.StatusMessage);
+            Assert.Equal("Horizon", horizon.FolderPath);
+            Assert.Equal("Horizon", vm.Profiles.Single(p => p.Profile.Id == horizon.Children.OfType<ProfileItemViewModel>().Single().Profile.Id).Profile.Folder);
+
+            // Without the clash the folders merge into one.
+            var moved = horizon.Children.OfType<ProfileItemViewModel>().Single();
+            moved.EditCommand.Execute(null);
+            vm.FormProfileName = "Mule2";
+            vm.SaveProfileCommand.Execute(null);
+            horizon = vm.LaunchTree.OfType<LaunchFolderViewModel>().Single(f => f.FolderPath == "Horizon");
+
+            vm.RenameFolder(horizon, "test1");
+
+            Assert.Single(vm.LaunchTree.OfType<LaunchFolderViewModel>(), f => string.Equals(f.FolderPath, "Test1", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(vm.LaunchTree.OfType<LaunchFolderViewModel>(), f => f.FolderPath == "Horizon");
+            var test1 = vm.LaunchTree.OfType<LaunchFolderViewModel>().Single(f => f.FolderPath == "Test1");
+            Assert.Contains(test1.Children.OfType<ProfileItemViewModel>(), p => p.ProfileName == "Mule2" && p.Profile.Folder == "Test1");
+        }
+
+        [Fact]
+        public void CopyProfile_NameOnlyHasToBeFreeInItsOwnFolder()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            SaveNewProfile(vm, "CraftMule - Copy", "Horizon", "horizon_user");
+            var craftMule = vm.Profiles.Single(p => p.ProfileName == "CraftMule");
+
+            vm.CopyProfile(craftMule);
+
+            var copy = vm.Profiles.Single(p => p.ProfileName == "CraftMule - Copy" && p.Profile.Folder == "Test1");
+            Assert.NotEqual(craftMule.Profile.Id, copy.Profile.Id);
+        }
+
+        [Fact]
+        public void LaunchProfileByName_ANameSeveralFoldersShare_LaunchesNothingAndListsThePaths()
+        {
+            using var vm = new MainWindowViewModel(_testRegistry);
+            SaveNewProfile(vm, "CraftMule", "Horizon", "horizon_user");
+
+            vm.LaunchProfileByName("craftmule");
+            Assert.Equal("Launch option: 2 profiles are named craftmule; use one of: Test1/CraftMule, Horizon/CraftMule.", vm.StatusMessage);
+
+            vm.LaunchProfileByName("Nowhere/CraftMule");
+            Assert.Equal("Launch option: no profile named Nowhere/CraftMule.", vm.StatusMessage);
         }
 
         [Fact]

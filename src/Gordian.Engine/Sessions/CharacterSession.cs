@@ -29,6 +29,13 @@ namespace Gordian.Engine.Sessions
         public string ProfileName { get; set; } = string.Empty;
 
         /// <summary>
+        /// The hidden id (<c>AccountProfile.Id</c>, #638) of the launch profile that started this session, or empty for a
+        /// session that did not come from a profile. Online status matches on it, since two profiles in different
+        /// launch-list folders may share <see cref="ProfileName"/>.
+        /// </summary>
+        public string ProfileId { get; set; } = string.Empty;
+
+        /// <summary>
         /// The server folder the character's chat log goes under (<c>logs/chat/&lt;server&gt;/</c>, #565): the launching
         /// profile's <c>ChatLogServerName</c>; <c>Unknown</c> when empty.
         /// </summary>

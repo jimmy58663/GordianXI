@@ -60,8 +60,48 @@ namespace Gordian.Core.Profiles
         /// <summary>
         /// Loads the profile store from the given base directory.
         /// If profiles.json is not present, automatically migrates legacy individual .json files.
+        /// Every profile comes back with a unique <see cref="AccountProfile.Id"/> (#638): one saved before ids existed,
+        /// or one whose id another profile already has (a hand-copied entry), gets a new one, and the store is saved
+        /// so the ids stay the same from launch to launch.
         /// </summary>
         public static ProfileStoreDocument Load(string baseDirectory)
+        {
+            var doc = LoadWithoutIds(baseDirectory);
+            if (AssignMissingIds(doc.Profiles))
+            {
+                try
+                {
+                    Save(baseDirectory, doc);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Gordian.Core.Diagnostics.GordianLog.Warn(Gordian.Core.Diagnostics.LogCategories.Profile, $"Could not save the new profile ids: {ex.Message}");
+                }
+            }
+            return doc;
+        }
+
+        /// <summary>
+        /// Gives every profile without an id, or with an id an earlier profile in the list already has, a new one.
+        /// Returns whether any changed.
+        /// </summary>
+        public static bool AssignMissingIds(IEnumerable<AccountProfile> profiles)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool changed = false;
+            foreach (var profile in profiles)
+            {
+                if (string.IsNullOrWhiteSpace(profile.Id) || !seen.Add(profile.Id))
+                {
+                    profile.Id = AccountProfile.NewId();
+                    seen.Add(profile.Id);
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+        private static ProfileStoreDocument LoadWithoutIds(string baseDirectory)
         {
             if (string.IsNullOrWhiteSpace(baseDirectory))
             {
