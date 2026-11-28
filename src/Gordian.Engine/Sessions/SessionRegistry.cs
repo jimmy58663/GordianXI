@@ -85,20 +85,21 @@ namespace Gordian.Engine.Sessions
         }
 
         /// <summary>
-        /// Finds the live session of a launch profile: the session tagged with the profile name or, for sessions without
-        /// a profile tag (such as the retail handoff), one of the profile's character name (or the profile name, which
-        /// older profiles use as the character name). The account is deliberately not matched: one account holds several
-        /// characters, each with its own profile.
+        /// Finds the live session of a launch profile: the session tagged with the profile's id (<c>AccountProfile.Id</c>,
+        /// #638) or, for sessions without a profile tag (such as the retail handoff), one of the profile's character name
+        /// (or the profile name, which older profiles use as the character name). The account is deliberately not
+        /// matched: one account holds several characters, each with its own profile. Names are not unique across
+        /// launch-list folders, so a tagged session is never matched by its profile name.
         /// </summary>
-        public bool TryGetSessionForProfile(string profileName, string? characterName, out CharacterSession? session)
+        public bool TryGetSessionForProfile(string? profileId, string? profileName, string? characterName, out CharacterSession? session)
         {
             session = _sessions.Values.FirstOrDefault(s =>
                 s.State != SessionState.Disconnected &&
-                !string.IsNullOrWhiteSpace(profileName) &&
-                string.Equals(s.ProfileName, profileName, StringComparison.OrdinalIgnoreCase));
+                !string.IsNullOrWhiteSpace(profileId) &&
+                string.Equals(s.ProfileId, profileId, StringComparison.Ordinal));
             session ??= _sessions.Values.FirstOrDefault(s =>
                 s.State != SessionState.Disconnected &&
-                string.IsNullOrEmpty(s.ProfileName) &&
+                string.IsNullOrEmpty(s.ProfileId) &&
                 ((!string.IsNullOrWhiteSpace(characterName) &&
                   string.Equals(s.CharacterName, characterName, StringComparison.OrdinalIgnoreCase)) ||
                  (!string.IsNullOrWhiteSpace(profileName) &&
@@ -109,9 +110,9 @@ namespace Gordian.Engine.Sessions
         /// <summary>
         /// Determines if a launch profile is online; see <see cref="TryGetSessionForProfile"/> for how it is matched.
         /// </summary>
-        public bool IsProfileOnline(string profileName, string? characterName)
+        public bool IsProfileOnline(string? profileId, string? profileName, string? characterName)
         {
-            return TryGetSessionForProfile(profileName, characterName, out _);
+            return TryGetSessionForProfile(profileId, profileName, characterName, out _);
         }
 
         /// <summary>

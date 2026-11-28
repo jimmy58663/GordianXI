@@ -59,6 +59,9 @@ namespace Gordian.Core.Tests.Profiles
             Assert.Equal("127.0.0.1", cloned.ServerHost);
             Assert.Equal(54231, cloned.ServerPort);
             Assert.True(cloned.IsSelectedForLaunch);
+            // A copy is a new profile: its own hidden id (#638).
+            Assert.NotEqual(original.Id, cloned.Id);
+            Assert.False(string.IsNullOrWhiteSpace(cloned.Id));
 
             // Verify mutating cloned does not affect original
             cloned.CharacterName = "Arnold";
@@ -189,6 +192,28 @@ namespace Gordian.Core.Tests.Profiles
             Assert.Equal(new CameraZoom { Distance = 11.5f, FirstPerson = true }, zoomed.CameraZoom);
             Assert.Equal(zoomed.CameraZoom, zoomed.Clone().CameraZoom);
             Assert.Null(loaded.Profiles.Single(p => p.ProfileName == "Fresh").CameraZoom);
+        }
+
+        /// <summary>
+        /// A store saved before profile ids existed loads with an id on every profile, and saves them so they stay the
+        /// same at the next launch (#638). A duplicated id (a hand-copied entry) is replaced on the later profile.
+        /// </summary>
+        [Fact]
+        public void Load_GivesProfilesWithoutAnIdOne_AndKeepsIt()
+        {
+            var doc = new ProfileStoreDocument();
+            doc.Profiles.Add(new AccountProfile { ProfileName = "Old", Folder = "Horizon" });
+            doc.Profiles.Add(new AccountProfile { ProfileName = "Kept", Id = "abc" });
+            doc.Profiles.Add(new AccountProfile { ProfileName = "Copied", Id = "ABC" });
+            ProfileStorageService.Save(_tempDirectory, doc);
+
+            var first = ProfileStorageService.Load(_tempDirectory);
+            Assert.All(first.Profiles, p => Assert.False(string.IsNullOrWhiteSpace(p.Id)));
+            Assert.Equal("abc", first.Profiles.Single(p => p.ProfileName == "Kept").Id);
+            Assert.NotEqual("ABC", first.Profiles.Single(p => p.ProfileName == "Copied").Id, StringComparer.OrdinalIgnoreCase);
+
+            var second = ProfileStorageService.Load(_tempDirectory);
+            Assert.Equal(first.Profiles.Select(p => p.Id), second.Profiles.Select(p => p.Id));
         }
     }
 }

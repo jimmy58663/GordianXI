@@ -156,7 +156,7 @@ namespace Gordian.App.ViewModels
         public void Terminate()
         {
             // Only this profile's own session: terminating by account would also end the account's other characters.
-            if (_sessionRegistry.TryGetSessionForProfile(_profile.ProfileName, _profile.CharacterName, out var session) && session != null)
+            if (_sessionRegistry.TryGetSessionForProfile(_profile.Id, _profile.ProfileName, _profile.CharacterName, out var session) && session != null)
             {
                 _sessionRegistry.UnregisterSession(session.SessionId);
             }
@@ -165,7 +165,7 @@ namespace Gordian.App.ViewModels
 
         public void RefreshOnlineStatus()
         {
-            IsOnline = _sessionRegistry.IsProfileOnline(_profile.ProfileName, _profile.CharacterName);
+            IsOnline = _sessionRegistry.IsProfileOnline(_profile.Id, _profile.ProfileName, _profile.CharacterName);
         }
     }
 }
