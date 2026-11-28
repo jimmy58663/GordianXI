@@ -89,7 +89,7 @@ namespace Gordian.Core.Tests.Diagnostics
         [Fact]
         public void MoveLegacy_TakesAnOldFolderNamedAsTyped()
         {
-            // Older builds named a character Con's folder "Con"; SafeFolderName now gives "Con_".
+            // Older builds named a character Con's folder "Con"; SafeFolderName gives "Con_".
             Write("a", "Retail", "Con", "2026-11-14.log");
 
             Assert.Equal(1, ChatLogFiles.MoveLegacy(_logs, new CharacterFolderKey("Retail", "Asura", "Con")));
@@ -118,6 +118,19 @@ namespace Gordian.Core.Tests.Diagnostics
             ChatLogFiles.MoveLegacy(_logs, Akaden);
 
             Assert.Equal("new\nold\n", File.ReadAllText(New("2026-11-14.log")));
+        }
+
+        [Fact]
+        public void MoveLegacy_DoesNotAppendLinesTheNewFileAlreadyHas()
+        {
+            // A merge whose delete failed earlier: the lines are already in the new file, the old file is still there.
+            Write("new\nold\n", "10.0.0.5", "Gordian", "Akaden", "2026-11-14.log");
+            string old = Write("old\n", "10.0.0.5", "Akaden", "2026-11-14.log");
+
+            ChatLogFiles.MoveLegacy(_logs, Akaden);
+
+            Assert.Equal("new\nold\n", File.ReadAllText(New("2026-11-14.log")));
+            Assert.False(File.Exists(old));
         }
 
         [Fact]

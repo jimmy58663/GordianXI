@@ -48,28 +48,27 @@ namespace Gordian.Engine.Tests.Network
             return path;
         }
 
+        /// <summary>Each store's file and how to load it.</summary>
+        public static TheoryData<string, CharacterConfigFile, Func<CharacterFolderKey, object>> Stores => new()
+        {
+            { "macros", MacroStore.ConfigFile, key => MacroStore.GetForCharacter(key) },
+            { "equipment sets", EquipmentSetBook.ConfigFile, key => EquipmentSetStore.GetForCharacter(key) },
+            { "UI layout", StockUiLayout.ConfigFile, key => StockUiLayoutStore.GetForCharacter(key) },
+            { "UI settings", StockUiSettings.ConfigFile, key => StockUiSettingsStore.GetForCharacter(key) },
+            { "synthesis history", SynthesisHistory.ConfigFile, key => SynthesisHistoryStore.GetForCharacter(key) },
+        };
+
         [Theory]
-        [InlineData("macros", "macros.json")]
-        [InlineData("equipment_sets", "equipment_sets.json")]
-        [InlineData("ui_layouts", "ui_layout.json")]
-        [InlineData("ui_settings", "ui_settings.json")]
-        [InlineData("synthesis_history", "synthesis_history.json")]
-        public void Store_MovesTheOldFileIntoTheCharacterFolder(string legacyFolder, string fileName)
+        [MemberData(nameof(Stores))]
+        public void Store_MovesTheOldFileIntoTheCharacterFolder(string store, CharacterConfigFile file, Func<CharacterFolderKey, object> load)
         {
             var key = NewKey();
-            string old = Legacy(legacyFolder, key, "{}");
+            string old = Legacy(file.LegacyFolder, key, "{}");
 
-            _ = legacyFolder switch
-            {
-                "macros" => (object)MacroStore.GetForCharacter(key),
-                "equipment_sets" => EquipmentSetStore.GetForCharacter(key),
-                "ui_layouts" => StockUiLayoutStore.GetForCharacter(key),
-                "ui_settings" => StockUiSettingsStore.GetForCharacter(key),
-                _ => SynthesisHistoryStore.GetForCharacter(key),
-            };
+            Assert.NotNull(load(key));
 
-            Assert.False(File.Exists(old));
-            Assert.True(File.Exists(Path.Combine(_root, "CharConfig", "127.0.0.1", "Gordian", key.Character!, fileName)));
+            Assert.False(File.Exists(old), store);
+            Assert.True(File.Exists(Path.Combine(_root, "CharConfig", "127.0.0.1", "Gordian", key.Character!, file.FileName)), store);
         }
 
         [Fact]

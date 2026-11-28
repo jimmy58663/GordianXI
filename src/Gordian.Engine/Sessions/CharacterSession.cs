@@ -252,6 +252,9 @@ namespace Gordian.Engine.Sessions
             CharacterId = characterId;
             AccountUsername = accountUsername ?? string.Empty;
             Folder = new CharacterFolderKey(serverName ?? string.Empty, worldName ?? string.Empty, CharacterName);
+            if (string.IsNullOrWhiteSpace(serverName) || string.IsNullOrWhiteSpace(worldName))
+                GordianLog.Warn(LogCategories.Storage, $"'{CharacterName}' has no server or world name (server='{serverName}', world='{worldName}'); its files go under 'Unknown'.");
+            GordianLog.Info(LogCategories.Storage, $"'{CharacterName}' keeps its config and chat logs under '{Folder.RelativePath}'.");
             NetworkManager = networkManager ?? throw new ArgumentNullException(nameof(networkManager));
             // The engine side of the session, built before anything else subscribes so its handlers run first, as they
             // did when the parser built them (#433).

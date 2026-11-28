@@ -45,9 +45,9 @@ namespace Gordian.Core.Diagnostics
         /// <summary>
         /// Moves the chat logs an older build wrote for this character, <c>chat/&lt;server&gt;/&lt;character&gt;/*.log</c>
         /// with no world folder, into the character's folder (#639). The old server folder is matched ignoring case, since
-        /// older builds kept a LandSandBoat host's casing and <see cref="Profiles.AccountProfile.ServerFolderName"/> now
-        /// lower-cases it. A file for a day the new folder already has is appended to it, so no line is lost. Empty old
-        /// folders are removed. A file or folder that can't be read or moved stays where it is (logged) and is tried again at
+        /// older builds kept a LandSandBoat host's casing and <see cref="Profiles.AccountProfile.ServerFolderName"/>
+        /// lower-cases it. A file for a day the new folder already has is merged into it (see <see cref="MoveOne"/>). Empty
+        /// old folders are removed. A file or folder that can't be read or moved stays where it is (logged) and is tried again at
         /// the next login; the move never fails the login. Returns the number of files moved. Runs on the caller's thread,
         /// before the character's first chat line.
         /// </summary>
@@ -93,9 +93,10 @@ namespace Gordian.Core.Diagnostics
         }
 
         /// <summary>
-        /// Moves one day file, or appends it to the new folder's file for that day. When appending, the old file is deleted
-        /// before its text is added, so a delete that fails adds nothing and the retry at the next login can't repeat lines;
-        /// if the append then fails, the text is written back to the old file.
+        /// Moves one day file, or merges it into the new folder's file for that day: the old text is appended, unless the new
+        /// file already holds it, and then the old file is deleted. Appending before deleting means no line is lost, and the
+        /// check means a delete that failed can't append the same lines again at the next login. Both files are opened with
+        /// the sharing the writer thread uses, in case it has the new file open.
         /// </summary>
         private static bool MoveOne(string from, string to)
         {
@@ -104,17 +105,14 @@ namespace Gordian.Core.Diagnostics
                 Directory.CreateDirectory(Path.GetDirectoryName(to)!);
                 if (File.Exists(to))
                 {
-                    string text = File.ReadAllText(from, Utf8NoBom);
+                    string text = ReadShared(from);
+                    if (!ReadShared(to).Contains(text, StringComparison.Ordinal))
+                    {
+                        using var stream = new FileStream(to, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                        using var writer = new StreamWriter(stream, Utf8NoBom);
+                        writer.Write(text);
+                    }
                     File.Delete(from);
-                    try
-                    {
-                        File.AppendAllText(to, text, Utf8NoBom);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        File.WriteAllText(from, text, Utf8NoBom);
-                        throw;
-                    }
                 }
                 else
                 {
@@ -127,6 +125,14 @@ namespace Gordian.Core.Diagnostics
                 GordianLog.Warn(LogCategories.Storage, $"Could not move the chat log '{from}' to '{to}': {ex.Message}. It stays where it is.");
                 return false;
             }
+        }
+
+        /// <summary>Reads a whole chat log file while the writer thread may have it open.</summary>
+        private static string ReadShared(string path)
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, Utf8NoBom);
+            return reader.ReadToEnd();
         }
 
         public void Flush()
